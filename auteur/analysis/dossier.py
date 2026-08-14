@@ -51,20 +51,6 @@ class Take:
     def duration(self) -> float:
         return max(0.0, self.end - self.start)
 
-    def trimmed(self, duration: float) -> "Take":
-        """Same take, shortened to `duration`, keeping its strongest moment."""
-        duration = max(MIN_TAKE, min(duration, self.duration))
-        # Bias toward the back half: action usually resolves late in a take.
-        head = min(self.duration - duration, self.duration * 0.35)
-        start = self.start + max(0.0, head)
-        return Take(
-            clip_id=self.clip_id, start=round(start, 3), end=round(start + duration, 3),
-            score=self.score, motion=self.motion, motion_peak=self.motion_peak,
-            sharpness=self.sharpness, exposure=self.exposure, contrast=self.contrast,
-            energy=self.energy, subject=self.subject, subject_drift=self.subject_drift,
-            camera=self.camera, scale=self.scale, stability=self.stability,
-        )
-
     def to_json(self) -> dict:
         return {
             "clip": self.clip_id,

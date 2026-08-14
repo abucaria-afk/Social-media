@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 
 VIDEO_SUFFIXES = {
@@ -58,9 +58,6 @@ class Quality:
     #: Long edge of the analysis thumbnail (pixels).
     analysis_width: int
 
-    def with_fps(self, fps: int) -> "Quality":
-        return replace(self, fps=fps)
-
 
 QUALITIES: dict[str, Quality] = {
     "draft": Quality("draft", crf=28, preset="veryfast", fps=24, audio_bitrate="128k",
@@ -111,8 +108,6 @@ class Settings:
     extra_formats: tuple[DeliveryFormat, ...] = ()
     #: Hard ceiling on the finished runtime, in seconds.
     target_duration: float = 30.0
-    #: Acceptable slack either side of the target before the agent re-cuts.
-    duration_tolerance: float = 2.0
     seed: int = 0x5CE7E
     #: Rounds of watch-and-recut the critic is allowed. Each one is a full
     #: re-render, so the default is deliberately modest.

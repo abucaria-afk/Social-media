@@ -1,0 +1,275 @@
+/* The edit room, on a phone.
+ *
+ * Two rules run through all of this. Everything you can tap is at least 44px
+ * tall, because that is the size a thumb actually hits. And every fixed edge
+ * respects env(safe-area-inset-*), because the page paints under the notch and
+ * the home indicator and would otherwise put the "Make my film" button
+ * underneath them.
+ */
+
+:root {
+  --ink: #0e0e12;
+  --ink-soft: #17171d;
+  --line: #2a2a33;
+  --paper: #f4f2ee;
+  --muted: #9a9aa6;
+  --amber: #ffb04a;
+  --green: #6ee7a0;
+  --red: #ff7a7a;
+  --radius: 18px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--ink);
+  color: var(--paper);
+  font: 17px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior-y: none;
+}
+
+body {
+  /* 100dvh, not 100vh: on iOS Safari 100vh is taller than the visible page
+     while the address bar is showing, so the last button sits off-screen. */
+  min-height: 100dvh;
+}
+
+#app {
+  max-width: 560px;
+  margin: 0 auto;
+  padding:
+    calc(var(--safe-top) + 20px)
+    calc(var(--safe-right) + 18px)
+    calc(var(--safe-bottom) + 28px)
+    calc(var(--safe-left) + 18px);
+}
+
+.screen[hidden] { display: none; }
+
+/* -- masthead ------------------------------------------------------------ */
+
+.masthead { margin: 8px 0 22px; }
+.masthead h1 {
+  margin: 0;
+  font-size: 34px;
+  letter-spacing: -0.5px;
+  font-weight: 700;
+}
+.masthead .sub { margin: 6px 0 0; color: var(--muted); font-size: 16px; }
+
+/* -- cards --------------------------------------------------------------- */
+
+.card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  background: var(--ink-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.card.picker { cursor: pointer; }
+.card.picker input[type="file"] {
+  /* Hidden, but still the label's control, so tapping anywhere on the card
+     opens the picker — a 44px target the width of the screen. */
+  position: absolute;
+  width: 1px; height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.card.picker.has-files { border-color: var(--amber); }
+
+.step-number {
+  flex: 0 0 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--line);
+  color: var(--paper);
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-body { flex: 1 1 auto; min-width: 0; display: block; }
+.card-title { display: block; font-weight: 600; font-size: 17px; margin-bottom: 4px; }
+.card-hint { display: block; color: var(--muted); font-size: 14px; margin-top: 8px; }
+
+textarea {
+  width: 100%;
+  margin-top: 6px;
+  padding: 12px;
+  min-height: 56px;
+  color: var(--paper);
+  background: #101015;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  /* Spelled out rather than the `font:` shorthand: `inherit` is not a valid
+     family inside it, so the whole declaration is dropped and the field keeps
+     the browser's monospace default. */
+  font-family: inherit;
+  /* 16px minimum, or iOS zooms the whole page in when the field is focused. */
+  font-size: 16px;
+  line-height: 1.4;
+  resize: vertical;
+}
+textarea:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
+
+/* -- chips and choices --------------------------------------------------- */
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.chip {
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+}
+.chip:active { background: var(--line); }
+
+.choices { display: flex; gap: 8px; margin-top: 10px; }
+.choice {
+  flex: 1 1 0;
+  min-height: 56px;
+  padding: 8px 4px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--paper);
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.choice small { font-weight: 400; font-size: 11px; color: var(--muted); }
+.choice.is-on { border-color: var(--amber); background: rgba(255, 176, 74, 0.14); }
+.choice.is-on small { color: var(--amber); }
+
+/* -- buttons ------------------------------------------------------------- */
+
+.go {
+  display: block;
+  width: 100%;
+  min-height: 56px;
+  margin-top: 18px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--amber);
+  color: #1a1204;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+  line-height: 56px;
+}
+.go:disabled { opacity: 0.45; }
+.go:active { transform: scale(0.99); }
+
+.ghost {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  text-align: center;
+  text-decoration: none;
+  line-height: 46px;
+}
+
+.fineprint { margin: 12px 0 0; text-align: center; color: var(--muted); font-size: 13px; }
+.error { color: var(--red); font-size: 15px; margin: 12px 0 0; }
+
+/* -- working ------------------------------------------------------------- */
+
+.working { text-align: center; padding-top: 6vh; }
+
+.ring {
+  width: 74px; height: 74px;
+  margin: 0 auto 22px;
+  border-radius: 50%;
+  border: 3px solid var(--line);
+  position: relative;
+}
+.ring-fill {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  border-top-color: var(--amber);
+  animation: spin 1.1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .ring-fill { animation: none; border-color: var(--amber); opacity: 0.5; }
+}
+
+#stage { margin: 0; font-size: 22px; font-weight: 700; }
+.detail { margin: 6px 0 18px; color: var(--muted); font-size: 15px; min-height: 22px; }
+
+.bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--amber);
+  transition: width 0.4s ease;
+}
+
+.log {
+  list-style: none;
+  margin: 22px 0 0;
+  padding: 0;
+  text-align: left;
+  font-size: 14px;
+  color: var(--muted);
+}
+.log li { padding: 5px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
+.log li.step { color: var(--paper); font-weight: 600; }
+.log li.warn { color: var(--amber); }
+
+/* -- done ---------------------------------------------------------------- */
+
+.done-title { font-size: 26px; margin: 10px 0 16px; color: var(--green); }
+.done-title.bad { color: var(--red); }
+
+video {
+  width: 100%;
+  max-height: 62vh;
+  background: #000;
+  border-radius: var(--radius);
+  display: block;
+}
+
+.facts {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 15px;
+}
+.facts li { padding: 4px 0; }
+.facts li::before { content: "·  "; color: var(--amber); }

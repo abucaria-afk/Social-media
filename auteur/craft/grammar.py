@@ -114,10 +114,36 @@ def vary_pacing(edl: EditDecisionList, *, run_length: int = 4, spread: float = 0
             for offset, shot_index in enumerate(run):
                 shot = edl.shots[shot_index]
                 factor = 1.0 + (spread if offset % 2 else -spread)
+                # Shortening a shot into a flash frame trades one fault for a
+                # worse one, so the floor wins over the variation.
+                if shot.duration * factor < MIN_SHOT * 1.6:
+                    continue
                 if _rescale_ramp(shot, shot.duration * factor):
                     changed += 1
         index = max(cursor, index + 1)
 
+    return changed
+
+
+def vary_beat_multiples(edl: EditDecisionList, beat: float, *, every: int = 3) -> int:
+    """Break up one-beat-per-shot cutting *without leaving the grid*.
+
+    Nudging shot lengths by a percentage is the wrong fix for a film cut to
+    music: the beat snap that follows simply pulls them back, so the edit ends
+    up unchanged while the log claims otherwise. Holding every third shot for a
+    whole extra beat varies the rhythm and stays exactly on the grid.
+    """
+    if beat <= 0 or len(edl.shots) < every + 2:
+        return 0
+
+    changed = 0
+    for index in range(every, len(edl.shots), every):
+        shot = edl.shots[index]
+        beats = max(1, round(shot.duration / beat))
+        if beats > 1:
+            continue  # this one already breaks the pattern
+        if _rescale_ramp(shot, beat * 2):
+            changed += 1
     return changed
 
 
@@ -145,13 +171,16 @@ def enforce_variety(edl: EditDecisionList, *, lookback: int = 2) -> int:
             ]
             if after in neighbours:
                 continue
+            # A transition describes how a *position* on the timeline is
+            # entered — it was chosen for the shots either side of it. Swapping
+            # the shots must leave the joins where they were.
+            here, there = edl.shots[index].transition_in, edl.shots[candidate].transition_in
             edl.shots[index], edl.shots[candidate] = edl.shots[candidate], edl.shots[index]
+            edl.shots[index].transition_in, edl.shots[candidate].transition_in = here, there
             fixed += 1
             break
 
     if fixed:
-        # Transitions belong to positions on the timeline, not to the shots that
-        # were swapped through them; the opening must still be a hard cut.
         edl.shots[0].transition_in = Transition("cut", 0.0)
     return fixed
 

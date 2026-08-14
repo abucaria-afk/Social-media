@@ -4,7 +4,7 @@ Point it at a pile of unsorted clips, give it a sentence of direction, and it
 returns a finished, graded, beat-cut, sound-designed short film.
 
 ```bash
-auteur edit ./rushes --prompt 'moody neon chase, 20 seconds, ends on "AFTER DARK"'
+python -m auteur edit ./rushes 'moody neon chase, 20 seconds, ends on "AFTER DARK"'
 ```
 
 ```
@@ -57,44 +57,97 @@ A system ffmpeg works too. Discovery order is `$AUTEUR_FFMPEG` → a wheel-bundl
 static build → `PATH` → `imageio-ffmpeg`. Wheel builds are preferred because
 distro packages sometimes ship without `libx264`, `xfade` or `loudnorm`.
 
-Try it with no footage of your own:
-
-```bash
-python demo/make_footage.py ./rushes      # synthesises clips + a 120 BPM track
-auteur edit ./rushes --prompt "fast neon montage, 15 seconds"
-```
-
 ---
 
-## Usage
+## Running it
+
+### The shortest possible first run
+
+No footage, no arguments, no API key. This makes its own practice clips and
+edits them, so you can see the whole thing work before committing anything of
+your own to it:
 
 ```bash
-auteur edit ./rushes ./b-roll ./music.mp3 \
-    --prompt 'warm nostalgic summer, 30 seconds, "ONE LAST SUMMER"' \
-    --format reel,square,wide \
-    --quality master \
-    --duration 30 \
-    --rounds 2
+python -m auteur demo
+```
+
+### On your own clips
+
+```bash
+python -m auteur edit ./my-clips "fast neon montage, 20 seconds"
+```
+
+Point it at a folder, or at individual files, and say what you want in your own
+words. Put the music in the same folder and it will find it, work out the tempo,
+and cut to the beat. The prompt can be the last argument like that, or `-p`.
+
+### On your phone
+
+The clips are on the phone; the command line is on the computer. This serves the
+same agent as a web app on your local network:
+
+```bash
+python -m auteur serve
+```
+
+It prints two addresses. Open the second one on your iPhone — both devices need
+to be on the same wifi — then **Share → Add to Home Screen** to keep it as a
+real app that opens full-screen with no browser chrome. Pick clips from the
+camera roll, type what you want, and it renders on the computer and hands the
+film back to the phone, where **Save to my phone** puts it in Photos through the
+normal share sheet.
+
+| Option | |
+|---|---|
+| `--port` | Default 8000. Try another if something already holds that one. |
+| `--host` | `0.0.0.0` (default) lets the phone reach it; `127.0.0.1` keeps it to this computer. |
+| `--quality` | `draft` (default) keeps phone renders quick. |
+| `--out` | Where uploads and finished films go. Default `./auteur-web`. |
+
+Renders run one at a time, and finished jobs are swept after six hours.
+
+### Every option
+
+```bash
+python -m auteur edit ./rushes ./b-roll ./music.mp3 \
+    -p 'warm nostalgic summer, 30 seconds, "ONE LAST SUMMER"' \
+    --shape vertical,square,widescreen \
+    --quality best \
+    --length 30 \
+    --revisions 2
 ```
 
 | Option | |
 |---|---|
-| `--prompt` | The direction. Quoted phrases become on-screen text. |
-| `--duration` | Target runtime. Also readable from the prompt ("20 seconds"). |
-| `--format` | `reel` (9:16), `square`, `wide`, `cinema` (2.35:1), `portrait` (4:5), or `1080x1920`. Comma-separated for several. |
-| `--quality` | `draft`, `standard`, `master`. `master` adds optical-flow slow motion. |
-| `--rounds` | How many times to watch it back and re-cut. Each round is a full re-render. |
+| `-p`, `--prompt` | The direction. Quoted phrases become on-screen text. Can also just be the last argument. |
+| `-l`, `--length` | Target runtime in seconds. Also readable from the prompt ("20 seconds"). |
+| `-s`, `--shape` | `vertical` (default), `square`, `widescreen`, `cinematic`, `portrait`. Comma-separate for several at once. |
+| `--quality` | `draft`, `standard` (default), `best`. `best` adds optical-flow slow motion. |
+| `--revisions` | How many times to watch it back and re-cut. Each round is a full re-render. Default 1. |
+| `-o`, `--out` | Where everything lands. Default `./auteur-work`. |
 | `--seed` | A different cut of the same brief. |
-| `--no-llm` | Algorithmic director only. |
+| `--details` | Also print the full shot list. |
+| `--no-ai` | Never call Claude; use the built-in editor. |
+| `-q`, `--quiet` | Print nothing but the finished path. |
+| `-v`, `-vv` | Show what it is doing internally. |
 
 ```bash
-auteur analyse ./rushes      # what the agent sees in your footage
-auteur looks                 # the film emulations and transitions available
+python -m auteur analyse ./rushes   # what the agent sees in your footage
+python -m auteur looks              # the film looks and transitions available
 ```
+
+If you installed the package (`pip install -e .`), `auteur` works everywhere
+`python -m auteur` does.
 
 Everything lands in the working directory: the masters, `production-notes.md`
 (what it saw, what it decided, what it fixed), `edl.json` for every pass, and
 `analysis.json`.
+
+### Do I need an API key?
+
+No. Claude directs when `ANTHROPIC_API_KEY` is set, and a full algorithmic
+director takes over when it isn't — the film always gets made either way. The
+run says which one cut it.
 
 ### As a library
 
@@ -189,16 +242,32 @@ reframe has to see the original footage to know what to keep.
 
 **Determinism.** Same seed, brief and footage produce the same cut.
 
+**Nothing may fail quietly.** ffmpeg exits 0 for a filter graph that produced no
+frames, so a shot can render to a valid, empty file and only explode later, deep
+in the assembly, with an error naming neither the shot nor the cause. Every
+segment is probed for picture before it is allowed into the assembly, and the
+frame reader asks ffprobe for the height rather than inferring it from the byte
+count — an inference that was ambiguous, and silently reported a 15-second film
+as 107 seconds.
+
+**The phone app carries no dependencies.** `auteur/web/` is the standard library
+and nothing else: no Flask, no build step, no bundler, no CDN. The page is three
+static files, the icons are drawn at startup rather than checked in, and the
+front end is the same `Reporter` interface the terminal uses, pointed at a JSON
+endpoint instead of stdout.
+
 ---
 
 ## Testing
 
 ```bash
 python -m pytest tests/ -q                 # everything, including a render
-python -m pytest tests/ -q -m "not slow"   # 54 tests, ~4 seconds
+python -m pytest tests/ -q -m "not slow"   # ~75 tests, a few seconds
 ```
 
-The suite synthesises its own footage, so it needs no fixtures on disk.
+The suite synthesises its own footage, so it needs no fixtures on disk. The web
+tests bind a real socket and exercise the routes as served, including the
+`Range` requests iOS Safari uses to open a video.
 
 ---
 
@@ -216,3 +285,7 @@ The suite synthesises its own footage, so it needs no fixtures on disk.
   is used.
 - **The critic measures, it does not watch.** It can tell that a shot is frozen or
   that the film is off the beat. It cannot tell that the edit is boring.
+- **The phone app is for your own network.** There is no login, no TLS and no
+  rate limiting: anyone who can reach the port can post a render. It is meant to
+  be your laptop and your phone on the same wifi, and `--host 127.0.0.1` keeps it
+  to the one machine. Do not put it on a public address.

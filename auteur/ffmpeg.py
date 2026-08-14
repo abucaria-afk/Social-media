@@ -237,6 +237,35 @@ def scaled_height(path: str | Path, width: int) -> int:
     return max(2, int(round(width * source_h / source_w)) // 2 * 2)
 
 
+@functools.lru_cache(maxsize=256)
+def source_fps(path: str | Path) -> float:
+    """A source's real frame rate, for maths that must not out-run its frames.
+
+    Anything that slices a clip into pieces has to know how long a frame lasts:
+    a piece thinner than one frame contains no frames at all, and filters like
+    `trim` answer that with an empty link rather than an error.
+    """
+    try:
+        info = probe(path)
+    except FFmpegError:
+        return 30.0
+
+    stream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), None)
+    if not stream:
+        return 30.0
+    for key in ("avg_frame_rate", "r_frame_rate"):
+        value = str(stream.get(key) or "")
+        if "/" in value:
+            numerator, _, denominator = value.partition("/")
+            try:
+                rate = float(numerator) / float(denominator)
+            except (ValueError, ZeroDivisionError):
+                continue
+            if rate > 0.5:
+                return rate
+    return 30.0
+
+
 def read_audio(
     path: str | Path,
     *,
@@ -268,17 +297,6 @@ def has_audio(info: dict) -> bool:
 # --------------------------------------------------------------------------
 # Filter-graph text helpers
 # --------------------------------------------------------------------------
-
-def escape_text(text: str) -> str:
-    """Escape a string for use inside a drawtext= filter argument."""
-    out = text.replace("\\", "\\\\").replace(":", r"\:").replace("'", r"\'")
-    return out.replace("%", r"\%").replace(",", r"\,").replace("[", r"\[").replace("]", r"\]")
-
-
-def escape_path(path: str | Path) -> str:
-    """Escape a filesystem path for use inside a filter argument (movie=, lut3d=...)."""
-    return str(path).replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
-
 
 def chain(*links: str) -> str:
     """Join filter links, dropping the empty ones so callers can use conditionals."""

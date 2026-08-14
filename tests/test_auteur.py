@@ -30,7 +30,7 @@ from auteur.config import FORMATS, QUALITIES, Settings, Workspace, resolve_forma
 from auteur.craft import color, grammar, motion, sound, transitions
 from auteur.director.brief import parse_brief
 from auteur.director.heuristic import cut
-from auteur.edl import EditDecisionList, Look, Motion, Ramp, Shot, Transition
+from auteur.edl import MIN_SHOT, EditDecisionList, Look, Motion, Ramp, Shot, Transition
 from auteur.ingest import ingest, probe_asset
 
 
@@ -420,6 +420,169 @@ def test_the_same_seed_gives_the_same_cut(rushes):
 
 
 # ---------------------------------------------------------------------------
+# Regressions — each of these shipped broken once
+# ---------------------------------------------------------------------------
+
+def test_a_still_with_source_audio_is_never_mixed():
+    """The renderer and the mixer must agree on which segments have sound.
+
+    They once disagreed: the renderer refused audio on a still, the mixer asked
+    for it anyway, and ffmpeg failed on a stream that was never written.
+    """
+    from auteur.render import carries_audio
+
+    still = _shot(use_source_audio=True, audio_gain=1.0, is_still=True)
+    moving = _shot(use_source_audio=True, audio_gain=1.0, is_still=False)
+
+    assert not carries_audio(still, want_audio=True), "a still has no sound to carry"
+    assert carries_audio(moving, want_audio=True)
+    assert not carries_audio(moving, want_audio=False)
+    assert not carries_audio(_shot(use_source_audio=True, audio_gain=0.0), want_audio=True)
+
+
+@pytest.mark.slow
+def test_a_single_frame_video_can_be_held(rushes, tmp_path):
+    """`-loop` is an image-demuxer option; a one-frame *video* needs -stream_loop.
+
+    ingest treats any sub-frame-length source as a still, so a one-frame mp4
+    took the image path and ffmpeg rejected it with "Option loop not found".
+    """
+    from auteur.config import FORMATS, QUALITIES, Workspace
+    from auteur.render import render_shot
+
+    binary = str(ffmpeg.ffmpeg_path())
+    clip = tmp_path / "one_frame.mp4"
+    subprocess.run(
+        [binary, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+         "-i", "testsrc2=size=320x240:rate=25", "-frames:v", "1",
+         "-c:v", "libx264", "-crf", "30", "-preset", "ultrafast",
+         "-pix_fmt", "yuv420p", str(clip)],
+        check=True,
+    )
+
+    shot = Shot(clip_id="C01", source=clip, start=0.0, end=1.5, is_still=True)
+    segment = render_shot(shot, 0, Workspace(tmp_path / "w"), FORMATS["square"],
+                          QUALITIES["draft"], want_audio=False)
+    assert segment.exists() and segment.stat().st_size > 1000
+
+
+def test_swapping_shots_leaves_the_transitions_where_they_were():
+    """A transition was chosen for a position on the timeline, not for a shot."""
+    edl = EditDecisionList(shots=[
+        _shot(clip="C01"),
+        _shot(clip="C01", transition_in=Transition("dissolve", 0.4)),
+        _shot(clip="C02", transition_in=Transition("whip-left", 0.2)),
+        _shot(clip="C03", transition_in=Transition("cut", 0.0)),
+    ])
+    before = [(shot.transition_in.kind, shot.transition_in.duration) for shot in edl.shots]
+
+    grammar.enforce_variety(edl)
+
+    after = [(shot.transition_in.kind, shot.transition_in.duration) for shot in edl.shots]
+    assert after[1:] == before[1:], "joins must stay put when shots are reordered"
+
+
+def test_varying_the_pacing_never_creates_a_flash_frame():
+    edl = EditDecisionList(shots=[_shot(clip=f"C{i:02d}", end=MIN_SHOT * 1.7) for i in range(6)])
+    grammar.vary_pacing(edl, run_length=3, spread=0.5)
+    for shot in edl.shots:
+        assert shot.duration >= MIN_SHOT, "a fix must not trade one fault for a worse one"
+
+
+def test_beat_multiples_vary_without_leaving_the_grid():
+    """Nudging lengths by a percentage is undone by the next beat snap."""
+    beat = 0.5
+    edl = EditDecisionList(shots=[_shot(clip=f"C{i:02d}", end=beat) for i in range(9)])
+    assert grammar.vary_beat_multiples(edl, beat, every=3) > 0
+
+    multiples = {round(shot.duration / beat) for shot in edl.shots}
+    assert multiples == {1, 2}, "shots must still be whole numbers of beats"
+    for shot in edl.shots:
+        assert abs(shot.duration / beat - round(shot.duration / beat)) < 0.02
+
+
+def test_text_plates_are_named_per_format(tmp_path):
+    """Two shapes share the assets folder; plates are sized to the frame."""
+    from auteur.craft.titles import render_all
+    from auteur.edl import TextCue
+
+    cue = TextCue(text="HELLO", start=0.0, duration=1.0, style="title")
+    reel = render_all([cue], width=200, height=356, directory=tmp_path, prefix="reel")
+    square = render_all([cue], width=300, height=300, directory=tmp_path, prefix="square")
+
+    assert reel[0].path != square[0].path, "one format would overwrite the other's plate"
+    assert reel[0].path.exists() and square[0].path.exists()
+
+
+# ---------------------------------------------------------------------------
+# The command line
+# ---------------------------------------------------------------------------
+
+def test_the_prompt_can_be_the_last_argument(tmp_path):
+    from auteur.cli import _split_paths_and_prompt
+
+    folder = tmp_path / "clips"
+    folder.mkdir()
+
+    paths, prompt = _split_paths_and_prompt([str(folder), "fast montage"], None)
+    assert paths == [str(folder)] and prompt == "fast montage"
+
+    # An existing path is footage, never direction.
+    other = tmp_path / "more"
+    other.mkdir()
+    paths, prompt = _split_paths_and_prompt([str(folder), str(other)], None)
+    assert paths == [str(folder), str(other)] and prompt is None
+
+    # An explicit --prompt always wins.
+    paths, prompt = _split_paths_and_prompt([str(folder), str(other)], "explicit")
+    assert paths == [str(folder), str(other)] and prompt == "explicit"
+
+
+def test_plain_english_helpers():
+    from auteur import ui
+
+    assert ui.describe_shape(1080, 1920) == "vertical, for phones"
+    assert ui.describe_shape(1080, 1080) == "square"
+    assert ui.describe_shape(1920, 1080) == "widescreen"
+    assert ui.describe_shape(1920, 816) == "cinematic widescreen"
+
+    assert ui.describe_count(1, "clip") == "1 clip"
+    assert ui.describe_count(3, "clip") == "3 clips"
+    assert ui.describe_duration(45) == "45 seconds"
+    assert ui.describe_duration(95) == "1m 35s"
+
+    assert "metronome" in ui.plain_finding("metronomic", "x") or "same length" in ui.plain_finding("metronomic", "x")
+    assert ui.plain_finding("unknown-rule", "the fallback") == "the fallback"
+
+
+def test_a_missing_api_key_is_not_reported_as_a_failure():
+    from auteur.ui import plain_model_reason
+
+    message, problem = plain_model_reason(
+        'could not reach the model: "Could not resolve authentication method. '
+        'Expected one of api_key, auth_token, or credentials to be set."'
+    )
+    assert not problem, "no key is the ordinary case, not an error"
+    assert "api key" in message.lower()
+    assert len(message) < 100, "and it must not dump the SDK traceback at the user"
+
+    assert plain_model_reason("no model configured") == ("", False)
+    assert plain_model_reason("could not reach the model: connection reset")[1] is True
+
+
+def test_the_quiet_reporter_prints_nothing(capsys):
+    from auteur.ui import NullReporter
+
+    say = NullReporter()
+    say.banner("x")
+    say.step("y")
+    say.detail("z")
+    say.progress(1, 2, "a")
+    say.result(headline="h", facts=["f"], files=[("a", "b")])
+    assert capsys.readouterr().out == ""
+
+
+# ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
@@ -467,3 +630,369 @@ def test_the_agent_renders_a_playable_film(rushes, tmp_path):
     assert (production.workspace.root / "production-notes.md").exists()
     assert (production.workspace.root / "edl.json").exists()
     assert production.final_critique is not None
+
+
+# ---------------------------------------------------------------------------
+# Speed ramps against short sources
+# ---------------------------------------------------------------------------
+
+def test_a_ramp_never_slices_finer_than_the_source_frames():
+    """A slice thinner than one frame trims to nothing, and nothing concatenates
+    to an empty file that ffmpeg still calls a success.
+
+    The slice count is chosen from screen time, but the slices are cut from the
+    source, and a heavy slow-motion shot has far less source than screen. Half a
+    second of 30fps footage stretched to 1.2s once asked for 16 slices of 31ms —
+    shorter than the 33ms between frames — and every one of them came out empty.
+    """
+    ramp = Ramp(points=((0.0, 1.04), (0.27, 0.245), (0.53, 0.245), (1.0, 1.04))).normalise()
+    source_duration, source_fps = 0.499, 30.0
+
+    slices = motion.ramp_slice_count(ramp, source_duration, source_fps)
+    frames_per_slice = (source_duration / slices) * source_fps
+    assert frames_per_slice >= motion.RAMP_FRAMES_PER_SLICE - 1e-9
+
+    graph = motion.ramp_video_graph(
+        ramp, source_duration=source_duration, in_label="src", out_label="out", source_fps=source_fps
+    )
+    assert "concat=n=1:" not in graph
+    for piece in graph.split(";"):
+        if not piece.startswith("[rs"):
+            continue
+        window = piece.split("trim=start=")[1].split(",")[0]
+        start, end = (float(value) for value in window.split(":end="))
+        assert (end - start) * source_fps >= motion.RAMP_FRAMES_PER_SLICE - 1e-6
+
+
+def test_a_ramp_with_almost_no_source_falls_back_to_one_speed():
+    """Two frames of source cannot carry a curve; it must still be a shot."""
+    ramp = Ramp(points=((0.0, 1.0), (0.5, 0.2), (1.0, 1.0))).normalise()
+    graph = motion.ramp_video_graph(
+        ramp, source_duration=0.07, in_label="src", out_label="out", source_fps=30.0
+    )
+    assert "split=" not in graph and "concat" not in graph
+    assert graph.startswith("[src]setpts=") and graph.endswith("[out]")
+
+    audio = motion.ramp_audio_graph(
+        ramp, source_duration=0.07, in_label="a", out_label="b", source_fps=30.0
+    )
+    assert "asplit=" not in audio and "concat" not in audio
+
+
+def test_source_fps_is_read_from_the_file(rushes):
+    assert ffmpeg.source_fps(rushes / "a_wide.mp4") == pytest.approx(25.0, abs=0.1)
+    # Something unreadable must not crash the ramp maths.
+    assert ffmpeg.source_fps(rushes / "beat.wav") == 30.0
+
+
+@pytest.mark.slow
+def test_a_shot_that_renders_no_frames_is_reported_not_shipped(rushes, tmp_path):
+    """An empty segment used to reach the assembly, which failed with a
+    filtergraph error naming neither the shot nor the reason."""
+    from auteur import render
+
+    space = Workspace(tmp_path / "work")
+    shot = Shot(
+        clip_id="C01", source=rushes / "a_wide.mp4", start=0.0, end=0.02,
+        ramp=Ramp(points=((0.0, 1.0),)),
+    )
+    # Force the pathology the guard exists for: a window with no frames in it.
+    shot.start, shot.end = 3.999, 4.0
+
+    try:
+        path = render.render_shot(shot, 0, space, FORMATS["square"], QUALITIES["draft"],
+                                  want_audio=False)
+    except ffmpeg.FFmpegError as exc:
+        assert "C01" in str(exc) and "no frames" in str(exc)
+    else:
+        # If ffmpeg did find a frame, the guard must agree the file is usable.
+        assert render._has_video(path)
+
+
+# ---------------------------------------------------------------------------
+# The phone app
+# ---------------------------------------------------------------------------
+
+def test_the_upload_parser_separates_fields_from_files():
+    from auteur.web.server import _parse_multipart
+
+    boundary = "----auteurtest"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="prompt"\r\n\r\n'
+        "fast neon montage\r\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="shape"\r\n\r\n'
+        "reel\r\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="clips"; filename="IMG_0042.MOV"\r\n'
+        "Content-Type: video/quicktime\r\n\r\n"
+        "not-really-a-movie\r\n"
+        f"--{boundary}--\r\n"
+    ).encode()
+
+    fields, files = _parse_multipart(body, f"multipart/form-data; boundary={boundary}")
+    assert fields == {"prompt": "fast neon montage", "shape": "reel"}
+    assert files == [("IMG_0042.MOV", b"not-really-a-movie")]
+
+
+def test_every_icon_the_manifest_names_is_actually_served(tmp_path):
+    """A manifest that points at a missing icon installs with no icon at all."""
+    import json as _json
+    from auteur.web import assets, server
+
+    assets.ensure(server.STATIC)
+    manifest = _json.loads((server.STATIC / "manifest.webmanifest").read_text())
+
+    for icon in manifest["icons"]:
+        name = icon["src"].lstrip("/")
+        assert (server.STATIC / name).is_file(), f"manifest names {icon['src']}, which is missing"
+
+    page = (server.STATIC / "index.html").read_text()
+    for referenced in ("/icon-180.png", "/icon-192.png"):
+        assert referenced in page
+        assert (server.STATIC / referenced.lstrip("/")).is_file()
+
+
+def test_the_page_is_built_for_a_phone():
+    """The iPhone-specific pieces are load-bearing, not decoration."""
+    from auteur.web import server
+
+    page = (server.STATIC / "index.html").read_text()
+    # Without viewport-fit=cover the safe-area insets are all zero.
+    assert "viewport-fit=cover" in page
+    assert 'name="apple-mobile-web-app-capable" content="yes"' in page
+    # Without playsinline iOS takes the finished film fullscreen on play.
+    assert "playsinline" in page
+
+    style = (server.STATIC / "style.css").read_text()
+    assert "env(safe-area-inset-bottom" in style
+    # Any font under 16px makes iOS zoom the page when the field is focused.
+    # The `font:` shorthand cannot carry `inherit` as a family — written that
+    # way the declaration is invalid and the field falls back to monospace.
+    assert "font-size: 16px;" in style
+    assert "font: 16px" not in style
+
+
+def test_the_service_worker_never_caches_the_api():
+    """A cached job status would freeze the progress screen, and a cached film
+    would be served for the next film too."""
+    from auteur.web import server
+
+    worker = (server.STATIC / "sw.js").read_text()
+    assert '"/api/"' in worker or "'/api/'" in worker
+
+
+def test_a_job_reports_itself_as_json():
+    from auteur.web.server import Job
+
+    job = Job(id="abc123", prompt="x", folder=Path("/tmp/nowhere"))
+    snapshot = job.snapshot()
+    assert snapshot["id"] == "abc123"
+    assert snapshot["status"] == "queued"
+    assert snapshot["video"] is None and snapshot["notes"] is None
+
+    job.video = Path("/tmp/nowhere/film.mp4")
+    assert job.snapshot()["video"] == "/api/jobs/abc123/video"
+
+
+def test_the_web_reporter_feeds_the_job_not_the_terminal(capsys):
+    import threading
+    from auteur.web.server import Job, WebReporter
+
+    job = Job(id="j", prompt="p", folder=Path("/tmp/nowhere"))
+    say = WebReporter(job, threading.Lock())
+    say.banner("ignored")
+    say.step("Watching every clip")
+    say.detail("6 clips")
+    say.progress(3, 6, "shot 3 of 6")
+
+    assert capsys.readouterr().out == ""  # nothing goes to the console
+    assert job.stage == "Watching every clip"
+    assert job.percent == pytest.approx(50.0)
+    assert [line["text"] for line in job.lines] == ["Watching every clip", "6 clips"]
+
+
+def test_the_studio_cleans_up_after_itself(tmp_path):
+    import time as _time
+    from auteur.web.server import Studio
+
+    studio = Studio(tmp_path / "web")
+    job = studio.create("prompt", "reel", 10.0)
+    job.status = "done"
+    job.created = _time.time() - 8 * 3600
+
+    assert job.folder.is_dir()
+    studio.sweep(max_age_hours=6.0)
+    assert studio.get(job.id) is None
+    assert not job.folder.exists()
+
+
+@pytest.fixture
+def web_server(tmp_path):
+    """A real server on a real socket, so the routes are tested as served."""
+    import threading
+    from http.server import ThreadingHTTPServer
+    from auteur.web import assets, server as web
+
+    assets.ensure(web.STATIC)
+    web.Handler.studio = web.Studio(tmp_path / "web")
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{httpd.server_address[1]}", web.Handler.studio
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_the_shell_and_icons_are_reachable(web_server):
+    from urllib.request import urlopen
+
+    base, _ = web_server
+    for path, kind in [
+        ("/", "text/html"),
+        ("/static/app.js", "javascript"),
+        ("/static/style.css", "text/css"),
+        ("/manifest.webmanifest", "manifest"),
+        ("/sw.js", "javascript"),
+        ("/icon-180.png", "image/png"),
+        ("/icon-192.png", "image/png"),
+        ("/icon-512.png", "image/png"),
+    ]:
+        with urlopen(base + path) as response:
+            assert response.status == 200, path
+            assert kind in response.headers["Content-Type"], path
+            assert len(response.read()) > 0, path
+
+
+def test_the_static_route_cannot_escape_its_folder(web_server):
+    from urllib.error import HTTPError
+    from urllib.request import urlopen
+
+    base, _ = web_server
+    for attempt in ("/static/%2e%2e%2fserver.py", "/static/..%2Fserver.py", "/nope.png"):
+        with pytest.raises(HTTPError) as caught:
+            urlopen(base + attempt)
+        assert caught.value.code == 404
+
+
+def test_video_is_served_in_ranges(web_server, tmp_path):
+    """iOS Safari opens a video with `Range: bytes=0-1` and refuses to play
+    anything that answers 200 with the whole file."""
+    from urllib.request import Request, urlopen
+
+    base, studio = web_server
+    job = studio.create("prompt", "reel", 10.0)
+    film = job.folder / "film.mp4"
+    film.write_bytes(bytes(range(256)) * 40)
+    job.video = film
+    job.status = "done"
+
+    url = f"{base}/api/jobs/{job.id}/video"
+    request = Request(url, headers={"Range": "bytes=0-1"})
+    with urlopen(request) as response:
+        assert response.status == 206
+        assert response.headers["Content-Range"] == f"bytes 0-1/{film.stat().st_size}"
+        assert response.read() == film.read_bytes()[:2]
+
+    request = Request(url, headers={"Range": "bytes=100-199"})
+    with urlopen(request) as response:
+        assert response.status == 206
+        assert response.read() == film.read_bytes()[100:200]
+
+    with urlopen(url) as response:  # no Range at all still works
+        assert response.status == 200
+        assert response.read() == film.read_bytes()
+
+
+def test_a_post_without_clips_says_so_in_plain_words(web_server):
+    import json as _json
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    base, _ = web_server
+    boundary = "----auteurtest"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="prompt"\r\n\r\n'
+        "a film\r\n"
+        f"--{boundary}--\r\n"
+    ).encode()
+    request = Request(
+        base + "/api/jobs", data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    with pytest.raises(HTTPError) as caught:
+        urlopen(request)
+    assert caught.value.code == 400
+    assert _json.loads(caught.value.read())["error"] == "Pick at least one clip first."
+
+
+def test_an_unknown_job_is_a_clean_404(web_server):
+    from urllib.error import HTTPError
+    from urllib.request import urlopen
+
+    base, _ = web_server
+    with pytest.raises(HTTPError) as caught:
+        urlopen(base + "/api/jobs/deadbeef")
+    assert caught.value.code == 404
+
+
+def test_the_demo_hands_edit_a_complete_namespace(monkeypatch, tmp_path):
+    """The demo built its edit arguments from scratch and forgot `quiet`, so it
+    printed the finished film and then reported that something went wrong."""
+    import argparse
+    from auteur import cli
+
+    captured = {}
+
+    def fake_edit(args, say):
+        # Touch every attribute `edit` is parsed to have.
+        parser = cli._build_parser()
+        expected = vars(parser.parse_args(["edit", "x", "-p", "y"]))
+        missing = [name for name in expected if not hasattr(args, name)]
+        captured["missing"] = missing
+        captured["quiet"] = args.quiet
+        return 0
+
+    monkeypatch.setattr(cli, "_run_edit", fake_edit)
+    monkeypatch.setattr(
+        cli.subprocess if hasattr(cli, "subprocess") else __import__("subprocess"),
+        "run", lambda *a, **k: type("R", (), {"returncode": 0, "stderr": ""})(),
+    )
+
+    args = argparse.Namespace(command="demo", quiet=True, verbose=0,
+                              out=str(tmp_path / "demo"), prompt="a film")
+    assert cli._run_demo(args, cli.NullReporter()) == 0
+    assert captured["missing"] == []
+    assert captured["quiet"] is True
+
+
+def test_a_failure_reaches_the_phone_as_one_readable_line():
+    """A render error carries the whole filter graph. That must not be what the
+    page shows — it once put several thousand characters of `[12:v]settb=AVTB`
+    on screen where an explanation belonged."""
+    from auteur.web.server import _plain_cause
+
+    graph_dump = "Stream specifier ':v' in filtergraph description " + "[0:v]settb=AVTB;" * 400
+    assert _plain_cause(ffmpeg.FFmpegError([], 1, graph_dump)) == "One of the clips could not be used."
+
+    assert len(_plain_cause(RuntimeError("x" * 900))) <= 160
+    assert _plain_cause(RuntimeError("the folder was empty")) == "the folder was empty"
+    assert _plain_cause(RuntimeError("")) == ""
+
+
+def test_a_failed_job_says_something_a_person_can_read(tmp_path):
+    from auteur.web.server import Studio
+
+    studio = Studio(tmp_path / "web")
+    job = studio.create("prompt", "reel", 10.0)
+    studio._fail(job, "Something went wrong making the film.",
+                 RuntimeError("Stream specifier ':v' in filtergraph description " + "[0:v]x;" * 500))
+
+    assert job.status == "error"
+    assert len(job.error) < 200
+    assert "settb" not in job.error and "[0:v]" not in job.error
+    assert job.snapshot()["error"].startswith("Something went wrong making the film.")

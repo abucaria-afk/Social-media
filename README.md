@@ -13,9 +13,15 @@ publisher above.
 
 ```bash
 pip install -r requirements.txt
-python demo/make_footage.py ./rushes          # optional: synthesises test clips
-python -m auteur edit ./rushes --prompt 'moody neon chase, 20 seconds, "AFTER DARK"'
+
+python -m auteur demo                        # makes practice clips, then edits them
+python -m auteur edit ./rushes 'moody neon chase, 20 seconds, "AFTER DARK"'
+python -m auteur serve                       # then open the printed address on your phone
 ```
+
+`serve` puts the same agent behind a mobile web app you can add to the iPhone
+home screen: pick clips from the camera roll, say what you want, and save the
+finished film back to Photos.
 
 It measures every clip frame by frame (motion, camera move, focus, exposure,
 colour, subject position), derives a beat grid from the music, cuts to it, grades

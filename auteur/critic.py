@@ -54,10 +54,6 @@ class Critique:
     notes: list[Note] = field(default_factory=list)
     measured: dict[str, float] = field(default_factory=dict)
 
-    @property
-    def worst(self) -> Note | None:
-        return max(self.notes, key=lambda note: note.severity, default=None)
-
     def describe(self) -> str:
         lines = [f"critic score {self.score:.2f}"]
         for note in sorted(self.notes, key=lambda n: -n.severity):
@@ -166,7 +162,10 @@ def review(
             beat = 60.0 / audio.tempo
             multiples = {max(1, int(round(length / beat))) for length in lengths}
             critique.measured["beat_multiples"] = float(len(multiples))
-            metronomic = len(multiples) < 3
+            # With only a handful of shots there is no room for a
+            # two- or four-beat shot without gutting the cut, so uniformity is
+            # a consequence of the length, not a fault.
+            metronomic = len(multiples) < 3 and len(lengths) >= 8
             detail = f"every shot is {multiples.pop()} beat(s) long" if len(multiples) == 1 else \
                      f"only {len(multiples)} distinct shot lengths in beats"
         else:
@@ -228,10 +227,19 @@ def revise(
 ) -> list[str]:
     """Apply fixes for what the critic found. Returns what was changed."""
     changes: list[str] = []
-    timeline = edl.timeline()
+    signature_before = _length_signature(edl, audio)
+
+    # Flash frames: give them enough screen time to register.
+    for note in critique.notes:
+        if note.rule != "flash-frame" or note.at is None:
+            continue
+        shot = next((s for start, _, s in edl.timeline() if abs(start - note.at) < 0.02), None)
+        if shot is not None and grammar._rescale_ramp(shot, MIN_SHOT * 2.0):
+            changes.append(f"lengthened the flash frame at {note.at:.1f}s")
 
     # Dead air: lift the offending shot out entirely rather than trying to
     # rescue it. There is no filter that makes nothing happening interesting.
+    timeline = edl.timeline()
     dead = [note for note in critique.notes if note.rule == "dead-air" and note.at is not None]
     for note in dead:
         if len(edl.shots) <= 3:
@@ -244,14 +252,6 @@ def revise(
             changes.append(f"dropped the frozen shot at {note.at:.1f}s ({victim.clip_id})")
             timeline = edl.timeline()
 
-    # Flash frames: give them enough screen time to register.
-    for note in critique.notes:
-        if note.rule != "flash-frame" or note.at is None:
-            continue
-        shot = next((s for start, _, s in edl.timeline() if abs(start - note.at) < 0.02), None)
-        if shot is not None and grammar._rescale_ramp(shot, MIN_SHOT * 2.0):
-            changes.append(f"lengthened the flash frame at {note.at:.1f}s")
-
     if any(note.rule == "weak-hook" for note in critique.notes) and len(edl.shots) > 2:
         # Promote the liveliest shot in the first third to the front.
         window = edl.shots[: max(2, len(edl.shots) // 3)]
@@ -263,10 +263,20 @@ def revise(
             changes.append(f"opened on {best.clip_id} instead — it has more life in it")
 
     if any(note.rule == "metronomic" for note in critique.notes):
-        if grammar.vary_pacing(edl, run_length=3, spread=0.22):
-            changes.append("broke up the metronomic cutting")
+        before = _length_signature(edl, audio)
+        if audio is not None and audio.has_beat and audio.tempo > 0:
+            # Stay on the grid: hold some shots for two beats instead of one.
+            grammar.vary_beat_multiples(edl, 60.0 / audio.tempo)
+        else:
+            grammar.vary_pacing(edl, run_length=3, spread=0.22)
+        if _length_signature(edl, audio) != before:
+            changes.append("varied the shot lengths so it stops feeling like a metronome")
 
-    if any(note.rule in ("runtime",) for note in critique.notes):
+    # Always, not only when the critic complained about runtime: holding shots
+    # for two beats instead of one makes the film longer, so a fix for one fault
+    # introduces another, and the critic only gets to see it on the pass after
+    # the last one it can act on.
+    if changes or any(note.rule == "runtime" for note in critique.notes):
         if grammar.trim_to_duration(edl, target_duration, tolerance=0.6):
             changes.append(f"brought the runtime back toward {target_duration:.0f}s")
 
@@ -276,4 +286,17 @@ def revise(
         grammar.snap_cuts_to_beats(edl, audio if beat_sync else None, offset=music_offset)
         edl.repair(dossiers, target_duration=target_duration)
 
+    # Everything above ran before the beat snap and the repair, either of which
+    # can undo a change. Report only what survived them.
+    if audio is not None and _length_signature(edl, audio) == signature_before:
+        changes = [c for c in changes if "shot lengths" not in c]
+
     return changes
+
+
+def _length_signature(edl: EditDecisionList, audio: AudioAnalysis | None) -> tuple:
+    """How the film's shot lengths look, in beats when there is a beat."""
+    if audio is not None and audio.has_beat and audio.tempo > 0:
+        beat = 60.0 / audio.tempo
+        return tuple(max(1, round(shot.duration / beat)) for shot in edl.shots)
+    return tuple(round(shot.duration, 2) for shot in edl.shots)

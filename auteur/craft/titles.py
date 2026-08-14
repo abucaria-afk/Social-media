@@ -344,12 +344,14 @@ def _render_chapter(cue: TextCue, width: int, height: int) -> Image.Image:
 
 # ---------------------------------------------------------------------------
 
-def render_cue(cue: TextCue, *, width: int, height: int, directory: Path, index: int) -> list[TextOverlay]:
+def render_cue(cue: TextCue, *, width: int, height: int, directory: Path, index: int,
+               prefix: str = "") -> list[TextOverlay]:
     """Render a cue to one or more plates, with their timings.
 
     Kinetic captions produce one plate per word; every other style produces one.
     """
     directory.mkdir(parents=True, exist_ok=True)
+    stem = f"text-{prefix}-" if prefix else "text-"
     style = cue.style
 
     if style == "kinetic" and cue.per_word:
@@ -359,7 +361,7 @@ def render_cue(cue: TextCue, *, width: int, height: int, directory: Path, index:
             step = cue.duration / len(words)
             for word_index in range(len(words)):
                 image = _render_kinetic(cue, width, height, highlight=word_index)
-                path = directory / f"text-{index:02d}-w{word_index:02d}.png"
+                path = directory / f"{stem}{index:02d}-w{word_index:02d}.png"
                 image.save(path)
                 overlays.append(
                     TextOverlay(
@@ -385,7 +387,7 @@ def render_cue(cue: TextCue, *, width: int, height: int, directory: Path, index:
     }
     image = renderers.get(style, _render_title)(cue, width, height)
 
-    path = directory / f"text-{index:02d}.png"
+    path = directory / f"{stem}{index:02d}.png"
     image.save(path)
 
     fade = min(0.32, cue.duration * 0.28)
@@ -401,11 +403,13 @@ def render_cue(cue: TextCue, *, width: int, height: int, directory: Path, index:
     ]
 
 
-def render_all(cues: list[TextCue], *, width: int, height: int, directory: Path) -> list[TextOverlay]:
+def render_all(cues: list[TextCue], *, width: int, height: int, directory: Path,
+               prefix: str = "") -> list[TextOverlay]:
     overlays: list[TextOverlay] = []
     for index, cue in enumerate(cues):
         try:
-            overlays.extend(render_cue(cue, width=width, height=height, directory=directory, index=index))
+            overlays.extend(render_cue(cue, width=width, height=height,
+                                       directory=directory, index=index, prefix=prefix))
         except Exception as exc:  # noqa: BLE001 - a bad title must not lose the film
             log.warning("could not render text %r: %s", cue.text[:32], exc)
     return overlays

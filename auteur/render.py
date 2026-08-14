@@ -21,9 +21,10 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from . import ffmpeg
-from .config import DeliveryFormat, Quality, Settings, Workspace
+from .config import IMAGE_SUFFIXES, DeliveryFormat, Quality, Settings, Workspace
 from .craft import color, motion as motion_craft, sound as sound_craft, titles, transitions
 from .edl import EditDecisionList, Shot
 from .ffmpeg import chain, graph
@@ -35,7 +36,7 @@ log = logging.getLogger("auteur.render")
 class RenderResult:
     outputs: dict[str, Path] = field(default_factory=dict)
     duration: float = 0.0
-    segments: list[Path] = field(default_factory=list)
+    segments: dict[str, list[Path]] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -46,6 +47,13 @@ class RenderResult:
 # ---------------------------------------------------------------------------
 # Pass one: shots
 # ---------------------------------------------------------------------------
+
+def _source_fps(shot: Shot) -> float:
+    """The frame rate of the footage this shot is cut from."""
+    if shot.source.suffix.lower() in IMAGE_SUFFIXES:
+        return 30.0  # a still has no rate; the ramp maths only needs a sane one
+    return ffmpeg.source_fps(shot.source)
+
 
 def _segment_video_graph(shot: Shot, fmt: DeliveryFormat, quality: Quality) -> str:
     """The filter graph for one shot, from source frames to a delivery frame."""
@@ -59,6 +67,7 @@ def _segment_video_graph(shot: Shot, fmt: DeliveryFormat, quality: Quality) -> s
         out_label="ramped",
         optical_flow=quality.optical_flow,
         fps=quality.fps,
+        source_fps=_source_fps(shot),
     )
 
     post = chain(
@@ -82,9 +91,20 @@ def _segment_video_graph(shot: Shot, fmt: DeliveryFormat, quality: Quality) -> s
     return graph(ramp, f"[ramped]{post}[vout]")
 
 
+def carries_audio(shot: Shot, *, want_audio: bool) -> bool:
+    """Whether this shot's segment is rendered with an audio track.
+
+    One predicate, used by both the segment renderer and the mixer. When the two
+    disagreed, the mixer asked for an audio stream the segment never got and the
+    whole assembly failed — a still frame with source audio was enough to do it.
+    """
+    return want_audio and shot.use_source_audio and shot.audio_gain > 0.001 and not shot.is_still
+
+
 def _segment_audio_graph(shot: Shot) -> str:
     ramp = motion_craft.ramp_audio_graph(
-        shot.ramp, source_duration=shot.source_duration, in_label="asrc", out_label="aramped"
+        shot.ramp, source_duration=shot.source_duration, in_label="asrc", out_label="aramped",
+        source_fps=_source_fps(shot),
     )
     post = chain(
         f"volume={shot.audio_gain:.3f}",
@@ -101,13 +121,18 @@ def render_shot(
 
     args: list[str] = []
     if shot.is_still:
-        # A still is a one-frame video until we tell it otherwise.
-        args += ["-loop", "1", "-framerate", str(quality.fps), "-t", f"{shot.source_duration:.4f}"]
-        args += ["-i", str(shot.source)]
+        # Hold the frame for as long as the shot needs. `-loop` belongs to the
+        # image demuxer, so it only works on an actual image file — a video that
+        # happens to contain one frame has to be looped at the stream level.
+        if shot.source.suffix.lower() in IMAGE_SUFFIXES:
+            args += ["-loop", "1", "-framerate", str(quality.fps)]
+        else:
+            args += ["-stream_loop", "-1"]
+        args += ["-t", f"{shot.source_duration:.4f}", "-i", str(shot.source)]
     else:
         args += ["-ss", f"{shot.start:.4f}", "-t", f"{shot.source_duration:.4f}", "-i", str(shot.source)]
 
-    has_source_audio = want_audio and shot.use_source_audio and not shot.is_still
+    has_source_audio = carries_audio(shot, want_audio=want_audio)
     filtergraph = _segment_video_graph(shot, fmt, quality)
     maps = ["-map", "[vout]"]
 
@@ -131,7 +156,28 @@ def render_shot(
     args += [str(destination)]
 
     ffmpeg.run(args)
+
+    # ffmpeg exits 0 for a graph that produced no frames, leaving a valid,
+    # streamless file. The assembly then asks it for [N:v] and fails with a
+    # filtergraph error naming no shot and no reason. Catch it at the source.
+    if not _has_video(destination):
+        raise ffmpeg.FFmpegError(
+            args, 0,
+            f"shot {index + 1} ({shot.clip_id}) rendered no frames from "
+            f"{shot.source.name} [{shot.start:.2f}s-{shot.end:.2f}s]",
+        )
     return destination
+
+
+def _has_video(path: Path) -> bool:
+    """Whether a rendered segment actually contains picture."""
+    if not path.is_file() or path.stat().st_size < 1024:
+        return False
+    try:
+        info = ffmpeg.probe(path)
+    except ffmpeg.FFmpegError:
+        return False
+    return any(stream.get("codec_type") == "video" for stream in info.get("streams", []))
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +334,8 @@ def _assemble(
     fmt: DeliveryFormat,
     quality: Quality,
     destination: Path,
+    *,
+    want_audio: bool,
 ) -> Path:
     """The single ffmpeg call that produces a finished film."""
     duration = edl.duration
@@ -319,8 +367,11 @@ def _assemble(
         sfx_inputs[key] = next_index
         next_index += 1
 
+    # Namespaced by format: two formats share the assets directory, and plates
+    # are rendered at the frame size, so a shared name lets one overwrite the other.
     text_overlays = titles.render_all(
-        edl.texts, width=fmt.width, height=fmt.height, directory=workspace.assets
+        edl.texts, width=fmt.width, height=fmt.height,
+        directory=workspace.assets, prefix=fmt.name,
     )
     text_chains: list[str] = []
     for order, overlay in enumerate(text_overlays):
@@ -351,8 +402,8 @@ def _assemble(
     overlay_graph, video_label = _overlay_chain(text_overlays, video_label)
 
     source_audio_shots: list[tuple[int, float]] = []
-    for (start, _, shot), index in zip(edl.timeline(), range(len(segments))):
-        if shot.use_source_audio and shot.audio_gain > 0.001:
+    for index, (start, _, shot) in enumerate(edl.timeline()):
+        if index < len(segments) and carries_audio(shot, want_audio=want_audio):
             source_audio_shots.append((index, max(0.0, start + shot.audio_offset)))
 
     audio_graph, audio_label = _assemble_audio(
@@ -400,8 +451,13 @@ def render(
     *,
     formats: tuple[DeliveryFormat, ...] | None = None,
     name: str | None = None,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> RenderResult:
-    """Render the EDL to every requested delivery format."""
+    """Render the EDL to every requested delivery format.
+
+    `on_progress(done, total, label)` is called as each shot lands, because a
+    render takes minutes and silence is indistinguishable from a hang.
+    """
     result = RenderResult(duration=edl.duration)
     targets = formats if formats is not None else settings.all_formats
     quality = settings.quality
@@ -409,12 +465,22 @@ def render(
 
     want_audio = any(shot.use_source_audio for shot in edl.shots)
 
+    # One unit per shot, plus one for each format's final assembly.
+    total = (len(edl.shots) + 1) * len(targets)
+    done = 0
+
+    def report(label: str) -> None:
+        if on_progress is not None:
+            on_progress(done, total, label)
+
     for fmt in targets:
         log.info("rendering %s (%dx%d, %.2fs, %d shots)", fmt.name, fmt.width, fmt.height,
                  edl.duration, len(edl.shots))
+        suffix = f" · {fmt.name}" if len(targets) > 1 else ""
 
         segments: list[Path] = []
         for index, shot in enumerate(edl.shots):
+            report(f"shot {index + 1} of {len(edl.shots)}{suffix}")
             try:
                 segments.append(
                     render_shot(shot, index, workspace, fmt, quality, want_audio=want_audio)
@@ -424,11 +490,17 @@ def render(
                 log.error("%s", message)
                 result.warnings.append(message)
                 raise
+            done += 1
+            report(f"shot {index + 1} of {len(edl.shots)}{suffix}")
 
+        report(f"putting it together{suffix}")
         destination = workspace.output / f"{stem}-{fmt.name}.mp4"
-        _assemble(edl, segments, workspace, fmt, quality, destination)
+        _assemble(edl, segments, workspace, fmt, quality, destination, want_audio=want_audio)
+        done += 1
+        report(f"putting it together{suffix}")
+
         result.outputs[fmt.name] = destination
-        result.segments = segments
+        result.segments[fmt.name] = segments
         log.info("wrote %s", destination)
 
     return result

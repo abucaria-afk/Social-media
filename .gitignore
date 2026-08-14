@@ -1,6 +1,10 @@
 # auteur working directories
 auteur-work/
+auteur-web/
 demo/rushes/
+
+# The phone app's icons are drawn at startup, not checked in.
+auteur/web/static/icon*.png
 *.mp4
 *.mov
 *.wav
