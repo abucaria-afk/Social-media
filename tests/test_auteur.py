@@ -467,4 +467,4 @@ def test_the_agent_renders_a_playable_film(rushes, tmp_path):
     assert (production.workspace.root / "production-notes.md").exists()
     assert (production.workspace.root / "edl.json").exists()
     assert production.final_critique is not None
-dir()
+
