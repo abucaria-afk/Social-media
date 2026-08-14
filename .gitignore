@@ -1,0 +1,15 @@
+# auteur working directories
+auteur-work/
+demo/rushes/
+*.mp4
+*.mov
+*.wav
+*.mp3
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/

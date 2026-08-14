@@ -2,6 +2,30 @@
 
 A cross-platform C++ application designed to create, schedule, and publish posts to multiple social media platforms.
 
+---
+
+## 🎬 auteur — the video editor agent
+
+This repository also contains **[auteur](AUTEUR.md)**, an autonomous cinematic
+editor that turns a folder of unsorted clips and a sentence of direction into a
+finished, graded, beat-cut, sound-designed short film — ready to hand to the
+publisher above.
+
+```bash
+pip install -r requirements.txt
+python demo/make_footage.py ./rushes          # optional: synthesises test clips
+python -m auteur edit ./rushes --prompt 'moody neon chase, 20 seconds, "AFTER DARK"'
+```
+
+It measures every clip frame by frame (motion, camera move, focus, exposure,
+colour, subject position), derives a beat grid from the music, cuts to it, grades
+and matches the shots, mixes the sound, and then **watches its own output back
+and re-cuts what it got wrong**. Claude directs when an API key is present; a
+full algorithmic director takes over when there isn't one, so the film always
+gets made. See **[AUTEUR.md](AUTEUR.md)** for the full documentation.
+
+---
+
 ## 🚀 Features
 
 - Compose posts with optional media attachments and hashtags

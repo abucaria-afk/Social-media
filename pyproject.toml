@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auteur"
+version = "1.0.0"
+description = "An autonomous cinematic editor: clips in, finished film out."
+readme = "AUTEUR.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.24",
+    "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+# Wheel-bundled static ffmpeg + ffprobe. A system ffmpeg works too, but distro
+# builds sometimes ship without libx264, xfade or loudnorm.
+ffmpeg = ["ffmpeg-binaries>=1.0"]
+# Lets Claude direct the edit. Without it the algorithmic director is used.
+llm = ["anthropic>=0.40"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+auteur = "auteur.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["auteur*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: renders video; needs ffmpeg and takes a minute or two"]
