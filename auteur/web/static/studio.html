@@ -1,0 +1,117 @@
+<!--
+  The studio: pick where a post is going, watch the agents argue about the cut,
+  and decide. Everything here is the same palette as the rest of the app —
+  colours come from theme.css, which is generated from auteur/theme.py, so this
+  page cannot drift away from the films it is making.
+-->
+<!doctype html>
+<html lang="en" data-page="studio">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0c0b0a">
+  <title>auteur · studio</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icon-180.png">
+  <link rel="stylesheet" href="/static/theme.css">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/studio.css">
+  <script>
+    // Applied before the stylesheet paints, so the page never flashes the
+    // wrong theme on the way in.
+    (function () {
+      try {
+        var saved = localStorage.getItem("auteur-theme");
+        if (saved === "light" || saved === "dark") {
+          document.documentElement.setAttribute("data-theme", saved);
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+
+<header class="sbar">
+  <a class="sbar-back" href="/" aria-label="Back to the edit room">←</a>
+  <span class="sbar-title">Studio</span>
+  <span class="sbar-note" id="provenance">reading your data…</span>
+</header>
+
+<main class="studio-wrap">
+
+  <!-- 1. Where is it going ------------------------------------------- -->
+  <section class="panel">
+    <h2 class="panel-title">Where is it going</h2>
+    <p class="panel-hint">
+      Each one cuts to a different length and keeps the words clear of that
+      app's own buttons.
+    </p>
+    <div class="platforms" id="platforms" role="radiogroup" aria-label="Destination"></div>
+  </section>
+
+  <!-- 2. What the data says ------------------------------------------ -->
+  <section class="panel">
+    <h2 class="panel-title">What your data says</h2>
+    <div class="targets" id="targets"></div>
+    <details class="drawer" id="drivers-drawer">
+      <summary>What actually moves the numbers</summary>
+      <ul class="drivers" id="drivers"></ul>
+      <p class="studio-warn" id="data-caveat" hidden></p>
+    </details>
+  </section>
+
+  <!-- 3. The prediction ---------------------------------------------- -->
+  <section class="panel" id="prediction-card" hidden>
+    <h2 class="panel-title">Predicted</h2>
+    <div class="score-row">
+      <div class="dial" id="dial" role="img" aria-label="Overall predicted score">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="dial-track" cx="60" cy="60" r="52"></circle>
+          <circle class="dial-fill" id="dial-fill" cx="60" cy="60" r="52"></circle>
+        </svg>
+        <span class="dial-value" id="dial-value">—</span>
+      </div>
+      <ul class="objectives" id="objectives"></ul>
+    </div>
+
+    <h3 class="panel-sub">Where they leave</h3>
+    <div class="curve" id="curve" role="img" aria-label="Predicted retention curve">
+      <svg viewBox="0 0 300 90" preserveAspectRatio="none" aria-hidden="true">
+        <path class="curve-area" id="curve-area" d=""></path>
+        <path class="curve-line" id="curve-line" d=""></path>
+        <line class="curve-drop" id="curve-drop" x1="0" y1="0" x2="0" y2="90"></line>
+      </svg>
+      <span class="curve-label" id="curve-label"></span>
+    </div>
+  </section>
+
+  <!-- 4. The agents --------------------------------------------------- -->
+  <section class="panel">
+    <h2 class="panel-title">The agents</h2>
+    <p class="panel-hint">
+      Three of them, one number each. They propose; you decide. Nothing here
+      posts anything — publishing always asks first.
+    </p>
+
+    <div class="modes" id="modes" role="radiogroup" aria-label="How much the agents may do">
+      <button class="mode" data-mode="off">Off</button>
+      <button class="mode" data-mode="manual">Ask me everything</button>
+      <button class="mode is-on" data-mode="supervised">Ask me the big ones</button>
+      <button class="mode" data-mode="autonomous">Let them run</button>
+    </div>
+
+    <ul class="proposals" id="proposals"></ul>
+    <p class="studio-empty" id="proposals-empty">Nothing proposed yet — plan a cut first.</p>
+  </section>
+
+  <button class="studio-go" id="run">Cut it</button>
+  <p class="studio-foot">
+    Agents change the edit. They never post. — <a href="/">back to the edit room</a>
+  </p>
+</main>
+
+<script src="/static/studio.js"></script>
+</body>
+</html>

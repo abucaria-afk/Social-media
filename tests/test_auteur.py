@@ -2926,3 +2926,394 @@ def test_a_queued_post_whose_film_has_gone_can_be_tidied_away(tmp_path):
 
     assert [post.video for post in queue.forget_missing()] == [str(deliverable.video)]
     assert queue.posts == []
+
+
+# ---------------------------------------------------------------------------
+# Insight: reading performance data, and being honest about it
+# ---------------------------------------------------------------------------
+
+
+def _write_csv(path: Path, header: str, *rows: str) -> Path:
+    path.write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
+    return path
+
+
+def test_every_export_shape_is_recognised_by_its_columns(tmp_path):
+    """A person calls the file whatever they like; the header is the truth."""
+    from auteur.insight import detect_form
+
+    cases = {
+        "short_form_video": "content_id,hook_style,hook_duration_sec,completion_rate",
+        "b2b_carousel": "carousel_id,slide_1_hook,swipe_through_rate,save_rate",
+        "text_thread": "thread_id,opening_line_hook,bookmark_rate",
+        "film_theory": "content_id,shot_composition,lighting_setup,three_second_watch_rate",
+        "color_theory": "content_id,palette_type,dominant_hex,thumbnail_ctr",
+        "music_theory": "content_id,tempo_bpm,harmonic_key,progression_type",
+        "algorithmic": "content_id,seed_pool_size,velocity_score_10m,algorithmic_bucket_status",
+    }
+    for form, header in cases.items():
+        assert detect_form(header.split(",")) == form, form
+
+    with pytest.raises(ValueError, match="performance export"):
+        detect_form(["name", "colour", "size"])
+
+
+def test_the_matrix_is_matched_before_the_forms_it_contains(tmp_path):
+    """The multimodal export carries columns from every other form. Matched in
+    the wrong order it reads as whichever one happens to be checked first."""
+    from auteur.insight import detect_form
+
+    header = (
+        "content_id,dataset_origin,palette_type,contrast_ratio,stop_scroll_ms,thumbnail_ctr,"
+        "progression_type,tempo_bpm,loop_completion_rate,shot_composition,pacing_cuts_per_10s"
+    ).split(",")
+    assert detect_form(header) == "multimodal_matrix"
+
+
+def test_a_derived_field_never_claims_to_have_been_measured(tmp_path):
+    """`has()` is what stops an inferred number being averaged as an observation."""
+    from auteur.insight import load
+
+    path = _write_csv(
+        tmp_path / "v.csv",
+        "content_id,hook_style,hook_duration_sec,completion_rate,share_to_view_ratio,loop_count",
+        "v_1,Visual Pattern Interrupt,1.8,0.58,0.09,1.7",
+    )
+    signal = load([path])[0]
+
+    assert signal.completion_rate == 0.58
+    assert signal.has("completion_rate")
+    # Derived from completion, and therefore not measured.
+    assert signal.three_second_watch_rate > signal.completion_rate
+    assert not signal.has("three_second_watch_rate")
+    assert signal.derived_from["three_second_watch_rate"] == "completion_rate"
+    assert signal.is_circular("three_second_watch_rate", "completion_rate")
+    assert not signal.is_circular("three_second_watch_rate", "tempo_bpm")
+
+
+def test_a_correlation_is_never_computed_between_a_number_and_itself(tmp_path):
+    """The colour export has no three-second column, so we infer one from
+    stop_scroll_ms. Correlating the two then returns 1.00 and means nothing —
+    it was reported as the strongest finding in the data."""
+    from auteur.insight import fit, load
+
+    rows = [
+        f"color_v{n:03d},Triadic,#1DE9B6,{6 + n * 0.3},Nostalgia,{0.10 + n * 0.004},"
+        f"{150 + n * 20},{0.03 + n * 0.006}"
+        for n in range(1, 13)
+    ]
+    path = _write_csv(
+        tmp_path / "c.csv",
+        "content_id,palette_type,dominant_hex,contrast_ratio,emotional_trigger_intent,"
+        "thumbnail_ctr,stop_scroll_ms,share_to_view_ratio",
+        *rows,
+    )
+    model = fit(load([path]))
+
+    for column, label, _ in model.drivers:
+        assert not (
+            column == "stop_scroll_ms" and "three second" in label
+        ), "correlated a derived field against the column it was derived from"
+
+
+def test_a_generated_export_is_spotted_and_discounted(tmp_path):
+    """Real performance data is noisy. A file where every column is a smooth
+    function of one hidden score is a target somebody drew, not an observation,
+    and it must not outvote a smaller honest one."""
+    from auteur.insight import fit, load
+
+    # Everything a perfect function of n: exactly the shape of a generated set.
+    rows = [
+        f"VIRAL_{n:04d},Film Theory,Neon-Cyberpunk,{16 + n * 0.01},{800 + n},{0.22 + n * 0.0001},"
+        f"Aeolian-Fade,{139 + n * 0.01},{0.77 + n * 0.0003},70000,Static-Symmetrical-Frame,"
+        f"{9 + n * 0.002},{1.3 - n * 0.0005},12,44000,{84 + n * 0.03},0,Exponential-Viral"
+        for n in range(1, 61)
+    ]
+    path = _write_csv(
+        tmp_path / "m.csv",
+        "content_id,dataset_origin,palette_type,contrast_ratio,stop_scroll_ms,thumbnail_ctr,"
+        "progression_type,tempo_bpm,loop_completion_rate,remix_velocity_24h,shot_composition,"
+        "pacing_cuts_per_10s,pattern_interrupt_timestamp_sec,rewind_events_count,seed_pool_size,"
+        "velocity_score_10m,system_kill_signal_triggered,algorithmic_bucket_status",
+        *rows,
+    )
+    model = fit(load([path]))
+
+    assert "multimodal_matrix" in model.generated_forms
+    # And a corpus of nothing but winners says so, because it cannot tell you
+    # what separates them from anything else.
+    assert not model.has_negatives
+    assert "no failures" in model.caveat
+
+
+def test_disagreement_between_exports_is_reported_not_averaged_away(tmp_path):
+    """Two files that disagree about the direction of an effect is the most
+    useful thing in a multi-source corpus, and the easiest to lose in a mean."""
+    from auteur.insight import fit, load
+
+    # Music theory: slower tempo, better loops.
+    music = _write_csv(
+        tmp_path / "music.csv",
+        "content_id,tempo_bpm,harmonic_key,progression_type,audio_retention_sec,"
+        "remix_velocity_24h,haptic_volume_boosts,loop_completion_rate",
+        *[
+            f"audio_m{n:03d},{70 + n * 6},E Minor,Pedal Point,{9 - n * 0.1},1500,2,"
+            f"{0.72 - n * 0.03}"
+            for n in range(1, 13)
+        ],
+    )
+    # The matrix: faster tempo, better loops. Same driver, opposite sign.
+    matrix = _write_csv(
+        tmp_path / "matrix.csv",
+        "content_id,dataset_origin,palette_type,contrast_ratio,stop_scroll_ms,thumbnail_ctr,"
+        "progression_type,tempo_bpm,loop_completion_rate,shot_composition,pacing_cuts_per_10s,"
+        "pattern_interrupt_timestamp_sec,seed_pool_size,velocity_score_10m,"
+        "system_kill_signal_triggered,algorithmic_bucket_status",
+        *[
+            f"VIRAL_{n:04d},Music Theory,Neon-Cyberpunk,{17 + n * 0.02},{800 + n * 2},0.24,"
+            f"Aeolian-Fade,{130 + n},{0.70 + n * 0.004},Static-Symmetrical-Frame,9,1.2,"
+            f"44000,90,0,Exponential-Viral"
+            for n in range(1, 31)
+        ],
+    )
+    model = fit(load([music, matrix]))
+    assert any("tempo" in conflict for conflict in model.conflicts), model.conflicts
+
+
+def test_a_model_fitted_on_nothing_real_says_so():
+    from auteur.insight import corpus, fit
+
+    model = fit(corpus([], simulate_rows=400))
+    assert model.measured_rows == 0
+    assert "simulated" in model.provenance
+    assert "not any platform" in model.provenance
+
+
+def test_the_simulator_and_the_loader_agree_on_every_column(tmp_path):
+    """They must, or the numbers change meaning depending on where they came
+    from — which is the one bug in this package that nothing would catch."""
+    from auteur.insight import load, simulate, write_csv
+
+    made = simulate(50)
+    path = write_csv(made, tmp_path / "sim.csv")
+    read_back = load([path])
+
+    assert len(read_back) == len(made)
+    for original, restored in zip(made, read_back, strict=True):
+        assert restored.post_id == original.post_id
+        assert restored.hook_style == original.hook_style
+        assert restored.completion_rate == pytest.approx(original.completion_rate, abs=1e-3)
+        assert restored.share_to_view_ratio == pytest.approx(original.share_to_view_ratio, abs=1e-3)
+        assert restored.loop_count == pytest.approx(original.loop_count, abs=1e-3)
+
+
+# ---------------------------------------------------------------------------
+# Scoring an edit
+# ---------------------------------------------------------------------------
+
+
+def _timeline(
+    *, opening=1.6, shots=12, runtime=15.0, loop_back=False, text_at=None, end_card=False
+):
+    from auteur.edl import EditDecisionList, Shot, TextCue
+
+    each = (runtime - opening) / max(shots - 1, 1)
+    out = [
+        Shot(
+            clip_id=f"C{index % 4:02d}",
+            source=Path(f"/x/{index % 4}.mp4"),
+            start=0.0,
+            end=opening if index == 0 else each,
+        )
+        for index in range(shots)
+    ]
+    if loop_back:
+        out[-1].clip_id = out[0].clip_id
+        out[-1].end = 0.9
+    texts = []
+    if text_at is not None:
+        texts.append(TextCue(text="HOOK", start=text_at, duration=1.4))
+    if end_card:
+        texts.append(TextCue(text="END", start=runtime - 2.0, duration=2.0, style="end-card"))
+    return EditDecisionList(title="t", shots=out, texts=texts)
+
+
+@pytest.fixture
+def model():
+    from auteur.insight import corpus, fit
+
+    return fit(corpus([], simulate_rows=1500))
+
+
+def test_the_three_objectives_genuinely_trade_off(model):
+    """If they always moved together they would be one objective, and the crew
+    would be theatre."""
+    from auteur.insight import predict
+
+    long_looping = predict(_timeline(runtime=45, shots=22, loop_back=True, text_at=0.1), model)
+    tight_no_loop = predict(_timeline(runtime=15, shots=12, loop_back=False, text_at=0.1), model)
+
+    assert long_looping.loop.score > tight_no_loop.loop.score
+    assert tight_no_loop.share.predicted > long_looping.share.predicted
+    assert long_looping.weakest.name == "share"
+    assert tight_no_loop.weakest.name == "loop"
+
+
+def test_text_before_the_first_cut_is_worth_something_on_its_own(model):
+    """It was folded in as a bonus on top of the timing score, which saturated
+    at 1.0 — so on a well-timed edit the hook agent's own proposal could never
+    show a gain, and was skipped for ever."""
+    from auteur.insight import predict
+
+    ideal = model.best_hook_duration or 1.6
+    with_text = predict(_timeline(opening=ideal, text_at=0.1), model)
+    without = predict(_timeline(opening=ideal, text_at=None), model)
+
+    assert with_text.hook.score > without.hook.score
+    assert any("nothing on screen" in note for note in without.notes)
+
+
+def test_an_end_card_costs_the_loop(model):
+    from auteur.insight import predict
+
+    plain = predict(_timeline(loop_back=True), model)
+    stopped = predict(_timeline(loop_back=True, end_card=True), model)
+    assert stopped.loop.score < plain.loop.score
+
+
+def test_the_prediction_says_where_they_leave(model):
+    from auteur.insight import predict
+
+    prediction = predict(_timeline(runtime=20.0), model)
+    assert 0.0 < prediction.drop_off_second() <= 20.0
+    assert len(prediction.retention_curve) == 10
+    # Retention only ever falls.
+    for earlier, later in zip(
+        prediction.retention_curve, prediction.retention_curve[1:], strict=False
+    ):
+        assert later <= earlier + 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Agents
+# ---------------------------------------------------------------------------
+
+
+def test_a_crew_only_keeps_changes_that_actually_score_better(model):
+    """Hill climbing on a copy: an agent may be confidently wrong and the worst
+    it costs is a round."""
+    from auteur.agents import Crew, Gate, Mode, Proposal, Risk
+
+    class Vandal:
+        name, objective = "vandal", "nothing"
+
+        def inspect(self, edl, prediction, model):
+            def wreck(target):
+                target.shots[0].end = target.shots[0].start + 12.0
+
+            return [
+                Proposal(
+                    agent=self.name,
+                    title="Hold the opening for twelve seconds",
+                    reason="testing",
+                    change=wreck,
+                    objective=self.objective,
+                    risk=Risk.LOW,
+                )
+            ]
+
+    edl = _timeline(opening=1.6, text_at=0.1, loop_back=True)
+    crew = Crew([Vandal()], model, gate=Gate(Mode.AUTONOMOUS), max_rounds=2)
+    result = crew.run(edl)
+
+    assert not result.applied, "a change that scores worse must not survive"
+    assert result.final.overall == pytest.approx(result.baseline.overall, abs=1e-9)
+    assert result.edl.shots[0].duration == pytest.approx(1.6, abs=0.01)
+
+
+def test_an_agent_that_raises_does_not_stop_the_crew(model):
+    from auteur.agents import Crew, Gate, Mode, default_crew
+
+    class Broken:
+        name, objective = "broken", "nothing"
+
+        def inspect(self, edl, prediction, model):
+            raise RuntimeError("no")
+
+    crew = Crew([Broken(), *default_crew()], model, gate=Gate(Mode.AUTONOMOUS), max_rounds=2)
+    result = crew.run(_timeline(opening=5.0, runtime=40, shots=9))
+    assert result.gain > 0, "the working agents should still have improved it"
+
+
+def test_supervised_mode_applies_the_small_things_and_asks_about_the_rest(model):
+    from auteur.agents import Crew, Gate, Mode, Risk, default_crew
+
+    asked = []
+
+    def ask(proposal):
+        asked.append(proposal)
+        return "approve", ""
+
+    crew = Crew(default_crew(), model, gate=Gate(Mode.SUPERVISED, on_ask=ask), max_rounds=3)
+    result = crew.run(_timeline(opening=5.0, runtime=40, shots=9, end_card=True))
+
+    assert result.gain > 0
+    assert asked, "structural changes must reach a person"
+    assert all(p.risk >= Risk.MEDIUM for p in asked), "low-risk changes should not interrupt"
+    assert any(p.risk == Risk.LOW and p.applied for p in result.applied)
+
+
+def test_nothing_is_applied_when_there_is_nobody_to_ask(model):
+    """A gate that approves when unattended is not a gate, it is a delay."""
+    from auteur.agents import Crew, Gate, Mode, default_crew
+
+    crew = Crew(default_crew(), model, gate=Gate(Mode.MANUAL), max_rounds=2)
+    result = crew.run(_timeline(opening=5.0, runtime=40, shots=9))
+
+    assert result.applied == []
+    assert result.gain == pytest.approx(0.0, abs=1e-9)
+
+
+def test_publishing_always_needs_a_person_in_every_mode():
+    """There is deliberately no mode that lets an agent post."""
+    from auteur.agents import Gate, Mode
+
+    for mode in Mode:
+        assert Gate(mode).may_publish("a reel") is False, mode
+
+    answered = []
+    gate = Gate(Mode.AUTONOMOUS, on_ask=lambda p: (answered.append(p) or ("approve", "")))
+    assert gate.may_publish("a reel") is True
+    assert answered[0].risk.name == "HIGH"
+
+
+def test_the_agents_actually_close_a_loop_and_shorten_a_hook(model):
+    from auteur.agents import Crew, Gate, Mode, default_crew
+
+    edl = _timeline(opening=5.0, runtime=40, shots=9, end_card=True)
+    result = Crew(default_crew(), model, gate=Gate(Mode.AUTONOMOUS), max_rounds=4).run(edl)
+
+    assert result.edl.shots[0].duration < 3.0, "the hook should have been cut down"
+    assert result.edl.shots[-1].clip_id == result.edl.shots[0].clip_id, "the loop should close"
+    assert not [c for c in result.edl.texts if c.style == "end-card"], "end card should have gone"
+    assert result.edl.duration < edl.duration
+
+
+def test_safe_areas_still_win_after_the_agents_have_moved_the_titles(model):
+    """An agent optimising a hook does not know the bottom fifth is a caption
+    box. Whatever it does to a title, the safe area has the last word."""
+    from auteur.agents import Crew, Gate, Mode, default_crew
+    from auteur.workflows import resolve, with_agents
+
+    spec = resolve("tiktok")
+    edl = _timeline(opening=5.0, runtime=40, shots=9)
+    edl.texts[:] = []
+    from auteur.edl import TextCue
+
+    edl.texts.append(TextCue(text="UNDER THE BUTTONS", start=2.0, duration=2.0, anchor=(0.5, 0.97)))
+
+    crew = Crew(default_crew(), model, gate=Gate(Mode.AUTONOMOUS), max_rounds=3)
+    with_agents(spec, crew)(edl)
+
+    for cue in edl.texts:
+        assert cue.anchor[1] <= 1.0 - spec.safe.bottom + 1e-9, cue.text

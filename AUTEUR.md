@@ -340,6 +340,113 @@ Times are stored as UTC and printed in your own timezone. A bare `18:00` means
 six in the evening where you are, not in Greenwich — a queue that assumed
 otherwise would post at four in the morning.
 
+## Insight: what your numbers say
+
+`auteur insight` reads performance exports and reports what the posts that
+travelled have in common. Eleven column shapes are recognised by their headers
+rather than their filenames — short-form video, carousels, threads, film /
+colour / music theory, algorithmic buckets, a multimodal matrix, and emulated
+metadata:
+
+```bash
+auteur insight fit ./exports/*.csv       # what the winners have in common
+auteur insight fit --json                # the same, machine-readable
+auteur insight simulate --rows 5000 -o practice.csv
+```
+
+Three objectives, taken from the brief and used everywhere:
+
+| | measure | target |
+|---|---|---|
+| **hook** | `three_second_watch_rate` | > 0.80 |
+| **share** | `share_to_view_ratio` | > 0.05 |
+| **loop** | `loop_count` | > 1.5 |
+
+Underneath them are the three drivers: **velocity** (what happens in the first
+ten minutes, not the first day), **retention** (the second attention stops, not
+the completion rate that summarises it), and **amplification** (shares, saves,
+reposts and audio re-use, weighted far above likes — a like does not move a post
+and a share does).
+
+### What it refuses to pretend
+
+Fitting a model to performance data is easy to do dishonestly, so this reports
+the ways it could be wrong before it reports the answer:
+
+- **Derived fields never claim to have been measured.** Most exports have no
+  three-second column, so one is inferred — from completion, from swipe-through,
+  from stop-scroll. `Signal.has()` says which numbers were observed, and
+  `derived_from` records what each inference came from. That provenance is what
+  stops a correlation being run between a number and itself: the first version
+  reported *stop-scroll → three-second watch, r = 1.00* as its strongest
+  finding, which was a number correlated with its own source.
+- **Exports that look generated are down-weighted to a tenth.** Real
+  performance data is noisy; contrast ratio and tempo are set by different
+  people on different days and do not track each other. A file where the median
+  correlation between unrelated columns is above 0.95 is a curve somebody drew.
+  It is still a useful target and it must not outvote a smaller observed file.
+- **Disagreements are surfaced, not averaged.** When two exports disagree about
+  the *direction* of an effect, that is the most useful thing in the corpus.
+- **Implausible magnitudes are called out.** A corpus where the median post is
+  watched to completion has no drop-off anywhere in it, so nothing in it can
+  teach an agent about pacing, whatever its correlations say.
+- **A corpus of nothing but winners says so.** Without a single stalled or
+  killed post it can describe what success looks like and not what separates it
+  from anything else.
+
+With no exports at all it will fit on simulated rows so the machinery can be
+rehearsed — and it says so in every report. Do not quote those numbers as
+evidence about a platform.
+
+## Agents
+
+Three agents, one objective each, run against the planned timeline before a
+frame is rendered:
+
+```bash
+auteur workflow run tiktok ./clips "crate day" --agents supervised --data ./exports/*.csv
+```
+
+| mode | what it means |
+|---|---|
+| `off` | no agents (default) |
+| `manual` | every proposal waits for you |
+| `supervised` | small changes apply themselves, structural ones ask |
+| `autonomous` | editing rounds run uninterrupted |
+
+**The hook agent** shortens the opening to where the winners cut, lands a title
+before the first cut, and will argue for opening on the best shot rather than
+saving it. **The share agent** argues about runtime and pace, because a share
+grows out of completion and completion falls with length. **The loop agent**
+removes end cards, returns the last shot to the opening frame, and shortens the
+tail — an ending that resolves is an ending people leave at.
+
+Each proposal is a real operation on the timeline plus a sentence of reasoning.
+The crew applies each one to a *copy*, scores it, and keeps it only if the
+overall prediction improved — so an agent can be confidently wrong and the worst
+it costs is a round.
+
+### The gate
+
+**No mode lets an agent publish.** `Gate.may_publish` requires a person in every
+mode including `autonomous`, and a gate with nobody to ask returns no rather
+than assuming yes — a gate that approves when unattended is not a gate, it is a
+delay. Autonomy here means an agent may restructure a cut without being asked.
+It does not mean it may post one.
+
+Safe areas still win: the agents move titles to win the first three seconds, and
+the platform's safe area gets the last word on where a title may actually sit.
+
+## Studio
+
+`auteur serve` now has a second page at **/studio**: pick a destination, see
+what your data says, plan a cut, and approve or reject each proposal with the
+predicted gain next to it. The retention curve is drawn with the steepest
+drop-off marked. Point it at your exports with `AUTEUR_EXPORTS=./exports`.
+
+Same palette as the films — every colour is a variable generated from
+`auteur/theme.py`, so the interface cannot drift away from what it produces.
+
 ### Do I need an API key?
 
 No. Claude directs when `ANTHROPIC_API_KEY` is set, and a full algorithmic
@@ -560,3 +667,20 @@ static path that resolved one folder up.
 - **Captions are assembled, not written.** No model is involved in drafting one
   even when an API key is present. It is a first line to rewrite, and both the
   file and the CLI say so.
+- **A virality score is a prediction, not a forecast.** It is read entirely off
+  the timeline — shot lengths, where the titles land, how the first and last
+  frames relate — because that is what an agent can change. It knows nothing
+  about whether the footage is any good, what the subject is, or who follows
+  you, and those decide more than any of this does.
+- **An agent optimises the number it was given.** All three will happily produce
+  something that scores well and is not what you meant. That is what the gate is
+  for, and it is why no mode lets one publish.
+- **The music bed is synthesised, not licensed.** `demo/make_track.py` writes an
+  original instrumental in a named style, because a tool that downloads the song
+  everybody is using and bakes it into your upload is handing you a copyright
+  strike. Cut against the bed, then swap the real track in inside the app when
+  you post — which is where trending audio is licensed anyway, and where the
+  platform gives a post distribution weight for using it.
+- **Simulated metrics teach the simulator.** With no real export the model fits
+  on invented rows. Everything downstream still works, and none of it is
+  evidence. The same applies to any supplied corpus with no failures in it.

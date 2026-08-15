@@ -1,0 +1,602 @@
+"""Scoring a planned edit against the three objectives.
+
+The brief names three, and they are not the same objective wearing different
+hats — an edit can be excellent at one and actively bad at another, which is
+why they are scored separately and reported separately.
+
+**Hook.** Does the opening survive three seconds. Trained on the rows where
+`three_second_watch_rate` clears 0.80: what those hooks have in common is a
+short opening shot, movement inside the first frame, and text that lands before
+the first cut rather than after it.
+
+**Share.** Would anybody send this to somebody. Rewarded against a
+`share_to_view_ratio` above 0.05. Shares are the signal that gets a post out of
+its seed pool, and they come from completion and from having a reason — not
+from a strong first second, which is why the hook objective cannot stand in
+for it.
+
+**Loop.** Does the end flow back into the beginning. A seamless loop turns one
+view into two and doubles the completion the share objective feeds on.
+
+The three are scored from the **edit itself** — shot lengths, where the text
+lands, how the first and last frames relate — because that is what an agent can
+change. A score here is a prediction about an edit, made by a model fitted to
+`insight.dataset`, and it inherits every limitation of that corpus. Read
+`FitReport.provenance` before believing a number.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+from collections.abc import Sequence
+
+from ..edl import EditDecisionList
+from .schema import (
+    CRAFT_FORMS,
+    TARGET_LOOP_COUNT,
+    TARGET_SHARE_TO_VIEW,
+    TARGET_THREE_SECOND_WATCH,
+    Signal,
+)
+
+
+def _mean(values: Sequence[float]) -> float:
+    return sum(values) / len(values) if values else 0.0
+
+
+def _correlation(xs: Sequence[float], ys: Sequence[float]) -> float:
+    """Pearson r, or 0 when it cannot be computed.
+
+    Returns 0 rather than raising for a constant column, which is exactly the
+    case that matters here: a "winners only" export has constant labels, and a
+    correlation against a constant is not weak evidence, it is none.
+    """
+    n = min(len(xs), len(ys))
+    if n < 3:
+        return 0.0
+    mean_x, mean_y = _mean(xs[:n]), _mean(ys[:n])
+    dx = [x - mean_x for x in xs[:n]]
+    dy = [y - mean_y for y in ys[:n]]
+    top = sum(a * b for a, b in zip(dx, dy, strict=False))
+    left = math.sqrt(sum(a * a for a in dx))
+    right = math.sqrt(sum(b * b for b in dy))
+    if left < 1e-12 or right < 1e-12:
+        return 0.0
+    return top / (left * right)
+
+
+#: Numeric columns worth correlating against the objectives, and what an editor
+#: would actually do about each.
+_DRIVERS: tuple[tuple[str, str], ...] = (
+    ("pattern_interrupt_sec", "when the first cut lands"),
+    ("pacing_cuts_per_10s", "cuts per ten seconds"),
+    ("contrast_ratio", "contrast of the grade"),
+    ("stop_scroll_ms", "how long the thumb stops"),
+    ("thumbnail_ctr", "cover frame click-through"),
+    ("tempo_bpm", "tempo of the bed"),
+    ("audio_retention_sec", "how long the audio holds"),
+    ("hook_duration", "length of the opening shot"),
+)
+
+
+@dataclass
+class FitReport:
+    """What the model learned, and from what."""
+
+    rows: int
+    simulated_rows: int
+    measured_rows: int
+    #: Mean three-second watch rate among the rows that cleared the threshold.
+    elite_three_second: float = 0.0
+    #: Hook styles ranked by mean three-second watch rate, best first.
+    style_ranking: tuple[tuple[str, float], ...] = ()
+    #: Seconds before the first cut, among the rows that cleared the bar.
+    best_hook_duration: float = 0.0
+    elite_share: float = 0.0
+    elite_loop: float = 0.0
+    #: (column, human name, r against the objective it drives), strongest first.
+    drivers: tuple[tuple[str, str, float], ...] = ()
+    #: Categorical winners: the best value of each descriptive column.
+    best_of: dict[str, tuple[str, float]] = field(default_factory=dict)
+    #: Rows the platform stopped pushing. The only real negative label there is.
+    stalled_rows: int = 0
+    forms: tuple[str, ...] = ()
+    #: Drivers on which two exports disagree about the *direction* of the
+    #: effect. The most useful thing in a multi-source corpus.
+    conflicts: tuple[str, ...] = ()
+    #: Exports whose columns correlate too neatly to be observations.
+    generated_forms: tuple[str, ...] = ()
+    #: The actual hook copy that performed, best first. The only part of this
+    #: report a person can lift straight into a post.
+    best_hooks: tuple[tuple[str, float], ...] = ()
+    #: Exports whose numbers are the right shape but the wrong size.
+    implausible: tuple[str, ...] = ()
+
+    @property
+    def has_negatives(self) -> bool:
+        return self.stalled_rows > 0
+
+    @property
+    def provenance(self) -> str:
+        if self.measured_rows == 0:
+            return (
+                f"fitted on {self.rows} simulated rows and no measured ones — "
+                "this predicts the simulator, not any platform"
+            )
+        if self.simulated_rows == 0:
+            return (
+                f"fitted on {self.measured_rows} measured rows across {len(self.forms)} export(s)"
+            )
+        return (
+            f"fitted on {self.measured_rows} measured rows and "
+            f"{self.simulated_rows} simulated ones — treat the numbers as a rehearsal"
+        )
+
+    @property
+    def caveat(self) -> str:
+        """The one thing most likely to make these numbers misleading."""
+        if self.implausible:
+            return (
+                f"{self.implausible[0]} — the relationships may still be right, "
+                "but the magnitudes are not from a real platform"
+            )
+        if not self.has_negatives and self.measured_rows:
+            return (
+                "no failures in this data — every row is a winner, so it can describe "
+                "what success looks like but not what separates it from anything else"
+            )
+        return ""
+
+    def describe(self) -> str:
+        lines = [self.provenance]
+        if self.caveat:
+            lines += ["", f"⚠ {self.caveat}"]
+        if self.style_ranking:
+            lines += ["", "hook styles by three-second watch rate:"]
+            for name, value in self.style_ranking:
+                lines.append(f"    {value:.0%}  {name}")
+        if self.best_of:
+            lines += ["", "best of each choice, by amplification:"]
+            for column, (value, score) in sorted(self.best_of.items()):
+                lines.append(f"    {column.replace('_', ' '):<20} {value}  ({score:.3f})")
+        if self.drivers:
+            lines += ["", "what actually moves the numbers (Pearson r):"]
+            for _, label, r in self.drivers:
+                direction = "↑" if r > 0 else "↓"
+                lines.append(f"    {direction} {abs(r):.2f}  {label}")
+        if self.generated_forms:
+            lines += ["", "these look generated rather than observed (down-weighted to a tenth):"]
+            for form in self.generated_forms:
+                lines.append(f"    ~ {form} — its columns track each other too neatly")
+        if self.conflicts:
+            lines += ["", "your exports disagree about these — trust the observed one:"]
+            for conflict in self.conflicts:
+                lines.append(f"    ! {conflict}")
+        if self.best_hooks:
+            lines += ["", "the hooks that actually travelled:"]
+            for hook, amplification in self.best_hooks[:4]:
+                lines.append(f"    {amplification:.3f}  {hook[:72]}")
+        if self.best_hook_duration:
+            lines += ["", f"best hooks cut at {self.best_hook_duration:.1f}s"]
+        return "\n".join(lines)
+
+
+def fit(signals: Sequence[Signal]) -> FitReport:
+    """Learn what the winners have in common.
+
+    Deliberately not a regression. With this much data and three objectives the
+    honest model is a conditional average plus a correlation: take the rows that
+    cleared the bar and report what they did. It is interpretable, it cannot
+    overfit in a way nobody notices, and every number in it can be checked by
+    hand against the corpus.
+    """
+    craft = [signal for signal in signals if signal.form in CRAFT_FORMS]
+    if not craft:
+        craft = list(signals)
+    simulated = sum(1 for signal in craft if signal.post_id.startswith("sim_"))
+
+    elite = [s for s in craft if s.three_second_watch_rate >= TARGET_THREE_SECOND_WATCH]
+    sharers = [s for s in craft if s.share_to_view_ratio >= TARGET_SHARE_TO_VIEW]
+    loopers = [s for s in craft if s.loop_count >= TARGET_LOOP_COUNT]
+
+    by_style: dict[str, list[float]] = {}
+    for signal in craft:
+        if signal.hook_style:
+            by_style.setdefault(signal.hook_style, []).append(signal.three_second_watch_rate)
+    ranking = tuple(
+        sorted(
+            ((name, _mean(values)) for name, values in by_style.items()),
+            key=lambda pair: -pair[1],
+        )
+    )
+
+    # Where the first cut should land. `pattern_interrupt_sec` measures exactly
+    # that and is preferred over `hook_duration`, which is the same idea
+    # measured less directly.
+    interrupts = [s.pattern_interrupt_sec for s in elite if s.pattern_interrupt_sec]
+    if not interrupts:
+        interrupts = [s.hook_duration for s in elite if s.hook_duration]
+    if not interrupts:
+        interrupts = [s.pattern_interrupt_sec for s in craft if s.pattern_interrupt_sec]
+
+    # Categorical winners, judged on amplification because that is the column
+    # every form has something like.
+    best_of: dict[str, tuple[str, float]] = {}
+    for column in (
+        "shot_composition",
+        "lighting_setup",
+        "palette_type",
+        "progression_type",
+        "harmonic_key",
+        "emotional_trigger",
+        "theme",
+        "framework",
+        "trigger",
+        "cognitive_bias",
+        "audio_anchor",
+    ):
+        groups: dict[str, list[float]] = {}
+        for signal in craft:
+            value = getattr(signal, column, "")
+            if value:
+                groups.setdefault(value, []).append(signal.amplification)
+        if groups:
+            winner = max(groups.items(), key=lambda pair: _mean(pair[1]))
+            score = _mean(winner[1])
+            # A form with no amplification column produces a "winner" scoring
+            # nought, which is not a winner — it is an absence of measurement.
+            if score > 0:
+                best_of[column] = (winner[0], score)
+
+    # Correlations. Two rules, both learned the hard way:
+    #
+    # 1. Only rows where the objective was *measured*. `three_second_watch_rate`
+    #    is derived from `stop_scroll_ms` when the export lacks it, so
+    #    correlating the two over derived rows returns r = 1.000 — a perfect
+    #    correlation between a number and itself, reported as a finding.
+    # 2. Computed per export, then combined. Pooling a 400-row synthetic matrix
+    #    with a 15-row observed file lets the big one decide every answer, and
+    #    where they disagree that disagreement is the most useful thing in the
+    #    data — see `conflicts`.
+    drivers: list[tuple[str, str, float]] = []
+    conflicts: list[str] = []
+    by_form: dict[str, list[Signal]] = {}
+    for signal in craft:
+        by_form.setdefault(signal.form, []).append(signal)
+
+    # Which exports look generated rather than observed. Real performance data
+    # is noisy: contrast ratio and tempo are set by different people on
+    # different days and do not track each other. When a file shows near-perfect
+    # correlation between variables that have no business being related, every
+    # row is a point on one curve somebody drew — useful as a target, useless
+    # as evidence, and dangerous if it is large enough to outvote the rest.
+    generated: list[str] = []
+    for form, rows in by_form.items():
+        if len(rows) < 20:
+            continue
+        magnitudes: list[float] = []
+        columns = [name for name, _ in _DRIVERS]
+        for index, first in enumerate(columns):
+            for second in columns[index + 1 :]:
+                pairs = [
+                    (getattr(s, first), getattr(s, second))
+                    for s in rows
+                    if getattr(s, first, 0.0) and getattr(s, second, 0.0)
+                ]
+                if len(pairs) >= 10:
+                    magnitudes.append(
+                        abs(_correlation([p[0] for p in pairs], [p[1] for p in pairs]))
+                    )
+        if magnitudes and sorted(magnitudes)[len(magnitudes) // 2] > 0.95:
+            generated.append(form)
+
+    for column, label in _DRIVERS:
+        for objective in ("three_second_watch_rate", "share_to_view_ratio", "loop_count"):
+            per_form: list[tuple[str, float, int]] = []
+            for form, rows in by_form.items():
+                pairs = [
+                    (getattr(s, column), getattr(s, objective))
+                    for s in rows
+                    if getattr(s, column, 0.0) and getattr(s, objective, 0.0)
+                    # Skip only genuinely circular pairs — an objective
+                    # derived from *this* column. Excluding every derived
+                    # objective was too blunt: it threw away tempo against
+                    # loop count, which is a unit conversion, not a tautology.
+                    and not s.is_circular(objective, column)
+                ]
+                if len(pairs) < 5:
+                    continue
+                per_form.append(
+                    (form, _correlation([p[0] for p in pairs], [p[1] for p in pairs]), len(pairs))
+                )
+            if not per_form:
+                continue
+
+            strong = [item for item in per_form if abs(item[1]) >= 0.25]
+            if len({item[1] > 0 for item in strong}) > 1:
+                where = ", ".join(f"{form} r={r:+.2f}" for form, r, _ in strong)
+                conflicts.append(f"{label}: {where}")
+
+            # Weight by row count, capped, and heavily discounted for an
+            # export that looks generated. Without the discount the 400-row
+            # synthetic matrix decides every question by itself.
+            def weight(form: str, n: int) -> float:
+                return min(n, 50) * (0.1 if form in generated else 1.0)
+
+            total_weight = sum(weight(form, n) for form, _, n in per_form)
+            combined = sum(r * weight(form, n) for form, r, n in per_form) / max(total_weight, 1e-9)
+            if abs(combined) >= 0.25:
+                # Down-weighting cannot help when the generated export is the
+                # *only* contributor: a tenth of the only vote is still the
+                # only vote. Say so rather than printing r=1.00 as a finding.
+                only_generated = all(form in generated for form, _, _ in per_form)
+                suffix = "  [generated data only]" if only_generated else ""
+                drivers.append(
+                    (column, f"{label} → {objective.replace('_', ' ')}{suffix}", combined)
+                )
+    drivers.sort(key=lambda item: ("[generated" in item[1], -abs(item[2])))
+
+    # Numbers of the right shape and the wrong size. A 22% share rate is not a
+    # share rate anybody has ever had; a corpus built around one can still teach
+    # which lever beats which, and cannot be quoted as a forecast.
+    implausible: list[str] = []
+    for form, rows in by_form.items():
+        shares = sorted(s.share_to_view_ratio for s in rows if s.share_to_view_ratio)
+        if len(shares) >= 10 and shares[len(shares) // 2] > 0.15:
+            implausible.append(
+                f"{form} has a median share rate of {shares[len(shares) // 2]:.0%}, "
+                "several times anything a platform actually sees"
+            )
+        # The more revealing tell. A real corpus has posts people left; one
+        # where the median viewer watches the whole thing has no drop-off in
+        # it at all, so nothing in it can teach an agent about retention.
+        completions = sorted(s.completion_rate for s in rows if s.completion_rate)
+        if len(completions) >= 10 and completions[len(completions) // 2] >= 0.99:
+            implausible.append(
+                f"{form}: the median post is watched to completion, so there is no "
+                "drop-off anywhere in it to learn pacing from"
+            )
+
+    return FitReport(
+        rows=len(craft),
+        simulated_rows=simulated,
+        measured_rows=len(craft) - simulated,
+        elite_three_second=_mean([s.three_second_watch_rate for s in elite]),
+        style_ranking=ranking,
+        best_hook_duration=_mean(interrupts),
+        elite_share=_mean([s.share_to_view_ratio for s in sharers]),
+        elite_loop=_mean([s.loop_count for s in loopers]),
+        drivers=tuple(drivers[:8]),
+        best_of=best_of,
+        stalled_rows=sum(1 for s in signals if s.stalled),
+        forms=tuple(sorted({s.form for s in signals})),
+        conflicts=tuple(conflicts),
+        generated_forms=tuple(sorted(generated)),
+        implausible=tuple(implausible),
+        best_hooks=tuple(
+            (signal.hook, signal.amplification)
+            for signal in sorted(
+                (s for s in craft if s.hook.strip()),
+                key=lambda s: -s.amplification,
+            )[:6]
+        ),
+    )
+
+
+@dataclass
+class Objective:
+    """One score, and the sentence that explains it."""
+
+    name: str
+    score: float
+    predicted: float
+    target: float
+    note: str
+
+    @property
+    def meets_target(self) -> bool:
+        return self.predicted >= self.target
+
+    def to_json(self) -> dict:
+        return {
+            "name": self.name,
+            "score": round(self.score, 4),
+            "predicted": round(self.predicted, 4),
+            "target": self.target,
+            "meets_target": self.meets_target,
+            "note": self.note,
+        }
+
+
+@dataclass
+class Prediction:
+    """What the model expects of an edit, objective by objective."""
+
+    hook: Objective
+    share: Objective
+    loop: Objective
+    retention_curve: tuple[float, ...] = ()
+    runtime: float = 0.0
+    notes: list[str] = field(default_factory=list)
+
+    @property
+    def objectives(self) -> tuple[Objective, ...]:
+        return (self.hook, self.share, self.loop)
+
+    @property
+    def overall(self) -> float:
+        """One number, weighted the way the brief weights them.
+
+        Amplification leads because a share is what leaves the seed pool; the
+        hook is what earns the chance to be shared; the loop multiplies both.
+        """
+        return self.hook.score * 0.35 + self.share.score * 0.45 + self.loop.score * 0.20
+
+    @property
+    def weakest(self) -> Objective:
+        return min(self.objectives, key=lambda objective: objective.score)
+
+    def drop_off_second(self) -> float:
+        if len(self.retention_curve) < 2 or self.runtime <= 0:
+            return 0.0
+        step = self.runtime / (len(self.retention_curve) - 1)
+        worst_index, worst_drop = 1, 0.0
+        for index in range(1, len(self.retention_curve)):
+            drop = self.retention_curve[index - 1] - self.retention_curve[index]
+            if drop > worst_drop:
+                worst_index, worst_drop = index, drop
+        return round(worst_index * step, 2)
+
+    def to_json(self) -> dict:
+        return {
+            "overall": round(self.overall, 4),
+            "objectives": [objective.to_json() for objective in self.objectives],
+            "retention_curve": [round(value, 4) for value in self.retention_curve],
+            "runtime": round(self.runtime, 2),
+            "drop_off_second": self.drop_off_second(),
+            "notes": list(self.notes),
+        }
+
+    def describe(self) -> str:
+        lines = [f"predicted overall {self.overall:.0%}"]
+        for objective in self.objectives:
+            mark = "✓" if objective.meets_target else "·"
+            lines.append(
+                f"  {mark} {objective.name:<8} {objective.predicted:.3f} "
+                f"(target {objective.target:.2f}) — {objective.note}"
+            )
+        if self.retention_curve:
+            lines.append(f"  steepest drop-off at {self.drop_off_second():.1f}s")
+        return "\n".join(lines)
+
+
+def _opening_seconds(edl: EditDecisionList) -> float:
+    """How long before the first cut. This is the hook, mechanically."""
+    return edl.shots[0].duration if edl.shots else 0.0
+
+
+def _seam(edl: EditDecisionList) -> float:
+    """How well the end flows back into the beginning, 0..1.
+
+    Judged on what an editor can actually control from the timeline: whether
+    the last shot returns to the clip the first shot came from, whether the
+    final transition is a hard cut rather than a fade to black, and whether
+    the last shot is short enough to feel like a turn rather than an ending.
+    """
+    if len(edl.shots) < 2:
+        return 0.0
+    first, last = edl.shots[0], edl.shots[-1]
+
+    same_source = 1.0 if first.clip_id == last.clip_id else 0.0
+    hard_out = 1.0 if last.transition_in.is_cut else 0.4
+    # A long final shot reads as a full stop; a short one hands you back to
+    # the top before you have decided to leave.
+    brevity = max(0.0, min(1.0, 1.6 / max(last.duration, 0.2)))
+    # A fade to black at the end is the single most loop-hostile thing an edit
+    # can do, and it is the default in most templates.
+    faded_out = any(cue.style == "end-card" and cue.end >= edl.duration - 0.35 for cue in edl.texts)
+    penalty = 0.25 if faded_out else 0.0
+
+    return max(0.0, same_source * 0.45 + hard_out * 0.25 + brevity * 0.30 - penalty)
+
+
+def _text_lands_early(edl: EditDecisionList) -> bool:
+    """Is there a word on screen before the first cut."""
+    opening = _opening_seconds(edl)
+    return any(cue.start < max(opening, 0.6) for cue in edl.texts)
+
+
+def predict(edl: EditDecisionList, report: FitReport) -> Prediction:
+    """Score a planned edit against the three objectives.
+
+    Everything read here is a property of the timeline, so an agent that wants
+    a better score has to change the edit, which is the point. Nothing here
+    inspects pixels: the renderer has not run yet.
+    """
+    runtime = edl.duration
+    opening = _opening_seconds(edl)
+    notes: list[str] = []
+
+    # -- hook ------------------------------------------------------------
+    ideal = report.best_hook_duration or 1.6
+    # Distance from the ideal opening length, in seconds, softened so that
+    # being half a second out is a nudge rather than a verdict.
+    distance = abs(opening - ideal)
+    #
+    # Two independent contributions rather than a bonus on top of one. Adding
+    # the text bonus to a timing score that already reached 1.0 did nothing,
+    # which made "land the title earlier" a proposal that could never show a
+    # gain on any well-timed edit — the agent was right and the model could
+    # not hear it. Splitting the weight lets each be earned separately.
+    timing = math.exp(-((distance / 1.4) ** 2))
+    early_text = 1.0 if _text_lands_early(edl) else 0.0
+    hook_score = 0.82 * timing + 0.18 * early_text
+    if not early_text:
+        notes.append("nothing on screen before the first cut — the hook is carrying it alone")
+    if opening > 3.0:
+        notes.append(f"the first shot runs {opening:.1f}s; the winners cut by {ideal:.1f}s")
+
+    predicted_three_second = max(
+        0.05, min(0.99, (report.elite_three_second or 0.85) * (0.55 + 0.45 * hook_score))
+    )
+    hook = Objective(
+        name="hook",
+        score=hook_score,
+        predicted=predicted_three_second,
+        target=TARGET_THREE_SECOND_WATCH,
+        note=f"first cut at {opening:.1f}s",
+    )
+
+    # -- loop ------------------------------------------------------------
+    seam = _seam(edl)
+    predicted_loop = 1.0 + (report.elite_loop - 1.0 if report.elite_loop else 0.8) * seam
+    loop = Objective(
+        name="loop",
+        score=seam,
+        predicted=predicted_loop,
+        target=TARGET_LOOP_COUNT,
+        note=(
+            "ends where it started"
+            if seam > 0.7
+            else "the ending does not hand you back to the top"
+        ),
+    )
+
+    # -- share -----------------------------------------------------------
+    # Completion is what shares grow out of, and completion falls with runtime
+    # and rises with pace. Both are timeline facts.
+    pace = len(edl.shots) / max(runtime, 1.0)
+    length_penalty = max(0.0, min(0.6, (runtime - 18.0) / 45.0))
+    predicted_completion = max(
+        0.05, min(0.98, predicted_three_second * (0.72 + 0.10 * min(pace, 2.5)) - length_penalty)
+    )
+    predicted_share = max(
+        0.0, 0.004 + 0.085 * predicted_completion + 0.022 * max(0.0, predicted_loop - 1.0)
+    )
+    share_score = max(0.0, min(1.0, predicted_share / (TARGET_SHARE_TO_VIEW * 1.6)))
+    if runtime > 30:
+        notes.append(f"{runtime:.0f}s is long for a share — completion is what people pass on")
+    share = Objective(
+        name="share",
+        score=share_score,
+        predicted=predicted_share,
+        target=TARGET_SHARE_TO_VIEW,
+        note=f"predicted completion {predicted_completion:.0%}",
+    )
+
+    curve = tuple(
+        round(
+            predicted_three_second
+            * math.exp(
+                math.log(max(predicted_completion, 1e-4) / max(predicted_three_second, 1e-4))
+                * (index / 9)
+            ),
+            4,
+        )
+        for index in range(10)
+    )
+
+    return Prediction(
+        hook=hook, share=share, loop=loop, retention_curve=curve, runtime=runtime, notes=notes
+    )

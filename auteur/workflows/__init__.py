@@ -51,6 +51,8 @@ __all__ = [
     "package",
     "resolve",
     "run",
+    "wanted_duration",
+    "with_agents",
 ]
 
 
@@ -142,6 +144,36 @@ def wanted_duration(spec: PlatformSpec, prompt: str, length: float | None = None
     return spec.fit_duration(asked)
 
 
+def with_agents(spec: PlatformSpec, crew, *, on_result=None):
+    """A plan hook that lets the agents re-cut before anything renders.
+
+    Composed with `keep_text_readable`, and deliberately running *before* it:
+    the agents move titles around to win the first three seconds, and the safe
+    area gets the last word on where a title may actually sit. An agent
+    optimising a hook does not know that the bottom fifth of the frame is a
+    caption box, and it should not have to.
+    """
+    readable = keep_text_readable(spec)
+
+    def adjust(edl: EditDecisionList) -> None:
+        result = crew.run(edl)
+        # The crew works on a copy so a bad proposal cannot damage the original.
+        # Copy the survivor back onto the EDL the renderer is holding.
+        edl.shots = result.edl.shots
+        edl.texts = result.edl.texts
+        log.info(
+            "agents: predicted %.0f%% -> %.0f%% over %d round(s)",
+            result.baseline.overall * 100,
+            result.final.overall * 100,
+            len(result.rounds),
+        )
+        readable(edl)
+        if on_result is not None:
+            on_result(result)
+
+    return adjust
+
+
 def run(
     platform: str,
     inputs: list[str | Path],
@@ -152,12 +184,18 @@ def run(
     length: float | None = None,
     reporter: Reporter | None = None,
     settings: Settings | None = None,
+    crew=None,
+    on_agents=None,
 ) -> tuple[Deliverable, object]:
     """Make one post, start to finish. Returns (deliverable, production).
 
     The production comes back too because everything interesting about *why*
     the film is the way it is lives on it, and a caller that only wants the
     file can ignore it.
+
+    Pass a `crew` to let the agents re-cut the edit before it renders. They work
+    on the planned timeline, keep only what improves the prediction, and ask a
+    person about anything their gate says needs one.
     """
     from ..agent import direct  # imported here to keep `auteur --help` fast
 
@@ -185,7 +223,11 @@ def run(
         formats=(spec.format,),
         duration=seconds,
         reporter=say,
-        on_plan=keep_text_readable(spec),
+        on_plan=(
+            with_agents(spec, crew, on_result=on_agents)
+            if crew is not None
+            else keep_text_readable(spec)
+        ),
     )
 
     video = production.primary

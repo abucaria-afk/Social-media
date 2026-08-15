@@ -367,3 +367,39 @@ input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   color: var(--text-muted);
   font-size: 14px;
 }
+
+/* The link through to the studio. Sits under the main form on the first
+   screen: visible, and not competing with the one button that matters. */
+.studio-link {
+  display: block;
+  text-decoration: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ember);
+  border-radius: 0.85rem;
+  padding: 0.85rem 1rem;
+  margin: 1rem 0;
+  transition: border-color 0.15s;
+}
+
+.studio-link:hover { border-color: var(--ember); }
+
+.studio-link-title {
+  display: block;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.98rem;
+}
+
+.studio-link-title::after {
+  content: " →";
+  color: var(--ember-text);
+}
+
+.studio-link-note {
+  display: block;
+  color: var(--text-faint);
+  font-size: 0.82rem;
+  margin-top: 0.15rem;
+  line-height: 1.4;
+}

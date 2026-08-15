@@ -56,6 +56,21 @@ The second scan of a folder only looks at what changed, so it is quick.
 The index is one JSON file; deleting it costs a rescan and nothing else.
 """
 
+INSIGHT_EXAMPLES = """examples:
+  auteur insight fit ./exports/*.csv       what the winners have in common
+  auteur insight simulate --rows 5000 -o practice.csv
+  auteur insight fit                       fit on simulated data alone
+
+the three objectives:
+  hook    three_second_watch_rate  above 0.80
+  share   share_to_view_ratio      above 0.05
+  loop    loop_count               above 1.5
+
+With no exports it will fit a model to numbers it invented, because
+rehearsing the machinery is worth doing before there is data to run it on.
+It says so every time. Do not quote those numbers as evidence.
+"""
+
 SCHEDULE_EXAMPLES = """examples:
   auteur schedule                     what is queued
   auteur schedule due                 what should go out now
@@ -95,7 +110,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{edit,workflow,media,schedule,demo,serve,account,analyse,looks}",
+        metavar="{edit,workflow,insight,media,schedule,demo,serve,account,analyse,looks}",
     )
 
     edit = sub.add_parser(
@@ -248,6 +263,40 @@ def _build_parser() -> argparse.ArgumentParser:
         "--no-ai", action="store_true", help="never call Claude; use the built-in editor"
     )
     workflow.add_argument("--seed", type=int, default=None, help="change this for a different cut")
+    workflow.add_argument(
+        "--agents",
+        default="off",
+        choices=["off", "manual", "supervised", "autonomous"],
+        help="let the hook/share/loop agents re-cut before rendering; "
+        "supervised asks you about anything structural",
+    )
+    workflow.add_argument(
+        "--data",
+        action="append",
+        default=None,
+        metavar="CSV",
+        help="a performance export to train the agents on (repeatable)",
+    )
+
+    insight = sub.add_parser(
+        "insight",
+        help="what your performance data says about hooks, shares and loops",
+        epilog=INSIGHT_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    insight.add_argument(
+        "action",
+        nargs="?",
+        default="fit",
+        choices=["fit", "simulate", "score"],
+        help="fit (default) reads your exports, simulate writes a practice corpus",
+    )
+    insight.add_argument("paths", nargs="*", metavar="CSV", help="performance exports")
+    insight.add_argument(
+        "--rows", type=int, default=2000, help="simulated rows to add (0 for measured only)"
+    )
+    insight.add_argument("-o", "--out", default=None, metavar="FILE", help="where to write")
+    insight.add_argument("--json", action="store_true", help="machine-readable output")
 
     media = sub.add_parser(
         "media",
@@ -667,6 +716,27 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
     if args.seed is not None:
         settings.seed = args.seed
 
+    crew = None
+    agent_result: dict = {}
+    if args.agents != "off":
+        from .agents import Crew, default_crew
+
+        say.step("Reading what your data says")
+        crew = Crew(
+            default_crew(),
+            _model_for(args, say),
+            gate=_terminal_gate(args.agents),
+            max_rounds=3,
+        )
+        say.detail(
+            f"hook, share and loop agents running {args.agents}"
+            + (
+                " — you will be asked about anything structural"
+                if args.agents != "autonomous"
+                else ""
+            )
+        )
+
     say.banner(f"{prompt}  ·  for {spec.service} {spec.surface}")
     try:
         deliverable, production = workflows.run(
@@ -678,6 +748,8 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
             length=args.length,
             reporter=say,
             settings=settings,
+            crew=crew,
+            on_agents=lambda result: agent_result.setdefault("result", result),
         )
     except FileNotFoundError as exc:
         say.failure("I could not find any footage to edit", str(exc))
@@ -722,6 +794,21 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
 
         facts.append(f"queued for {describe_time(queued.when)}")
 
+    crewed = agent_result.get("result")
+    if crewed is not None:
+        facts.insert(
+            0,
+            f"agents: predicted {crewed.baseline.overall:.0%} → {crewed.final.overall:.0%}"
+            f" ({len(crewed.applied)} change(s) applied)",
+        )
+        say.blank()
+        for line in crewed.describe().splitlines():
+            print(f"     {line}")
+        if deliverable.folder:
+            (deliverable.folder / "agents.json").write_text(
+                json.dumps(crewed.to_json(), indent=2), encoding="utf-8"
+            )
+
     files = [(f"{spec.service} {spec.surface}", str(deliverable.video))]
     if deliverable.cover:
         files.append(("cover frame", str(deliverable.cover)))
@@ -731,6 +818,108 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
     say.result(headline=f"Ready for {spec.service}", facts=facts, files=files)
     if args.quiet:
         print(deliverable.video)
+    return 0
+
+
+def _terminal_gate(mode_name: str):
+    """A gate that asks at the terminal, and refuses if nobody is there.
+
+    `input()` on a pipe raises EOFError, which is exactly the situation where
+    silently approving would be worst: an unattended run deciding on its own
+    behalf. So that case is a no.
+    """
+    from .agents import Gate, Mode
+
+    def ask(proposal) -> tuple[str, str]:
+        print()
+        print(f"  {proposal.describe()}")
+        print()
+        try:
+            answer = input("     apply this? [y/N or a note] ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("     (nobody there — leaving it alone)")
+            return "reject", "no reviewer at the terminal"
+        if answer.lower() in ("y", "yes"):
+            return "approve", ""
+        if answer.lower() in ("", "n", "no"):
+            return "reject", "declined"
+        return "reject", answer
+
+    return Gate(Mode(mode_name), on_ask=ask)
+
+
+def _model_for(args: argparse.Namespace, say: Reporter):
+    """Fit the virality model from whatever data this run was given."""
+    from .insight import corpus, fit
+
+    exports = list(getattr(args, "data", None) or [])
+    model = fit(corpus(exports, simulate_rows=2000))
+    say.detail(model.provenance)
+    return model
+
+
+def _run_insight(args: argparse.Namespace, say: Reporter) -> int:
+    """What the performance data says about hooks, shares and loops."""
+    from .insight import corpus, fit, load, simulate, write_csv
+
+    if args.action == "simulate":
+        rows = simulate(max(1, args.rows))
+        destination = Path(args.out) if args.out else Path.cwd() / "auteur-practice-data.csv"
+        write_csv(rows, destination)
+        say.result(
+            headline="Practice data written",
+            facts=[
+                f"{len(rows)} simulated rows — every id starts `sim_`",
+                "invented numbers for rehearsing on, not observations of anything",
+            ],
+            files=[("the corpus", str(destination))],
+        )
+        return 0
+
+    try:
+        measured = load(args.paths) if args.paths else []
+        model = fit(corpus(args.paths, simulate_rows=max(0, args.rows)))
+    except (FileNotFoundError, ValueError) as exc:
+        say.failure("I could not read that export", str(exc))
+        return 1
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "provenance": model.provenance,
+                    "rows": model.rows,
+                    "measured_rows": model.measured_rows,
+                    "simulated_rows": model.simulated_rows,
+                    "elite_three_second": round(model.elite_three_second, 4),
+                    "elite_share": round(model.elite_share, 4),
+                    "elite_loop": round(model.elite_loop, 4),
+                    "best_hook_duration": round(model.best_hook_duration, 3),
+                    "style_ranking": [
+                        [name, round(value, 4)] for name, value in model.style_ranking
+                    ],
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    print()
+    print("  " + model.describe().replace("\n", "\n  "))
+    print()
+    if measured:
+        print("  your posts, most amplified first:")
+        print()
+        for signal in sorted(measured, key=lambda s: -s.amplification)[:8]:
+            source = "measured" if signal.has("three_second_watch_rate") else "derived "
+            print(
+                f"      {signal.post_id:<8} {signal.form:<17} "
+                f"3s {signal.three_second_watch_rate:.2f} ({source})  "
+                f"amp {signal.amplification:.3f}   {signal.hook[:36]}"
+            )
+        print()
+    print("  targets:   hook 0.80 at three seconds  ·  share 0.05 of views  ·  loop 1.5 plays")
+    print()
     return 0
 
 
@@ -915,6 +1104,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_media(args, say)
         if args.command == "schedule":
             return _run_schedule(args, say)
+        if args.command == "insight":
+            return _run_insight(args, say)
     except KeyboardInterrupt:
         say.failure("stopped")
         return 130

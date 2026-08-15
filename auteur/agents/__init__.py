@@ -1,0 +1,48 @@
+"""Autonomous editing agents, and the gate that keeps a person in the loop.
+
+    from auteur.agents import Crew, Gate, Mode, default_crew
+    from auteur.insight import corpus, fit
+
+    model = fit(corpus(["exports/short_form_video.csv"]))
+    crew = Crew(default_crew(), model, gate=Gate(Mode.SUPERVISED, on_ask=ask))
+    result = crew.run(edl)
+
+Three agents, one objective each — hook, share, loop. They propose, the crew
+scores every proposal against the model and keeps only what improves the
+overall prediction, and `Gate` decides which of those need a human first.
+
+Autonomy stops short of publishing, in every mode. See `base.Gate.may_publish`.
+"""
+
+from __future__ import annotations
+
+from .base import (
+    Agent,
+    Change,
+    Crew,
+    CrewResult,
+    Decision,
+    Gate,
+    Mode,
+    Proposal,
+    Risk,
+    Round,
+)
+from .editors import HookAgent, LoopAgent, ShareAgent, default_crew
+
+__all__ = [
+    "Agent",
+    "Change",
+    "Crew",
+    "CrewResult",
+    "Decision",
+    "Gate",
+    "HookAgent",
+    "LoopAgent",
+    "Mode",
+    "Proposal",
+    "Risk",
+    "Round",
+    "ShareAgent",
+    "default_crew",
+]

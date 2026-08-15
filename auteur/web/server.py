@@ -35,6 +35,15 @@ from ..ui import Reporter, describe_count, describe_duration, describe_shape
 log = logging.getLogger("auteur.web")
 
 STATIC = Path(__file__).resolve().parent / "static"
+
+#: Where performance exports are read from, if there are any. Outside the
+#: repository and gitignored — it is your account's data, not the project's.
+#: With nothing here the studio fits on simulated rows and says so.
+EXPORTS = (
+    Path(os.environ.get("AUTEUR_EXPORTS", ""))
+    if os.environ.get("AUTEUR_EXPORTS")
+    else (Path.cwd() / "auteur-exports")
+)
 #: Anything bigger than this is refused rather than swallowing the machine.
 MAX_UPLOAD = 2 * 1024 * 1024 * 1024  # 2 GB
 #: How much of a file to put on the wire at a time.
@@ -171,6 +180,9 @@ class Studio:
         self.lock = threading.Lock()
         # Rendering is CPU-bound; running two at once just makes both slower.
         self.queue_lock = threading.Lock()
+        #: owner -> the last edit they planned. The studio page works on this:
+        #: the agents argue about a cut that already exists, not about a prompt.
+        self.recent_edls: dict[str, Any] = {}
 
     def create(self, prompt: str, shape: str, seconds: float | None, owner: str = "") -> Job:
         self.sweep()
@@ -200,6 +212,19 @@ class Studio:
         if owner is not None and job.owner and job.owner != owner:
             return None
         return job
+
+    def last_edl(self, owner: str | None):
+        """The most recent cut this person made, for the agents to work on.
+
+        Returns a *copy*: the studio hands it to agents that mutate it, and the
+        finished job's own timeline must not change under the report that
+        describes it.
+        """
+        import copy
+
+        with self.lock:
+            edl = self.recent_edls.get(owner or "")
+        return copy.deepcopy(edl) if edl is not None else None
 
     def _run(self, job: Job, shape: str, seconds: float | None) -> None:
         from ..agent import direct
@@ -237,6 +262,7 @@ class Studio:
                     facts.append(f"it rates itself {critique.score:.0%}")
 
                 with self.lock:
+                    self.recent_edls[job.owner] = production.edl
                     job.video = production.primary
                     job.notes = production.workspace.root / "production-notes.md"
                     job.facts = facts
@@ -514,6 +540,61 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- routes ----------------------------------------------------------
 
+    # -- the studio ------------------------------------------------------
+
+    #: The fitted model, kept on the class so it is computed once per server
+    #: rather than once per request. Fitting is cheap, but the page polls.
+    _model = None
+    #: The last plan the studio produced, with its outstanding proposals. One
+    #: per server, deliberately: this is a single-operator edit room, and a
+    #: second concurrent planner would be two people arguing through one UI.
+    _pending: dict = {}
+
+    @staticmethod
+    def _platforms() -> list[dict]:
+        from ..workflows.platforms import PLATFORMS
+
+        return [
+            {
+                "name": spec.name,
+                "service": spec.service,
+                "surface": spec.surface,
+                "width": spec.format.width,
+                "height": spec.format.height,
+                "min_seconds": spec.min_seconds,
+                "max_seconds": spec.max_seconds,
+                "ideal_seconds": spec.ideal_seconds,
+                "note": spec.note,
+            }
+            for spec in PLATFORMS.values()
+        ]
+
+    @classmethod
+    def _fitted(cls):
+        if cls._model is None:
+            from ..insight import corpus, fit
+
+            exports = sorted(Path(EXPORTS).glob("*.csv")) if EXPORTS.exists() else []
+            cls._model = fit(corpus(exports, simulate_rows=2000 if not exports else 0))
+        return cls._model
+
+    def _insight(self) -> dict:
+        model = self._fitted()
+        return {
+            "provenance": model.provenance,
+            "caveat": model.caveat,
+            "elite_three_second": round(model.elite_three_second, 4),
+            "elite_share": round(model.elite_share, 4),
+            "elite_loop": round(model.elite_loop, 4),
+            "best_hook_duration": round(model.best_hook_duration, 2),
+            "drivers": [[column, label, round(r, 3)] for column, label, r in model.drivers],
+            "style_ranking": [[name, round(v, 4)] for name, v in model.style_ranking],
+            "conflicts": list(model.conflicts),
+            "generated_forms": list(model.generated_forms),
+            "measured_rows": model.measured_rows,
+            "simulated_rows": model.simulated_rows,
+        }
+
     def _allowed(self, path: str) -> bool:
         """Whether this request may proceed without signing in."""
         if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES):
@@ -547,6 +628,15 @@ class Handler(BaseHTTPRequestHandler):
 
         if path in ("/", "/index.html"):
             self._static(STATIC / "index.html", "text/html; charset=utf-8")
+            return
+        if path in ("/studio", "/studio.html"):
+            self._static(STATIC / "studio.html", "text/html; charset=utf-8")
+            return
+        if path == "/api/platforms":
+            self._json({"platforms": self._platforms()})
+            return
+        if path == "/api/insight":
+            self._json(self._insight())
             return
         if path.startswith("/static/"):
             self._static(STATIC / Path(path).name)
@@ -693,6 +783,104 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         return payload if isinstance(payload, dict) else {}
 
+    def _agents_plan(self) -> None:
+        """Plan a cut and collect what the agents want to change.
+
+        Nothing renders here. The point of the studio is that a person sees the
+        proposals *before* the machine spends three minutes acting on them.
+        """
+        from ..agents import Crew, Gate, Mode, default_crew
+        from ..workflows import resolve
+
+        payload = self._json_body()
+        try:
+            spec = resolve(str(payload.get("platform", "tiktok")))
+        except ValueError as exc:
+            self._json({"error": str(exc)}, 400)
+            return
+        mode_name = str(payload.get("mode", "supervised"))
+        if mode_name == "off":
+            self._json({"proposals": [], "prediction": None})
+            return
+        try:
+            mode = Mode(mode_name)
+        except ValueError:
+            self._json({"error": f"unknown mode {mode_name!r}"}, 400)
+            return
+
+        edl = self.studio.last_edl(self.current_user())
+        if edl is None:
+            self._json(
+                {"error": "Make a film first — the agents work on a cut, not on a prompt."}, 409
+            )
+            return
+
+        held: list = []
+
+        def hold(proposal) -> tuple[str, str]:
+            # Every proposal needing a person is parked, not answered. The page
+            # renders them and the human decides; a server that answered on
+            # their behalf would make the gate decorative.
+            held.append(proposal)
+            return "reject", "waiting for you"
+
+        crew = Crew(default_crew(), self._fitted(), gate=Gate(mode, on_ask=hold), max_rounds=3)
+        result = crew.run(edl)
+
+        type(self)._pending = {
+            "user": self.current_user(),
+            "platform": spec.name,
+            "edl": result.edl,
+            "proposals": [p for round_ in result.rounds for p in round_.proposals],
+        }
+        self._json(
+            {
+                "prediction": result.final.to_json(),
+                "baseline": result.baseline.to_json(),
+                "proposals": [p.to_json() for p in type(self)._pending["proposals"]],
+                "waiting": len(held),
+            }
+        )
+
+    def _agents_decide(self) -> None:
+        """Apply or discard one held proposal."""
+        from ..insight import predict
+
+        payload = self._json_body()
+        pending = type(self)._pending
+        if not pending or pending.get("user") != self.current_user():
+            self._json({"error": "nothing waiting for a decision"}, 409)
+            return
+
+        proposals = pending["proposals"]
+        try:
+            index = int(payload.get("index", -1))
+            proposal = proposals[index]
+        except (TypeError, ValueError, IndexError):
+            self._json({"error": "no such proposal"}, 404)
+            return
+
+        answer = str(payload.get("answer", "reject"))
+        proposal.decided_by = "human"
+        if answer == "approve":
+            try:
+                proposal.change(pending["edl"])
+            except Exception as exc:  # noqa: BLE001 - report, do not crash the room
+                proposal.decision_note = f"could not apply: {exc}"
+                self._json({"error": proposal.decision_note}, 400)
+                return
+            proposal.applied = True
+            proposal.decision_note = "you applied it"
+        else:
+            proposal.decision_note = "you left it"
+
+        self._json(
+            {
+                "proposals": [p.to_json() for p in proposals],
+                "prediction": predict(pending["edl"], self._fitted()).to_json(),
+            }
+        )
+
     def do_POST(self) -> None:  # noqa: N802 - stdlib naming
         path = self.path.split("?", 1)[0]
 
@@ -717,6 +905,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if not self._allowed(path):
             self._json({"error": "Please sign in."}, 401)
+            return
+        if path == "/api/agents/plan":
+            self._agents_plan()
+            return
+        if path == "/api/agents/decide":
+            self._agents_decide()
             return
         if path != "/api/jobs":
             self._json({"error": "not found"}, 404)

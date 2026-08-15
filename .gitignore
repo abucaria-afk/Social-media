@@ -32,3 +32,7 @@ __pycache__/
 .pytest_cache/
 build/
 dist/
+
+# Performance exports: your account's data, not the project's.
+auteur-exports/
+auteur-practice-data.csv

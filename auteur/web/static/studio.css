@@ -1,0 +1,451 @@
+/* The studio page.
+ *
+ * Every colour is a variable from theme.css, which is generated from
+ * auteur/theme.py — the same palette the films are graded in. Nothing here
+ * hard-codes a hex, so changing the theme changes this page too.
+ *
+ * Laid out for a phone first, because that is where somebody approves a
+ * proposal while standing up. Wider screens get two columns and nothing else.
+ */
+
+/* The header. Named `sbar` rather than `bar` on purpose: style.css already
+ * owns `.card` and `.bar`, and the first version of this page inherited
+ * `display:flex` from `.card` and laid every panel out sideways. Sharing a
+ * class name with another stylesheet is borrowing a variable you did not
+ * declare. */
+.sbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  padding: calc(0.7rem + env(safe-area-inset-top)) 1rem 0.7rem;
+  background: color-mix(in srgb, var(--ground) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+  max-width: 44rem;
+  margin: 0 auto;
+}
+
+.sbar-back {
+  color: var(--ember-text);
+  text-decoration: none;
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.sbar-title {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.sbar-note {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 0.74rem;
+  text-align: right;
+  line-height: 1.3;
+}
+
+.studio-wrap {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 0 1rem calc(3rem + env(safe-area-inset-bottom));
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  padding: 1.1rem;
+  margin: 1rem 0;
+}
+
+.panel-title {
+  font-size: 0.82rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+
+.panel-hint {
+  color: var(--text-faint);
+  font-size: 0.9rem;
+  margin: 0 0 0.9rem;
+  line-height: 1.45;
+}
+
+.panel-sub {
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin: 1.4rem 0 0.6rem;
+  font-weight: 600;
+}
+
+/* -- destinations ------------------------------------------------------ */
+
+.platforms {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.5rem;
+}
+
+.platform {
+  appearance: none;
+  text-align: left;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  padding: 0.7rem 0.8rem;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.14s, transform 0.14s;
+}
+
+.platform:hover { border-color: var(--ember); }
+.platform:active { transform: scale(0.985); }
+
+.platform.is-on {
+  border-color: var(--ember);
+  box-shadow: inset 0 0 0 1px var(--ember);
+}
+
+.platform-name { display: block; font-weight: 600; font-size: 0.95rem; }
+.platform-spec {
+  display: block;
+  color: var(--text-faint);
+  font-size: 0.78rem;
+  margin-top: 0.15rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- targets ----------------------------------------------------------- */
+
+.targets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+
+.target {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  padding: 0.7rem;
+  text-align: center;
+}
+
+.target-value {
+  display: block;
+  font-size: 1.35rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ember-text);
+}
+
+.target-name {
+  display: block;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-top: 0.2rem;
+}
+
+/* -- drawer of drivers -------------------------------------------------- */
+
+.drawer { margin-top: 0.9rem; }
+
+.drawer summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  padding: 0.35rem 0;
+  list-style: none;
+}
+.drawer summary::-webkit-details-marker { display: none; }
+.drawer summary::before { content: "▸ "; color: var(--ember-text); }
+.drawer[open] summary::before { content: "▾ "; }
+
+.drivers { list-style: none; margin: 0.5rem 0 0; padding: 0; }
+
+.drivers li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.86rem;
+}
+.drivers li:last-child { border-bottom: 0; }
+
+.driver-r {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  min-width: 3.4rem;
+}
+.driver-r.up { color: var(--moss); }
+.driver-r.down { color: var(--rust); }
+.driver-note { color: var(--text-faint); font-size: 0.76rem; }
+
+.studio-warn {
+  color: var(--rust);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin: 0.7rem 0 0;
+}
+
+/* -- the dial ----------------------------------------------------------- */
+
+.score-row {
+  display: flex;
+  gap: 1.1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.dial { position: relative; width: 6.5rem; height: 6.5rem; flex: none; }
+.dial svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+
+.dial-track {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 9;
+}
+
+.dial-fill {
+  fill: none;
+  stroke: var(--ember);
+  stroke-width: 9;
+  stroke-linecap: round;
+  /* 2πr for r=52. Set by script as a dash offset. */
+  stroke-dasharray: 326.7;
+  stroke-dashoffset: 326.7;
+  transition: stroke-dashoffset 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dial-value {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.objectives { list-style: none; margin: 0; padding: 0; flex: 1 1 12rem; }
+
+.objective {
+  display: grid;
+  grid-template-columns: 1.2rem 1fr auto;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.32rem 0;
+  font-size: 0.9rem;
+}
+
+.objective-mark { font-weight: 700; }
+.objective.met .objective-mark { color: var(--moss); }
+.objective.missed .objective-mark { color: var(--text-faint); }
+
+.objective-name { text-transform: capitalize; }
+.objective-note {
+  display: block;
+  color: var(--text-faint);
+  font-size: 0.76rem;
+}
+
+.objective-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.objective.met .objective-value { color: var(--moss); }
+
+/* -- retention curve ---------------------------------------------------- */
+
+.curve {
+  position: relative;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  padding: 0.6rem;
+}
+
+.curve svg { display: block; width: 100%; height: 5.5rem; }
+
+.curve-area { fill: var(--ember); opacity: 0.14; }
+.curve-line {
+  fill: none;
+  stroke: var(--ember);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.curve-drop {
+  stroke: var(--rust);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.curve-label {
+  position: absolute;
+  right: 0.7rem;
+  top: 0.5rem;
+  font-size: 0.74rem;
+  color: var(--rust);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- agent modes -------------------------------------------------------- */
+
+.modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.9rem;
+}
+
+.mode {
+  appearance: none;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0.4rem 0.8rem;
+  font: inherit;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.mode.is-on {
+  background: var(--ember);
+  border-color: var(--ember);
+  color: var(--on-ember);
+  font-weight: 600;
+}
+
+/* -- proposals ---------------------------------------------------------- */
+
+.proposals { list-style: none; margin: 0; padding: 0; }
+
+.proposal {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ember);
+  border-radius: 0.7rem;
+  padding: 0.8rem 0.9rem;
+  margin-bottom: 0.6rem;
+}
+
+.proposal.risk-high { border-left-color: var(--rust); }
+.proposal.risk-low { border-left-color: var(--moss); }
+.proposal.is-decided { opacity: 0.55; }
+
+.proposal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.proposal-title { font-weight: 600; font-size: 0.95rem; }
+
+.proposal-gain {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--moss);
+  white-space: nowrap;
+}
+
+.proposal-meta {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-top: 0.15rem;
+}
+
+.proposal-reason {
+  color: var(--text-muted);
+  font-size: 0.87rem;
+  line-height: 1.5;
+  margin: 0.5rem 0 0.7rem;
+}
+
+.proposal-actions { display: flex; gap: 0.45rem; }
+
+.proposal-actions button {
+  appearance: none;
+  font: inherit;
+  font-size: 0.85rem;
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.proposal-actions .yes {
+  background: var(--ember);
+  border-color: var(--ember);
+  color: var(--on-ember);
+  font-weight: 600;
+}
+
+.decided {
+  font-size: 0.82rem;
+  color: var(--text-faint);
+  margin: 0;
+}
+
+.studio-empty {
+  color: var(--text-faint);
+  font-size: 0.88rem;
+  text-align: center;
+  padding: 1rem 0;
+  margin: 0;
+}
+
+/* -- the button --------------------------------------------------------- */
+
+.studio-go {
+  appearance: none;
+  display: block;
+  width: 100%;
+  background: var(--ember);
+  color: var(--on-ember);
+  border: 0;
+  border-radius: 0.85rem;
+  padding: 0.95rem;
+  font: inherit;
+  font-size: 1.02rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 0.4rem;
+}
+
+.studio-go:disabled { opacity: 0.5; cursor: default; }
+
+.studio-foot {
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+  margin: 1rem 0 0;
+}
+.studio-foot a { color: var(--ember-text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .dial-fill { transition: none; }
+  .platform { transition: none; }
+}
