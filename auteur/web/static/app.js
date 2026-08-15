@@ -373,4 +373,33 @@
       }
     }, 1200);
   }
+  // -- scroll reveal animations ----------------------------------------------
+
+  var reveals = document.querySelectorAll(".scroll-reveal, .slide-in-left, .slide-in-right, .scale-in");
+  if (reveals.length && "IntersectionObserver" in window) {
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("is-visible");
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12, rootMargin: "0px 0px -40px 0px" });
+    reveals.forEach(function (el) { observer.observe(el); });
+  } else {
+    // No IntersectionObserver: show everything immediately
+    reveals.forEach(function (el) { el.classList.add("is-visible"); });
+  }
+
+  // Add screen-enter animation class when switching screens
+  var originalShow = show;
+  show = function (name) {
+    originalShow(name);
+    var current = screens[name];
+    if (current) {
+      current.classList.remove("screen-enter");
+      void current.offsetWidth; // force reflow
+      current.classList.add("screen-enter");
+    }
+  };
 })();

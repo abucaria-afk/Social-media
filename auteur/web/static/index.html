@@ -37,6 +37,7 @@
      so it must load first. -->
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/animations.css">
 <title>Auteur — the edit room</title>
 </head>
 <body>
@@ -50,14 +51,14 @@
       <button type="button" id="sign-out">Sign out</button>
     </div>
 
-    <header class="masthead">
+    <header class="masthead scroll-reveal">
       <h1>Auteur</h1>
       <p class="sub">Give it clips. Say what you want. Get a film.</p>
     </header>
 
     <form id="form" novalidate>
 
-      <label class="card picker" for="clips">
+      <label class="card picker scroll-reveal zoom-hover" for="clips" data-delay="1">
         <span class="step-number">1</span>
         <span class="card-body">
           <span class="card-title">Pick your clips</span>
@@ -68,7 +69,7 @@
         <input type="file" id="clips" name="clips" accept="video/*,image/*,audio/*" multiple>
       </label>
 
-      <div class="card">
+      <div class="card scroll-reveal zoom-hover" data-delay="2">
         <span class="step-number">2</span>
         <span class="card-body">
           <label class="card-title" for="prompt">Say what kind of film</label>
@@ -87,7 +88,7 @@
         </span>
       </div>
 
-      <div class="card">
+      <div class="card scroll-reveal zoom-hover" data-delay="3">
         <span class="step-number">3</span>
         <span class="card-body">
           <span class="card-title">How it should look</span>
@@ -107,7 +108,7 @@
 
       <p class="error" id="start-error" role="alert" hidden></p>
 
-      <button type="submit" class="go" id="go">Make my film</button>
+      <button type="submit" class="go press" id="go">Make my film</button>
       <p class="fineprint">It takes a couple of minutes. Keep this page open.</p>
     </form>
 

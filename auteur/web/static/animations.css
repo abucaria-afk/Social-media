@@ -1,0 +1,193 @@
+/* animations.css — Scroll reveals, zooms, transitions, and motion design.
+ *
+ * Every animation respects prefers-reduced-motion. When the reader has asked
+ * their OS to cut motion, these degrade to instant transitions or static.
+ */
+
+/* -- Smooth scrolling globally ------------------------------------------- */
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+/* -- Scroll reveal: elements fade/slide in as they enter the viewport ---- */
+
+.scroll-reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.scroll-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Stagger delays for sequential cards */
+.scroll-reveal[data-delay="1"] { transition-delay: 0.08s; }
+.scroll-reveal[data-delay="2"] { transition-delay: 0.16s; }
+.scroll-reveal[data-delay="3"] { transition-delay: 0.24s; }
+.scroll-reveal[data-delay="4"] { transition-delay: 0.32s; }
+
+/* -- Zoom on hover: subtle scale on interactive elements ----------------- */
+
+.zoom-hover {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.25s ease;
+}
+
+.zoom-hover:hover {
+  transform: scale(1.03);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.zoom-hover:active {
+  transform: scale(0.97);
+}
+
+/* -- Press effect on buttons --------------------------------------------- */
+
+.press {
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.press:active {
+  transform: scale(0.96);
+}
+
+/* -- Fade-in for screen transitions -------------------------------------- */
+
+.screen-enter {
+  animation: screenFadeIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes screenFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* -- Parallax-like subtle float ------------------------------------------ */
+
+.float {
+  animation: gentleFloat 6s ease-in-out infinite;
+}
+
+@keyframes gentleFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+/* -- Pulse for loading / attention --------------------------------------- */
+
+.pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* -- Shimmer for skeleton loading ---------------------------------------- */
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--surface) 25%,
+    var(--raised) 50%,
+    var(--surface) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* -- Slide-in from sides ------------------------------------------------- */
+
+.slide-in-left {
+  opacity: 0;
+  transform: translateX(-30px);
+  transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.slide-in-right {
+  opacity: 0;
+  transform: translateX(30px);
+  transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.slide-in-left.is-visible,
+.slide-in-right.is-visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* -- Scale-in: zoom from center ------------------------------------------ */
+
+.scale-in {
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.scale-in.is-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* -- Focus ring animation for accessibility ------------------------------ */
+
+:focus-visible {
+  outline: 3px solid var(--ember);
+  outline-offset: 3px;
+  border-radius: 4px;
+  transition: outline-offset 0.2s ease;
+}
+
+/* -- Reduced motion: disable all animation ------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-reveal,
+  .slide-in-left,
+  .slide-in-right,
+  .scale-in {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .zoom-hover:hover {
+    transform: none;
+    box-shadow: none;
+  }
+
+  .float,
+  .pulse,
+  .shimmer {
+    animation: none;
+  }
+
+  .screen-enter {
+    animation: none;
+  }
+
+  .press:active {
+    transform: none;
+  }
+}

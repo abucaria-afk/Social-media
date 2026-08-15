@@ -1,2 +1,101 @@
-/* Minimal styles for PWA */
-body { margin: 0; padding: 0; }
+/* Design system for the frontend PWA.
+ * Uses the same token names as auteur/theme.py for consistency.
+ */
+
+:root {
+  --ground: #0c0b0a;
+  --surface: #171614;
+  --raised: #201e1b;
+  --line: #2e2b26;
+  --text: #f2ede4;
+  --text-muted: #a9a49a;
+  --ember: #e9a85c;
+  --ember-text: #e9a85c;
+  --on-ember: #241703;
+  --moss: #8fb283;
+  --rust: #d4785a;
+  --radius: 16px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --ground: #f6f1e6;
+    --surface: #fffdf7;
+    --raised: #efe6d5;
+    --line: #d8cab2;
+    --text: #1c1815;
+    --text-muted: #4d4639;
+    --ember: #e9a85c;
+    --ember-text: #6b4009;
+    --on-ember: #241703;
+    --moss: #2d5433;
+    --rust: #8b2e14;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--ground);
+  color: var(--text);
+  font: 17px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  min-height: 100dvh;
+}
+
+/* Focus accessibility */
+:focus-visible {
+  outline: 3px solid var(--ember);
+  outline-offset: 3px;
+}
+
+/* Post cards */
+.post {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 14px;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.25s ease;
+}
+
+.post:hover {
+  transform: scale(1.02);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .post:hover { transform: none; box-shadow: none; }
+}
+
+.muted { color: var(--text-muted); font-size: 14px; }
+
+button {
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--ember);
+  color: var(--on-ember);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+button:active { transform: scale(0.96); }
+@media (prefers-reduced-motion: reduce) { button:active { transform: none; } }
+
+.actions button {
+  min-height: 38px;
+  padding: 8px 14px;
+  font-size: 14px;
+  margin-right: 8px;
+}
+
