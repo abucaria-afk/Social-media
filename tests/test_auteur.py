@@ -4119,3 +4119,259 @@ def test_a_finished_video_can_be_scored(tmp_path):
     assert 0.0 <= prediction.overall <= 1.0
     # Nothing read any words, so nothing may claim a text-driven hook.
     assert edl.texts == []
+
+
+# --------------------------------------------------------------------- graphics
+
+
+def _graphics_edl(tmp_path, count=4, seconds=2.5):
+    """A tiny timeline of solid-colour stills, for graphics tests."""
+    from PIL import Image
+
+    from auteur.edl import EditDecisionList, Motion, Shot, Transition
+
+    shots = []
+    for index in range(count):
+        path = tmp_path / f"still{index}.png"
+        Image.new("RGB", (600, 900), (30 + index * 40, 60, 90)).save(path)
+        shots.append(
+            Shot(
+                clip_id=f"c{index}",
+                source=path,
+                start=0.0,
+                end=seconds,
+                is_still=True,
+                motion=Motion("none", 0.0, (0.5, 0.5)),
+                transition_in=Transition("cut", 0.0),
+            )
+        )
+    edl = EditDecisionList(title="graphics", shots=shots, fps=30, width=1080, height=1920)
+    edl.repair()
+    return edl
+
+
+@pytest.mark.parametrize(
+    "kind",
+    ["circle", "bracket", "arrow", "underline", "highlight", "burst", "progress", "tape"],
+)
+def test_every_graphic_kind_draws_ink_where_it_was_aimed(tmp_path, kind):
+    """A graphic that renders empty, or lands somewhere else, is worse than none."""
+    import numpy as np
+    from PIL import Image
+
+    from auteur.craft import graphics
+    from auteur.edl import GraphicCue
+
+    cue = GraphicCue(kind=kind, start=0.0, duration=1.0, anchor=(0.4, 0.35), move="pop")
+    if kind in graphics.SPANNING:
+        cue.toward = (0.7, 0.6)
+    cue.normalise()
+
+    drawn = graphics.render_cue(cue, width=1080, height=1920, directory=tmp_path, index=0)
+    assert drawn is not None
+
+    # Sample each kind where it is meant to be at full strength. That is the
+    # last plate for anything that draws itself on and stays, but a burst is an
+    # impact mark that has deliberately burnt out by its final frame — checking
+    # that one would be checking an empty plate on purpose.
+    peak = int((drawn.frames - 1) * (0.4 if kind == "burst" else 1.0))
+    plate = (
+        Path(str(drawn.pattern).replace("%04d", f"{peak:04d}"))
+        if drawn.is_sequence
+        else drawn.pattern
+    )
+    alpha = np.array(Image.open(plate))[..., 3]
+    ys, xs = np.nonzero(alpha > 25)
+    assert len(xs) > 0, f"{kind} drew nothing at all"
+
+    # Where the ink actually landed, back in normalised frame coordinates.
+    at = ((xs.mean() + drawn.box[0]) / 1080, (ys.mean() + drawn.box[1]) / 1920)
+    if kind == "progress":
+        expected = (0.5, 0.35)  # spans the full width, so only y is the cue's
+    elif kind in graphics.SPANNING:
+        expected = (0.55, 0.475)  # midway along the span
+    else:
+        expected = (0.4, 0.35)
+    assert at[0] == pytest.approx(expected[0], abs=0.06)
+    assert at[1] == pytest.approx(expected[1], abs=0.06)
+
+
+def test_a_graphic_box_never_leaves_the_frame(tmp_path):
+    """Anchored in a corner, the plates still have to be a rectangle inside the film."""
+    from auteur.craft import graphics
+    from auteur.edl import GraphicCue
+
+    for anchor in [(0.02, 0.02), (0.98, 0.98), (0.98, 0.02), (0.5, 0.995)]:
+        cue = GraphicCue(kind="circle", anchor=anchor, size=3.0, move="pulse", duration=0.5)
+        cue.normalise()
+        x, y, w, h = graphics._box(cue, 1080, 1920)
+        assert 0 <= x and 0 <= y
+        assert x + w <= 1080 and y + h <= 1920
+        assert w > 0 and h > 0
+
+
+def test_a_long_graphic_is_a_still_rather_than_a_thousand_plates(tmp_path):
+    from auteur.craft import graphics
+    from auteur.edl import GraphicCue
+
+    brief = GraphicCue(kind="circle", duration=2.0, move="pulse")
+    lengthy = GraphicCue(kind="circle", duration=40.0, move="pulse")
+    brief.normalise()
+    lengthy.normalise()
+
+    assert graphics.render_cue(brief, width=540, height=960, directory=tmp_path, index=0).frames > 1
+    long_one = graphics.render_cue(lengthy, width=540, height=960, directory=tmp_path, index=1)
+    assert long_one.frames == 1
+    assert not long_one.is_sequence
+
+
+def test_stickers_are_found_in_a_stable_order_and_missing_folders_are_fine(tmp_path):
+    from PIL import Image
+
+    from auteur.craft.graphics import find_stickers
+
+    assert find_stickers(None) == []
+    assert find_stickers(tmp_path / "nope") == []
+
+    for name in ("zebra.png", "apple.png", "notes.txt"):
+        if name.endswith(".png"):
+            Image.new("RGBA", (64, 64), (255, 0, 0, 200)).save(tmp_path / name)
+        else:
+            (tmp_path / name).write_text("not a sticker")
+
+    found = find_stickers(tmp_path)
+    assert [p.name for p in found] == ["apple.png", "zebra.png"]
+
+
+def test_a_sticker_whose_file_vanished_is_dropped_not_rendered(tmp_path):
+    from auteur.edl import GraphicCue
+
+    edl = _graphics_edl(tmp_path)
+    edl.graphics = [
+        GraphicCue(kind="sticker", start=0.5, duration=1.0, source=tmp_path / "gone.png")
+    ]
+    notes = edl.repair()
+    assert edl.graphics == []
+    assert any("sticker" in note for note in notes)
+
+
+def test_graphics_past_the_end_of_the_film_are_dropped(tmp_path):
+    from auteur.edl import GraphicCue
+
+    edl = _graphics_edl(tmp_path, count=2, seconds=1.0)
+    edl.graphics = [
+        GraphicCue(kind="circle", start=0.5, duration=99.0),
+        GraphicCue(kind="burst", start=50.0, duration=0.5),
+    ]
+    edl.repair()
+    assert len(edl.graphics) == 1
+    # The survivor is trimmed to the runtime rather than left hanging past it.
+    assert edl.graphics[0].end <= edl.duration + 1e-6
+
+
+def test_graphics_survive_a_round_trip_through_json(tmp_path):
+    import json
+
+    from auteur.edl import GraphicCue
+
+    edl = _graphics_edl(tmp_path)
+    edl.graphics = [
+        GraphicCue(kind="arrow", start=0.4, duration=1.0, anchor=(0.2, 0.8), toward=(0.6, 0.4))
+    ]
+    edl.repair()
+    payload = json.loads(json.dumps(edl.to_json()))
+    assert payload["graphics"][0]["kind"] == "arrow"
+    assert payload["graphics"][0]["toward"] == [0.2 * 0 + 0.6, 0.4]
+
+
+# ------------------------------------------------------------------ overlay agent
+
+
+def _overlay_bits(tmp_path, focus=(0.3, 0.35), strength=0.5, count=5):
+    from auteur.insight import FitReport
+    from auteur.insight.score import Prediction
+    from auteur.vision import Reading
+
+    edl = _graphics_edl(tmp_path, count=count)
+    readings = {
+        f"c{i}": Reading(focus=focus, focus_strength=strength, luma=0.4, hue=30.0)
+        for i in range(count)
+    }
+    return (
+        edl,
+        readings,
+        Prediction(hook=0.5, share=0.5, loop=0.5),
+        FitReport(rows=0, simulated_rows=0, measured_rows=0),
+    )
+
+
+def test_the_overlay_agent_says_nothing_without_a_reading(tmp_path):
+    """A mark placed from a default lands on the subject about half the time."""
+    from auteur.agents import OverlayAgent
+
+    edl, _, prediction, model = _overlay_bits(tmp_path)
+    assert OverlayAgent({}).inspect(edl, prediction, model) == []
+
+
+def test_the_overlay_agent_will_not_point_at_a_texture(tmp_path):
+    from auteur.agents import OverlayAgent
+
+    edl, readings, prediction, model = _overlay_bits(tmp_path, strength=0.05)
+    titles = {p.title for p in OverlayAgent(readings).inspect(edl, prediction, model)}
+    assert not any("Ring" in t or "Bracket" in t or "Point" in t for t in titles)
+
+
+def test_overlay_proposals_are_binding_because_the_model_is_silent_on_them(tmp_path):
+    """No export this project has been given records on-screen graphics."""
+    from auteur.agents import OverlayAgent
+
+    edl, readings, prediction, model = _overlay_bits(tmp_path)
+    proposals = OverlayAgent(readings).inspect(edl, prediction, model)
+    assert proposals
+    assert all(p.binding for p in proposals)
+
+
+def test_the_overlay_agent_does_not_stack_a_second_set_of_stickers(tmp_path):
+    """The crew runs several rounds; an unguarded pass doubles every round."""
+    from PIL import Image
+
+    from auteur.agents import OverlayAgent
+
+    sticker = tmp_path / "s.png"
+    Image.new("RGBA", (80, 80), (255, 200, 0, 220)).save(sticker)
+
+    edl, readings, prediction, model = _overlay_bits(tmp_path)
+    agent = OverlayAgent(readings, stickers=[sticker])
+
+    first = [p for p in agent.inspect(edl, prediction, model) if "sticker" in p.title]
+    assert len(first) == 1
+    first[0].change(edl)
+    placed = len([g for g in edl.graphics if g.kind == "sticker"])
+    assert placed >= 1
+
+    again = [p for p in agent.inspect(edl, prediction, model) if "sticker" in p.title]
+    assert again == [], "stickers were proposed a second time on top of the ones already there"
+
+
+def test_a_centred_subject_does_not_send_the_mark_to_the_centre(tmp_path):
+    """The mirror of the middle is the middle — the rule has to break there."""
+    from auteur.vision import Reading, emptiest_quadrant
+
+    centred = emptiest_quadrant(Reading(focus=(0.5, 0.5), balance=0.3))
+    assert abs(centred[0] - 0.5) > 0.15 or abs(centred[1] - 0.5) > 0.15
+    # Weight on the right means the mark belongs on the left.
+    assert centred[0] < 0.5
+
+    off = emptiest_quadrant(Reading(focus=(0.25, 0.7)))
+    assert off[0] > 0.5 and off[1] < 0.5
+
+
+def test_the_crew_result_carries_graphics_back_to_the_renderer(tmp_path):
+    """Every field an agent may touch has to be copied back, or it is discarded."""
+    import inspect as _inspect
+
+    from auteur import workflows
+
+    source = _inspect.getsource(workflows.with_agents)
+    for field in ("shots", "texts", "graphics", "sfx"):
+        assert f"edl.{field} = result.edl.{field}" in source

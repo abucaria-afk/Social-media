@@ -24,6 +24,7 @@ from .connoisseur import (
     LIGHTING,
     PALETTES,
     Reading,
+    emptiest_quadrant,
     read_asset,
     read_frame,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "LIGHTING",
     "PALETTES",
     "Reading",
+    "emptiest_quadrant",
     "read_asset",
     "read_frame",
 ]

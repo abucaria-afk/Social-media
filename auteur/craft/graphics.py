@@ -50,6 +50,13 @@ STICKER_SUFFIXES = (".png", ".webp", ".gif")
 #: The kinds that span two points rather than sitting on one.
 SPANNING = {"arrow", "underline", "highlight"}
 
+#: Kinds whose drawing *is* their animation: a bar fills, a burst expands and
+#: burns out. These are clocked by raw progress through the cue rather than by
+#: the movement's reveal, which only advances for `draw` and `sweep` — give a
+#: burst any other movement and it would otherwise be drawn fully expanded and
+#: almost fully faded on every single frame.
+SELF_TIMED = {"progress", "burst"}
+
 
 @dataclass
 class Graphic:
@@ -156,8 +163,8 @@ def _reveal(move: str, progress: float) -> float:
 
 
 def _animated(cue: GraphicCue) -> bool:
-    if cue.kind == "progress":
-        return True  # the whole point of it is that it fills
+    if cue.kind in SELF_TIMED:
+        return True  # the whole point of these is that they change
     if cue.move == "none":
         return False
     return cue.duration <= MAX_ANIMATED
@@ -397,10 +404,13 @@ def _draw_burst(layer: Image.Image, cue: GraphicCue, reveal: float, base: float)
     draw = ImageDraw.Draw(layer)
     w, h = layer.size
     cx, cy = w / 2, h / 2
-    width_px = max(2, _stroke(cue, base) // 2)
+    width_px = _stroke(cue, base)
     inner = min(w, h) * (0.16 + 0.24 * reveal)
     outer = min(w, h) * (0.22 + 0.28 * reveal)
-    fade = 1.0 - reveal * 0.85  # burns out as it expands
+    # Full strength while it expands, then gone. Fading from the first frame
+    # made it a smudge for its whole life and legible for none of it — an
+    # impact mark has to land before it burns out.
+    fade = 1.0 - max(0.0, reveal - 0.45) / 0.55 * 0.95
     for spoke in range(12):
         angle = spoke / 12 * math.tau + 0.13
         long_one = spoke % 2 == 0
@@ -542,7 +552,7 @@ def render_cue(
 
     def plate(progress: float) -> Image.Image:
         canvas = Image.new("RGBA", (box[2], box[3]), (0, 0, 0, 0))
-        reveal = progress if cue.kind == "progress" else _reveal(cue.move, progress)
+        reveal = progress if cue.kind in SELF_TIMED else _reveal(cue.move, progress)
         scale, rotation, dx, dy, alpha = _motion(cue.move, progress)
         layer = _transform(_shape_layer(cue, natural, reveal, base), scale, rotation, alpha)
         canvas.alpha_composite(

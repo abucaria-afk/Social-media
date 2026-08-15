@@ -284,6 +284,12 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="VIDEO",
         help="footage to cut like — measured for pace, exposure and motion (repeatable)",
     )
+    workflow.add_argument(
+        "--stickers",
+        default=None,
+        metavar="DIR",
+        help="a folder of your own transparent PNGs, placed clear of the subject",
+    )
 
     insight = sub.add_parser(
         "insight",
@@ -753,9 +759,18 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
         # looks at a pixel.
         readings = _read_the_footage(paths, say)
         if readings:
-            from .agents import FinishingAgent
+            from .agents import FinishingAgent, GazeAgent, OverlayAgent
+            from .craft.graphics import find_stickers
 
             agents.append(FinishingAgent(readings, spec=spec))
+            stickers = find_stickers(args.stickers)
+            if stickers:
+                say.detail(f"{len(stickers)} of your stickers are available to place")
+            agents.append(OverlayAgent(readings, spec=spec, stickers=stickers))
+            # Give the curator the measured subjects too. Without them its
+            # focal judgement reads the motion anchor, which this program set,
+            # so it would be scoring its own input rather than the picture.
+            agents = [GazeAgent(readings) if a.name == "gaze" else a for a in agents]
         if style is not None and not style.is_empty:
             # First in the list, and deliberately: a reference outranks a
             # correlation. The crew still scores every proposal, so a style

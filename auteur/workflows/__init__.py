@@ -158,9 +158,14 @@ def with_agents(spec: PlatformSpec, crew, *, on_result=None):
     def adjust(edl: EditDecisionList) -> None:
         result = crew.run(edl)
         # The crew works on a copy so a bad proposal cannot damage the original.
-        # Copy the survivor back onto the EDL the renderer is holding.
+        # Copy the survivor back onto the EDL the renderer is holding. Every
+        # field an agent may touch has to be listed here — anything left out is
+        # silently discarded, and the run still reports the change as applied.
         edl.shots = result.edl.shots
         edl.texts = result.edl.texts
+        edl.graphics = result.edl.graphics
+        edl.sfx = result.edl.sfx
+        edl.look = result.edl.look
         log.info(
             "agents: predicted %.0f%% -> %.0f%% over %d round(s)",
             result.baseline.overall * 100,

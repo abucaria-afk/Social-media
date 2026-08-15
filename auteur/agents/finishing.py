@@ -31,7 +31,7 @@ from dataclasses import dataclass
 
 from ..edl import EditDecisionList, Motion, SoundCue, Transition
 from ..insight import FitReport, Prediction
-from ..vision import Reading
+from ..vision import Reading, emptiest_quadrant
 from .base import Proposal, Risk
 
 
@@ -82,15 +82,10 @@ def _joins(edl: EditDecisionList, readings: dict[str, Reading]) -> list[_Join]:
     return out
 
 
-def _emptiest_quadrant(reading: Reading) -> tuple[float, float]:
-    """Where to put words: as far from the subject as the frame allows.
-
-    Mirrored through the centre rather than shoved into a corner — a title in
-    the opposite third reads as composed, a title in the corner reads as
-    something that would not fit.
-    """
-    x, y = reading.focus
-    return (0.5 + (0.5 - x) * 0.7, 0.5 + (0.5 - y) * 0.7)
+#: Kept as a local name because this module reads better with it, but the
+#: definition lives with the reading it takes — the overlay agent needs the
+#: same answer, and two copies of "where is the subject not" would drift.
+_emptiest_quadrant = emptiest_quadrant
 
 
 class FinishingAgent:

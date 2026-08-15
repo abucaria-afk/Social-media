@@ -424,6 +424,28 @@ def read_frame(frame: np.ndarray) -> Reading:
     return reading
 
 
+def emptiest_quadrant(reading: Reading) -> tuple[float, float]:
+    """Where to put something the subject must not be under.
+
+    Mirrored through the centre rather than shoved into a corner — a mark in
+    the opposite third reads as composed, a mark in the corner reads as
+    something that would not fit.
+
+    A centred subject breaks that, because the mirror of the centre *is* the
+    centre: the rule would put the mark on the exact thing it is supposed to
+    avoid, and centre-framed is the most common composition there is. So when
+    the subject is close to the middle, the side is chosen from where the
+    frame's visual weight already sits — `balance` is positive when the weight
+    is on the right — and the mark goes high, because captions, safe areas and
+    titles all compete for the bottom.
+    """
+    x, y = reading.focus
+    if abs(x - 0.5) < 0.09 and abs(y - 0.5) < 0.09:
+        away = -1.0 if reading.balance > 0 else 1.0
+        return (0.5 + 0.26 * away, 0.30)
+    return (0.5 + (0.5 - x) * 0.7, 0.5 + (0.5 - y) * 0.7)
+
+
 def read_asset(path: str | Path, *, samples: int = 5) -> Reading:
     """Read a still, or a video by sampling across it.
 
