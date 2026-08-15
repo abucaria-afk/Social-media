@@ -19,7 +19,7 @@ dependencies = [
 # builds sometimes ship without libx264, xfade or loudnorm.
 ffmpeg = ["ffmpeg-binaries>=1.0"]
 # Lets Claude direct the edit. Without it the algorithmic director is used.
-llm = ["anthropic>=0.40"]
+llm = ["anthropic>=0.121.0"]
 dev = ["pytest>=7.0"]
 
 [project.scripts]
