@@ -31,3 +31,25 @@ include = ["auteur*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["slow: renders video; needs ffmpeg and takes a minute or two"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# The defaults plus the checks that catch real mistakes in this codebase:
+# unused imports and names (F), bugbear's mutable-default and loop-variable
+# traps (B), and comprehension/loop slips (C4).
+select = ["E", "F", "W", "B", "C4", "UP"]
+ignore = [
+    # Long lines are already capped at 100; the odd filter-graph string that
+    # runs over is more readable whole than folded.
+    "E501",
+    # `except Exception` is deliberate in the few places it appears: a mailer,
+    # an icon, and a render must never take the whole server down with them.
+    "B904",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests import inside functions on purpose, to keep the module import cheap.
+"tests/*" = ["E402"]

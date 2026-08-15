@@ -24,7 +24,7 @@ import os
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
 from . import ffmpeg
 from .config import IMAGE_SUFFIXES, DeliveryFormat, Quality, Settings, Workspace
@@ -499,7 +499,11 @@ def render(
         workers = segment_workers(settings, len(shots))
         report(f"shot 1 of {len(shots)}{suffix}")
 
-        def one(item: tuple[int, Shot]) -> tuple[int, Path]:
+        # `fmt` is bound as a default rather than captured: the pool is joined
+        # before the loop advances, so the closure is correct today, but a
+        # closure over a loop variable is one refactor away from rendering
+        # every format into the last format's frame.
+        def one(item: tuple[int, Shot], fmt: DeliveryFormat = fmt) -> tuple[int, Path]:
             index, shot = item
             try:
                 path = render_shot(shot, index, workspace, fmt, quality, want_audio=want_audio)

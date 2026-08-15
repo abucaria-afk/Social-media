@@ -16,7 +16,8 @@ import json
 import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
+from collections.abc import Iterable
 
 log = logging.getLogger("auteur.edl")
 
@@ -44,7 +45,7 @@ class Transition:
     kind: str = "cut"
     duration: float = 0.0
 
-    def normalise(self) -> "Transition":
+    def normalise(self) -> Transition:
         kind = (self.kind or "cut").strip().lower()
         if kind not in TRANSITIONS:
             kind = "dissolve" if self.duration > 0 else "cut"
@@ -66,7 +67,7 @@ class Motion:
     #: Normalised frame coordinates the move is built around.
     anchor: tuple[float, float] = (0.5, 0.5)
 
-    def normalise(self) -> "Motion":
+    def normalise(self) -> Motion:
         kind = (self.kind or "none").strip().lower()
         if kind not in MOTIONS:
             kind = "none"
@@ -88,19 +89,19 @@ class Ramp:
     points: list[tuple[float, float]] = field(default_factory=list)
 
     @staticmethod
-    def constant(speed: float) -> "Ramp":
+    def constant(speed: float) -> Ramp:
         return Ramp([(0.0, speed), (1.0, speed)])
 
     @staticmethod
-    def slow_in(from_speed: float = 0.45, to_speed: float = 1.0) -> "Ramp":
+    def slow_in(from_speed: float = 0.45, to_speed: float = 1.0) -> Ramp:
         return Ramp([(0.0, from_speed), (0.55, to_speed), (1.0, to_speed)])
 
     @staticmethod
-    def accelerate(from_speed: float = 1.0, to_speed: float = 2.4) -> "Ramp":
+    def accelerate(from_speed: float = 1.0, to_speed: float = 2.4) -> Ramp:
         return Ramp([(0.0, from_speed), (0.45, from_speed), (1.0, to_speed)])
 
     @staticmethod
-    def hit(slow: float = 0.35, fast: float = 1.8, at: float = 0.35) -> "Ramp":
+    def hit(slow: float = 0.35, fast: float = 1.8, at: float = 0.35) -> Ramp:
         """Snap to a crawl on the beat, then whip out of it."""
         return Ramp([(0.0, fast), (max(at - 0.08, 0.01), slow), (min(at + 0.18, 0.99), slow), (1.0, fast)])
 
@@ -113,7 +114,7 @@ class Ramp:
     def constant_speed(self) -> float:
         return self.points[0][1] if self.points else 1.0
 
-    def normalise(self) -> "Ramp":
+    def normalise(self) -> Ramp:
         cleaned: list[tuple[float, float]] = []
         for position, speed in self.points:
             cleaned.append((_clamp(position, 0.0, 1.0), _clamp(speed, 0.15, 8.0)))
@@ -171,7 +172,7 @@ class Look:
     #: 0..1 strength of the named preset.
     strength: float = 1.0
 
-    def normalise(self) -> "Look":
+    def normalise(self) -> Look:
         return Look(
             preset=(self.preset or "neutral").strip().lower(),
             exposure=_clamp(self.exposure, -1.0, 1.0),
@@ -227,7 +228,7 @@ class Shot:
         """Screen time, after speed."""
         return self.ramp.output_duration(self.source_duration)
 
-    def normalise(self) -> "Shot":
+    def normalise(self) -> Shot:
         self.ramp = self.ramp.normalise()
         self.motion = self.motion.normalise()
         self.look = self.look.normalise()
@@ -255,7 +256,7 @@ class TextCue:
     #: For kinetic captions: reveal one word at a time.
     per_word: bool = False
 
-    def normalise(self) -> "TextCue":
+    def normalise(self) -> TextCue:
         self.text = (self.text or "").strip()
         self.style = (self.style or "title").strip().lower()
         if self.style not in TEXT_STYLES:

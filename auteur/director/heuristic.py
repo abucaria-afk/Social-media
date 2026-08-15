@@ -426,7 +426,9 @@ def _design_sound(edl: EditDecisionList, slots: list[_Slot], brief: Brief) -> li
     cues: list[SoundCue] = []
     timeline = edl.timeline()
 
-    for (start, _, shot), slot in zip(timeline, slots):
+    # strict=False on purpose: repair() can drop a shot, leaving the
+    # timeline shorter than the slots it was planned from.
+    for (start, _, shot), slot in zip(timeline, slots, strict=False):
         kind = shot.transition_in.kind
         if kind in ("whip-left", "whip-right", "whip-up", "whip-down", "zoom-blur", "slide-left", "slide-right"):
             cues.append(SoundCue("whoosh", at=round(max(0.0, start - 0.12), 3), gain=0.5, duration=0.45))

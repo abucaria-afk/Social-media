@@ -402,7 +402,7 @@ def test_heuristic_director_produces_a_legal_edit(rushes):
     assert edl.shots
     assert edl.duration == pytest.approx(8.0, abs=2.0)
     ids = [shot.clip_id for shot in edl.shots]
-    assert all(a != b for a, b in zip(ids, ids[1:])), "no clip cuts back to itself"
+    assert all(a != b for a, b in zip(ids, ids[1:], strict=False)), "no clip cuts back to itself"
     for shot in edl.shots:
         assert shot.duration >= 0.2
 
@@ -831,27 +831,47 @@ def test_the_studio_cleans_up_after_itself(tmp_path):
 
 @pytest.fixture
 def web_server(tmp_path):
-    """A real server on a real socket, so the routes are tested as served."""
+    """A real server on a real socket, so the routes are tested as served.
+
+    Yields (base_url, studio, cookie) — the cookie of a signed-in session,
+    because the server refuses everything without one.
+    """
+    import json as _json
     import threading
     from http.server import ThreadingHTTPServer
+    from urllib.request import Request, urlopen
     from auteur.web import assets, server as web
+    from auteur.web.auth import Accounts
 
     assets.ensure(web.STATIC)
     web.Handler.studio = web.Studio(tmp_path / "web")
+    web.Handler.accounts = Accounts(tmp_path / "web" / "accounts.json")
+    web.Handler.accounts.add("tester", "tester@example.com", "a-long-enough-one")
+
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+    request = Request(base + "/api/login",
+                      data=_json.dumps({"username": "tester",
+                                        "password": "a-long-enough-one"}).encode(),
+                      headers={"Content-Type": "application/json"})
+    with urlopen(request) as response:
+        cookie = response.headers["Set-Cookie"].split(";")[0]
+
     try:
-        yield f"http://127.0.0.1:{httpd.server_address[1]}", web.Handler.studio
+        yield base, web.Handler.studio, cookie
     finally:
         httpd.shutdown()
         httpd.server_close()
+        web.Handler.accounts = None
 
 
 def test_the_shell_and_icons_are_reachable(web_server):
     from urllib.request import urlopen
 
-    base, _ = web_server
+    base, _, cookie = web_server
     for path, kind in [
         ("/", "text/html"),
         ("/static/app.js", "javascript"),
@@ -870,13 +890,21 @@ def test_the_shell_and_icons_are_reachable(web_server):
 
 def test_the_static_route_cannot_escape_its_folder(web_server):
     from urllib.error import HTTPError
-    from urllib.request import urlopen
+    from urllib.request import Request, urlopen
 
-    base, _ = web_server
-    for attempt in ("/static/%2e%2e%2fserver.py", "/static/..%2Fserver.py", "/nope.png"):
+    base, _, cookie = web_server
+    attempts = (
+        "/static/%2e%2e%2fserver.py",
+        "/static/..%2Fserver.py",
+        "/static/../server.py",
+        "/static/....//server.py",
+        "/nope.png",
+    )
+    for attempt in attempts:
+        # With a session, so a 404 is really a 404 and not the sign-in redirect.
         with pytest.raises(HTTPError) as caught:
-            urlopen(base + attempt)
-        assert caught.value.code == 404
+            urlopen(Request(base + attempt, headers={"Cookie": cookie}))
+        assert caught.value.code == 404, attempt
 
 
 def test_video_is_served_in_ranges(web_server, tmp_path):
@@ -884,26 +912,26 @@ def test_video_is_served_in_ranges(web_server, tmp_path):
     anything that answers 200 with the whole file."""
     from urllib.request import Request, urlopen
 
-    base, studio = web_server
-    job = studio.create("prompt", "reel", 10.0)
+    base, studio, cookie = web_server
+    job = studio.create("prompt", "reel", 10.0, owner="tester")
     film = job.folder / "film.mp4"
     film.write_bytes(bytes(range(256)) * 40)
     job.video = film
     job.status = "done"
 
     url = f"{base}/api/jobs/{job.id}/video"
-    request = Request(url, headers={"Range": "bytes=0-1"})
+    request = Request(url, headers={"Range": "bytes=0-1", "Cookie": cookie})
     with urlopen(request) as response:
         assert response.status == 206
         assert response.headers["Content-Range"] == f"bytes 0-1/{film.stat().st_size}"
         assert response.read() == film.read_bytes()[:2]
 
-    request = Request(url, headers={"Range": "bytes=100-199"})
+    request = Request(url, headers={"Range": "bytes=100-199", "Cookie": cookie})
     with urlopen(request) as response:
         assert response.status == 206
         assert response.read() == film.read_bytes()[100:200]
 
-    with urlopen(url) as response:  # no Range at all still works
+    with urlopen(Request(url, headers={"Cookie": cookie})) as response:  # no Range still works
         assert response.status == 200
         assert response.read() == film.read_bytes()
 
@@ -913,7 +941,7 @@ def test_a_post_without_clips_says_so_in_plain_words(web_server):
     from urllib.error import HTTPError
     from urllib.request import Request, urlopen
 
-    base, _ = web_server
+    base, _, cookie = web_server
     boundary = "----auteurtest"
     body = (
         f"--{boundary}\r\n"
@@ -923,7 +951,8 @@ def test_a_post_without_clips_says_so_in_plain_words(web_server):
     ).encode()
     request = Request(
         base + "/api/jobs", data=body,
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}",
+                 "Cookie": cookie},
     )
     with pytest.raises(HTTPError) as caught:
         urlopen(request)
@@ -933,11 +962,11 @@ def test_a_post_without_clips_says_so_in_plain_words(web_server):
 
 def test_an_unknown_job_is_a_clean_404(web_server):
     from urllib.error import HTTPError
-    from urllib.request import urlopen
+    from urllib.request import Request, urlopen
 
-    base, _ = web_server
+    base, _, cookie = web_server
     with pytest.raises(HTTPError) as caught:
-        urlopen(base + "/api/jobs/deadbeef")
+        urlopen(Request(base + "/api/jobs/deadbeef", headers={"Cookie": cookie}))
     assert caught.value.code == 404
 
 
@@ -1151,7 +1180,7 @@ def test_parallel_and_sequential_renders_agree(rushes, tmp_path, monkeypatch):
 def test_text_is_compressed_and_pictures_are_not(web_server):
     from urllib.request import Request, urlopen
 
-    base, _ = web_server
+    base, _, cookie = web_server
     request = Request(base + "/static/style.css", headers={"Accept-Encoding": "gzip"})
     with urlopen(request) as response:
         assert response.headers["Content-Encoding"] == "gzip"
@@ -1166,7 +1195,7 @@ def test_an_unchanged_asset_comes_back_as_a_304(web_server):
     from urllib.error import HTTPError
     from urllib.request import Request, urlopen
 
-    base, _ = web_server
+    base, _, cookie = web_server
     with urlopen(base + "/static/app.js") as response:
         etag = response.headers["ETag"]
         assert etag
@@ -1669,3 +1698,125 @@ def test_the_switch_offers_exactly_the_three_modes():
         markup = (server.STATIC / page).read_text()
         for mode in theme.MODES:
             assert f'data-value="{mode}"' in markup, f"{page} is missing {mode}"
+
+
+# ---------------------------------------------------------------------------
+# Findings from the security review
+# ---------------------------------------------------------------------------
+
+def test_a_reset_link_ignores_the_host_header(guarded_server, monkeypatch):
+    """The reset URL is emailed to the account's owner, so it must not be built
+    from a header the requester controls. Otherwise anyone who can reach the
+    port asks for a reset with `Host: attacker.example.com`, and the owner is
+    sent a real, valid token pointing at the attacker."""
+    import json as _json
+    from urllib.request import Request, urlopen
+
+    base, _ = guarded_server
+    sent: list[str] = []
+    monkeypatch.setattr("auteur.web.auth.send_reset",
+                        lambda email, link: sent.append(link) or "console")
+
+    request = Request(
+        base + "/api/forgot",
+        data=_json.dumps({"username": "streetlightseason"}).encode(),
+        headers={"Content-Type": "application/json", "Host": "attacker.example.com"},
+    )
+    with urlopen(request) as response:
+        assert response.status == 200
+
+    assert sent, "the reset should have been delivered"
+    assert "attacker.example.com" not in sent[0]
+    assert "127.0.0.1" in sent[0] or "localhost" in sent[0]
+
+
+def test_the_public_url_can_be_set_deliberately(guarded_server, monkeypatch):
+    """An operator behind a proxy needs to name the address themselves — from
+    the environment, which is trusted, not from the request."""
+    import json as _json
+    from urllib.request import Request, urlopen
+
+    base, _ = guarded_server
+    sent: list[str] = []
+    monkeypatch.setattr("auteur.web.auth.send_reset",
+                        lambda email, link: sent.append(link) or "email")
+    monkeypatch.setenv("AUTEUR_PUBLIC_URL", "https://films.example.com/")
+
+    request = Request(base + "/api/forgot",
+                      data=_json.dumps({"username": "streetlightseason"}).encode(),
+                      headers={"Content-Type": "application/json"})
+    with urlopen(request):
+        pass
+    assert sent and sent[0].startswith("https://films.example.com/reset?token=")
+
+
+def test_no_account_store_means_no_access(tmp_path):
+    """Auth must fail closed. Treating "not configured" as "everyone is allowed"
+    turns one missing line of start-up into an open server handing out footage."""
+    import threading
+    from http.server import ThreadingHTTPServer
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+    from auteur.web import assets, server as web
+
+    assets.ensure(web.STATIC)
+    web.Handler.studio = web.Studio(tmp_path / "web")
+    web.Handler.accounts = None          # exactly the misconfiguration
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    try:
+        for path in ("/api/jobs/anything", "/api/jobs/anything/video"):
+            with pytest.raises(HTTPError) as caught:
+                urlopen(base + path)
+            assert caught.value.code == 401, path
+        with urlopen(Request(base + "/")) as response:
+            assert response.url.endswith("/login")
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_a_job_belongs_to_the_person_who_asked_for_it(tmp_path):
+    from auteur.web.server import Studio
+
+    studio = Studio(tmp_path / "web")
+    mine = studio.create("prompt", "reel", 10.0, owner="streetlightseason")
+
+    assert studio.get(mine.id, owner="streetlightseason") is mine
+    assert studio.get(mine.id, owner="someone-else") is None
+    assert studio.get("no-such-job", owner="streetlightseason") is None
+    # No owner asked for means an internal caller, which still sees it.
+    assert studio.get(mine.id) is mine
+
+
+def test_one_signed_in_user_cannot_read_anothers_film(guarded_server, tmp_path):
+    """A job id is not a secret — it sits in the address bar and in history — so
+    holding any valid session is not permission to read somebody else's
+    footage."""
+    import json as _json
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+    from auteur.web import server as web
+
+    base, accounts = guarded_server
+    accounts.add("someone-else", "else@example.com", "a-long-enough-one")
+
+    job = web.Handler.studio.create("prompt", "reel", 10.0, owner="streetlightseason")
+    film = job.folder / "film.mp4"
+    film.write_bytes(b"not really a film")
+    job.video, job.status = film, "done"
+
+    request = Request(base + "/api/login",
+                      data=_json.dumps({"username": "someone-else",
+                                        "password": "a-long-enough-one"}).encode(),
+                      headers={"Content-Type": "application/json"})
+    with urlopen(request) as response:
+        intruder = response.headers["Set-Cookie"].split(";")[0]
+
+    for path in (f"/api/jobs/{job.id}", f"/api/jobs/{job.id}/video",
+                 f"/api/jobs/{job.id}/notes"):
+        with pytest.raises(HTTPError) as caught:
+            urlopen(Request(base + path, headers={"Cookie": intruder}))
+        assert caught.value.code == 404, path

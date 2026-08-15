@@ -111,7 +111,7 @@ class ClipDossier:
                 "contrast": round(float(np.mean(self.video.contrast)) if len(self.video.contrast) else 0.0, 3),
                 "saturation": round(self.video.saturation, 3),
                 "warmth": round(self.video.warmth, 3),
-                "palette": ["#%02x%02x%02x" % c for c in self.video.palette[:4]],
+                "palette": [f"#{r:02x}{g:02x}{b:02x}" for r, g, b in self.video.palette[:4]],
             },
             "sound": {
                 "present": not self.audio.silent,

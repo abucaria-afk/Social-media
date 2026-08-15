@@ -13,7 +13,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -48,7 +48,7 @@ def _from_package(module: str, *relative: str) -> Path | None:
     return None
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def _locate(tool: str) -> Path:
     """Find ffmpeg/ffprobe. Prefers builds that ship the filters we depend on."""
     env = os.environ.get(f"AUTEUR_{tool.upper()}") or os.environ.get(tool.upper())

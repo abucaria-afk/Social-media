@@ -71,6 +71,10 @@ class Job:
     id: str
     prompt: str
     folder: Path
+    #: Who asked for it. A job id is not a secret — it sits in the address bar
+    #: and in history — so being signed in is not by itself permission to read
+    #: somebody else's footage.
+    owner: str = ""
     status: str = "queued"  # queued | running | done | error
     stage: str = "Getting ready"
     lines: list[dict[str, str]] = field(default_factory=list)
@@ -157,12 +161,13 @@ class Studio:
         # Rendering is CPU-bound; running two at once just makes both slower.
         self.queue_lock = threading.Lock()
 
-    def create(self, prompt: str, shape: str, seconds: float | None) -> Job:
+    def create(self, prompt: str, shape: str, seconds: float | None,
+               owner: str = "") -> Job:
         self.sweep()
         job_id = uuid.uuid4().hex[:12]
         folder = self.workspace / job_id
         (folder / "clips").mkdir(parents=True, exist_ok=True)
-        job = Job(id=job_id, prompt=prompt, folder=folder)
+        job = Job(id=job_id, prompt=prompt, folder=folder, owner=owner)
         job.thread = threading.Thread(target=self._run, args=(job, shape, seconds), daemon=True)
         with self.lock:
             self.jobs[job_id] = job
@@ -173,9 +178,18 @@ class Studio:
         if job.thread is not None:
             job.thread.start()
 
-    def get(self, job_id: str) -> Job | None:
+    def get(self, job_id: str, owner: str | None = None) -> Job | None:
+        """The job, if it exists and belongs to `owner`.
+
+        Passing owner=None skips the check and is for internal callers only.
+        """
         with self.lock:
-            return self.jobs.get(job_id)
+            job = self.jobs.get(job_id)
+        if job is None:
+            return None
+        if owner is not None and job.owner and job.owner != owner:
+            return None
+        return job
 
     def _run(self, job: Job, shape: str, seconds: float | None) -> None:
         from ..agent import direct
@@ -308,8 +322,15 @@ class Handler(BaseHTTPRequestHandler):
         return None
 
     def current_user(self) -> str | None:
-        if self.accounts is None:      # auth not configured: the library case
-            return "anonymous"
+        """Who this request is, or None.
+
+        None when no account store is configured, which refuses everything.
+        The other direction — treating "auth is not set up" as "everybody is
+        allowed" — turns a missing line in start-up into a silently open server
+        handing out the user's footage, with nothing in the log to say so.
+        """
+        if self.accounts is None:
+            return None
         return self.accounts.session_user(self.session_token)
 
     def _set_session_cookie(self, token: str) -> str:
@@ -491,7 +512,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if path.startswith("/api/jobs/"):
             parts = path.strip("/").split("/")
-            job = self.studio.get(parts[2]) if len(parts) > 2 else None
+            job = (self.studio.get(parts[2], owner=self.current_user())
+                   if len(parts) > 2 else None)
             if job is None:
                 self._json({"error": "no such job"}, 404)
                 return
@@ -571,9 +593,24 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"ok": True, "message": "Password changed. You can sign in now."})
 
     def _site_root(self) -> str:
-        host = self.headers.get("Host") or f"localhost:{self.server.server_address[1]}"
-        scheme = self.headers.get("X-Forwarded-Proto", "http").lower()
-        return f"{scheme}://{host}"
+        """The address to put in a password-reset link.
+
+        Deliberately *not* the request's Host header. That header belongs to
+        whoever sent the request, and this URL is emailed to the account's
+        owner: anyone able to reach the port could ask for a reset with
+        `Host: attacker.example.com`, and the owner would receive a real,
+        valid token pointing at the attacker's server. Own address only, or an
+        explicit one the operator set.
+        """
+        configured = os.environ.get("AUTEUR_PUBLIC_URL", "").strip().rstrip("/")
+        if configured:
+            return configured
+        host, port = self.server.server_address[:2]
+        # 0.0.0.0 means "every interface", which is not an address anyone can
+        # open; name the one the phone would actually dial.
+        if host in ("", "0.0.0.0", "::", "::0"):
+            host = local_address()
+        return f"http://{host}:{port}"
 
     def _read_body(self, limit: int) -> bytes | None:
         length = int(self.headers.get("Content-Length") or 0)
@@ -665,7 +702,8 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             seconds = None
 
-        job = self.studio.create(prompt, fields.get("shape", "reel"), seconds)
+        job = self.studio.create(prompt, fields.get("shape", "reel"), seconds,
+                                 owner=self.current_user() or "")
         clips = job.folder / "clips"
         for index, (filename, payload) in enumerate(files):
             safe = Path(filename).name or f"clip{index}"

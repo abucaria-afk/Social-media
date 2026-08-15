@@ -306,7 +306,7 @@ def send_reset(email: str, link: str) -> str:
         print()
         print("  ┌─ password reset ──────────────────────────────────────────")
         print(f"  │  for: {email}")
-        print(f"  │  open this within 30 minutes:")
+        print("  │  open this within 30 minutes:")
         print(f"  │  {link}")
         print("  └───────────────────────────────────────────────────────────")
         print(flush=True)

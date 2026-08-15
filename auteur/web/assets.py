@@ -35,7 +35,7 @@ def _mix(over: tuple[int, int, int], under: tuple[int, int, int], amount: float)
     low alpha does not tint the shape underneath — it punches a translucent
     hole in the icon, which on a white home screen reads as solid white.
     """
-    return tuple(round(u + (o - u) * amount) for o, u in zip(over, under)) + (255,)
+    return tuple(round(u + (o - u) * amount) for o, u in zip(over, under, strict=True)) + (255,)
 
 
 def _draw(size: int):

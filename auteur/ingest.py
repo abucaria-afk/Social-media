@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
-from typing import Sequence
+from collections.abc import Sequence
 
 from . import ffmpeg
 from .config import AUDIO_SUFFIXES, IMAGE_SUFFIXES, VIDEO_SUFFIXES

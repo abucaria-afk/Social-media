@@ -132,6 +132,11 @@ notes, which are your own footage.
 - Changing a password signs every other device out.
 - The reply to "I forgot my password" is identical whether or not the account
   exists, so the page cannot be used to discover which addresses have one.
+- The reset link is built from the server's own address, never from the
+  request's `Host` header. Behind a proxy, set `AUTEUR_PUBLIC_URL` to name the
+  address yourself.
+- Films and production notes belong to the account that made them. Being signed
+  in is not permission to read somebody else's footage.
 
 ```bash
 python -m auteur account            # who can sign in
@@ -296,6 +301,11 @@ so there is no prose to strip and no repair to attempt.
 reframe has to see the original footage to know what to keep.
 
 **Determinism.** Same seed, brief and footage produce the same cut.
+
+**Authentication fails closed.** A missing account store denies every request
+rather than admitting them. The other direction — treating "auth is not set up"
+as "everyone is allowed" — turns one missing line of start-up into a server
+quietly handing out the user's footage, with nothing in the log to say so.
 
 **Nothing may fail quietly.** ffmpeg exits 0 for a filter graph that produced no
 frames, so a shot can render to a valid, empty file and only explode later, deep

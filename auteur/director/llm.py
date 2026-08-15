@@ -286,13 +286,14 @@ def available(settings: Settings) -> bool:
 
 def _request(client, *, model: str, system: str, blocks: list[dict], max_tokens: int):
     """One call, with a server-side fallback when the SDK and API support it."""
-    payload = dict(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": blocks}],
-        output_config={"effort": "high", "format": {"type": "json_schema", "schema": edl_schema()}},
-    )
+    payload = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": system,
+        "messages": [{"role": "user", "content": blocks}],
+        "output_config": {"effort": "high",
+                          "format": {"type": "json_schema", "schema": edl_schema()}},
+    }
     try:
         return client.beta.messages.create(
             betas=["server-side-fallback-2026-07-01"], fallbacks="default", **payload

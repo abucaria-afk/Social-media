@@ -197,9 +197,10 @@ def _first_match(text: str, table: dict[str, str]) -> str | None:
     lowered = f" {text.lower()} "
     best: tuple[int, int, str] | None = None
     for keyword, value in table.items():
-        match = None
-        for match in re.finditer(rf"(?<![a-z]){re.escape(keyword)}(?![a-z])", lowered):
-            pass  # keep the last occurrence of this keyword
+        # The *last* occurrence wins: in "a moody neon chase" the look is neon
+        # and moody is the mood, so a later word is the more specific one.
+        found = list(re.finditer(rf"(?<![a-z]){re.escape(keyword)}(?![a-z])", lowered))
+        match = found[-1] if found else None
         if match is None:
             continue
         candidate = (match.start(), len(keyword), value)
