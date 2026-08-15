@@ -47,6 +47,8 @@ from .knowledge import (
 from .youtube import YouTubeAccess, SearchStrategy, VideoMeta, Subscription
 from .teach import Teacher, TeachingBrief, WorkflowPatch
 from .review import OutputReview, ReviewFinding
+from .auditory import AuditorySystem, AudioSegment, AudioVisualState, ListeningSession
+from .speech import SpeechSystem, SpeechResponse, CommunicationMode, VoiceStyle
 
 log = logging.getLogger("auteur.scholar")
 
@@ -240,6 +242,8 @@ class Scholar:
         self._teacher = Teacher(self._store)
         self._reviewer = OutputReview(self._store)
         self._gaze = GazeAgent()
+        self._auditory = AuditorySystem()
+        self._speech = SpeechSystem()
         self._sessions: list[StudySession] = []
 
     @property
@@ -253,6 +257,14 @@ class Scholar:
     @property
     def teacher(self) -> Teacher:
         return self._teacher
+
+    @property
+    def auditory(self) -> AuditorySystem:
+        return self._auditory
+
+    @property
+    def speech(self) -> SpeechSystem:
+        return self._speech
 
     # ------------------------------------------------------------------
     # Autonomous learning loop
@@ -552,6 +564,59 @@ class Scholar:
     def propose_workflow_changes(self) -> list[WorkflowPatch]:
         """Propose workflow changes backed by validated learnings."""
         return self._teacher.propose_patches()
+
+    # ------------------------------------------------------------------
+    # Auditory interface — hearing and listening
+    # ------------------------------------------------------------------
+
+    def hear(self, audio_data: bytes, sample_rate: int = 44100) -> list[AudioSegment]:
+        """Hear audio passively — classify channels and energy."""
+        return self._auditory.hear(audio_data, sample_rate)
+
+    def listen(
+        self, audio_data: bytes, *, source_id: str = "", sample_rate: int = 44100
+    ) -> ListeningSession:
+        """Actively listen to audio — full transcription and analysis."""
+        return self._auditory.listen(audio_data, source_id=source_id, sample_rate=sample_rate)
+
+    def perceive(
+        self,
+        audio_segments: Sequence[AudioSegment],
+        *,
+        visual_energy: float = 0.0,
+        palette_warmth: float = 0.5,
+        focal_strength: float = 0.0,
+        motion_intensity: float = 0.0,
+        timestamp_sec: float = 0.0,
+    ) -> AudioVisualState:
+        """Fuse audio perception with Gaze visual state for holistic understanding."""
+        return self._auditory.fuse_with_gaze(
+            audio_segments,
+            visual_energy=visual_energy,
+            palette_warmth=palette_warmth,
+            focal_strength=focal_strength,
+            motion_intensity=motion_intensity,
+            timestamp_sec=timestamp_sec,
+        )
+
+    # ------------------------------------------------------------------
+    # Speech interface — chatbot and voicebot communication
+    # ------------------------------------------------------------------
+
+    def chat(self, user_text: str, *, conversation_id: str = "") -> SpeechResponse:
+        """Respond to a text message via chatbot."""
+        context = f"Scholar status: {self.describe()}"
+        return self._speech.respond_text(user_text, conversation_id=conversation_id, context=context)
+
+    def speak(self, user_text: str, *, conversation_id: str = "") -> SpeechResponse:
+        """Respond with synthesised voice via voicebot."""
+        context = f"Scholar status: {self.describe()}"
+        return self._speech.respond_voice(user_text, conversation_id=conversation_id, context=context)
+
+    def converse(self, user_text: str, *, conversation_id: str = "") -> SpeechResponse:
+        """Respond using the current communication mode (chatbot, voicebot, or both)."""
+        context = f"Scholar status: {self.describe()}"
+        return self._speech.respond(user_text, conversation_id=conversation_id, context=context)
 
     # ------------------------------------------------------------------
     # Output review interface

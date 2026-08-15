@@ -40,6 +40,8 @@ from .knowledge import KnowledgeStore, Learning, Discipline
 from .youtube import YouTubeAccess, VideoMeta, Subscription
 from .teach import TeachingBrief, WorkflowPatch
 from .review import OutputReview, ReviewFinding
+from .auditory import AuditorySystem, AudioSegment, AudioVisualState, ListeningSession
+from .speech import SpeechSystem, SpeechResponse, CommunicationMode, VoiceStyle
 
 __all__ = [
     "Scholar",
@@ -53,4 +55,12 @@ __all__ = [
     "WorkflowPatch",
     "OutputReview",
     "ReviewFinding",
+    "AuditorySystem",
+    "AudioSegment",
+    "AudioVisualState",
+    "ListeningSession",
+    "SpeechSystem",
+    "SpeechResponse",
+    "CommunicationMode",
+    "VoiceStyle",
 ]
