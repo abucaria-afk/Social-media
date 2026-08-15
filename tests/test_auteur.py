@@ -3547,11 +3547,24 @@ def test_a_style_is_measured_from_footage_not_guessed(tmp_path):
     clip = tmp_path / "ref.mp4"
     subprocess.run(
         [
-            str(ff.ffmpeg_path()), "-y", "-hide_banner", "-loglevel", "error",
-            "-f", "lavfi", "-i", "color=c=black:size=320x240:rate=24:duration=2",
-            "-f", "lavfi", "-i", "color=c=white:size=320x240:rate=24:duration=2",
-            "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0",
-            "-pix_fmt", "yuv420p", str(clip),
+            str(ff.ffmpeg_path()),
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:size=320x240:rate=24:duration=2",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=white:size=320x240:rate=24:duration=2",
+            "-filter_complex",
+            "[0:v][1:v]concat=n=2:v=1:a=0",
+            "-pix_fmt",
+            "yuv420p",
+            str(clip),
         ],
         check=True,
     )
@@ -3563,7 +3576,12 @@ def test_a_style_is_measured_from_footage_not_guessed(tmp_path):
     # Black then white: the mean luma must sit between them.
     assert 0.2 < style.luma < 0.8
     assert style.to_json()["pace_words"] in (
-        "meditative", "slow", "steady", "upbeat", "fast", "frenetic"
+        "meditative",
+        "slow",
+        "steady",
+        "upbeat",
+        "fast",
+        "frenetic",
     )
 
 
@@ -3609,7 +3627,9 @@ def test_the_style_agent_pulls_the_edit_toward_the_reference(labelled_model):
     fast_edit = _timeline(runtime=15.0, shots=15, opening=1.2, text_at=0.1)
     assert len(fast_edit.shots) / fast_edit.duration * 10 > 8
 
-    proposals = StyleAgent(slow).inspect(fast_edit, predict(fast_edit, labelled_model), labelled_model)
+    proposals = StyleAgent(slow).inspect(
+        fast_edit, predict(fast_edit, labelled_model), labelled_model
+    )
     assert proposals, "a 10-per-10s edit against a 3-per-10s reference must be noticed"
     proposals[0].change(fast_edit)
     assert len(fast_edit.shots) / fast_edit.duration * 10 < 8
@@ -3625,7 +3645,9 @@ def test_the_style_agent_stays_quiet_when_the_edit_already_matches(labelled_mode
     target = StyleTarget(cuts_per_10s=pace, shot_seconds=3.0, sources=2, seconds=40.0)
 
     assert StyleAgent(target).inspect(edit, predict(edit, labelled_model), labelled_model) == []
-    assert StyleAgent(StyleTarget()).inspect(edit, predict(edit, labelled_model), labelled_model) == []
+    assert (
+        StyleAgent(StyleTarget()).inspect(edit, predict(edit, labelled_model), labelled_model) == []
+    )
 
 
 def test_a_reference_is_an_instruction_and_not_a_suggestion(labelled_model):
@@ -3639,9 +3661,9 @@ def test_a_reference_is_an_instruction_and_not_a_suggestion(labelled_model):
     fast_edit = _timeline(runtime=15.0, shots=15, opening=1.2, text_at=0.1)
     before = predict(fast_edit, labelled_model).overall
 
-    result = Crew(
-        [StyleAgent(slow)], labelled_model, gate=Gate(Mode.AUTONOMOUS), max_rounds=2
-    ).run(fast_edit)
+    result = Crew([StyleAgent(slow)], labelled_model, gate=Gate(Mode.AUTONOMOUS), max_rounds=2).run(
+        fast_edit
+    )
 
     assert result.applied, "a binding proposal must survive a flat or negative prediction"
     assert result.applied[0].binding
@@ -3744,7 +3766,9 @@ def test_an_intentional_hold_is_not_dead_air(labelled_model):
 
     critique = Critique(
         score=0.5,
-        notes=[Note("dead-air", "3.0s where nothing moves", severity=0.75, at=at) for at in (4.0, 8.0)],
+        notes=[
+            Note("dead-air", "3.0s where nothing moves", severity=0.75, at=at) for at in (4.0, 8.0)
+        ],
     )
     # None rather than {}: an empty mapping means "every clip is unknown" and
     # repair drops the lot. None means "no dossiers to check against".
