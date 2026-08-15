@@ -221,6 +221,9 @@ python -m auteur edit ./rushes ./b-roll ./music.mp3 \
 ```bash
 python -m auteur analyse ./rushes   # what the agent sees in your footage
 python -m auteur looks              # the film looks and transitions available
+python -m auteur workflow list      # the places it can cut a post for
+python -m auteur media scan ./rushes
+python -m auteur schedule
 ```
 
 If you installed the package (`pip install -e .`), `auteur` works everywhere
@@ -229,6 +232,113 @@ If you installed the package (`pip install -e .`), `auteur` works everywhere
 Everything lands in the working directory: the masters, `production-notes.md`
 (what it saw, what it decided, what it fixed), `edl.json` for every pass, and
 `analysis.json`.
+
+## Workflows: making a post, not just a film
+
+`edit` gives you a film. Posting it is a separate job, and it is the boring
+half: cut it to a length the surface accepts, keep the words out from under the
+app's own interface, choose a cover frame, write a caption that fits, and note
+down what you made so you can find it next week. A **workflow** is that whole
+run, named after where it is going.
+
+```bash
+python -m auteur workflow list
+python -m auteur workflow run instagram-reel ./rushes "harbour at dusk"
+python -m auteur workflow run tiktok ./rushes "harbour at dusk" --schedule next
+python -m auteur workflow run youtube-short ./rushes "how it was built" -l 45
+```
+
+| Workflow | Destination | Frame | Runtime | Caption |
+|---|---|---|---|---|
+| `instagram-reel` | Instagram Reels | 1080×1920 | 3–180s (aim 25) | 2200 chars, 30 tags |
+| `instagram-post` | Instagram feed | 1080×1350 | 3–60s (aim 20) | 2200 chars, 30 tags |
+| `instagram-story` | Instagram Stories | 1080×1920 | 1–60s (aim 15) | on-frame only |
+| `tiktok` | TikTok | 1080×1920 | 3–600s (aim 25) | 2200 chars, 20 tags |
+| `tiktok-photo` | TikTok photo mode | 1080×1920 | 3–60s (aim 12) | 2200 chars, 20 tags |
+| `youtube-short` | YouTube Shorts | 1080×1920 | 1–180s (aim 30) | 5000 chars, 15 tags |
+
+Aliases work: `reel`, `tiktok`, `shorts`, `story`, `feed`.
+
+**What a workflow adds over `edit`:**
+
+- **Safe areas.** Every surface draws its own buttons over the frame — TikTok
+  covers the bottom 22% with a caption block and the right 16% with the action
+  rail. The director places titles for the composition and cannot know that, so
+  a plan hook pulls each title inside the readable box before anything renders.
+  It only ever moves text *inward*; a title already in a safe place is left
+  exactly where the director put it.
+- **Length, in the right order.** A `--length` flag beats the prompt, the prompt
+  beats the platform's house length, and the platform's hard limits beat all
+  three. Asking for 12 seconds and being handed 25 because Reels prefers 25 is
+  the tool overruling you, which it has no business doing while 12 seconds is a
+  legal length for a Reel.
+- **A cover frame that is not the first frame.** The first frame of a cut is the
+  least representative one in it and is often a fade-up from black — which is
+  why so many posts have a black thumbnail. It takes one a fifth of the way in.
+- **A caption to rewrite.** Assembled by rules from the brief and what the edit
+  turned out to be, trimmed to the character limit here rather than by the
+  platform, which truncates mid-word and does not say so. It is a first line, and
+  it says so. Alt text is written too.
+- **A check against the platform.** The render is probed, not trusted: a runtime
+  the critic was happy with can still be under TikTok's three-second floor. A
+  mismatch is a warning printed next to the file, not an exception — the film
+  exists either way.
+
+Each run leaves a `post/` folder: the video, `cover.jpg`, `caption.txt`,
+`alt-text.txt` and `post.json`.
+
+**Nothing here posts anything.** There is no Instagram or TikTok API call in this
+repository. Posting for you needs your credentials, and this runs on a laptop on
+a home wifi.
+
+> The platform numbers live in `auteur/workflows/platforms.py` with the date they
+> were last checked, and they will go stale. Nothing fetches them at runtime; a
+> video rejected as too long is the first sign one has moved. Treat them as a
+> default to correct.
+
+### The media manager
+
+Pointing the editor at a folder works until there is more than a folder.
+
+```bash
+python -m auteur media scan ./footage       # index it, once
+python -m auteur media list --kind video    # what is known
+python -m auteur media duplicates           # the same clip, saved twice
+python -m auteur media tag ./footage/a.mp4 --label keepers
+```
+
+The second scan of a folder only looks at what changed — size and modification
+time decide that — so it costs a second rather than a minute. Duplicates are
+found by **content**, not by name: a fingerprint of the file's size and both
+ends, then a full byte comparison before anything is called a copy, because
+telling somebody to delete footage on the strength of a partial hash would be
+careless. The older file is reported as the original; the newer one is the copy.
+
+Nothing is ever deleted. The index is one JSON file beside your media, and
+deleting it costs a rescan and nothing else.
+
+### Scheduling
+
+```bash
+python -m auteur workflow run tiktok ./rushes "harbour" --schedule "2026-08-20 18:00"
+python -m auteur workflow run tiktok ./rushes "harbour" --schedule next
+
+python -m auteur schedule            # what is queued
+python -m auteur schedule due        # what should go out now
+python -m auteur schedule done 4f2a1c9d
+python -m auteur schedule export > posts.csv
+```
+
+Two rules, both adjustable (`--gap`, `--per-day`): a minimum gap between posts to
+the same service (4 hours), and a ceiling per service per rolling day (3).
+Everything else about posting times is folklore that changes by audience, so it
+is not baked in. `--schedule next` takes the first slot the rules allow; an
+explicit time that breaks a rule is refused with the reason, rather than queued
+quietly.
+
+Times are stored as UTC and printed in your own timezone. A bare `18:00` means
+six in the evening where you are, not in Greenwich — a queue that assumed
+otherwise would post at four in the morning.
 
 ### Do I need an API key?
 
@@ -436,3 +546,17 @@ static path that resolved one folder up.
   the working tree carries credential material any more, but earlier commits
   shipped a scrypt hash for the seeded account. Anything that was ever that
   password should be considered burnt and never reused.
+- **Workflows do not post.** They make the folder and the queue; a person or
+  another tool does the posting. Adding uploads would mean holding platform
+  credentials, which is a different project with a different threat model.
+- **The platform rules are a snapshot, not a feed.** Frame sizes, runtime
+  ceilings, caption limits and safe areas are written down in
+  `auteur/workflows/platforms.py` with the date they were checked. They change,
+  nothing here notices, and a rejected upload is how you find out.
+- **The safe areas are approximate.** TikTok's caption block is taller when the
+  caption is longer, and every one of these apps has redesigned its player at
+  least once. The insets err generous: a slightly tighter composition costs
+  less than a title nobody can read.
+- **Captions are assembled, not written.** No model is involved in drafting one
+  even when an API key is present. It is a first line to rewrite, and both the
+  file and the CLI say so.

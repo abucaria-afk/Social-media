@@ -13,6 +13,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import Callable
 
 from . import critic, render, ui
 from .analysis import ClipDossier, build_dossiers, find_music_bed
@@ -133,8 +134,16 @@ def direct(
     formats: tuple[DeliveryFormat, ...] | None = None,
     duration: float | None = None,
     reporter: Reporter | None = None,
+    on_plan: Callable[[EditDecisionList], None] | None = None,
 ) -> Production:
-    """Turn a pile of clips and a sentence of direction into a finished film."""
+    """Turn a pile of clips and a sentence of direction into a finished film.
+
+    `on_plan` is handed the edit after it is planned and before a single frame
+    is rendered. It exists for things that know something about the film's
+    destination that the director does not — the workflows use it to move
+    titles out from under TikTok's buttons. Anything it changes is what gets
+    rendered, so it is the last honest place to intervene.
+    """
     started = time.perf_counter()
     settings = settings or Settings()
     space = Workspace(workspace or Path.cwd() / "auteur-work")
@@ -190,6 +199,8 @@ def direct(
     say.step("Planning the edit")
     direction = plan.direct(brief, dossiers, settings, music=music, music_analysis=music_analysis)
     edl = direction.edl
+    if on_plan is not None:
+        on_plan(edl)
     say.detail(
         f"{ui.describe_count(len(edl.shots), 'shot')} over "
         f"{ui.describe_duration(edl.duration)}, {edl.look.preset} look"

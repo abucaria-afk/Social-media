@@ -1,17 +1,31 @@
 name: Python CI
 
 on:
+  # Every branch, not only main. A workflow that runs after the merge tells
+  # you what you already shipped; this one has to run before it.
   push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+
+# Only the newest commit on a branch is worth testing. Without this, pushing
+# three times in five minutes runs nine jobs and reports on the oldest one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   test:
     name: Test on Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
+      # Do not stop the other versions because one failed. Knowing it breaks
+      # on 3.10 *and* passes on 3.12 is the useful shape of that answer.
+      fail-fast: false
       matrix:
         # Quoted: unquoted 3.10 is the *number* 3.1 in YAML, and
         # setup-python then tries to install Python 3.1 and fails,
@@ -22,36 +36,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements.txt', '**/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-${{ matrix.python-version }}-
-            ${{ runner.os }}-pip-
+          # setup-python's own cache replaces a hand-rolled actions/cache step
+          # and keys itself on the requirements file without being told.
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            python -m pip install -r requirements.txt
-          elif [ -f pyproject.toml ]; then
-            # Try to install development extras if defined, otherwise install package
-            python -m pip install "[dev]" || python -m pip install . || true
-          else
-            echo "No requirements.txt or pyproject.toml found — skipping dependency install"
-          fi
+          python -m pip install -r requirements.txt
+          # Explicit, so the test step can never "helpfully" skip itself.
+          python -m pip install pytest
 
-      - name: Run tests with pytest (if available)
-        run: |
-          if command -v pytest >/dev/null 2>&1; then
-            pytest --maxfail=1 -q
-          else
-            echo "pytest not found — skipping tests"
-          fi
+      - name: Run tests
+        run: pytest -q

@@ -8,26 +8,38 @@ on:
   schedule:
     - cron: '0 3 * * 0'
 
+concurrency:
+  group: codeql-${{ github.ref }}
+  # Superseded scans of a branch are worth cancelling; a scan of main is not.
+  # The security tab wants a completed analysis for the default branch, and
+  # cancelling one leaves a gap that looks exactly like "nothing was found".
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   analyze:
     name: Analyze
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
       security-events: write
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Initialize CodeQL
-      uses: github/codeql-action/init@v2
-      with:
-        languages: python
+      # v3. The v2 actions are deprecated and scheduled to stop running, which
+      # would have turned the security scan off without turning anything red.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          # security-and-quality also reports the maintainability rules, which
+          # on a codebase this size is a few minutes for a real second opinion.
+          queries: security-and-quality
 
-    - name: Autobuild
-      uses: github/codeql-action/autobuild@v2
-
-    - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v2
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"

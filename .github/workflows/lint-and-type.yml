@@ -1,41 +1,38 @@
 name: Lint and Type Check
 
 on:
-  pull_request:
-    branches: [ main ]
   push:
+  pull_request:
     branches: [ main ]
   workflow_dispatch:
 
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   lint:
-    name: Lint & format check on Python ${{ matrix.python-version }}
+    name: Lint and format
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        # Quoted: unquoted 3.10 is the *number* 3.1 in YAML, and
-        # setup-python then tries to install Python 3.1 and fails,
-        # cancelling the whole matrix. These jobs never ran a test.
-        python-version: ["3.10", "3.11", "3.12"]
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
 
-      - name: Cache pip
-        uses: actions/cache@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements.txt', '**/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-${{ matrix.python-version }}-
+          # One version, not three. ruff and black read the same source and
+          # reach the same verdict on every interpreter; the old matrix paid
+          # for three identical answers. What genuinely varies across versions
+          # is whether the code *runs*, and Python CI already tests that.
+          python-version: '3.12'
+          cache: pip
 
       - name: Install tooling
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install ruff black mypy
+        run: python -m pip install --upgrade pip ruff black mypy
 
       - name: Run ruff
         run: ruff check .
@@ -43,5 +40,10 @@ jobs:
       - name: Check formatting with black
         run: black --check . || (echo "Run 'black .' to format" && false)
 
-      - name: Run mypy (ignore missing imports)
-        run: mypy --ignore-missing-imports . || true
+      # Advisory, and marked as such. `mypy || true` printed a green tick over
+      # whatever mypy said; continue-on-error shows the real result and the
+      # real warning, without failing a build over annotations this project
+      # has not committed to yet.
+      - name: Run mypy (advisory)
+        continue-on-error: true
+        run: mypy --ignore-missing-imports .

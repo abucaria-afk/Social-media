@@ -33,6 +33,39 @@ tips:
   Say how long you want it -- "20 seconds" -- and it will hit that length.
 """
 
+WORKFLOW_EXAMPLES = """examples:
+  auteur workflow list
+  auteur workflow run instagram-reel ./clips "harbour at dusk"
+  auteur workflow run tiktok ./clips "harbour at dusk" --schedule next
+  auteur workflow run youtube-short ./clips "how it was built" -l 45
+
+what a workflow does that `edit` does not:
+  cuts to the length that place accepts, keeps titles out from under the
+  app's own buttons, pulls a cover frame, and writes a caption to rewrite.
+
+it does not post anything. it makes a folder you can post from.
+"""
+
+MEDIA_EXAMPLES = """examples:
+  auteur media scan ./footage         index everything, once
+  auteur media list --kind video      what is in the index
+  auteur media duplicates             the same clip, saved twice
+  auteur media tag ./footage/a.mp4 --label keepers
+
+The second scan of a folder only looks at what changed, so it is quick.
+The index is one JSON file; deleting it costs a rescan and nothing else.
+"""
+
+SCHEDULE_EXAMPLES = """examples:
+  auteur schedule                     what is queued
+  auteur schedule due                 what should go out now
+  auteur schedule done 4f2a1c9d       mark one as posted
+  auteur schedule export > posts.csv
+
+Posts are spaced out: one every few hours per service, a few a day at most.
+Nothing here posts for you -- it says what to post and when.
+"""
+
 
 def _configure_logging(verbosity: int) -> None:
     level = logging.WARNING if verbosity <= 0 else logging.INFO if verbosity == 1 else logging.DEBUG
@@ -60,7 +93,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     sub = parser.add_subparsers(
-        dest="command", required=True, metavar="{edit,demo,serve,account,analyse,looks}"
+        dest="command",
+        required=True,
+        metavar="{edit,workflow,media,schedule,demo,serve,account,analyse,looks}",
     )
 
     edit = sub.add_parser(
@@ -171,6 +206,95 @@ def _build_parser() -> argparse.ArgumentParser:
     analyse.add_argument("--json", action="store_true", help="machine-readable output")
 
     sub.add_parser("looks", help="list the film looks and transitions you can ask for")
+
+    # -- workflows --------------------------------------------------------
+
+    workflow = sub.add_parser(
+        "workflow",
+        help="make a post for a particular place — Reels, TikTok, Shorts",
+        epilog=WORKFLOW_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    workflow.add_argument(
+        "action", nargs="?", default="list", choices=["list", "run"], help="list (default) or run"
+    )
+    workflow.add_argument(
+        "platform",
+        nargs="?",
+        metavar="WHERE",
+        help="instagram-reel, instagram-post, instagram-story, tiktok, "
+        "tiktok-photo, youtube-short",
+    )
+    workflow.add_argument("paths", nargs="*", metavar="FOOTAGE")
+    workflow.add_argument("-p", "--prompt", default=None, help="what the post is about")
+    workflow.add_argument(
+        "-l", "--length", type=float, default=None, metavar="SECONDS", help="override the runtime"
+    )
+    workflow.add_argument("--quality", default="standard", choices=["draft", "standard", "best"])
+    workflow.add_argument(
+        "-o",
+        "--out",
+        default=None,
+        metavar="FOLDER",
+        help="where posts go (default ./auteur-posts)",
+    )
+    workflow.add_argument(
+        "--schedule",
+        default=None,
+        metavar="WHEN",
+        help='queue it — "friday 18:00", "2026-08-20 09:00", or "next" for the first free slot',
+    )
+    workflow.add_argument(
+        "--no-ai", action="store_true", help="never call Claude; use the built-in editor"
+    )
+    workflow.add_argument("--seed", type=int, default=None, help="change this for a different cut")
+
+    media = sub.add_parser(
+        "media",
+        help="the media manager — index your footage once, find the duplicates",
+        epilog=MEDIA_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    media.add_argument(
+        "action",
+        nargs="?",
+        default="list",
+        choices=["scan", "list", "duplicates", "tag"],
+        help="scan a folder, list what is known, find duplicates, or tag files",
+    )
+    media.add_argument("paths", nargs="*", metavar="FOLDER")
+    media.add_argument(
+        "-i", "--index", default=None, metavar="FILE", help="the index file (default in the folder)"
+    )
+    media.add_argument("--kind", default=None, choices=["video", "image", "audio"])
+    media.add_argument("--label", default=None, help="the tag to apply, for `media tag`")
+    media.add_argument("--json", action="store_true", help="machine-readable output")
+
+    schedule = sub.add_parser(
+        "schedule",
+        help="when each finished post goes out",
+        epilog=SCHEDULE_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    schedule.add_argument(
+        "action",
+        nargs="?",
+        default="list",
+        choices=["list", "due", "done", "skip", "remove", "export", "tidy"],
+        help="list (default), what is due now, mark one done or skipped, remove, or export",
+    )
+    schedule.add_argument(
+        "post_id", nargs="?", metavar="ID", help="which post, for done/skip/remove"
+    )
+    schedule.add_argument(
+        "-o",
+        "--out",
+        default=None,
+        metavar="FOLDER",
+        help="the folder the queue lives in (default ./auteur-posts)",
+    )
+    schedule.add_argument("--gap", type=float, default=None, metavar="HOURS")
+    schedule.add_argument("--per-day", type=int, default=None, metavar="N")
     return parser
 
 
@@ -498,6 +622,274 @@ def _run_looks() -> int:
     return 0
 
 
+def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
+    """Make a post for one particular place."""
+    from . import workflows
+
+    if args.action == "list":
+        print(workflows.catalogue())
+        return 0
+
+    if not args.platform:
+        say.failure(
+            "which place is this for?",
+            'try:  auteur workflow run instagram-reel ./clips "harbour at dusk"\n'
+            f"{' ' * 5}or:   auteur workflow list",
+        )
+        return 2
+    try:
+        spec = workflows.resolve(args.platform)
+    except ValueError as exc:
+        say.failure(str(exc), "run `auteur workflow list` to see them")
+        return 2
+
+    paths, prompt = _split_paths_and_prompt(list(args.paths), args.prompt)
+    if not paths:
+        say.failure("I need some footage", f'try:  auteur workflow run {spec.name} ./clips "..."')
+        return 2
+    if not prompt:
+        say.failure(
+            "I need to know what the post is about",
+            f'try:  auteur workflow run {spec.name} {paths[0]} "harbour at dusk"',
+        )
+        return 2
+
+    seconds = workflows.wanted_duration(spec, prompt, args.length)
+    if args.length and abs(seconds - args.length) > 0.01:
+        say.warn(
+            f"{spec.service} {spec.surface} takes "
+            f"{spec.min_seconds:.0f}-{spec.max_seconds:.0f}s — cutting to {seconds:.0f}s instead"
+        )
+
+    from .config import Settings
+
+    settings = Settings(use_llm=not args.no_ai)
+    if args.seed is not None:
+        settings.seed = args.seed
+
+    say.banner(f"{prompt}  ·  for {spec.service} {spec.surface}")
+    try:
+        deliverable, production = workflows.run(
+            spec.name,
+            list(paths),
+            prompt,
+            out=args.out,
+            quality=QUALITIES.get(args.quality, args.quality),
+            length=args.length,
+            reporter=say,
+            settings=settings,
+        )
+    except FileNotFoundError as exc:
+        say.failure("I could not find any footage to edit", str(exc))
+        return 1
+
+    for warning in deliverable.warnings:
+        say.warn(warning)
+
+    queued = None
+    if args.schedule:
+        from .workflows.schedule import Schedule, describe_time
+
+        root = Path(args.out) if args.out else Path.cwd() / "auteur-posts"
+        queue = Schedule(Schedule.default_path(root))
+        when = None if args.schedule.strip().lower() in ("next", "auto", "") else args.schedule
+        try:
+            queued, complaint = queue.add(deliverable, when)
+        except ValueError as exc:
+            say.warn(str(exc))
+            queued, complaint = None, ""
+        if queued is None and complaint:
+            say.warn(f"not queued: {complaint}")
+        elif queued is not None:
+            queue.save()
+            say.detail(f"queued for {describe_time(queued.when)} (id {queued.id})")
+
+    facts = [
+        f"{describe_duration(deliverable.duration)}  ·  "
+        f"{deliverable.width}x{deliverable.height}  ·  "
+        f"{describe_count(len(production.edl.shots), 'shot')}",
+        (
+            f"caption drafted, {len(deliverable.caption.hashtags)} hashtags"
+            " — rewrite it before posting"
+            if spec.caption_limit
+            # Stories have no caption box at all; promising one there would be
+            # a line of output that describes a file the run did not write.
+            else "no caption box on this surface — the words go on the frame"
+        ),
+    ]
+    if queued is not None:
+        from .workflows.schedule import describe_time
+
+        facts.append(f"queued for {describe_time(queued.when)}")
+
+    files = [(f"{spec.service} {spec.surface}", str(deliverable.video))]
+    if deliverable.cover:
+        files.append(("cover frame", str(deliverable.cover)))
+    if deliverable.folder:
+        files.append(("caption and manifest", str(deliverable.folder)))
+
+    say.result(headline=f"Ready for {spec.service}", facts=facts, files=files)
+    if args.quiet:
+        print(deliverable.video)
+    return 0
+
+
+def _library_for(args: argparse.Namespace, paths: list[str]) -> object:
+    """Open the index a `media` command should use.
+
+    Defaults to one beside the folder being scanned, which is what makes
+    `auteur media scan ./footage` need no second argument and no state
+    anywhere else on the machine.
+    """
+    from .workflows.library import Library
+
+    if args.index:
+        return Library(args.index)
+    root = Path(paths[0]) if paths else Path.cwd()
+    if root.is_file():
+        root = root.parent
+    return Library(Library.default_path(root))
+
+
+def _run_media(args: argparse.Namespace, say: Reporter) -> int:
+    """The media manager."""
+    paths = [str(path) for path in args.paths]
+    library = _library_for(args, paths)
+
+    if args.action == "scan":
+        if not paths:
+            say.failure("which folder?", "try:  auteur media scan ./footage")
+            return 2
+        say.step("Looking through your footage")
+        try:
+            report = library.scan(paths)
+        except FileNotFoundError as exc:
+            say.failure("I could not find that", str(exc))
+            return 1
+        library.save()
+
+        say.detail(report.describe().replace("\n", f"\n{' ' * 5}"))
+        for copy, original in report.duplicates:
+            say.found("copy", f"{copy.name} is the same file as {original.name}")
+        for entry in report.unreadable:
+            say.warn(f"could not open {entry.name} — {entry.why_unreadable}")
+        facts = [library.describe()]
+        if report.seconds >= 1.0:
+            facts.append(f"took {describe_duration(report.seconds)}")
+        say.result(headline="Indexed", facts=facts, files=[("the index", str(library.path))])
+        return 0
+
+    if not library.entries:
+        say.failure("nothing indexed yet", "try:  auteur media scan ./footage")
+        return 1
+
+    if args.action == "duplicates":
+        groups = library.duplicate_groups()
+        print()
+        if not groups:
+            print("  no duplicates — every file in the index is its own footage")
+            print()
+            return 0
+        from .workflows.library import describe_bytes
+
+        wasted = sum(entry.size for group in groups for entry in group[1:])
+        print(
+            f"  {describe_count(len(groups), 'duplicated file')}, "
+            f"{describe_bytes(wasted)} of copies"
+        )
+        print()
+        for group in groups:
+            print(f"      {group[0].summary()}")
+            for copy in group[1:]:
+                print(f"          also at  {copy.path}")
+            print()
+        print("  Nothing has been deleted. These are the copies; you choose.")
+        print()
+        return 0
+
+    if args.action == "tag":
+        if not paths or not args.label:
+            say.failure("what, and what with?", "try:  auteur media tag ./clip.mp4 --label keepers")
+            return 2
+        touched = library.tag(paths, args.label)
+        library.save()
+        print(f"\n  tagged {describe_count(touched, 'file')} as {args.label!r}\n")
+        return 0
+
+    entries = library.pick(kind=args.kind)
+    if args.json:
+        print(json.dumps([entry.to_json() for entry in entries], indent=2))
+        return 0
+
+    print()
+    print(f"  {library.describe()}")
+    print(f"  index: {library.path}")
+    print()
+    for entry in entries:
+        tags = f"   [{', '.join(entry.tags)}]" if entry.tags else ""
+        print(f"      {entry.summary()}{tags}")
+    print()
+    return 0
+
+
+def _run_schedule(args: argparse.Namespace, say: Reporter) -> int:
+    """The posting queue."""
+    from .workflows.schedule import Schedule
+
+    root = Path(args.out) if args.out else Path.cwd() / "auteur-posts"
+    queue = Schedule(Schedule.default_path(root))
+    if args.gap is not None:
+        queue.gap_hours = max(0.0, args.gap)
+    if args.per_day is not None:
+        queue.per_day = max(1, args.per_day)
+
+    if args.action == "export":
+        print(queue.export_csv(), end="")
+        return 0
+
+    if args.action in ("done", "skip", "remove"):
+        if not args.post_id:
+            say.failure("which post?", "run `auteur schedule` to see the ids")
+            return 2
+        if args.action == "remove":
+            changed = queue.remove(args.post_id)
+        else:
+            changed = queue.mark(args.post_id, "posted" if args.action == "done" else "skipped")
+        if not changed:
+            say.failure(f"no post with id {args.post_id!r}")
+            return 1
+        queue.save()
+        print(f"\n  {args.post_id} marked {args.action}\n")
+        return 0
+
+    if args.action == "tidy":
+        gone = queue.forget_missing()
+        queue.save()
+        print(f"\n  dropped {describe_count(len(gone), 'post')} whose film is no longer there\n")
+        return 0
+
+    posts = queue.due() if args.action == "due" else sorted(queue.posts, key=lambda p: p.when)
+    print()
+    print(f"  {queue.describe()}")
+    print(f"  queue: {queue.path}")
+    print()
+    if not posts:
+        print(
+            "      nothing due now"
+            if args.action == "due"
+            else "      nothing queued — `auteur workflow run ... --schedule next` adds one"
+        )
+        print()
+        return 0
+    for post in posts:
+        print(f"      {post.id}  {post.describe()}")
+    print()
+    if args.action == "due":
+        print("  Post these, then:  auteur schedule done <id>")
+        print()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -517,6 +909,12 @@ def main(argv: list[str] | None = None) -> int:
             return _run_analyse(args, say)
         if args.command == "looks":
             return _run_looks()
+        if args.command == "workflow":
+            return _run_workflow(args, say)
+        if args.command == "media":
+            return _run_media(args, say)
+        if args.command == "schedule":
+            return _run_schedule(args, say)
     except KeyboardInterrupt:
         say.failure("stopped")
         return 130

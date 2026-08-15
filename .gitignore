@@ -1,6 +1,14 @@
 # auteur working directories
 auteur-work/
 auteur-web/
+auteur-posts/
+auteur-demo/
+
+# The media index and the posting queue: local state about local footage,
+# with absolute paths in them. Useful on the machine that made them and
+# meaningless anywhere else.
+auteur-library.json
+auteur-schedule.json
 demo/rushes/
 
 # Accounts live beside the uploads, never in the repository. They hold

@@ -23,6 +23,10 @@ pip install -r requirements.txt
 python -m auteur demo                        # makes practice clips, then edits them
 python -m auteur edit ./rushes 'moody neon chase, 20 seconds, "AFTER DARK"'
 python -m auteur serve                       # then open the printed address on your phone
+
+python -m auteur media scan ./rushes         # index your footage once
+python -m auteur workflow run tiktok ./rushes 'harbour at dusk' --schedule next
+python -m auteur schedule due                # what to post now
 ```
 
 `demo` needs no footage, no arguments and no API key: it synthesises clips and a
@@ -53,6 +57,34 @@ the edit is planned, what the critic measures, and the limitations.
 
 ---
 
+## Workflows
+
+`edit` makes a film. A **workflow** makes a *post*: it cuts to the length the
+surface accepts, keeps the titles out from under the app's own buttons, pulls a
+cover frame that is not the first frame, drafts a caption inside the character
+limit, and writes a `post.json` you or a scheduler can read.
+
+| workflow | where it goes | shape | runtime |
+| --- | --- | --- | --- |
+| `instagram-reel` | Instagram Reels | 1080×1920 | 3–180s |
+| `instagram-post` | Instagram feed | 1080×1350 | 3–60s |
+| `instagram-story` | Instagram Stories | 1080×1920 | 1–60s |
+| `tiktok` | TikTok | 1080×1920 | 3–600s |
+| `tiktok-photo` | TikTok photo mode | 1080×1920 | 3–60s |
+| `youtube-short` | YouTube Shorts | 1080×1920 | 1–180s |
+
+Alongside them, `media` is a footage index — scan a folder once, and afterwards
+only what changed is re-read; duplicates are found by content and confirmed byte
+for byte before anything is called a copy. `schedule` is a queue with the two
+rules that matter: a minimum gap between posts to the same service, and a
+ceiling per day.
+
+**Nothing posts for you.** There is no Instagram or TikTok API call anywhere in
+this repository. A workflow produces a folder you can post from in a minute, and
+the queue says which one is next.
+
+---
+
 ## Development
 
 ```bash
@@ -70,6 +102,7 @@ auteur/            the package
   analysis/        what it sees in the footage
   director/        who decides the shots (Claude, or the built-in editor)
   craft/           grammar, motion, colour, transitions, sound, titles
+  workflows/       platforms, the media index, post packaging, the queue
   web/             the phone app: stdlib-only server and static front end
   theme.py         the one palette, read by the app, the icons and the terminal
 demo/              make_footage.py — synthetic clips for a first run

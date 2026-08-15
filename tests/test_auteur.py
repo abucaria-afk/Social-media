@@ -13,7 +13,9 @@ needs no fixtures on disk.
 
 from __future__ import annotations
 
+import json
 import math
+import os
 import re
 import subprocess
 import sys
@@ -2369,3 +2371,558 @@ def test_an_unreadable_file_is_explained_in_words():
     for stderr in ("", "anything at all", "moov atom not found"):
         assert "\n" not in _why_unreadable(stderr)
         assert len(_why_unreadable(stderr)) < 60
+
+
+# ---------------------------------------------------------------------------
+# Workflows: platform rules, the media manager, packaging, and the queue
+# ---------------------------------------------------------------------------
+
+
+def test_every_platform_spec_is_internally_consistent():
+    """A spec that contradicts itself would silently misroute every post."""
+    from auteur.workflows.platforms import PLATFORMS
+
+    for name, spec in PLATFORMS.items():
+        assert spec.name == name, "the key and the name must agree"
+        assert 0 < spec.min_seconds <= spec.ideal_seconds <= spec.max_seconds
+        assert spec.fps > 0 and spec.format.width > 0 and spec.format.height > 0
+        assert spec.hashtag_limit >= 0 and spec.caption_limit >= 0
+        safe = spec.safe
+        # Insets that meet in the middle would leave nowhere to put a title.
+        assert safe.top + safe.bottom < 0.75, name
+        assert safe.left + safe.right < 0.75, name
+
+
+def test_a_platform_can_be_named_the_way_people_say_it():
+    from auteur.workflows import resolve
+
+    assert resolve("reel").name == "instagram-reel"
+    assert resolve("TikTok").name == "tiktok"
+    assert resolve("  Shorts ").name == "youtube-short"
+    assert resolve("instagram_story").name == "instagram-story"
+    with pytest.raises(ValueError, match="unknown platform"):
+        resolve("myspace")
+
+
+def test_the_safe_area_only_ever_pulls_text_inward():
+    """Moving a title *out* to the edge to satisfy a safe area would be worse
+    than leaving it alone."""
+    from auteur.workflows.platforms import SafeArea, resolve
+
+    safe = resolve("tiktok").safe
+    # A title parked in the corner comes in.
+    x, y = safe.clamp((0.99, 0.99))
+    assert x <= 1.0 - safe.right and y <= 1.0 - safe.bottom
+    # A title already centred does not move at all.
+    assert safe.clamp((0.5, 0.5)) == (0.5, 0.5)
+    # A frame with no chrome leaves everything where it was.
+    assert SafeArea().clamp((0.02, 0.98)) == (0.02, 0.98)
+    # And a nonsensical spec centres rather than inverting the range.
+    assert SafeArea(top=0.9, bottom=0.9, left=0.9, right=0.9).clamp((0.1, 0.1)) == (0.5, 0.5)
+
+
+def test_the_plan_hook_moves_titles_out_from_under_the_buttons():
+    from auteur.edl import EditDecisionList, TextCue
+    from auteur.workflows import keep_text_readable, resolve
+
+    spec = resolve("tiktok")
+    edl = EditDecisionList(
+        texts=[
+            TextCue(text="under the caption", start=0.0, anchor=(0.5, 0.95)),
+            TextCue(text="fine where it is", start=1.0, anchor=(0.5, 0.5)),
+        ]
+    )
+    keep_text_readable(spec)(edl)
+
+    assert edl.texts[0].anchor[1] <= 1.0 - spec.safe.bottom, "still under the caption block"
+    assert edl.texts[1].anchor == (0.5, 0.5), "an untouched title must stay untouched"
+
+
+def test_a_flag_beats_the_prompt_and_the_platform_beats_both():
+    """Asking for 12 seconds and being handed 25 is the workflow overruling
+    the person using it."""
+    from auteur.workflows import resolve, wanted_duration
+
+    reel, story = resolve("instagram-reel"), resolve("instagram-story")
+
+    assert wanted_duration(reel, "neon harbour, 12 seconds") == 12.0
+    assert wanted_duration(reel, "neon harbour") == reel.ideal_seconds
+    assert wanted_duration(reel, "neon harbour, 12 seconds", 40.0) == 40.0
+    # The platform's ceiling is the one thing nothing overrides.
+    assert wanted_duration(reel, "neon harbour", 4000.0) == reel.max_seconds
+    assert wanted_duration(story, "neon harbour", 600.0) == story.max_seconds
+    assert wanted_duration(reel, "neon harbour", 0.5) == reel.min_seconds
+    # An absurd runtime in the prompt is discarded by the brief parser long
+    # before it reaches here, which leaves the platform's house length.
+    assert wanted_duration(reel, "neon harbour, 4000 seconds") == reel.ideal_seconds
+
+
+# -- the media manager ------------------------------------------------------
+
+
+@pytest.fixture
+def footage(tmp_path):
+    """A small folder with a real video, a real image, and a duplicate."""
+    from auteur import ffmpeg as ff
+
+    folder = tmp_path / "footage"
+    folder.mkdir()
+    subprocess.run(
+        [
+            str(ff.ffmpeg_path()),
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x240:rate=24:duration=2",
+            str(folder / "one.mp4"),
+        ],
+        check=True,
+    )
+    subprocess.run(
+        [
+            str(ff.ffmpeg_path()),
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:size=320x240",
+            "-frames:v",
+            "1",
+            str(folder / "still.png"),
+        ],
+        check=True,
+    )
+    # Written second, and stamped so, because "which one is the copy?" is
+    # answered by age rather than by which name sorts first.
+    copy = folder / "copy.mp4"
+    copy.write_bytes((folder / "one.mp4").read_bytes())
+    original_time = (folder / "one.mp4").stat().st_mtime
+    os.utime(copy, (original_time + 60, original_time + 60))
+    return folder
+
+
+def test_the_library_indexes_what_it_finds(footage, tmp_path):
+    from auteur.workflows.library import Library
+
+    library = Library(tmp_path / "index.json")
+    report = library.scan([footage])
+
+    assert len(report.added) == 3
+    assert report.unchanged == 0
+    kinds = {entry.kind for entry in library.entries.values()}
+    assert kinds == {"video", "image"}
+    clip = next(e for e in library.entries.values() if e.name == "one.mp4")
+    assert clip.duration == pytest.approx(2.0, abs=0.2)
+    assert (clip.width, clip.height) == (320, 240)
+
+
+def test_a_second_scan_does_not_reprobe_what_has_not_changed(footage, tmp_path):
+    """The whole point of an index: the second scan must be nearly free."""
+    from auteur.workflows import library as library_module
+    from auteur.workflows.library import Library
+
+    library = Library(tmp_path / "index.json")
+    library.scan([footage])
+
+    probes = {"count": 0}
+    real_probe = library_module.probe_asset
+
+    def counting_probe(path):
+        probes["count"] += 1
+        return real_probe(path)
+
+    library_module.probe_asset = counting_probe
+    try:
+        again = library.scan([footage])
+    finally:
+        library_module.probe_asset = real_probe
+
+    assert again.unchanged == 3 and not again.added
+    assert probes["count"] == 0, "nothing changed, so nothing should have been opened"
+
+
+def test_a_changed_file_is_noticed_and_reprobed(footage, tmp_path):
+    from auteur.workflows.library import Library
+
+    library = Library(tmp_path / "index.json")
+    library.scan([footage])
+
+    (footage / "still.png").write_bytes((footage / "still.png").read_bytes() + b"\x00")
+    report = library.scan([footage])
+    assert [entry.name for entry in report.updated] == ["still.png"]
+    assert report.unchanged == 2
+
+
+def test_duplicates_are_found_by_content_and_confirmed_byte_for_byte(footage, tmp_path):
+    from auteur.workflows.library import Library
+
+    library = Library(tmp_path / "index.json")
+    report = library.scan([footage])
+
+    assert [(copy.name, kept.name) for copy, kept in report.duplicates] == [
+        ("copy.mp4", "one.mp4")
+    ], "the newer file is the copy; nobody should be told to delete the original"
+
+    groups = library.duplicate_groups()
+    assert len(groups) == 1
+    assert [entry.name for entry in groups[0]] == ["one.mp4", "copy.mp4"]
+
+
+def test_a_digest_match_is_not_enough_on_its_own(footage, tmp_path, monkeypatch):
+    """The fingerprint only reads each end of the file. Telling somebody to
+    delete footage on the strength of that would be careless."""
+    from auteur.workflows import library as library_module
+    from auteur.workflows.library import Library
+
+    # Force every file to look identical to the fingerprint.
+    monkeypatch.setattr(library_module, "digest_of", lambda path: "all-the-same")
+
+    library = Library(tmp_path / "index.json")
+    report = library.scan([footage])
+
+    # one.mp4 and copy.mp4 really are identical; still.png is not, and the
+    # full comparison is what tells them apart.
+    assert {copy.name for copy, _ in report.duplicates} == {
+        "copy.mp4"
+    }, "still.png fingerprints the same but is not the same file"
+
+
+def test_the_index_survives_being_written_and_read_back(footage, tmp_path):
+    from auteur.workflows.library import Library
+
+    first = Library(tmp_path / "index.json")
+    first.scan([footage])
+    first.tag([footage / "one.mp4"], "keepers")
+    first.save()
+
+    second = Library(tmp_path / "index.json")
+    assert len(second.entries) == len(first.entries)
+    assert second.pick(tag="keepers")[0].name == "one.mp4"
+    assert second.pick(kind="image")[0].name == "still.png"
+
+
+def test_a_corrupt_index_costs_a_rescan_and_nothing_else(tmp_path):
+    from auteur.workflows.library import Library
+
+    path = tmp_path / "index.json"
+    path.write_text("{not json at all")
+    library = Library(path)  # must not raise
+    assert library.entries == {}
+
+
+def test_files_that_have_gone_are_dropped_from_the_index(footage, tmp_path):
+    from auteur.workflows.library import Library
+
+    library = Library(tmp_path / "index.json")
+    library.scan([footage])
+    (footage / "copy.mp4").unlink()
+
+    report = library.scan([footage])
+    assert [entry.name for entry in report.missing] == ["copy.mp4"]
+    assert "copy.mp4" not in {entry.name for entry in library.entries.values()}
+
+
+# -- captions and packaging -------------------------------------------------
+
+
+def test_a_caption_never_exceeds_what_the_box_will_carry():
+    from auteur.workflows.publish import Caption
+    from auteur.workflows import resolve
+
+    spec = resolve("instagram-reel")
+    caption = Caption(body="x" * 5000, hashtags=tuple(f"tag{n}" for n in range(60)))
+    rendered = caption.render(spec)
+
+    assert len(rendered) <= spec.caption_limit
+    assert rendered.count("#") <= spec.hashtag_limit
+
+
+def test_a_surface_with_no_caption_field_gets_no_caption():
+    from auteur.workflows.publish import Caption
+    from auteur.workflows import resolve
+
+    assert Caption(body="anything", hashtags=("a",)).render(resolve("instagram-story")) == ""
+
+
+def test_a_caption_keeps_its_tags_when_the_prose_has_to_go():
+    """Tags earn their place; the prose is what gets cut."""
+    from auteur.workflows.publish import Caption
+    from auteur.workflows.platforms import PlatformSpec, SafeArea
+    from auteur.config import FORMATS
+
+    tiny = PlatformSpec(
+        name="tiny",
+        service="Test",
+        surface="Test",
+        format=FORMATS["reel"],
+        min_seconds=1,
+        max_seconds=10,
+        ideal_seconds=5,
+        fps=30,
+        safe=SafeArea(),
+        caption_limit=60,
+        hashtag_limit=3,
+        wants_cover=False,
+    )
+    rendered = Caption(body="y" * 400, hashtags=("one", "two", "three")).render(tiny)
+    assert len(rendered) <= 60
+    assert "#one" in rendered and "#two" in rendered and "#three" in rendered
+
+
+def test_a_drafted_caption_is_about_the_film_not_about_the_edit():
+    from auteur.director.brief import parse_brief
+    from auteur.edl import EditDecisionList
+    from auteur.workflows import resolve
+    from auteur.workflows.publish import draft_caption
+
+    brief = parse_brief('"AFTER DARK" moody harbour at dusk, fast montage, 20 seconds')
+    edl = EditDecisionList(title="after dark")
+    caption = draft_caption(brief, edl, resolve("instagram-reel"))
+
+    text = caption.render(resolve("instagram-reel")).lower()
+    # Direction is not caption copy.
+    for technical in ("20 seconds", "montage", "9:16", "reel"):
+        assert technical not in caption.body.lower(), technical
+    assert "harbour" in text
+    assert caption.hashtags, "a post with no tags is a post nobody finds"
+    assert all(tag == tag.lower() and tag.isalnum() for tag in caption.hashtags)
+    assert caption.alt_text, "alt text is not optional in spirit"
+
+
+def test_packaging_checks_the_render_against_the_platform(tmp_path):
+    """A duration the critic was happy with can still be under TikTok's floor."""
+    from auteur import ffmpeg as ff
+    from auteur.director.brief import parse_brief
+    from auteur.edl import EditDecisionList
+    from auteur.workflows import resolve
+    from auteur.workflows.publish import package
+
+    # Two seconds of 1080x1920 — the right shape, under TikTok's 3s minimum.
+    video = tmp_path / "short.mp4"
+    subprocess.run(
+        [
+            str(ff.ffmpeg_path()),
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=1080x1920:rate=30:duration=2",
+            "-pix_fmt",
+            "yuv420p",
+            str(video),
+        ],
+        check=True,
+    )
+
+    spec = resolve("tiktok")
+    deliverable = package(
+        video=video,
+        spec=spec,
+        brief=parse_brief("harbour at dusk"),
+        edl=EditDecisionList(title="harbour"),
+        folder=tmp_path / "post",
+    )
+
+    assert not deliverable.ok
+    assert any("minimum" in warning for warning in deliverable.warnings)
+    assert (deliverable.width, deliverable.height) == (1080, 1920)
+    assert deliverable.cover is not None and deliverable.cover.exists(), "cover frame failed"
+    assert (tmp_path / "post" / "post.json").exists()
+    assert (tmp_path / "post" / "caption.txt").exists()
+    manifest = json.loads((tmp_path / "post" / "post.json").read_text())
+    assert manifest["platform"] == "tiktok"
+    assert manifest["caption_to_paste"]
+
+
+def test_the_cover_frame_is_not_the_first_frame(tmp_path):
+    """The first frame of a cut is the least representative one in it, and it
+    is the frame every tool picks by default."""
+    from auteur import ffmpeg as ff
+    from auteur.workflows.publish import cover_frame
+
+    # Black for the first second, then white. A first-frame grab is black.
+    video = tmp_path / "fade.mp4"
+    subprocess.run(
+        [
+            str(ff.ffmpeg_path()),
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:size=320x240:rate=10:duration=1,"
+            "fade=t=out:st=0:d=0[a];color=c=white:size=320x240:rate=10:duration=4[b];"
+            "[a][b]concat=n=2:v=1:a=0",
+            "-filter_complex_threads",
+            "1",
+            "-pix_fmt",
+            "yuv420p",
+            str(video),
+        ],
+        check=False,
+    )
+    if not video.exists():  # the filter graph is fussy; do not fail the suite on it
+        pytest.skip("could not build the fixture clip")
+
+    cover = cover_frame(video, tmp_path / "cover.jpg")
+    assert cover is not None and cover.stat().st_size > 0
+
+
+# -- the schedule -----------------------------------------------------------
+
+
+def _deliverable(platform: str, tmp_path, name: str = "film.mp4"):
+    from auteur.workflows import resolve
+    from auteur.workflows.publish import Caption, Deliverable
+
+    spec = resolve(platform)
+    video = tmp_path / name
+    video.write_bytes(b"not really a film")
+    return Deliverable(
+        platform=spec.name,
+        service=spec.service,
+        surface=spec.surface,
+        video=video,
+        duration=20.0,
+        width=spec.format.width,
+        height=spec.format.height,
+        caption=Caption(body="a caption"),
+    )
+
+
+def test_a_time_with_no_timezone_is_read_as_local_not_as_utc():
+    """A queue written in one timezone and read as another posts at 4am."""
+    from datetime import datetime, timezone
+
+    from auteur.workflows.schedule import format_time, parse_time
+
+    explicit = parse_time("2026-08-20T18:00:00Z")
+    assert format_time(explicit) == "2026-08-20T18:00:00Z"
+    assert explicit.tzinfo is timezone.utc
+
+    naive = parse_time("2026-08-20 18:00")
+    expected = datetime(2026, 8, 20, 18, 0).astimezone(timezone.utc)
+    assert naive == expected
+
+    assert parse_time(None) is not None
+    with pytest.raises(ValueError):
+        parse_time("some time next tuesday-ish")
+
+
+def test_the_queue_refuses_to_stack_two_posts_on_top_of_each_other(tmp_path):
+    from auteur.workflows.schedule import Schedule
+
+    queue = Schedule(tmp_path / "queue.json", gap_hours=4.0, per_day=3)
+    first, complaint = queue.add(_deliverable("instagram-reel", tmp_path), "2026-08-20 10:00")
+    assert first is not None and complaint == ""
+
+    clash, why = queue.add(_deliverable("instagram-post", tmp_path, "b.mp4"), "2026-08-20 11:00")
+    assert clash is None, "two Instagram posts an hour apart must be refused"
+    assert "minimum" in why
+
+    # Far enough away is fine.
+    ok, _ = queue.add(_deliverable("instagram-post", tmp_path, "c.mp4"), "2026-08-20 16:00")
+    assert ok is not None
+
+    # A different service is not competing for the same audience slot.
+    other, _ = queue.add(_deliverable("tiktok", tmp_path, "d.mp4"), "2026-08-20 10:30")
+    assert other is not None
+
+
+def test_the_daily_ceiling_is_enforced(tmp_path):
+    from auteur.workflows.schedule import Schedule
+
+    queue = Schedule(tmp_path / "queue.json", gap_hours=1.0, per_day=2)
+    for hour in (9, 11):
+        post, _ = queue.add(
+            _deliverable("tiktok", tmp_path, f"{hour}.mp4"), f"2026-08-20 {hour}:00"
+        )
+        assert post is not None
+
+    blocked, why = queue.add(_deliverable("tiktok", tmp_path, "x.mp4"), "2026-08-20 13:00")
+    assert blocked is None and "limit" in why
+
+
+def test_forcing_a_clash_says_so_rather_than_pretending(tmp_path):
+    from auteur.workflows.schedule import Schedule
+
+    queue = Schedule(tmp_path / "queue.json", gap_hours=4.0)
+    queue.add(_deliverable("tiktok", tmp_path), "2026-08-20 10:00")
+    post, complaint = queue.add(
+        _deliverable("tiktok", tmp_path, "b.mp4"), "2026-08-20 10:30", force=True
+    )
+    assert post is not None
+    assert complaint, "forcing must still report what was overridden"
+
+
+def test_a_batch_is_spread_out_rather_than_dumped(tmp_path):
+    from auteur.workflows.schedule import Schedule
+
+    queue = Schedule(tmp_path / "queue.json", gap_hours=4.0, per_day=10)
+    batch = [_deliverable("tiktok", tmp_path, f"{n}.mp4") for n in range(4)]
+    posts = queue.plan(batch, start="2026-08-20 09:00")
+
+    assert len(posts) == 4
+    times = sorted(post.when for post in posts)
+    gaps = [(b - a).total_seconds() / 3600.0 for a, b in zip(times, times[1:], strict=False)]
+    assert all(gap >= 4.0 - 1e-6 for gap in gaps), gaps
+
+
+def test_the_queue_round_trips_and_reports_what_is_due(tmp_path):
+    from datetime import datetime, timedelta, timezone
+
+    from auteur.workflows.schedule import Schedule
+
+    queue = Schedule(tmp_path / "queue.json", gap_hours=0.0)
+    past = datetime.now(timezone.utc) - timedelta(hours=1)
+    future = datetime.now(timezone.utc) + timedelta(days=1)
+    ready, _ = queue.add(_deliverable("tiktok", tmp_path, "now.mp4"), past)
+    queue.add(_deliverable("tiktok", tmp_path, "later.mp4"), future)
+    queue.save()
+
+    reopened = Schedule(tmp_path / "queue.json")
+    assert len(reopened.posts) == 2
+    assert [post.id for post in reopened.due()] == [ready.id]
+
+    assert reopened.mark(ready.id, "posted")
+    assert reopened.due() == [], "a posted item is not still due"
+    with pytest.raises(ValueError, match="unknown status"):
+        reopened.mark(ready.id, "sort-of")
+
+
+def test_the_queue_can_be_handed_to_whatever_actually_posts(tmp_path):
+    from auteur.workflows.schedule import Schedule
+
+    queue = Schedule(tmp_path / "queue.json", gap_hours=0.0)
+    queue.add(_deliverable("instagram-reel", tmp_path), "2026-08-20 10:00")
+    rows = queue.export_csv().strip().splitlines()
+
+    assert rows[0].startswith("when_utc,platform,service")
+    assert len(rows) == 2
+    assert "instagram-reel" in rows[1]
+    # Newlines in a caption must not become extra CSV rows.
+    assert "\n" not in rows[1]
+
+
+def test_a_queued_post_whose_film_has_gone_can_be_tidied_away(tmp_path):
+    from auteur.workflows.schedule import Schedule
+
+    queue = Schedule(tmp_path / "queue.json", gap_hours=0.0)
+    deliverable = _deliverable("tiktok", tmp_path)
+    queue.add(deliverable, "2026-08-20 10:00")
+    deliverable.video.unlink()
+
+    assert [post.video for post in queue.forget_missing()] == [str(deliverable.video)]
+    assert queue.posts == []

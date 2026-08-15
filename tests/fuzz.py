@@ -482,6 +482,112 @@ def fuzz_auth(rng, store):
 # ---------------------------------------------------------------------------
 
 
+def fuzz_post(rng):
+    """Captions, safe areas and the posting queue.
+
+    Three properties that must hold whatever a person types into a prompt or a
+    date field: a caption never exceeds the box it goes in, a title never ends
+    up under the app's own interface, and the queue never spaces two posts to
+    one service closer than its own rule allows.
+    """
+    from datetime import timedelta
+
+    from auteur.workflows import resolve, wanted_duration
+    from auteur.workflows.platforms import PLATFORMS
+    from auteur.workflows.publish import Caption
+    from auteur.workflows.schedule import Schedule, format_time, parse_time
+
+    spec = resolve(rng.choice(list(PLATFORMS)))
+
+    # -- a caption always fits ------------------------------------------
+    body = "".join(rng.choice(string.printable) for _ in range(rng.randint(0, 400)))
+    tags = tuple(
+        "".join(rng.choice(string.ascii_lowercase) for _ in range(rng.randint(1, 12)))
+        for _ in range(rng.randint(0, 40))
+    )
+    rendered = Caption(body=body, hashtags=tags).render(spec)
+    check(
+        "post",
+        len(rendered) <= max(spec.caption_limit, 0),
+        f"caption of {len(rendered)} over {spec.name}'s {spec.caption_limit}",
+        body[:40],
+    )
+
+    # Counted against a body that carries no "#" of its own. A person is free
+    # to write hashes in their own prose and we do not take them out; what is
+    # under test is that *we* never append more tags than the limit.
+    plain = Caption(body=body.replace("#", ""), hashtags=tags).render(spec)
+    check(
+        "post",
+        plain.count("#") <= spec.hashtag_limit,
+        f"{plain.count('#')} tags over {spec.name}'s {spec.hashtag_limit}",
+        tags[:4],
+    )
+
+    # -- a clamped anchor is always inside, and never moves outward -------
+    anchor = (rng.uniform(-1.0, 2.0), rng.uniform(-1.0, 2.0))
+    x, y = spec.safe.clamp(anchor)
+    check("post", 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0, f"clamp left the frame: {(x, y)}", anchor)
+    inside = (
+        spec.safe.left <= anchor[0] <= 1 - spec.safe.right
+        and spec.safe.top <= anchor[1] <= 1 - spec.safe.bottom
+    )
+    if inside:
+        check("post", (x, y) == anchor, f"a safe anchor was moved: {anchor} -> {(x, y)}", anchor)
+
+    # -- a runtime is always one the platform accepts ---------------------
+    asked = rng.choice([None, rng.uniform(-100, 100000), rng.uniform(0.1, 60)])
+    seconds = wanted_duration(spec, "a prompt with no runtime in it", asked)
+    check(
+        "post",
+        spec.min_seconds <= seconds <= spec.max_seconds,
+        f"{seconds} outside {spec.name}'s {spec.min_seconds}-{spec.max_seconds}",
+        asked,
+    )
+
+    # -- a stored time survives the round trip ----------------------------
+    moment = parse_time(
+        f"20{rng.randint(24, 40)}-0{rng.randint(1, 9)}-1{rng.randint(0, 9)} 0{rng.randint(0, 9)}:0{rng.randint(0, 5)}"
+    )
+    check("post", parse_time(format_time(moment)) == moment, "a time did not round-trip", moment)
+
+    # -- the queue never breaks its own spacing rule ----------------------
+    import tempfile
+
+    gap = rng.choice([0.5, 2.0, 4.0, 12.0])
+    queue = Schedule(Path(tempfile.mkdtemp()) / "q.json", gap_hours=gap, per_day=rng.randint(1, 6))
+    start = parse_time("2030-01-01 09:00")
+    accepted = []
+    for _ in range(rng.randint(1, 8)):
+        when = start + timedelta(hours=rng.uniform(0, 48))
+        post, complaint = queue.add(_FakeDeliverable(spec), when)
+        if post is not None:
+            check("post", complaint == "", f"accepted with a complaint: {complaint}", when)
+            accepted.append(post)
+    times = sorted(post.when for post in accepted)
+    for earlier, later in zip(times, times[1:], strict=False):
+        hours = (later - earlier).total_seconds() / 3600.0
+        check(
+            "post",
+            hours >= gap - 1e-6,
+            f"two posts {hours:.2f}h apart under a {gap}h rule",
+            (earlier, later),
+        )
+
+
+class _FakeDeliverable:
+    """Enough of a Deliverable for the queue to hold one."""
+
+    def __init__(self, spec):
+        from auteur.workflows.publish import Caption
+
+        self.platform = spec.name
+        self.service = spec.service
+        self.video = Path("/nowhere/film.mp4")
+        self.cover = None
+        self.caption = Caption(body="a caption")
+
+
 def main(total: int = 10_000) -> int:
     rng = random.Random(0xA17EE)
 
@@ -498,13 +604,14 @@ def main(total: int = 10_000) -> int:
     store = auth.Accounts(Path(tempfile.mkdtemp()) / "accounts.json")
 
     areas = [
-        ("edl", lambda: fuzz_edl(rng), 0.30),
-        ("ramp", lambda: fuzz_ramp(rng), 0.22),
-        ("grammar", lambda: fuzz_grammar(rng), 0.18),
+        ("edl", lambda: fuzz_edl(rng), 0.26),
+        ("ramp", lambda: fuzz_ramp(rng), 0.20),
+        ("grammar", lambda: fuzz_grammar(rng), 0.16),
         ("brief", lambda: fuzz_brief(rng), 0.12),
         ("upload", lambda: fuzz_multipart(rng), 0.06),
         ("routing", lambda: fuzz_routes(rng), 0.06),
         ("auth", lambda: fuzz_auth(rng, store), 0.06),
+        ("post", lambda: fuzz_post(rng), 0.08),
     ]
     names = [a[0] for a in areas]
     weights = [a[2] for a in areas]

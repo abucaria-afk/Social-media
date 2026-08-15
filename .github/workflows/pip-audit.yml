@@ -3,22 +3,46 @@ name: pip-audit
 on:
   schedule:
     - cron: '0 0 * * 0' # weekly
+  # Also whenever the dependencies themselves change. A weekly-only audit
+  # means a vulnerable pin can sit in main for six days without a word.
+  push:
+    paths:
+      - 'requirements.txt'
+      - 'pyproject.toml'
+      - '.github/workflows/pip-audit.yml'
+  pull_request:
+    paths:
+      - 'requirements.txt'
+      - 'pyproject.toml'
   workflow_dispatch:
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
 
       - name: Install dependencies
         run: python -m pip install --upgrade pip && pip install -r requirements.txt
 
+      # Left on the action this repository has actually been running. Swapping
+      # it for the pypa-hosted one is probably right, but "probably" is not a
+      # reason to change the only workflow whose job is to notice problems.
       - name: Run pip-audit
         uses: trailofbits/pip-audit-action@v1

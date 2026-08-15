@@ -2,34 +2,56 @@ name: Coverage
 
 on:
   push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
 
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   test-coverage:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install coverage
+          pip install pytest coverage
 
+      # The old version ran `coverage run -m pytest || true`, which made this
+      # workflow report success no matter what the tests did. A green tick that
+      # cannot go red is worse than no tick: it is a claim nobody checked.
       - name: Run tests with coverage
-        run: |
-          coverage run -m pytest || true
-          coverage xml -i
+        run: coverage run -m pytest -q
 
+      - name: Report
+        run: |
+          coverage xml -i
+          coverage report --skip-covered
+
+      # Uploaded even when the tests failed, because a failing run is exactly
+      # when you want to see which lines were reached.
       - name: Upload coverage artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage.xml
+          if-no-files-found: warn
