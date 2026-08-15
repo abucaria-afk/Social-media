@@ -234,11 +234,23 @@ class Accounts:
             return None, "That username and password do not match."
 
         with self.lock:
-            if account.locked:
-                wait = int((account.locked_until - time.time()) / 60) + 1
-                return None, f"Too many tries. Try again in {wait} minute(s)."
+            locked_until = account.locked_until if account.locked else 0.0
 
-        if not account.check(password):
+        # Check the password even while locked. Not to let anyone in — a locked
+        # account never signs in below, whatever it was given — but because
+        # "Too many tries" is otherwise an answer to a question nobody asked.
+        # Say it only to someone who already knows the password, which is the
+        # owner wondering why they are stuck; anyone spraying names gets the
+        # same sentence they would get for a name that does not exist.
+        correct = account.check(password)
+
+        if locked_until:
+            if correct:
+                wait = int((locked_until - time.time()) / 60) + 1
+                return None, f"Too many tries. Try again in {wait} minute(s)."
+            return None, "That username and password do not match."
+
+        if not correct:
             with self.lock:
                 account.failures += 1
                 if account.failures >= MAX_ATTEMPTS:

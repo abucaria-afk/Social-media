@@ -1521,6 +1521,25 @@ def test_guessing_locks_the_account(accounts):
     assert token
 
 
+def test_the_lockout_does_not_announce_that_the_account_exists(accounts):
+    """ "Too many tries" is only useful to the owner, and only they should see it.
+
+    Otherwise it is an oracle: spray five wrong guesses at a name, and the
+    sixth reply tells you whether the name was real."""
+    from auteur.web import auth
+
+    for _ in range(auth.MAX_ATTEMPTS):
+        accounts.sign_in("streetlightseason", "wrong")
+
+    _, to_a_stranger = accounts.sign_in("streetlightseason", "still-wrong-guess")
+    _, to_nobody = accounts.sign_in("no-such-person", "still-wrong-guess")
+    assert to_a_stranger == to_nobody, "a locked real account must look like no account"
+
+    # The owner, who knows the password, is told why they are stuck.
+    _, to_the_owner = accounts.sign_in("streetlightseason", TEST_PASSWORD)
+    assert "Too many" in to_the_owner
+
+
 def test_a_session_can_be_ended(accounts):
     token, _ = accounts.sign_in("streetlightseason", TEST_PASSWORD)
     assert accounts.session_user(token) == "streetlightseason"
