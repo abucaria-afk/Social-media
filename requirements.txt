@@ -4,7 +4,7 @@ pillow>=10.0
 
 # ffmpeg + ffprobe as a wheel. Skip if you already have a system ffmpeg built
 # with libx264, xfade and loudnorm.
-ffmpeg-binaries>=1.0
+ffmpeg-binaries>=1.1.0
 
 # Optional: lets Claude direct the edit. Without it the algorithmic director
 # does the job and the film still gets made.
