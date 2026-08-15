@@ -368,6 +368,19 @@ The suite synthesises its own footage, so it needs no fixtures on disk. The web
 tests bind a real socket and exercise the routes as served, including the
 `Range` requests iOS Safari uses to open a video.
 
+```bash
+python tests/fuzz.py            # ten thousand randomised cases
+```
+
+Separate from the suite, and deliberately: it checks *properties* rather than
+examples, and its job is to find the next thing worth a named test. Ten
+thousand cases put roughly 314,000 assertions through the EDL repairer, the
+ramp maths, the grammar passes, brief parsing, the upload parser, the static
+route and the account store. Everything it has caught has a test in
+`test_auteur.py` — a runtime that was only range-checked on one of its two
+routes in, a transition cap that rounded to nearest instead of down, and a
+static path that resolved one folder up.
+
 ---
 
 ## Limitations

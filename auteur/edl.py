@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -399,7 +400,12 @@ class EditDecisionList:
                 # A transition cannot be longer than the shots it joins.
                 ceiling = min(shot.duration, legal[index - 1].duration) * 0.5
                 if shot.transition_in.duration > ceiling:
-                    shot.transition_in = Transition(shot.transition_in.kind, round(max(ceiling, 0.0), 3))
+                    # Rounded *down*, not to nearest: rounding up by a fraction
+                    # of a millisecond leaves an overlap fractionally longer
+                    # than the shot it is eating into, which is the sort of
+                    # just-over-the-line that only shows up in a fuzz run.
+                    capped = math.floor(max(ceiling, 0.0) * 1000) / 1000
+                    shot.transition_in = Transition(shot.transition_in.kind, capped)
                     if shot.transition_in.duration < 0.08:
                         shot.transition_in = Transition("cut", 0.0)
                         notes.append(f"shot {index + 1}: transition too long for the shots, made it a cut")

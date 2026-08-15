@@ -148,18 +148,46 @@ class Brief:
         return " · ".join(bits)
 
 
+#: What a runtime may be. Below three seconds there is no room for an edit;
+#: above fifteen minutes this is not the tool for the job.
+MIN_RUNTIME = 3.0
+MAX_RUNTIME = 900.0
+
+
+def clamp_duration(value: float | None) -> float | None:
+    """A runtime, or None when there isn't a usable one.
+
+    Both routes to a duration end here — the number read out of the prompt and
+    the one passed in by hand — because only one of them used to be checked.
+    `--length -5` went straight through to the planner, which made a film of
+    whatever length it could and then reported that it "came out the wrong
+    length" against a target of minus five seconds.
+    """
+    if value is None:
+        return None
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    if value != value or value in (float("inf"), float("-inf")):  # NaN, ±inf
+        return None
+    if value <= 0:
+        return None
+    return min(max(value, MIN_RUNTIME), MAX_RUNTIME)
+
+
 def _extract_duration(text: str) -> float | None:
     """Pull a runtime out of the prompt: '30 seconds', '15s', 'a minute and a half'."""
     lowered = text.lower()
     match = re.search(r"(\d+(?:\.\d+)?)\s*(?:seconds?|secs?|s)\b", lowered)
     if match:
         value = float(match.group(1))
-        if 3 <= value <= 900:
+        if MIN_RUNTIME <= value <= MAX_RUNTIME:
             return value
     match = re.search(r"(\d+(?:\.\d+)?)\s*(?:minutes?|mins?|m)\b", lowered)
     if match:
         value = float(match.group(1)) * 60
-        if 3 <= value <= 900:
+        if MIN_RUNTIME <= value <= MAX_RUNTIME:
             return value
     if "minute and a half" in lowered or "90 second" in lowered:
         return 90.0
@@ -274,7 +302,7 @@ def parse_brief(prompt: str, *, duration: float | None = None) -> Brief:
         arc=arc,
         base_shot_length=base,
         look=look,
-        duration=duration if duration is not None else _extract_duration(prompt),
+        duration=clamp_duration(duration if duration is not None else _extract_duration(prompt)),
         on_screen_text=_extract_quoted(prompt),
     )
 

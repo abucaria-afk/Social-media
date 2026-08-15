@@ -20,6 +20,7 @@ import mimetypes
 import os
 import shutil
 import socket
+import sys
 import threading
 import time
 import uuid
@@ -381,7 +382,16 @@ class Handler(BaseHTTPRequestHandler):
         the reload with a 304 costs one small round trip instead of resending
         the stylesheet and the script every time.
         """
-        if not path.is_file():
+        # Callers pass STATIC / Path(request_path).name, which cannot contain a
+        # separator — but `.name` of "/static/.." is ".." and that resolves to
+        # the parent. Nothing readable lives there and a directory fails the
+        # is_file() check below, so this was never a way to read anything; the
+        # invariant is worth holding anyway rather than resting on two accidents.
+        try:
+            inside = path.resolve().is_relative_to(STATIC.resolve())
+        except (OSError, ValueError):  # pragma: no cover - unresolvable path
+            inside = False
+        if not inside or not path.is_file():
             self._json({"error": "not found"}, 404)
             return
 
@@ -718,6 +728,26 @@ class Handler(BaseHTTPRequestHandler):
         self._json(job.snapshot(), 202)
 
 
+class Server(ThreadingHTTPServer):
+    """The stdlib server, minus the shouting.
+
+    Keep-alive plus a phone means dropped connections all day: the screen
+    locks, the app is backgrounded, a video is scrubbed elsewhere in the file.
+    The default handler prints a full traceback for each one. That console is
+    where password-reset links are printed, so burying it under stack traces
+    for a normal event is worse than useless.
+    """
+
+    daemon_threads = True
+
+    def handle_error(self, request, client_address) -> None:
+        kind = sys.exc_info()[0]
+        if kind is not None and issubclass(kind, (ConnectionError, TimeoutError, BrokenPipeError)):
+            log.debug("client %s went away", client_address)
+            return
+        super().handle_error(request, client_address)
+
+
 def local_address() -> str:
     """This machine's address on the wifi, which is what the phone must dial.
 
@@ -748,8 +778,7 @@ def serve(host: str = "0.0.0.0", port: int = 8000, *, workspace: Path | None = N
     Handler.accounts = Accounts(Accounts.default_path(root))
     created = seed.bootstrap(Handler.accounts)
 
-    server = ThreadingHTTPServer((host, port), Handler)
-    server.daemon_threads = True
+    server = Server((host, port), Handler)
 
     if announce:
         url = f"http://{local_address()}:{port}"

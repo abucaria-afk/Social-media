@@ -172,9 +172,10 @@ def direct(
 
     # ---- 3. read the brief and cut the film -------------------------------
     brief = parse_brief(prompt, duration=duration)
-    if duration is not None:
-        settings.target_duration = duration
-    elif brief.duration:
+    # brief.duration is the checked one — an explicit `duration=` argument used
+    # to be assigned here raw, which is how a negative runtime reached the
+    # planner. Anything unusable leaves the setting at its default.
+    if brief.duration:
         settings.target_duration = brief.duration
     log.info("brief: %s", brief.describe())
 

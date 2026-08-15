@@ -1886,3 +1886,107 @@ def test_an_untouched_file_is_not_reread(tmp_path):
     finally:
         Accounts._load = original
     assert reads == [], "nothing changed, so nothing should have been re-read"
+
+
+# ---------------------------------------------------------------------------
+# Found by fuzzing
+# ---------------------------------------------------------------------------
+
+def test_a_runtime_is_checked_however_it_arrives():
+    """Only the number read out of the prompt used to be range-checked. An
+    explicit `duration=` went straight through, so `--length -5` reached the
+    planner and the critic then reported that the film "came out the wrong
+    length" against a target of minus five seconds."""
+    from auteur.director.brief import MAX_RUNTIME, MIN_RUNTIME, clamp_duration, parse_brief
+
+    assert clamp_duration(None) is None
+    assert clamp_duration(0) is None
+    assert clamp_duration(-10) is None
+    assert clamp_duration(float("nan")) is None
+    assert clamp_duration(float("inf")) is None
+    assert clamp_duration(1.0) == MIN_RUNTIME
+    assert clamp_duration(10_000) == MAX_RUNTIME
+    assert clamp_duration(30) == 30
+
+    for bad in (-5, 0, float("nan")):
+        assert parse_brief("a montage", duration=bad).duration is None
+    assert parse_brief("a montage", duration=1e9).duration == MAX_RUNTIME
+
+
+@pytest.mark.slow
+def test_a_negative_length_does_not_reach_the_planner(rushes, tmp_path):
+    from auteur.agent import direct
+
+    production = direct(
+        [rushes], "a montage",
+        settings=Settings(quality=QUALITIES["draft"], primary_format=FORMATS["square"],
+                          target_duration=6.0, use_llm=False, revision_rounds=0),
+        workspace=tmp_path / "work", duration=-5.0,
+    )
+    # The nonsense is discarded and the settings default stands.
+    assert production.brief.duration is None
+    assert production.edl.duration > 0
+
+
+def test_a_transition_never_outlasts_half_its_shorter_neighbour():
+    """The cap was rounded to nearest, so it could land a fraction of a
+    millisecond over the shot it eats into. Rounding down makes the property
+    exact instead of nearly true."""
+    edl = EditDecisionList(title="t")
+    for index in range(4):
+        edl.shots.append(Shot(
+            clip_id="C01", source=Path("/tmp/a.mp4"),
+            start=index * 1.0, end=index * 1.0 + 0.6212345,
+            transition_in=Transition("dissolve", 2.0),
+        ))
+
+    class _Asset:
+        path, duration, kind = Path("/tmp/a.mp4"), 60.0, "video"
+
+    class _Dossier:
+        asset, duration = _Asset(), 60.0
+
+    edl.repair({"C01": _Dossier()}, target_duration=10.0)
+    for index in range(1, len(edl.shots)):
+        overlap = edl.shots[index].transition_in.duration
+        shorter = min(edl.shots[index - 1].duration, edl.shots[index].duration)
+        assert overlap <= shorter / 2, (
+            f"transition {index} is {overlap!r}, more than half of {shorter!r}"
+        )
+
+
+def test_the_static_route_stays_inside_its_folder(web_server):
+    """`Path("/static/..").name` is ".." and resolves to the parent. Nothing
+    readable lives there, but the property is worth holding outright rather
+    than resting on that."""
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    base, _, cookie = web_server
+    for attempt in ("/static/..", "/static/.", "/static/%00", "/static/../auth.py"):
+        with pytest.raises(HTTPError) as caught:
+            urlopen(Request(base + attempt, headers={"Cookie": cookie}))
+        assert caught.value.code == 404, attempt
+
+
+def test_a_dropped_connection_is_not_an_error(caplog):
+    """Keep-alive plus a phone means dropped connections all day. The console
+    is where reset links are printed; a traceback per locked screen buries
+    them."""
+    import logging
+    from auteur.web.server import Server
+
+    class _Fake(Server):
+        def __init__(self):  # no socket, no bind
+            self.handled = []
+
+        def handle_error(self, request, client_address):
+            Server.handle_error(self, request, client_address)
+
+    fake = _Fake()
+    with caplog.at_level(logging.DEBUG, logger="auteur.web"):
+        try:
+            raise ConnectionResetError("phone locked")
+        except ConnectionResetError:
+            fake.handle_error(None, ("127.0.0.1", 1234))
+    assert "went away" in caplog.text
