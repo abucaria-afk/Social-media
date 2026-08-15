@@ -1,0 +1,51 @@
+name: Demo accessibility checks (private)
+
+on:
+  pull_request:
+    branches: [ improve/demo-accessibility ]
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install tools
+        run: |
+          npm install -g http-server pa11y lighthouse
+
+      - name: Serve demo folder
+        run: |
+          npx http-server demo/web -p 8080 &
+          echo "Waiting for server..."
+          sleep 2
+
+      - name: Run pa11y accessibility check
+        continue-on-error: true
+        run: |
+          pa11y http://127.0.0.1:8080/index.html --timeout 30000 --reporter json > pa11y-report.json || true
+
+      - name: Run Lighthouse (mobile)
+        continue-on-error: true
+        run: |
+          lighthouse http://127.0.0.1:8080/index.html --preset=mobile --output=json --output-path=lh-mobile.json --chrome-flags="--headless" || true
+
+      - name: Run Lighthouse (desktop)
+        continue-on-error: true
+        run: |
+          lighthouse http://127.0.0.1:8080/index.html --preset=desktop --output=json --output-path=lh-desktop.json --chrome-flags="--headless" || true
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-a11y-reports
+          path: |
+            pa11y-report.json
+            lh-mobile.json
+            lh-desktop.json

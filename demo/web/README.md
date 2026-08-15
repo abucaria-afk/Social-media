@@ -1,25 +1,31 @@
+Demo web placeholders — accessibility & testing
 
-## Mobile placeholders and iPhone 13 testing
+This folder contains minimal mobile-first PWA placeholders. The branch "improve/demo-accessibility" adds accessibility improvements and CI audits that run privately in GitHub Actions.
 
-This repository did not include a web frontend; the files under demo/web are minimal mobile-first placeholders to make a future web deployment behave well on iOS (iPhone 13).
+Quick local checks
 
-Included files (in this branch):
+1) Serve locally
+   - python -m http.server 8000
+   - open http://localhost:8000/demo/web/index.html
 
-- demo/web/index.html — example page with meta viewport, safe-area CSS, example touch target and responsive image
-- demo/web/manifest.json — simple web manifest
-- demo/web/apple-touch-icon.svg, icon-192.svg — placeholder icons (SVG)
-- demo/web/image-1x.svg, image-2x.svg, image-3x.svg — placeholder responsive images
+2) Run a quick pa11y scan (if you have npm)
+   - npm install -g pa11y
+   - pa11y http://localhost:8000/demo/web/index.html
 
-How to use
+3) Run Lighthouse locally (headless)
+   - npx lighthouse http://localhost:8000/demo/web/index.html --preset=mobile --output html --output-path=./report.html
 
-1. Serve the demo/web folder over HTTPS from your web server or static host (GitHub Pages, Netlify, Vercel).
-2. Open the page on an iPhone 13 (or emulator) and verify:
-   - No horizontal scrolling at default zoom
-   - Touch targets >= 44x44 px
-   - Safe-area spacing around notch and home indicator
-   - Images look sharp (replace SVG placeholders with real PNG/WebP @1x/2x/3x assets)
+Accessibility changes applied
+- Skip link to jump to main content for keyboard/screen-reader users.
+- ARIA roles: banner, main, contentinfo.
+- Visible keyboard focus styles and focus-visible support.
+- prefers-reduced-motion respected.
+- Button uses accessible semantics and an aria-label.
+- Images include alt text; replace with content-appropriate alt text when you add real assets.
+- Touch targets sized >= 44×44 CSS px.
 
-If you want, I can:
-- Replace the SVG placeholders with real PNG/WebP files and add a small action to build optimized assets.
-- Add a Lighthouse CI workflow to run automated mobile audits against a deployed preview URL.
-- Integrate the demo into a simple Flask/FastAPI static-serve route so previews can be generated in the CI.
+CI testing (private)
+- The repository contains a GitHub Actions workflow (demo accessibility) that builds and serves the demo inside the runner and runs pa11y and Lighthouse (report-only). Artifacts are uploaded for review; nothing is published publicly.
+
+Manual device testing
+- For iPhone testing use Safari Web Inspector (connect device to Mac) and verify safe-area, touch targets, keyboard navigation, and reduced-motion behaviour.
