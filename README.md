@@ -1,140 +1,74 @@
-# 📣 Social Media Manager
+# 📣 Social Media Manager — (repository updated)
 
-A cross-platform C++ application designed to create, schedule, and publish posts to multiple social media platforms.
+![Python CI](https://github.com/abucaria-afk/Social-media/actions/workflows/python-ci.yml/badge.svg?branch=main) ![CodeQL](https://github.com/abucaria-afk/Social-media/actions/workflows/codeql.yml/badge.svg?branch=main) ![License](https://img.shields.io/github/license/abucaria-afk/Social-media)
 
----
+This repository contains the Python package "auteur" (an autonomous cinematic editor) and a demo for generating synthetic footage.
 
-## 🎬 auteur — the video editor agent
+Note: earlier README content referenced a C++ Social Media Manager. That C++ project is not present in this repository. The README has been updated to reflect the actual contents (Python package + demo).
 
-This repository also contains **[auteur](AUTEUR.md)**, an autonomous cinematic
-editor that turns a folder of unsorted clips and a sentence of direction into a
-finished, graded, beat-cut, sound-designed short film — ready to hand to the
-publisher above.
+Badges
+
+- Python CI: https://github.com/abucaria-afk/Social-media/actions/workflows/python-ci.yml
+- CodeQL: https://github.com/abucaria-afk/Social-media/security/code-scanning
+
+Quick summary
+
+- Package: auteur (see pyproject.toml)
+- Language: Python (requires Python >= 3.10)
+- Demo: demo/make_footage.py — generates synthetic clips and a music track for testing
+
+Getting started
+
+Prerequisites
+
+- Python 3.10+ (3.11/3.12 recommended)
+- ffmpeg (system ffmpeg recommended for full codec support) or the optional ffmpeg-binaries wheel
+
+Install runtime dependencies
 
 ```bash
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-python demo/make_footage.py ./rushes          # optional: synthesises test clips
-python -m auteur edit ./rushes --prompt 'moody neon chase, 20 seconds, "AFTER DARK"'
 ```
 
-It measures every clip frame by frame (motion, camera move, focus, exposure,
-colour, subject position), derives a beat grid from the music, cuts to it, grades
-and matches the shots, mixes the sound, and then **watches its own output back
-and re-cuts what it got wrong**. Claude directs when an API key is present; a
-full algorithmic director takes over when there isn't one, so the film always
-gets made. See **[AUTEUR.md](AUTEUR.md)** for the full documentation.
-
----
-
-## 🚀 Features
-
-- Compose posts with optional media attachments and hashtags
-- View, edit, and manage your post library
-- Schedule posts for future publication
-- Publish to platforms like Twitter, Facebook, Instagram, TikTok, and YouTube
-- Manage API tokens securely
-- Cross-platform builds: Linux, Windows, and macOS
-
-## 🗂 Project Structure
-
-```
-├── src/
-│   ├── main.cpp
-│   ├── postmanager.cpp
-│   ├── postmanager.h
-│   ├── post.cpp
-│   ├── post.h
-│   ├── socialmediacurl.cpp
-│   ├── socialmediacurl.h
-│   ├── credentialmanager.cpp
-│   ├── credentialmanager.h
-│   ├── errorhandler.cpp
-│   ├── errorhandler.h
-│   └── include/
-│   	└── nlohmann/
-│   		└── json.hpp
-├── Makefile
-├── README.md
-└── LICENSE
-```
-
-## 🛠️ Build Instructions
-
-### Prerequisites
-
-Ensure the following are installed:
-
-- C++17 compatible compiler (e.g., `g++`, `clang++`)
-- `libcurl` development libraries
-- `libsecret` development libraries
-- `make`
-
-### Building on Linux
+Run the demo to generate synthetic footage
 
 ```bash
-sudo apt update
-sudo apt install build-essential libcurl4-openssl-dev libsecret-1-dev
-make linux
+python demo/make_footage.py ./rushes
 ```
 
-### Cross-Compiling for Windows
+Run tests
 
 ```bash
-sudo apt install mingw-w64
-make windows
+pytest -q
 ```
 
-### Cross-Compiling for macOS
+Developer tools
 
-Set up a macOS cross-compilation toolchain (e.g., osxcross). Once configured:
+- Install pre-commit hooks:
 
 ```bash
-make mac
+pip install pre-commit
+pre-commit install
+pre-commit run --all-files
 ```
 
-### Building All Targets
-
-```bash
-make all
-```
-
-## 📦 Usage
-
-Run the application from the command line:
-
-```bash
-./SocialMediaManager_linux
-```
-
-Follow the on-screen menu to create, view, edit, schedule, and publish posts.
-
-## 🔐 Token Management
-
-To post to social media platforms, you'll need to set up API tokens:
-
-1. Select the "Set up token" option from the main menu.
-2. Enter the platform name (e.g., `twitter`).
-3. Enter the corresponding API token.
-
-Tokens are stored securely using the platform's credential manager.
-
-## 🧪 Sample Execution
-
-Upon running the application, you might see:
+Repository Layout (relevant parts)
 
 ```
-=== Social Media Post Manager ===
-1. Create a new post
-2. View all posts
-3. View post by number
-4. Edit a post
-5. Post to social media platforms
-6. Schedule a post
-7. Exit
-8. Set up token
-Choose an option:
+├── auteur/           # Python package
+├── demo/             # demo scripts (make_footage.py)
+├── pyproject.toml
+├── requirements.txt
+├── .github/workflows # CI workflows (python-ci + others)
 ```
 
-## 📄 License
+CI and quality checks added in this branch
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+- Python CI: pytest matrix (3.10–3.12)
+- Lint & format checks: ruff + black
+- Dependency audit: pip-audit
+- Code scanning: CodeQL
+- Dependabot: automatic dependency updates for Python
+
+If you want me to revert the README to the original C++-focused content or move the auteur package into a subdirectory/repo, tell me and I will adjust.

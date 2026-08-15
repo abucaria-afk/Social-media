@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0a">
+  <link rel="manifest" href="/demo/web/manifest.json">
+  <link rel="apple-touch-icon" href="/demo/web/apple-touch-icon.svg">
+  <title>Demo PWA placeholders</title>
+  <style>
+    :root {
+      --safe-top: env(safe-area-inset-top);
+      --safe-bottom: env(safe-area-inset-bottom);
+    }
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:0; padding: calc(16px + var(--safe-top)) calc(16px) calc(16px + var(--safe-bottom)); background:#fff; color:#111; }
+    header { display:flex; align-items:center; gap:12px; }
+    .hero { max-width:720px; margin: 16px auto; }
+    .btn { display:inline-block; background:#0b66ff; color:#fff; border-radius:8px; padding:12px 18px; min-height:44px; min-width:44px; text-decoration:none; }
+    img.responsive { width:100%; height:auto; aspect-ratio:16/9; object-fit:cover; }
+    .note { font-size:0.9rem; color:#555; margin-top:8px }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="apple-touch-icon.svg" alt="icon" width="48" height="48">
+    <h1>Demo PWA placeholders</h1>
+  </header>
+
+  <main class="hero">
+    <p>This folder provides minimal mobile-first placeholders you can use when you deploy a web frontend: manifest, icons and an example index.html tuned for iOS (iPhone 13).</p>
+
+    <a class="btn" href="#" onclick="alert('touch target OK')">Primary action</a>
+
+    <h2>Responsive image (srcset)</h2>
+    <img class="responsive" src="image-1x.svg" srcset="image-1x.svg 1x, image-2x.svg 2x, image-3x.svg 3x" alt="placeholder image">
+
+    <p class="note">Tips: serve this page over HTTPS; the meta viewport and safe-area CSS help on iPhone notch devices. Replace the SVG placeholders with real PNG/WebP assets sized for 1x/2x/3x DPR.</p>
+  </main>
+
+</body>
+</html>
