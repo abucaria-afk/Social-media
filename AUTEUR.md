@@ -144,6 +144,9 @@ python -m auteur account password   # change one (asks, never echoes)
 python -m auteur account add        # another person
 ```
 
+These take effect immediately — the server re-reads the file when it changes,
+so there is no restart and no window where the old password still works.
+
 Passwords are stored as salted scrypt hashes (n=2¹⁵, ~0.1s and 32MB a guess) in
 `<serve folder>/accounts.json` — outside the repository, and gitignored. Session
 tokens are stored hashed too, so a copy of that file cannot be replayed.

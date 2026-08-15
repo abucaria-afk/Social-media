@@ -1820,3 +1820,69 @@ def test_one_signed_in_user_cannot_read_anothers_film(guarded_server, tmp_path):
         with pytest.raises(HTTPError) as caught:
             urlopen(Request(base + path, headers={"Cookie": intruder}))
         assert caught.value.code == 404, path
+
+
+def test_the_server_notices_accounts_changed_on_disk(tmp_path):
+    """`auteur account` edits the same file a running server is using. Without
+    a reload the server keeps serving the set it read at start-up, and a
+    password change appears to do nothing — the confusing kind of nothing,
+    where the old password still works."""
+    from auteur.web.auth import Accounts
+
+    path = tmp_path / "accounts.json"
+    server = Accounts(path)
+    server.add("streetlightseason", "s@example.com", "Tacit25#")
+
+    # A second process — the CLI — adds someone and changes a password.
+    cli = Accounts(path)
+    cli.add("someone", "someone@example.com", "a-long-enough-one")
+    cli.set_password(cli.get("streetlightseason"), "a-brand-new-secret")
+
+    server.refresh()
+    token, _ = server.sign_in("someone", "a-long-enough-one")
+    assert token, "an account added elsewhere should be able to sign in"
+    assert server.get("streetlightseason").check("a-brand-new-secret")
+    assert not server.get("streetlightseason").check("Tacit25#")
+
+
+def test_a_reload_does_not_sign_the_phone_out(tmp_path):
+    """The CLI writes back whatever session list it happened to read, so taking
+    the file's copy on reload would drop a session created since."""
+    from auteur.web.auth import Accounts
+
+    path = tmp_path / "accounts.json"
+    cli = Accounts(path)
+    cli.add("streetlightseason", "s@example.com", "Tacit25#")
+
+    server = Accounts(path)
+    token, _ = server.sign_in("streetlightseason", "Tacit25#")
+    assert server.session_user(token) == "streetlightseason"
+
+    cli.add("someone", "someone@example.com", "a-long-enough-one")  # stale sessions written
+    server.refresh()
+    assert server.session_user(token) == "streetlightseason"
+    assert server.get("someone") is not None
+
+
+def test_an_untouched_file_is_not_reread(tmp_path):
+    """refresh() runs on every request, so it must be a stat() and nothing more
+    when nothing has changed."""
+    from auteur.web.auth import Accounts
+
+    store = Accounts(tmp_path / "accounts.json")
+    store.add("streetlightseason", "s@example.com", "Tacit25#")
+
+    reads = []
+    original = Accounts._load
+
+    def counting(self):
+        reads.append(1)
+        return original(self)
+
+    Accounts._load = counting
+    try:
+        for _ in range(5):
+            store.refresh()
+    finally:
+        Accounts._load = original
+    assert reads == [], "nothing changed, so nothing should have been re-read"

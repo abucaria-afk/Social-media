@@ -99,6 +99,8 @@ class Accounts:
         self.accounts: dict[str, Account] = {}
         #: token hash -> (username, expiry)
         self.sessions: dict[str, tuple[str, float]] = {}
+        #: mtime of the file as we last read or wrote it, for `refresh()`.
+        self._stamp = 0.0
         self._load()
 
     # -- storage ---------------------------------------------------------
@@ -108,9 +110,37 @@ class Accounts:
         """Beside the uploads, never inside the source tree."""
         return Path(workspace) / "accounts.json"
 
+    def refresh(self) -> None:
+        """Re-read the file if something else has written to it.
+
+        `auteur account add` and `auteur account password` edit the same file
+        while the server is running. Without this the server keeps serving the
+        set it read at start-up, and a password change appears to do nothing —
+        the confusing kind of nothing, where the old password still works.
+        """
+        try:
+            stamp = self.path.stat().st_mtime
+        except OSError:
+            return
+        if stamp == self._stamp:
+            return
+        with self.lock:
+            live = dict(self.sessions)
+            self.accounts.clear()
+            self._load()
+            # Keep the sessions we already hold. The CLI writes back whatever
+            # session list it happened to read, so taking the file's copy here
+            # would sign out a phone that signed in a moment ago.
+            live.update(self.sessions)
+            self.sessions = live
+
     def _load(self) -> None:
         if not self.path.is_file():
             return
+        try:
+            self._stamp = self.path.stat().st_mtime
+        except OSError:
+            self._stamp = 0.0
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
@@ -144,6 +174,11 @@ class Accounts:
         except OSError:
             pass  # Windows, or a filesystem without permissions
         temporary.replace(self.path)
+        # Remember our own write, so refresh() does not immediately undo it.
+        try:
+            self._stamp = self.path.stat().st_mtime
+        except OSError:
+            self._stamp = 0.0
 
     # -- accounts --------------------------------------------------------
 

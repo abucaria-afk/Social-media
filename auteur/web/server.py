@@ -331,6 +331,9 @@ class Handler(BaseHTTPRequestHandler):
         """
         if self.accounts is None:
             return None
+        # Cheap: one stat() per request, and it is what lets `auteur account`
+        # take effect against a server that is already running.
+        self.accounts.refresh()
         return self.accounts.session_user(self.session_token)
 
     def _set_session_cookie(self, token: str) -> str:
@@ -536,6 +539,7 @@ class Handler(BaseHTTPRequestHandler):
     # -- signing in ------------------------------------------------------
 
     def _sign_in(self) -> None:
+        self.accounts.refresh()
         payload = self._json_body()
         token, message = self.accounts.sign_in(
             str(payload.get("username", "")), str(payload.get("password", "")))
