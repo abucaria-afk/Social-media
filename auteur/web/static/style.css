@@ -71,6 +71,7 @@ body {
   border-radius: var(--radius);
   padding: 16px;
   margin-bottom: 14px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .card.picker { cursor: pointer; }

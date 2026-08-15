@@ -56,20 +56,21 @@ DARK: dict[str, str] = {
 }
 
 #: The lit side of the same photographs. Warm paper, not clinical white.
+#: text_muted and text_faint darkened to meet WCAG AA (4.5:1) on the ground.
 LIGHT: dict[str, str] = {
     "ground": "#f6f1e6",
     "surface": "#fffdf7",
     "raised": "#efe6d5",
     "line": "#d8cab2",
     "text": "#1c1815",
-    "text_muted": "#5c554b",
-    "text_faint": "#6f675b",
+    "text_muted": "#4d4639",
+    "text_faint": "#5e5649",
     "ember": "#e9a85c",
-    "ember_text": "#7f4f11",
+    "ember_text": "#6b4009",
     "on_ember": "#241703",
     "cream": "#ead2ae",
-    "moss": "#37613d",
-    "rust": "#9b3618",
+    "moss": "#2d5433",
+    "rust": "#8b2e14",
 }
 
 SCHEMES: dict[str, dict[str, str]] = {"dark": DARK, "light": LIGHT}
