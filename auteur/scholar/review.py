@@ -18,17 +18,13 @@ proposals, not as direct changes.
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass, field
-from collections.abc import Sequence
 
 from ..edl import EditDecisionList
-from ..insight import FitReport, Prediction, predict
+from ..insight import FitReport, Prediction
 from ..agents.base import Proposal, Risk
 from ..agents.gaze import (
     GazeAgent,
-    _composition_score,
-    _exposure_balance,
     _focal_weight,
     _palette_drift,
 )
@@ -62,7 +58,9 @@ class ReviewFinding:
             "description": self.description,
             "suggestion": self.suggestion,
             "severity": self.severity,
-            "supporting_learnings": [l.learning_id for l in self.supporting_learnings],
+            "supporting_learnings": [
+                learning.learning_id for learning in self.supporting_learnings
+            ],
             "shot_indices": self.shot_indices,
             "discipline": self.discipline.value if self.discipline else None,
         }
@@ -174,10 +172,11 @@ class OutputReview:
         if weak_shots:
             art_learnings = self._store.by_discipline(Discipline.ART_BASICS)
             composition_learnings = [
-                l
-                for l in art_learnings
+                learning
+                for learning in art_learnings
                 if any(
-                    kw in l.technique.lower() for kw in ("composition", "focal", "eye", "attention")
+                    kw in learning.technique.lower()
+                    for kw in ("composition", "focal", "eye", "attention")
                 )
             ]
 
@@ -210,10 +209,10 @@ class OutputReview:
         if drift > 0.4:
             colour_learnings = self._store.by_discipline(Discipline.COLOR_THEORY)
             palette_learnings = [
-                l
-                for l in colour_learnings
+                learning
+                for learning in colour_learnings
                 if any(
-                    kw in l.technique.lower()
+                    kw in learning.technique.lower()
                     for kw in ("palette", "harmony", "continuity", "temperature")
                 )
             ]
@@ -251,10 +250,10 @@ class OutputReview:
         if variance < 0.01 and len(durations) > 4:
             music_learnings = self._store.by_discipline(Discipline.MUSIC_THEORY)
             rhythm_learnings = [
-                l
-                for l in music_learnings
+                learning
+                for learning in music_learnings
                 if any(
-                    kw in l.technique.lower()
+                    kw in learning.technique.lower()
                     for kw in ("rhythm", "variation", "syncopation", "dynamic")
                 )
             ]
@@ -293,10 +292,10 @@ class OutputReview:
             cinema_learnings = self._store.by_discipline(Discipline.CINEMATOGRAPHY)
             directing_learnings = self._store.by_discipline(Discipline.DIRECTING)
             relevant = [
-                l
-                for l in cinema_learnings + directing_learnings
+                learning
+                for learning in cinema_learnings + directing_learnings
                 if any(
-                    kw in l.technique.lower()
+                    kw in learning.technique.lower()
                     for kw in ("movement", "pace", "rhythm", "hold", "static")
                 )
             ]
@@ -336,11 +335,11 @@ class OutputReview:
         ):
             tool_learnings = self._store.by_discipline(tool_discipline)
             issue_learnings = [
-                l
-                for l in tool_learnings
-                if l.confidence in (Confidence.VALIDATED, Confidence.SUPPORTED)
+                learning
+                for learning in tool_learnings
+                if learning.confidence in (Confidence.VALIDATED, Confidence.SUPPORTED)
                 and any(
-                    kw in l.insight.lower()
+                    kw in learning.insight.lower()
                     for kw in ("avoid", "issue", "bug", "artefact", "problem")
                 )
             ]
@@ -370,9 +369,9 @@ class OutputReview:
         # Peak-end rule: is the ending strong?
         psych_learnings = self._store.by_discipline(Discipline.PSYCHOLOGY)
         peak_end = [
-            l
-            for l in psych_learnings
-            if "peak" in l.technique.lower() or "end" in l.technique.lower()
+            learning
+            for learning in psych_learnings
+            if "peak" in learning.technique.lower() or "end" in learning.technique.lower()
         ]
 
         if peak_end and len(edl.shots) >= 3:

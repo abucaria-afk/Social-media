@@ -33,22 +33,21 @@ from pathlib import Path
 from collections.abc import Sequence
 
 from ..edl import EditDecisionList
-from ..insight import FitReport, Prediction, predict
-from ..agents.base import Proposal, Risk
+from ..insight import FitReport, Prediction
+from ..agents.base import Proposal
 from ..agents.gaze import GazeAgent
 from .knowledge import (
     Confidence,
     Discipline,
     KnowledgeStore,
     Learning,
-    THEORY_DISCIPLINES,
     TOOL_DISCIPLINES,
 )
-from .youtube import YouTubeAccess, SearchStrategy, VideoMeta, Subscription
+from .youtube import YouTubeAccess, SearchStrategy, VideoMeta
 from .teach import Teacher, TeachingBrief, WorkflowPatch
 from .review import OutputReview, ReviewFinding
 from .auditory import AuditorySystem, AudioSegment, AudioVisualState, ListeningSession
-from .speech import SpeechSystem, SpeechResponse, CommunicationMode, VoiceStyle
+from .speech import SpeechSystem, SpeechResponse
 
 log = logging.getLogger("auteur.scholar")
 

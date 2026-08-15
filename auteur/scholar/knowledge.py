@@ -18,7 +18,6 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from collections.abc import Sequence
 
 log = logging.getLogger("auteur.scholar.knowledge")
 
@@ -190,7 +189,7 @@ class KnowledgeStore:
     def save(self) -> None:
         """Persist all learnings to disk."""
         self._path.write_text(
-            "\n".join(json.dumps(l.to_json()) for l in self._learnings) + "\n",
+            "\n".join(json.dumps(learning.to_json()) for learning in self._learnings) + "\n",
             encoding="utf-8",
         )
 
@@ -213,21 +212,25 @@ class KnowledgeStore:
     def by_discipline(self, discipline: Discipline) -> list[Learning]:
         """All learnings for a given discipline, newest first."""
         return sorted(
-            [l for l in self._learnings if discipline in l.disciplines],
-            key=lambda l: l.learned_at,
+            [learning for learning in self._learnings if discipline in learning.disciplines],
+            key=lambda learning: learning.learned_at,
             reverse=True,
         )
 
     def by_tool(self, tool: str) -> list[Learning]:
         """All learnings for a specific NLE tool."""
         tool_lower = tool.lower()
-        return [l for l in self._learnings if l.tool.lower() == tool_lower]
+        return [learning for learning in self._learnings if learning.tool.lower() == tool_lower]
 
     def by_confidence(self, minimum: Confidence = Confidence.SUPPORTED) -> list[Learning]:
         """Learnings at or above a confidence level."""
         levels = list(Confidence)
         min_index = levels.index(minimum)
-        return [l for l in self._learnings if levels.index(l.confidence) >= min_index]
+        return [
+            learning
+            for learning in self._learnings
+            if levels.index(learning.confidence) >= min_index
+        ]
 
     def search(self, keywords: str) -> list[Learning]:
         """Keyword search across insights and techniques."""
@@ -241,7 +244,7 @@ class KnowledgeStore:
 
     def gaps(self) -> list[Discipline]:
         """Disciplines with fewer than 5 learnings — knowledge gaps to fill."""
-        counts: dict[Discipline, int] = {d: 0 for d in Discipline}
+        counts: dict[Discipline, int] = dict.fromkeys(Discipline, 0)
         for learning in self._learnings:
             for d in learning.disciplines:
                 counts[d] = counts.get(d, 0) + 1

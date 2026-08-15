@@ -16,12 +16,9 @@ the workflow unilaterally.
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
-from collections.abc import Sequence
 
 from .knowledge import Confidence, Discipline, KnowledgeStore, Learning
 
@@ -52,7 +49,7 @@ class TeachingBrief:
     def to_json(self) -> dict:
         return {
             "target_agents": self.target_agents,
-            "learnings": [l.to_json() for l in self.learnings],
+            "learnings": [learning.to_json() for learning in self.learnings],
             "summary": self.summary,
             "discipline_context": [d.value for d in self.discipline_context],
             "generated_at": self.generated_at,
@@ -185,10 +182,10 @@ class Teacher:
         # Deduplicate and sort by confidence then recency
         seen: set[str] = set()
         unique: list[Learning] = []
-        for l in relevant:
-            if l.learning_id not in seen:
-                seen.add(l.learning_id)
-                unique.append(l)
+        for learning in relevant:
+            if learning.learning_id not in seen:
+                seen.add(learning.learning_id)
+                unique.append(learning)
 
         # Prefer validated > supported > tentative, then most recent
         confidence_order = {
@@ -196,7 +193,12 @@ class Teacher:
             Confidence.SUPPORTED: 1,
             Confidence.TENTATIVE: 2,
         }
-        unique.sort(key=lambda l: (confidence_order.get(l.confidence, 3), -l.learned_at))
+        unique.sort(
+            key=lambda learning: (
+                confidence_order.get(learning.confidence, 3),
+                -learning.learned_at,
+            )
+        )
 
         selected = unique[:max_learnings]
         return TeachingBrief(
@@ -233,11 +235,13 @@ class Teacher:
             key = learning.technique.lower().strip()
             by_technique.setdefault(key, []).append(learning)
 
-        for technique, learnings in by_technique.items():
+        for _technique, learnings in by_technique.items():
             if len(learnings) < 3:
                 continue
 
-            has_validated = any(l.confidence == Confidence.VALIDATED for l in learnings)
+            has_validated = any(
+                learning.confidence == Confidence.VALIDATED for learning in learnings
+            )
             if not has_validated:
                 continue
 
@@ -254,7 +258,7 @@ class Teacher:
                     parameter=representative.technique,
                     current_value="not applied",
                     proposed_value=representative.application,
-                    supporting_learnings=[l.learning_id for l in learnings],
+                    supporting_learnings=[learning.learning_id for learning in learnings],
                     confidence=Confidence.VALIDATED if has_validated else Confidence.SUPPORTED,
                 )
             )

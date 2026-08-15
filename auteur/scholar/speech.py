@@ -29,7 +29,6 @@ import hashlib
 import logging
 import time
 from dataclasses import dataclass, field
-from collections.abc import Sequence
 
 log = logging.getLogger("auteur.scholar.speech")
 
