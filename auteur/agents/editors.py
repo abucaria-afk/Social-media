@@ -35,16 +35,30 @@ class HookAgent:
     name = "hook"
     objective = "three_second_watch_rate"
 
+    def __init__(
+        self,
+        *,
+        ideal_hook_duration: float | None = None,
+        hook_tolerance: float = 0.35,
+        lead_threshold: float = 1.6,
+    ):
+        #: Override for the ideal opening duration; when None, taken from model.
+        self.ideal_hook_duration = ideal_hook_duration
+        #: How far past ideal before a trim is proposed.
+        self.hook_tolerance = hook_tolerance
+        #: Source-duration ratio to justify reordering shots.
+        self.lead_threshold = lead_threshold
+
     def inspect(
         self, edl: EditDecisionList, prediction: Prediction, model: FitReport
     ) -> list[Proposal]:
         if not edl.shots:
             return []
         proposals: list[Proposal] = []
-        ideal = model.best_hook_duration or 1.6
+        ideal = self.ideal_hook_duration or model.best_hook_duration or 1.6
         opening = edl.shots[0].duration
 
-        if opening > ideal + 0.35:
+        if opening > ideal + self.hook_tolerance:
 
             def trim(target: EditDecisionList, ideal: float = ideal) -> None:
                 shot = target.shots[0]
@@ -114,7 +128,7 @@ class HookAgent:
         # which is the only quality signal available on the timeline itself.
         if len(edl.shots) > 3:
             best = max(range(1, len(edl.shots)), key=lambda i: edl.shots[i].source_duration)
-            if edl.shots[best].source_duration > edl.shots[0].source_duration * 1.6:
+            if edl.shots[best].source_duration > edl.shots[0].source_duration * self.lead_threshold:
 
                 def lead_with_best(target: EditDecisionList, best: int = best) -> None:
                     # The index was chosen against the timeline as it was when
@@ -164,6 +178,23 @@ class ShareAgent:
     name = "share"
     objective = "share_to_view_ratio"
 
+    def __init__(
+        self,
+        *,
+        runtime_cap: float = 22.0,
+        runtime_target: float = 18.0,
+        pace_floor: float = 0.8,
+        tighten_factor: float = 0.78,
+    ):
+        #: Runtime above which the agent proposes shortening.
+        self.runtime_cap = runtime_cap
+        #: Target runtime when shortening.
+        self.runtime_target = runtime_target
+        #: Cuts-per-second below which the agent proposes quickening.
+        self.pace_floor = pace_floor
+        #: Factor to multiply shot durations when tightening the middle.
+        self.tighten_factor = tighten_factor
+
     def inspect(
         self, edl: EditDecisionList, prediction: Prediction, model: FitReport
     ) -> list[Proposal]:
@@ -172,10 +203,8 @@ class ShareAgent:
         proposals: list[Proposal] = []
         runtime = edl.duration
 
-        if runtime > 22.0:
-            # Drop from the tail: the end of an over-long edit is where
-            # attention has already gone, so it is the cheapest thing to lose.
-            surplus = runtime - 18.0
+        if runtime > self.runtime_cap:
+            surplus = runtime - self.runtime_target
 
             def shorten(target: EditDecisionList, surplus: float = surplus) -> None:
                 removed = 0.0
@@ -188,7 +217,7 @@ class ShareAgent:
             proposals.append(
                 Proposal(
                     agent=self.name,
-                    title=f"Take it from {runtime:.0f}s to about 18s",
+                    title=f"Take it from {runtime:.0f}s to about {self.runtime_target:.0f}s",
                     reason=(
                         f"Predicted completion is {prediction.share.note.split()[-1]}, and "
                         "completion is what a share grows out of. Past twenty seconds every "
@@ -201,13 +230,11 @@ class ShareAgent:
             )
 
         pace = len(edl.shots) / max(runtime, 1.0)
-        if pace < 0.8 and len(edl.shots) >= 4:
+        if pace < self.pace_floor and len(edl.shots) >= 4:
 
-            def quicken(target: EditDecisionList) -> None:
-                # Tighten the middle, leave the hook and the ending alone: both
-                # are load-bearing for the other two objectives.
+            def quicken(target: EditDecisionList, factor: float = self.tighten_factor) -> None:
                 for shot in target.shots[1:-1]:
-                    keep = shot.source_duration * 0.78
+                    keep = shot.source_duration * factor
                     shot.end = shot.start + max(keep, 0.35)
 
             proposals.append(
@@ -242,6 +269,12 @@ class LoopAgent:
 
     name = "loop"
     objective = "loop_count"
+
+    def __init__(self, *, max_tail_duration: float = 2.0, loop_return_span: float = 0.9):
+        #: Last-shot duration above which the agent proposes shortening.
+        self.max_tail_duration = max_tail_duration
+        #: How long the loop-return clip should be.
+        self.loop_return_span = loop_return_span
 
     def inspect(
         self, edl: EditDecisionList, prediction: Prediction, model: FitReport
@@ -279,14 +312,12 @@ class LoopAgent:
 
         if last.clip_id != first.clip_id:
 
-            def close_the_loop(target: EditDecisionList) -> None:
+            def close_the_loop(target: EditDecisionList, span: float = self.loop_return_span) -> None:
                 opener = target.shots[0]
                 tail = copy.deepcopy(opener)
-                # A short return to the opening frame: long enough to register
-                # as the same place, short enough that the join is invisible.
-                span = min(0.9, opener.source_duration)
+                loop_span = min(span, opener.source_duration)
                 tail.start = opener.start
-                tail.end = opener.start + span
+                tail.end = opener.start + loop_span
                 tail.transition_in = Transition(kind="cut")
                 tail.note = "loop return"
                 target.shots[-1] = tail
@@ -324,7 +355,7 @@ class LoopAgent:
                 )
             )
 
-        if last.duration > 2.0:
+        if last.duration > self.max_tail_duration:
 
             def shorten_tail(target: EditDecisionList) -> None:
                 tail = target.shots[-1]
@@ -347,11 +378,20 @@ class LoopAgent:
         return proposals
 
 
-def default_crew() -> tuple[HookAgent, ShareAgent, LoopAgent]:
+def default_crew(model: FitReport | None = None) -> tuple[HookAgent, ShareAgent, LoopAgent]:
     """The three, in the order they should argue.
 
     Hook first because it is cheapest and everything else depends on somebody
     still being there; share second because it decides the runtime the loop has
     to work with; loop last because it only needs the two ends.
+
+    When a *model* is provided, agent thresholds are derived from its learned
+    values so that retraining the model automatically updates agent behaviour.
     """
-    return (HookAgent(), ShareAgent(), LoopAgent())
+    hook_kwargs: dict = {}
+    share_kwargs: dict = {}
+    loop_kwargs: dict = {}
+    if model is not None:
+        if model.best_hook_duration:
+            hook_kwargs["ideal_hook_duration"] = model.best_hook_duration
+    return (HookAgent(**hook_kwargs), ShareAgent(**share_kwargs), LoopAgent(**loop_kwargs))

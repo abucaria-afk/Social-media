@@ -30,9 +30,18 @@ from .base import (
 )
 from .editors import HookAgent, LoopAgent, ShareAgent, default_crew
 from .preflight import CHECKABLE, Finding, StyleAgent, check_render, preflight, unknowable
+from .trainer import (
+    CalibrationRecord,
+    ThresholdSet,
+    TrainingHistory,
+    adjust_thresholds,
+    calibrate,
+    retrain,
+)
 
 __all__ = [
     "Agent",
+    "CalibrationRecord",
     "Change",
     "Crew",
     "CrewResult",
@@ -45,11 +54,16 @@ __all__ = [
     "Risk",
     "Round",
     "ShareAgent",
+    "ThresholdSet",
+    "TrainingHistory",
     "CHECKABLE",
     "Finding",
     "StyleAgent",
+    "adjust_thresholds",
+    "calibrate",
     "check_render",
     "default_crew",
     "preflight",
+    "retrain",
     "unknowable",
 ]

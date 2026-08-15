@@ -22,9 +22,11 @@ from __future__ import annotations
 
 import copy
 import enum
+import json
 import time
 from dataclasses import dataclass, field
 from typing import Protocol
+from pathlib import Path
 from collections.abc import Callable, Sequence
 
 from ..edl import EditDecisionList
@@ -271,6 +273,12 @@ class CrewResult:
         lines.append(self.final.describe())
         return "\n".join(lines)
 
+    def persist(self, path: Path) -> None:
+        """Write this result as a training signal for future retraining cycles."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(self.to_json()) + "\n")
+
 
 class Crew:
     """Runs the agents until they stop finding improvements.
@@ -289,12 +297,14 @@ class Crew:
         gate: Gate | None = None,
         max_rounds: int = 3,
         min_gain: float = 0.005,
+        result_log: Path | None = None,
     ):
         self.agents = list(agents)
         self.model = model
         self.gate = gate or Gate()
         self.max_rounds = max(1, max_rounds)
         self.min_gain = min_gain
+        self.result_log = result_log
 
     def run(self, edl: EditDecisionList) -> CrewResult:
         started = time.perf_counter()
@@ -359,10 +369,13 @@ class Crew:
             if not improved:
                 break
 
-        return CrewResult(
+        result = CrewResult(
             edl=current,
             baseline=baseline,
             final=predict(current, self.model),
             rounds=rounds,
             seconds=time.perf_counter() - started,
         )
+        if self.result_log is not None:
+            result.persist(self.result_log)
+        return result
