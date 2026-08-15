@@ -167,3 +167,14 @@ def unregister():
 
 if __name__ == "__main__":
     register()
+# 1. Create a safe, tracking feature branch
+git checkout -b feature/blender-final-check-agent
+
+# 2. Stage the new script module
+git add auteur/blender/auteur_blender_agent.py
+
+# 3. Commit the changes with clear framework context
+git commit -m "feat(blender): add internal final check agent with compositor overlays, VSE audio sync, and render loop automation"
+
+# 4. Push the branch up to GitHub to open your Pull Request
+git push origin feature/blender-final-check-agent
