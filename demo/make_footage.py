@@ -78,13 +78,25 @@ def make_clips(directory: Path) -> list[Path]:
     written: list[Path] = []
     for spec in CLIPS:
         destination = directory / spec["name"]
-        _run([
-            "-f", "lavfi", "-i", spec["source"],
-            "-t", f"{spec['duration']}",
-            "-vf", f"{spec['grade']},format=yuv420p",
-            "-c:v", "libx264", "-crf", "23", "-preset", "veryfast",
-            str(destination),
-        ])
+        _run(
+            [
+                "-f",
+                "lavfi",
+                "-i",
+                spec["source"],
+                "-t",
+                f"{spec['duration']}",
+                "-vf",
+                f"{spec['grade']},format=yuv420p",
+                "-c:v",
+                "libx264",
+                "-crf",
+                "23",
+                "-preset",
+                "veryfast",
+                str(destination),
+            ]
+        )
         written.append(destination)
         print(f"  clip  {destination.name}")
     return written
@@ -92,11 +104,19 @@ def make_clips(directory: Path) -> list[Path]:
 
 def make_still(directory: Path) -> Path:
     destination = directory / "07_still_frame.png"
-    _run([
-        "-f", "lavfi", "-i", "mandelbrot=size=1920x1080:rate=1:start_scale=3.5",
-        "-frames:v", "1", "-vf", "eq=saturation=1.3:contrast=1.15",
-        str(destination),
-    ])
+    _run(
+        [
+            "-f",
+            "lavfi",
+            "-i",
+            "mandelbrot=size=1920x1080:rate=1:start_scale=3.5",
+            "-frames:v",
+            "1",
+            "-vf",
+            "eq=saturation=1.3:contrast=1.15",
+            str(destination),
+        ]
+    )
     print(f"  still {destination.name}")
     return destination
 
@@ -115,7 +135,9 @@ def _hat(length: int) -> np.ndarray:
 
 def _bass(length: int, frequency: float) -> np.ndarray:
     t = np.arange(length) / SAMPLE_RATE
-    tone = np.sign(np.sin(2 * np.pi * frequency * t)) * 0.22 + np.sin(2 * np.pi * frequency * t) * 0.3
+    tone = (
+        np.sign(np.sin(2 * np.pi * frequency * t)) * 0.22 + np.sin(2 * np.pi * frequency * t) * 0.3
+    )
     envelope = np.minimum(1.0, t * 60) * np.exp(-t * 3.0)
     return tone * envelope
 

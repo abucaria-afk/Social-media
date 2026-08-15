@@ -205,7 +205,9 @@ def _find_accents(onset: np.ndarray, fps: float) -> list[float]:
     return accents
 
 
-def _find_silences(envelope: np.ndarray, fps: float, floor: float = 0.02) -> list[tuple[float, float]]:
+def _find_silences(
+    envelope: np.ndarray, fps: float, floor: float = 0.02
+) -> list[tuple[float, float]]:
     if not len(envelope):
         return []
     quiet = envelope < floor
@@ -279,7 +281,11 @@ def analyse_audio(asset: MediaAsset) -> AudioAnalysis:
     if bpm > 0:
         period = 60.0 / bpm
         count = int((duration - phase) / period) + 1
-        beats = [round(phase + i * period, 4) for i in range(max(count, 0)) if phase + i * period <= duration]
+        beats = [
+            round(phase + i * period, 4)
+            for i in range(max(count, 0))
+            if phase + i * period <= duration
+        ]
 
     return AudioAnalysis(
         duration=duration,
@@ -317,6 +323,9 @@ def find_music_bed(candidates: list[MediaAsset]) -> tuple[MediaAsset | None, Aud
     if best is None:
         return None, None
     log.info(
-        "music bed: %s (%.0f BPM, confidence %.2f)", best[1].name, best[2].tempo, best[2].tempo_confidence
+        "music bed: %s (%.0f BPM, confidence %.2f)",
+        best[1].name,
+        best[2].tempo,
+        best[2].tempo_confidence,
     )
     return best[1], best[2]

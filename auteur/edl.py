@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
+from collections.abc import Iterable
 
 log = logging.getLogger("auteur.edl")
 
@@ -24,11 +26,33 @@ MIN_SHOT = 0.25
 MAX_SHOT = 12.0
 
 TRANSITIONS = {
-    "cut", "dissolve", "dip-to-black", "dip-to-white", "whip-left", "whip-right",
-    "whip-up", "whip-down", "glitch", "light-leak", "zoom-blur", "film-burn",
-    "slide-left", "slide-right", "wipe", "morph",
+    "cut",
+    "dissolve",
+    "dip-to-black",
+    "dip-to-white",
+    "whip-left",
+    "whip-right",
+    "whip-up",
+    "whip-down",
+    "glitch",
+    "light-leak",
+    "zoom-blur",
+    "film-burn",
+    "slide-left",
+    "slide-right",
+    "wipe",
+    "morph",
 }
-MOTIONS = {"none", "ken-burns", "punch-in", "pull-out", "drift-left", "drift-right", "float", "shake"}
+MOTIONS = {
+    "none",
+    "ken-burns",
+    "punch-in",
+    "pull-out",
+    "drift-left",
+    "drift-right",
+    "float",
+    "shake",
+}
 REFRAMES = {"subject", "center", "fill", "blur-pad"}
 TEXT_STYLES = {"title", "kinetic", "lower-third", "caption", "end-card", "chapter"}
 
@@ -44,7 +68,7 @@ class Transition:
     kind: str = "cut"
     duration: float = 0.0
 
-    def normalise(self) -> "Transition":
+    def normalise(self) -> Transition:
         kind = (self.kind or "cut").strip().lower()
         if kind not in TRANSITIONS:
             kind = "dissolve" if self.duration > 0 else "cut"
@@ -66,7 +90,7 @@ class Motion:
     #: Normalised frame coordinates the move is built around.
     anchor: tuple[float, float] = (0.5, 0.5)
 
-    def normalise(self) -> "Motion":
+    def normalise(self) -> Motion:
         kind = (self.kind or "none").strip().lower()
         if kind not in MOTIONS:
             kind = "none"
@@ -88,21 +112,23 @@ class Ramp:
     points: list[tuple[float, float]] = field(default_factory=list)
 
     @staticmethod
-    def constant(speed: float) -> "Ramp":
+    def constant(speed: float) -> Ramp:
         return Ramp([(0.0, speed), (1.0, speed)])
 
     @staticmethod
-    def slow_in(from_speed: float = 0.45, to_speed: float = 1.0) -> "Ramp":
+    def slow_in(from_speed: float = 0.45, to_speed: float = 1.0) -> Ramp:
         return Ramp([(0.0, from_speed), (0.55, to_speed), (1.0, to_speed)])
 
     @staticmethod
-    def accelerate(from_speed: float = 1.0, to_speed: float = 2.4) -> "Ramp":
+    def accelerate(from_speed: float = 1.0, to_speed: float = 2.4) -> Ramp:
         return Ramp([(0.0, from_speed), (0.45, from_speed), (1.0, to_speed)])
 
     @staticmethod
-    def hit(slow: float = 0.35, fast: float = 1.8, at: float = 0.35) -> "Ramp":
+    def hit(slow: float = 0.35, fast: float = 1.8, at: float = 0.35) -> Ramp:
         """Snap to a crawl on the beat, then whip out of it."""
-        return Ramp([(0.0, fast), (max(at - 0.08, 0.01), slow), (min(at + 0.18, 0.99), slow), (1.0, fast)])
+        return Ramp(
+            [(0.0, fast), (max(at - 0.08, 0.01), slow), (min(at + 0.18, 0.99), slow), (1.0, fast)]
+        )
 
     @property
     def is_flat(self) -> bool:
@@ -113,7 +139,7 @@ class Ramp:
     def constant_speed(self) -> float:
         return self.points[0][1] if self.points else 1.0
 
-    def normalise(self) -> "Ramp":
+    def normalise(self) -> Ramp:
         cleaned: list[tuple[float, float]] = []
         for position, speed in self.points:
             cleaned.append((_clamp(position, 0.0, 1.0), _clamp(speed, 0.15, 8.0)))
@@ -164,14 +190,14 @@ class Look:
     #: Named film emulation, see craft.color.LOOKS.
     preset: str = "neutral"
     #: Per-shot corrections applied *before* the preset, to make shots match.
-    exposure: float = 0.0     # stops, -1..+1
+    exposure: float = 0.0  # stops, -1..+1
     temperature: float = 0.0  # -1 cool .. +1 warm
-    saturation: float = 0.0   # -1..+1 relative
-    contrast: float = 0.0     # -1..+1 relative
+    saturation: float = 0.0  # -1..+1 relative
+    contrast: float = 0.0  # -1..+1 relative
     #: 0..1 strength of the named preset.
     strength: float = 1.0
 
-    def normalise(self) -> "Look":
+    def normalise(self) -> Look:
         return Look(
             preset=(self.preset or "neutral").strip().lower(),
             exposure=_clamp(self.exposure, -1.0, 1.0),
@@ -227,7 +253,7 @@ class Shot:
         """Screen time, after speed."""
         return self.ramp.output_duration(self.source_duration)
 
-    def normalise(self) -> "Shot":
+    def normalise(self) -> Shot:
         self.ramp = self.ramp.normalise()
         self.motion = self.motion.normalise()
         self.look = self.look.normalise()
@@ -249,13 +275,13 @@ class TextCue:
     style: str = "title"
     #: Normalised position of the text block's centre.
     anchor: tuple[float, float] = (0.5, 0.5)
-    size: float = 1.0        # relative to the style's default
+    size: float = 1.0  # relative to the style's default
     color: str = "#FFFFFF"
     accent: str = "#FFFFFF"
     #: For kinetic captions: reveal one word at a time.
     per_word: bool = False
 
-    def normalise(self) -> "TextCue":
+    def normalise(self) -> TextCue:
         self.text = (self.text or "").strip()
         self.style = (self.style or "title").strip().lower()
         if self.style not in TEXT_STYLES:
@@ -344,7 +370,9 @@ class EditDecisionList:
 
     # ------------------------------------------------------------ validation
 
-    def repair(self, sources: dict[str, Any] | None = None, *, target_duration: float | None = None) -> list[str]:
+    def repair(
+        self, sources: dict[str, Any] | None = None, *, target_duration: float | None = None
+    ) -> list[str]:
         """Force the EDL to be renderable. Returns the list of repairs made.
 
         `sources` maps clip_id -> object exposing `.asset.path` and `.duration`
@@ -384,7 +412,9 @@ class EditDecisionList:
                 shot.end = shot.start + MAX_SHOT
                 notes.append(f"{shot.clip_id}: trimmed to the {MAX_SHOT:.0f}s ceiling")
             if shot.duration < MIN_SHOT:
-                notes.append(f"dropped {shot.clip_id}: {shot.duration:.2f}s of screen time is a flash frame")
+                notes.append(
+                    f"dropped {shot.clip_id}: {shot.duration:.2f}s of screen time is a flash frame"
+                )
                 continue
             legal.append(shot)
 
@@ -398,10 +428,17 @@ class EditDecisionList:
                 # A transition cannot be longer than the shots it joins.
                 ceiling = min(shot.duration, legal[index - 1].duration) * 0.5
                 if shot.transition_in.duration > ceiling:
-                    shot.transition_in = Transition(shot.transition_in.kind, round(max(ceiling, 0.0), 3))
+                    # Rounded *down*, not to nearest: rounding up by a fraction
+                    # of a millisecond leaves an overlap fractionally longer
+                    # than the shot it is eating into, which is the sort of
+                    # just-over-the-line that only shows up in a fuzz run.
+                    capped = math.floor(max(ceiling, 0.0) * 1000) / 1000
+                    shot.transition_in = Transition(shot.transition_in.kind, capped)
                     if shot.transition_in.duration < 0.08:
                         shot.transition_in = Transition("cut", 0.0)
-                        notes.append(f"shot {index + 1}: transition too long for the shots, made it a cut")
+                        notes.append(
+                            f"shot {index + 1}: transition too long for the shots, made it a cut"
+                        )
 
         self.shots = legal
 
@@ -429,12 +466,33 @@ class EditDecisionList:
         self.letterbox = _clamp(self.letterbox, 0.0, 0.25)
 
         if target_duration and runtime > target_duration * 3:
-            notes.append(
-                f"runtime {runtime:.1f}s is far over the {target_duration:.1f}s target"
-            )
+            notes.append(f"runtime {runtime:.1f}s is far over the {target_duration:.1f}s target")
         return notes
 
     # ------------------------------------------------------------ (de)serialise
+
+    def without_shots(self, drop: Iterable[int]) -> EditDecisionList:
+        """A copy of the film with some shots removed.
+
+        Used when a shot cannot be rendered: the assembly reads shots and
+        segments positionally, so the timeline has to shrink to match the
+        segments that actually exist. The film re-opens on a cut — the shot now
+        first may have been carrying a dissolve into something that is gone.
+        """
+        import copy
+
+        gone = set(drop)
+        keep = [shot for index, shot in enumerate(self.shots) if index not in gone]
+        reduced = copy.copy(self)
+        reduced.shots = keep
+        if keep:
+            reduced.shots[0] = copy.copy(keep[0])
+            reduced.shots[0].transition_in = Transition("cut", 0.0)
+        # Text and effects are timed against a timeline that just got shorter.
+        runtime = reduced.duration
+        reduced.texts = [cue for cue in self.texts if cue.start < runtime - 0.15]
+        reduced.sfx = [cue for cue in self.sfx if 0.0 <= cue.at < runtime]
+        return reduced
 
     def to_json(self) -> dict:
         def shot_json(shot: Shot) -> dict:
@@ -445,16 +503,25 @@ class EditDecisionList:
                 "end": round(shot.end, 3),
                 "screen_time": round(shot.duration, 3),
                 "ramp": [[round(p, 3), round(s, 3)] for p, s in shot.ramp.points],
-                "motion": {"kind": shot.motion.kind, "intensity": round(shot.motion.intensity, 3),
-                           "anchor": [round(shot.motion.anchor[0], 3), round(shot.motion.anchor[1], 3)]},
+                "motion": {
+                    "kind": shot.motion.kind,
+                    "intensity": round(shot.motion.intensity, 3),
+                    "anchor": [round(shot.motion.anchor[0], 3), round(shot.motion.anchor[1], 3)],
+                },
                 "reframe": shot.reframe,
                 "look": asdict(shot.look),
-                "transition_in": {"kind": shot.transition_in.kind,
-                                  "duration": round(shot.transition_in.duration, 3)},
+                "transition_in": {
+                    "kind": shot.transition_in.kind,
+                    "duration": round(shot.transition_in.duration, 3),
+                },
                 "source_audio": shot.use_source_audio,
                 "audio_gain": round(shot.audio_gain, 3),
                 "audio_offset": round(shot.audio_offset, 3),
                 "note": shot.note,
+                # Without this, a saved EDL read back renders every still down
+                # the moving-footage path: `-ss` into a single-frame image,
+                # which yields almost nothing.
+                "is_still": shot.is_still,
             }
 
         return {
@@ -468,19 +535,32 @@ class EditDecisionList:
             "rationale": self.rationale,
             "shots": [shot_json(shot) for shot in self.shots],
             "texts": [
-                {"text": cue.text, "start": round(cue.start, 3), "duration": round(cue.duration, 3),
-                 "style": cue.style, "anchor": list(cue.anchor), "size": cue.size,
-                 "color": cue.color, "accent": cue.accent, "per_word": cue.per_word}
+                {
+                    "text": cue.text,
+                    "start": round(cue.start, 3),
+                    "duration": round(cue.duration, 3),
+                    "style": cue.style,
+                    "anchor": list(cue.anchor),
+                    "size": cue.size,
+                    "color": cue.color,
+                    "accent": cue.accent,
+                    "per_word": cue.per_word,
+                }
                 for cue in self.texts
             ],
             "music": {
                 "source": str(self.music.source) if self.music.source else None,
-                "offset": round(self.music.offset, 3), "gain": round(self.music.gain, 3),
-                "duck": self.music.duck, "duck_amount": round(self.music.duck_amount, 3),
-                "fade_in": self.music.fade_in, "fade_out": self.music.fade_out,
+                "offset": round(self.music.offset, 3),
+                "gain": round(self.music.gain, 3),
+                "duck": self.music.duck,
+                "duck_amount": round(self.music.duck_amount, 3),
+                "fade_in": self.music.fade_in,
+                "fade_out": self.music.fade_out,
             },
-            "sfx": [{"kind": c.kind, "at": round(c.at, 3), "gain": c.gain, "duration": c.duration}
-                    for c in self.sfx],
+            "sfx": [
+                {"kind": c.kind, "at": round(c.at, 3), "gain": c.gain, "duration": c.duration}
+                for c in self.sfx
+            ],
         }
 
     def save(self, path: str | Path) -> Path:
@@ -499,7 +579,11 @@ class EditDecisionList:
             lines.append(f"  {self.rationale}")
         lines.append("")
         for index, (start, end, shot) in enumerate(self.timeline(), start=1):
-            join = "" if shot.transition_in.is_cut else f" ({shot.transition_in.kind} {shot.transition_in.duration:.2f}s)"
+            join = (
+                ""
+                if shot.transition_in.is_cut
+                else f" ({shot.transition_in.kind} {shot.transition_in.duration:.2f}s)"
+            )
             speed = ""
             if not shot.ramp.is_flat:
                 speeds = [s for _, s in shot.ramp.points]
@@ -556,7 +640,9 @@ def shots_from_json(payload: Iterable[dict], sources: dict[str, Any]) -> list[Sh
 
         motion_raw = raw.get("motion")
         if isinstance(motion_raw, str):
-            motion = Motion(kind=motion_raw, intensity=float(raw.get("motion_intensity", 0.35) or 0.35))
+            motion = Motion(
+                kind=motion_raw, intensity=float(raw.get("motion_intensity", 0.35) or 0.35)
+            )
         elif isinstance(motion_raw, dict):
             anchor = motion_raw.get("anchor") or [0.5, 0.5]
             motion = Motion(
@@ -569,7 +655,9 @@ def shots_from_json(payload: Iterable[dict], sources: dict[str, Any]) -> list[Sh
 
         transition_raw = raw.get("transition_in") or raw.get("transition")
         if isinstance(transition_raw, str):
-            transition = Transition(transition_raw, float(raw.get("transition_duration", 0.4) or 0.4))
+            transition = Transition(
+                transition_raw, float(raw.get("transition_duration", 0.4) or 0.4)
+            )
         elif isinstance(transition_raw, dict):
             transition = Transition(
                 str(transition_raw.get("kind", "cut")),

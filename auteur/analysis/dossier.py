@@ -51,20 +51,6 @@ class Take:
     def duration(self) -> float:
         return max(0.0, self.end - self.start)
 
-    def trimmed(self, duration: float) -> "Take":
-        """Same take, shortened to `duration`, keeping its strongest moment."""
-        duration = max(MIN_TAKE, min(duration, self.duration))
-        # Bias toward the back half: action usually resolves late in a take.
-        head = min(self.duration - duration, self.duration * 0.35)
-        start = self.start + max(0.0, head)
-        return Take(
-            clip_id=self.clip_id, start=round(start, 3), end=round(start + duration, 3),
-            score=self.score, motion=self.motion, motion_peak=self.motion_peak,
-            sharpness=self.sharpness, exposure=self.exposure, contrast=self.contrast,
-            energy=self.energy, subject=self.subject, subject_drift=self.subject_drift,
-            camera=self.camera, scale=self.scale, stability=self.stability,
-        )
-
     def to_json(self) -> dict:
         return {
             "clip": self.clip_id,
@@ -121,11 +107,15 @@ class ClipDossier:
             "orientation": "vertical" if self.asset.is_vertical else "horizontal",
             "quality": round(self.quality, 3),
             "look": {
-                "brightness": round(float(np.mean(self.video.luma)) if len(self.video.luma) else 0.5, 3),
-                "contrast": round(float(np.mean(self.video.contrast)) if len(self.video.contrast) else 0.0, 3),
+                "brightness": round(
+                    float(np.mean(self.video.luma)) if len(self.video.luma) else 0.5, 3
+                ),
+                "contrast": round(
+                    float(np.mean(self.video.contrast)) if len(self.video.contrast) else 0.0, 3
+                ),
                 "saturation": round(self.video.saturation, 3),
                 "warmth": round(self.video.warmth, 3),
-                "palette": ["#%02x%02x%02x" % c for c in self.video.palette[:4]],
+                "palette": [f"#{r:02x}{g:02x}{b:02x}" for r, g, b in self.video.palette[:4]],
             },
             "sound": {
                 "present": not self.audio.silent,
@@ -209,7 +199,9 @@ def _segments(dossier_video: VideoAnalysis, duration: float) -> list[tuple[float
     ]
 
 
-def _find_takes(clip_id: str, video: VideoAnalysis, audio: AudioAnalysis, duration: float) -> list[Take]:
+def _find_takes(
+    clip_id: str, video: VideoAnalysis, audio: AudioAnalysis, duration: float
+) -> list[Take]:
     """Slide a window over each continuous segment and keep the local peaks."""
     takes: list[Take] = []
     window = 1.5
@@ -308,13 +300,19 @@ def build_dossier(
         # Nothing scored well, but footage is footage: keep the middle of it.
         span = min(asset.duration, 3.0)
         start = max(0.0, (asset.duration - span) / 2)
-        takes = [Take(clip_id=clip_id, start=round(start, 3), end=round(start + span, 3), score=0.2)]
+        takes = [
+            Take(clip_id=clip_id, start=round(start, 3), end=round(start + span, 3), score=0.2)
+        ]
 
     return ClipDossier(clip_id=clip_id, asset=asset, video=video, audio=audio, takes=takes)
 
 
 def build_dossiers(
-    assets: list[MediaAsset], *, analysis_fps: float = 6.0, analysis_width: int = 128, workers: int = 4
+    assets: list[MediaAsset],
+    *,
+    analysis_fps: float = 6.0,
+    analysis_width: int = 128,
+    workers: int = 4,
 ) -> list[ClipDossier]:
     """Analyse the whole bin, in parallel. Order of the input list is preserved."""
     numbered = [(f"C{index + 1:02d}", asset) for index, asset in enumerate(assets)]
@@ -323,7 +321,9 @@ def build_dossiers(
     def work(item: tuple[str, MediaAsset]) -> ClipDossier:
         clip_id, asset = item
         log.info("analysing %s (%s)", clip_id, asset.name)
-        return build_dossier(clip_id, asset, analysis_fps=analysis_fps, analysis_width=analysis_width)
+        return build_dossier(
+            clip_id, asset, analysis_fps=analysis_fps, analysis_width=analysis_width
+        )
 
     if workers > 1 and len(numbered) > 1:
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(workers, len(numbered))) as pool:

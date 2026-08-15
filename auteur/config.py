@@ -4,12 +4,25 @@ from __future__ import annotations
 
 import os
 import shutil
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 
 VIDEO_SUFFIXES = {
-    ".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".mts", ".m2ts",
-    ".mpg", ".mpeg", ".wmv", ".flv", ".3gp", ".ts", ".mxf",
+    ".mp4",
+    ".mov",
+    ".m4v",
+    ".mkv",
+    ".webm",
+    ".avi",
+    ".mts",
+    ".m2ts",
+    ".mpg",
+    ".mpeg",
+    ".wmv",
+    ".flv",
+    ".3gp",
+    ".ts",
+    ".mxf",
 }
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic"}
 AUDIO_SUFFIXES = {".mp3", ".wav", ".aac", ".m4a", ".flac", ".ogg", ".opus", ".aif", ".aiff"}
@@ -58,17 +71,38 @@ class Quality:
     #: Long edge of the analysis thumbnail (pixels).
     analysis_width: int
 
-    def with_fps(self, fps: int) -> "Quality":
-        return replace(self, fps=fps)
-
 
 QUALITIES: dict[str, Quality] = {
-    "draft": Quality("draft", crf=28, preset="veryfast", fps=24, audio_bitrate="128k",
-                     optical_flow=False, analysis_fps=4.0, analysis_width=96),
-    "standard": Quality("standard", crf=20, preset="medium", fps=30, audio_bitrate="192k",
-                        optical_flow=False, analysis_fps=6.0, analysis_width=128),
-    "master": Quality("master", crf=16, preset="slow", fps=30, audio_bitrate="320k",
-                      optical_flow=True, analysis_fps=8.0, analysis_width=160),
+    "draft": Quality(
+        "draft",
+        crf=28,
+        preset="veryfast",
+        fps=24,
+        audio_bitrate="128k",
+        optical_flow=False,
+        analysis_fps=4.0,
+        analysis_width=96,
+    ),
+    "standard": Quality(
+        "standard",
+        crf=20,
+        preset="medium",
+        fps=30,
+        audio_bitrate="192k",
+        optical_flow=False,
+        analysis_fps=6.0,
+        analysis_width=128,
+    ),
+    "master": Quality(
+        "master",
+        crf=16,
+        preset="slow",
+        fps=30,
+        audio_bitrate="320k",
+        optical_flow=True,
+        analysis_fps=8.0,
+        analysis_width=160,
+    ),
 }
 
 
@@ -111,8 +145,6 @@ class Settings:
     extra_formats: tuple[DeliveryFormat, ...] = ()
     #: Hard ceiling on the finished runtime, in seconds.
     target_duration: float = 30.0
-    #: Acceptable slack either side of the target before the agent re-cuts.
-    duration_tolerance: float = 2.0
     seed: int = 0x5CE7E
     #: Rounds of watch-and-recut the critic is allowed. Each one is a full
     #: re-render, so the default is deliberately modest.
@@ -135,10 +167,19 @@ def resolve_format(name: str) -> DeliveryFormat:
     if key in FORMATS:
         return FORMATS[key]
     aliases = {
-        "9:16": "reel", "vertical": "reel", "tiktok": "reel", "shorts": "reel",
-        "1:1": "square", "16:9": "wide", "landscape": "wide", "youtube": "wide",
-        "2.35:1": "cinema", "scope": "cinema", "anamorphic": "cinema",
-        "4:5": "portrait", "feed": "portrait",
+        "9:16": "reel",
+        "vertical": "reel",
+        "tiktok": "reel",
+        "shorts": "reel",
+        "1:1": "square",
+        "16:9": "wide",
+        "landscape": "wide",
+        "youtube": "wide",
+        "2.35:1": "cinema",
+        "scope": "cinema",
+        "anamorphic": "cinema",
+        "4:5": "portrait",
+        "feed": "portrait",
     }
     if key in aliases:
         return FORMATS[aliases[key]]

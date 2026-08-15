@@ -26,7 +26,17 @@ import numpy as np
 from ..analysis.audio import AudioAnalysis
 from ..analysis.dossier import ClipDossier, Take
 from ..config import Settings
-from ..edl import EditDecisionList, Look, Motion, MusicCue, Ramp, Shot, SoundCue, TextCue, Transition
+from ..edl import (
+    EditDecisionList,
+    Look,
+    Motion,
+    MusicCue,
+    Ramp,
+    Shot,
+    SoundCue,
+    TextCue,
+    Transition,
+)
 from ..ingest import MediaAsset
 from .brief import Brief
 
@@ -107,8 +117,13 @@ def _build_slots(
             end = target
 
         slots.append(
-            _Slot(index=index, start=round(cursor, 4), end=round(end, 4), energy=energy,
-                  on_downbeat=round(end, 3) in downbeats)
+            _Slot(
+                index=index,
+                start=round(cursor, 4),
+                end=round(end, 4),
+                energy=energy,
+                on_downbeat=round(end, 3) in downbeats,
+            )
         )
         cursor = end
         index += 1
@@ -159,9 +174,9 @@ def _fit_score(
 
     # Coverage: the take should be able to fill the slot without absurd speeds.
     implied_speed = take.duration / max(slot.length, 1e-6)
-    if implied_speed < 0.32:      # would need extreme slow motion
+    if implied_speed < 0.32:  # would need extreme slow motion
         score -= 0.45
-    elif implied_speed > 3.2:     # plenty of material, no penalty, slight bonus
+    elif implied_speed > 3.2:  # plenty of material, no penalty, slight bonus
         score += 0.05
 
     # Variety: the same clip twice in a row reads as a mistake.
@@ -259,7 +274,10 @@ def _choose_speed(take: Take, slot: _Slot, brief: Brief) -> tuple[float, Ramp]:
 
 def _choose_motion(take: Take, slot: _Slot, is_still: bool, rng: random.Random) -> Motion:
     """Give static frames a reason to be on screen."""
-    anchor = (float(np.clip(take.subject[0], 0.12, 0.88)), float(np.clip(take.subject[1], 0.12, 0.88)))
+    anchor = (
+        float(np.clip(take.subject[0], 0.12, 0.88)),
+        float(np.clip(take.subject[1], 0.12, 0.88)),
+    )
 
     if is_still:
         kind = "ken-burns" if slot.energy < 0.6 else "punch-in"
@@ -278,7 +296,11 @@ def _choose_motion(take: Take, slot: _Slot, is_still: bool, rng: random.Random) 
 
 
 def _choose_transition(
-    take: Take, previous_take: Take | None, slot: _Slot, brief: Brief, rng: random.Random,
+    take: Take,
+    previous_take: Take | None,
+    slot: _Slot,
+    brief: Brief,
+    rng: random.Random,
     act_break: bool,
 ) -> Transition:
     """Cuts are the default. Everything else must be motivated."""
@@ -321,7 +343,9 @@ def _choose_transition(
     return Transition(kind, duration)
 
 
-def _match_looks(shots: list[Shot], dossiers: dict[str, ClipDossier], preset: str, strength: float) -> None:
+def _match_looks(
+    shots: list[Shot], dossiers: dict[str, ClipDossier], preset: str, strength: float
+) -> None:
     """Shot matching: nudge every shot toward a common exposure and white balance.
 
     Without this, footage from different clips reads as a collage. With it, the
@@ -392,8 +416,16 @@ def _place_texts(brief: Brief, duration: float, look_accent: str) -> list[TextCu
     first, *rest = lines
 
     cues.append(
-        TextCue(text=first, start=0.35, duration=min(2.4, duration * 0.28), style="title",
-                anchor=(0.5, 0.46), size=1.0, color="#FFFFFF", accent=look_accent)
+        TextCue(
+            text=first,
+            start=0.35,
+            duration=min(2.4, duration * 0.28),
+            style="title",
+            anchor=(0.5, 0.46),
+            size=1.0,
+            color="#FFFFFF",
+            accent=look_accent,
+        )
     )
 
     if rest:
@@ -406,17 +438,31 @@ def _place_texts(brief: Brief, duration: float, look_accent: str) -> list[TextCu
             step = (span_end - span_start) / max(len(middles), 1)
             for index, line in enumerate(middles):
                 cues.append(
-                    TextCue(text=line, start=round(span_start + index * step, 2),
-                            duration=min(2.0, step * 0.8), style="kinetic",
-                            anchor=(0.5, 0.8), size=0.8, color="#FFFFFF",
-                            accent=look_accent, per_word=True)
+                    TextCue(
+                        text=line,
+                        start=round(span_start + index * step, 2),
+                        duration=min(2.0, step * 0.8),
+                        style="kinetic",
+                        anchor=(0.5, 0.8),
+                        size=0.8,
+                        color="#FFFFFF",
+                        accent=look_accent,
+                        per_word=True,
+                    )
                 )
 
         if end_card:
             cues.append(
-                TextCue(text=end_card, start=round(max(duration - 2.6, duration * 0.8), 2),
-                        duration=2.4, style="end-card", anchor=(0.5, 0.5), size=1.1,
-                        color="#FFFFFF", accent=look_accent)
+                TextCue(
+                    text=end_card,
+                    start=round(max(duration - 2.6, duration * 0.8), 2),
+                    duration=2.4,
+                    style="end-card",
+                    anchor=(0.5, 0.5),
+                    size=1.1,
+                    color="#FFFFFF",
+                    accent=look_accent,
+                )
             )
     return cues
 
@@ -426,10 +472,22 @@ def _design_sound(edl: EditDecisionList, slots: list[_Slot], brief: Brief) -> li
     cues: list[SoundCue] = []
     timeline = edl.timeline()
 
-    for (start, _, shot), slot in zip(timeline, slots):
+    # strict=False on purpose: repair() can drop a shot, leaving the
+    # timeline shorter than the slots it was planned from.
+    for (start, _, shot), slot in zip(timeline, slots, strict=False):
         kind = shot.transition_in.kind
-        if kind in ("whip-left", "whip-right", "whip-up", "whip-down", "zoom-blur", "slide-left", "slide-right"):
-            cues.append(SoundCue("whoosh", at=round(max(0.0, start - 0.12), 3), gain=0.5, duration=0.45))
+        if kind in (
+            "whip-left",
+            "whip-right",
+            "whip-up",
+            "whip-down",
+            "zoom-blur",
+            "slide-left",
+            "slide-right",
+        ):
+            cues.append(
+                SoundCue("whoosh", at=round(max(0.0, start - 0.12), 3), gain=0.5, duration=0.45)
+            )
         elif kind == "glitch":
             cues.append(SoundCue("tick", at=round(start, 3), gain=0.4, duration=0.18))
         elif slot.on_downbeat and slot.energy > 0.75 and start > 0.5:
@@ -483,7 +541,8 @@ def cut(
     # Energy troughs are act breaks; they are where a transition is allowed.
     energies = [slot.energy for slot in slots]
     act_breaks = {
-        index for index in range(1, len(slots) - 1)
+        index
+        for index in range(1, len(slots) - 1)
         if energies[index] < energies[index - 1] and energies[index] <= energies[index + 1]
     }
 
@@ -497,8 +556,13 @@ def cut(
         best: tuple[float, ClipDossier, Take] | None = None
         for dossier, take in pool:
             score = _fit_score(
-                take, slot, previous_take=previous_take, used_seconds=used_seconds,
-                used_ranges=used_ranges, recent_clips=recent_clips, is_hook=slot.index == 0,
+                take,
+                slot,
+                previous_take=previous_take,
+                used_seconds=used_seconds,
+                used_ranges=used_ranges,
+                recent_clips=recent_clips,
+                is_hook=slot.index == 0,
             )
             if best is None or score > best[0]:
                 best = (score, dossier, take)
@@ -570,7 +634,8 @@ def cut(
 
     if music is not None:
         edl.music = MusicCue(
-            source=music.path, offset=offset,
+            source=music.path,
+            offset=offset,
             gain=0.55 if brief.keep_source_audio else 0.85,
             duck=brief.keep_source_audio,
         )

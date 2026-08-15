@@ -1,74 +1,78 @@
-# 📣 Social Media Manager — (repository updated)
+# 🎬 Social-media — auteur, an autonomous cinematic editor
 
-![Python CI](https://github.com/abucaria-afk/Social-media/actions/workflows/python-ci.yml/badge.svg?branch=main) ![CodeQL](https://github.com/abucaria-afk/Social-media/actions/workflows/codeql.yml/badge.svg?branch=main) ![License](https://img.shields.io/github/license/abucaria-afk/Social-media)
+![Python CI](https://github.com/abucaria-afk/Social-media/actions/workflows/python-ci.yml/badge.svg?branch=main)
+![CodeQL](https://github.com/abucaria-afk/Social-media/actions/workflows/codeql.yml/badge.svg?branch=main)
+![License](https://img.shields.io/github/license/abucaria-afk/Social-media)
 
-This repository contains the Python package "auteur" (an autonomous cinematic editor) and a demo for generating synthetic footage.
+Point it at a pile of unsorted clips, give it a sentence of direction, and it
+returns a finished, graded, beat-cut, sound-designed short film — from the
+command line, or from your phone.
 
-Note: earlier README content referenced a C++ Social Media Manager. That C++ project is not present in this repository. The README has been updated to reflect the actual contents (Python package + demo).
+> An earlier README described a C++ Social Media Manager. That project is not in
+> this repository; what is here is the Python package **auteur** and a demo that
+> synthesises its own test footage.
 
-Badges
+---
 
-- Python CI: https://github.com/abucaria-afk/Social-media/actions/workflows/python-ci.yml
-- CodeQL: https://github.com/abucaria-afk/Social-media/security/code-scanning
-
-Quick summary
-
-- Package: auteur (see pyproject.toml)
-- Language: Python (requires Python >= 3.10)
-- Demo: demo/make_footage.py — generates synthetic clips and a music track for testing
-
-Getting started
-
-Prerequisites
-
-- Python 3.10+ (3.11/3.12 recommended)
-- ffmpeg (system ffmpeg recommended for full codec support) or the optional ffmpeg-binaries wheel
-
-Install runtime dependencies
+## Quick start
 
 ```bash
 python -m pip install --upgrade pip
 pip install -r requirements.txt
+
+python -m auteur demo                        # makes practice clips, then edits them
+python -m auteur edit ./rushes 'moody neon chase, 20 seconds, "AFTER DARK"'
+python -m auteur serve                       # then open the printed address on your phone
 ```
 
-Run the demo to generate synthetic footage
+`demo` needs no footage, no arguments and no API key: it synthesises clips and a
+120 BPM track, edits them, and shows you the whole pipeline working.
+
+`serve` puts the same agent behind a mobile web app you can add to the iPhone
+home screen — or install from Chrome on desktop and Android. Pick clips from the
+camera roll, say what you want, and save the finished film back to Photos. It
+has its own sign-in with password reset, and a light/dark/automatic switch.
+
+**Requirements:** Python 3.10+ and ffmpeg. A system ffmpeg works; the
+`ffmpeg-binaries` wheel in `requirements.txt` is preferred because distro builds
+sometimes ship without `libx264`, `xfade` or `loudnorm`.
+
+---
+
+## What it does
+
+It measures every clip frame by frame — motion, camera move, focus, exposure,
+colour, subject position — derives a beat grid from the music, cuts to it, grades
+and matches the shots, mixes the sound, and then **watches its own output back
+and re-cuts what it got wrong**. Claude directs when an API key is present; a
+full algorithmic director takes over when there isn't one, so the film always
+gets made.
+
+See **[AUTEUR.md](AUTEUR.md)** for the full documentation: every command, how
+the edit is planned, what the critic measures, and the limitations.
+
+---
+
+## Development
 
 ```bash
-python demo/make_footage.py ./rushes
+pytest -q                    # the suite; synthesises its own footage
+python tests/fuzz.py         # ten thousand randomised property checks
+ruff check auteur tests      # lint
+
+pip install pre-commit && pre-commit install
 ```
 
-Run tests
-
-```bash
-pytest -q
-```
-
-Developer tools
-
-- Install pre-commit hooks:
-
-```bash
-pip install pre-commit
-pre-commit install
-pre-commit run --all-files
-```
-
-Repository Layout (relevant parts)
+### Layout
 
 ```
-├── auteur/           # Python package
-├── demo/             # demo scripts (make_footage.py)
-├── pyproject.toml
-├── requirements.txt
-├── .github/workflows # CI workflows (python-ci + others)
+auteur/            the package
+  analysis/        what it sees in the footage
+  director/        who decides the shots (Claude, or the built-in editor)
+  craft/           grammar, motion, colour, transitions, sound, titles
+  web/             the phone app: stdlib-only server and static front end
+  theme.py         the one palette, read by the app, the icons and the terminal
+demo/              make_footage.py — synthetic clips for a first run
+tests/             test_auteur.py (pytest) and fuzz.py (property campaign)
+.github/workflows/ CI: tests, python-ci, lint, coverage, CodeQL, pip-audit
 ```
-
-CI and quality checks added in this branch
-
-- Python CI: pytest matrix (3.10–3.12)
-- Lint & format checks: ruff + black
-- Dependency audit: pip-audit
-- Code scanning: CodeQL
-- Dependabot: automatic dependency updates for Python
-
-If you want me to revert the README to the original C++-focused content or move the auteur package into a subdirectory/repo, tell me and I will adjust.

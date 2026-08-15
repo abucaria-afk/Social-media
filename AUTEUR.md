@@ -4,7 +4,7 @@ Point it at a pile of unsorted clips, give it a sentence of direction, and it
 returns a finished, graded, beat-cut, sound-designed short film.
 
 ```bash
-auteur edit ./rushes --prompt 'moody neon chase, 20 seconds, ends on "AFTER DARK"'
+python -m auteur edit ./rushes 'moody neon chase, 20 seconds, ends on "AFTER DARK"'
 ```
 
 ```
@@ -57,44 +57,160 @@ A system ffmpeg works too. Discovery order is `$AUTEUR_FFMPEG` → a wheel-bundl
 static build → `PATH` → `imageio-ffmpeg`. Wheel builds are preferred because
 distro packages sometimes ship without `libx264`, `xfade` or `loudnorm`.
 
-Try it with no footage of your own:
-
-```bash
-python demo/make_footage.py ./rushes      # synthesises clips + a 120 BPM track
-auteur edit ./rushes --prompt "fast neon montage, 15 seconds"
-```
-
 ---
 
-## Usage
+## Running it
+
+### The shortest possible first run
+
+No footage, no arguments, no API key. This makes its own practice clips and
+edits them, so you can see the whole thing work before committing anything of
+your own to it:
 
 ```bash
-auteur edit ./rushes ./b-roll ./music.mp3 \
-    --prompt 'warm nostalgic summer, 30 seconds, "ONE LAST SUMMER"' \
-    --format reel,square,wide \
-    --quality master \
-    --duration 30 \
-    --rounds 2
+python -m auteur demo
+```
+
+### On your own clips
+
+```bash
+python -m auteur edit ./my-clips "fast neon montage, 20 seconds"
+```
+
+Point it at a folder, or at individual files, and say what you want in your own
+words. Put the music in the same folder and it will find it, work out the tempo,
+and cut to the beat. The prompt can be the last argument like that, or `-p`.
+
+### On your phone
+
+The clips are on the phone; the command line is on the computer. This serves the
+same agent as a web app on your local network:
+
+```bash
+python -m auteur serve
+```
+
+It prints two addresses. Open the second one on your iPhone — both devices need
+to be on the same wifi — then **Share → Add to Home Screen** to keep it as a
+real app that opens full-screen with no browser chrome. Pick clips from the
+camera roll, type what you want, and it renders on the computer and hands the
+film back to the phone, where **Save to my phone** puts it in Photos through the
+normal share sheet.
+
+**In Chrome** — desktop or Android — the same page offers an **Install this as
+an app** button, and installs as a normal PWA: own window, own icon, no tab
+strip. One caveat that is Chrome's rule rather than this program's: Chrome only
+offers installation on a *secure* origin. `http://localhost:8000` counts as
+secure; a plain `http://192.168.…` LAN address does not. So the phone can always
+*use* the page, but installing from Chrome means either opening it on the
+computer itself or putting it behind HTTPS. The page detects which case it is in
+and says so rather than showing a button that would do nothing.
+
+| Option | |
+|---|---|
+| `--port` | Default 8000. Try another if something already holds that one. |
+| `--host` | `0.0.0.0` (default) lets the phone reach it; `127.0.0.1` keeps it to this computer. |
+| `--quality` | `draft` (default) keeps phone renders quick. |
+| `--out` | Where uploads and finished films go. Default `./auteur-web`. |
+
+Renders run one at a time, and finished jobs are swept after six hours.
+
+### Signing in
+
+The first run creates one account and prints its username. Everything behind
+the sign-in page is closed without it — including finished films and production
+notes, which are your own footage.
+
+- **Forgot your password?** The sign-in page has a link. It asks for your
+  username or email and sends a link that works once, for 30 minutes. With no
+  mail server configured the link is printed in the window where `serve` is
+  running, which for a tool on your own machine is the right default: whoever
+  can read that console is the person who owns the account. To send real email
+  instead, set `AUTEUR_SMTP_HOST`, `AUTEUR_SMTP_PORT`, `AUTEUR_SMTP_USER`,
+  `AUTEUR_SMTP_PASSWORD` and `AUTEUR_SMTP_FROM`.
+- Five wrong passwords lock the account for fifteen minutes.
+- Changing a password signs every other device out.
+- The reply to "I forgot my password" is identical whether or not the account
+  exists, so the page cannot be used to discover which addresses have one.
+- The reset link is built from the server's own address, never from the
+  request's `Host` header. Behind a proxy, set `AUTEUR_PUBLIC_URL` to name the
+  address yourself.
+- Films and production notes belong to the account that made them. Being signed
+  in is not permission to read somebody else's footage.
+
+```bash
+python -m auteur account            # who can sign in
+python -m auteur account password   # change one (asks, never echoes)
+python -m auteur account add        # another person
+```
+
+These take effect immediately — the server re-reads the file when it changes,
+so there is no restart and no window where the old password still works.
+
+Passwords are stored as salted scrypt hashes (n=2¹⁵, ~0.1s and 32MB a guess) in
+`<serve folder>/accounts.json` — outside the repository, and gitignored. Session
+tokens are stored hashed too, so a copy of that file cannot be replayed.
+
+To start from your own credentials and inherit nothing from version control:
+
+```bash
+AUTEUR_USERNAME=me AUTEUR_EMAIL=me@example.com AUTEUR_PASSWORD=... python -m auteur serve
+```
+
+### Light, dark, or whatever the phone is doing
+
+The bottom of every screen has an **Appearance** switch: *Automatic*, *Light*,
+*Dark*. Automatic is the default and follows the phone's own setting; the other
+two override it and are remembered. The choice is applied by a small script in
+`<head>` before the stylesheet loads, so the page never flashes the wrong theme
+on the way in.
+
+Both palettes come from the same photographs — the dark one from the shadow, the
+light one from the torch-lit side — so switching changes the exposure rather than
+the identity. A test asserts every text/background pair in *both* clears WCAG AA.
+
+### Every option
+
+```bash
+python -m auteur edit ./rushes ./b-roll ./music.mp3 \
+    -p 'warm nostalgic summer, 30 seconds, "ONE LAST SUMMER"' \
+    --shape vertical,square,widescreen \
+    --quality best \
+    --length 30 \
+    --revisions 2
 ```
 
 | Option | |
 |---|---|
-| `--prompt` | The direction. Quoted phrases become on-screen text. |
-| `--duration` | Target runtime. Also readable from the prompt ("20 seconds"). |
-| `--format` | `reel` (9:16), `square`, `wide`, `cinema` (2.35:1), `portrait` (4:5), or `1080x1920`. Comma-separated for several. |
-| `--quality` | `draft`, `standard`, `master`. `master` adds optical-flow slow motion. |
-| `--rounds` | How many times to watch it back and re-cut. Each round is a full re-render. |
+| `-p`, `--prompt` | The direction. Quoted phrases become on-screen text. Can also just be the last argument. |
+| `-l`, `--length` | Target runtime in seconds. Also readable from the prompt ("20 seconds"). |
+| `-s`, `--shape` | `vertical` (default), `square`, `widescreen`, `cinematic`, `portrait`. Comma-separate for several at once. |
+| `--quality` | `draft`, `standard` (default), `best`. `best` adds optical-flow slow motion. |
+| `--revisions` | How many times to watch it back and re-cut. Each round is a full re-render. Default 1. |
+| `-o`, `--out` | Where everything lands. Default `./auteur-work`. |
 | `--seed` | A different cut of the same brief. |
-| `--no-llm` | Algorithmic director only. |
+| `--details` | Also print the full shot list. |
+| `--no-ai` | Never call Claude; use the built-in editor. |
+| `-q`, `--quiet` | Print nothing but the finished path. |
+| `-v`, `-vv` | Show what it is doing internally. |
 
 ```bash
-auteur analyse ./rushes      # what the agent sees in your footage
-auteur looks                 # the film emulations and transitions available
+python -m auteur analyse ./rushes   # what the agent sees in your footage
+python -m auteur looks              # the film looks and transitions available
 ```
+
+If you installed the package (`pip install -e .`), `auteur` works everywhere
+`python -m auteur` does.
 
 Everything lands in the working directory: the masters, `production-notes.md`
 (what it saw, what it decided, what it fixed), `edl.json` for every pass, and
 `analysis.json`.
+
+### Do I need an API key?
+
+No. Claude directs when `ANTHROPIC_API_KEY` is set, and a full algorithmic
+director takes over when it isn't — the film always gets made either way. The
+run says which one cut it.
 
 ### As a library
 
@@ -189,16 +305,87 @@ reframe has to see the original footage to know what to keep.
 
 **Determinism.** Same seed, brief and footage produce the same cut.
 
+**Authentication fails closed.** A missing account store denies every request
+rather than admitting them. The other direction — treating "auth is not set up"
+as "everyone is allowed" — turns one missing line of start-up into a server
+quietly handing out the user's footage, with nothing in the log to say so.
+
+**One bad clip costs one shot, not the film.** A shot whose source window holds
+no frames — a fraction of a second of low-frame-rate footage, say — used to take
+the whole render down. It is dropped now, named in plain words, and the timeline
+is rebuilt around the gap. A folder of zero-byte files, truncated containers,
+text renamed to .mp4, 4K, 16x16 and 1fps clips still produces a film.
+
+**Nothing may fail quietly.** ffmpeg exits 0 for a filter graph that produced no
+frames, so a shot can render to a valid, empty file and only explode later, deep
+in the assembly, with an error naming neither the shot nor the cause. Every
+segment is probed for picture before it is allowed into the assembly, and the
+frame reader asks ffprobe for the height rather than inferring it from the byte
+count — an inference that was ambiguous, and silently reported a 15-second film
+as 107 seconds.
+
+**The phone app carries no dependencies.** `auteur/web/` is the standard library
+and nothing else: no Flask, no build step, no bundler, no CDN. The page is three
+static files, the icons are drawn at startup rather than checked in, and the
+front end is the same `Reporter` interface the terminal uses, pointed at a JSON
+endpoint instead of stdout.
+
+**One palette, in `auteur/theme.py`.** It is sampled from the material this was
+built for — torchlit night photography, where a warm subject sits in a
+near-black frame. The dominant clusters in that footage are a near-neutral black
+ground, a cream-amber subject around hue 30–36, low-saturation forest green, and
+a silver highlight; those are the roles. The stylesheet is generated from the
+module at startup and contains no hex values of its own, the icons read the same
+constants, and the terminal uses 24-bit escapes from them where it can. A test
+asserts every text/background pair clears WCAG AA, so a palette change cannot
+quietly make the primary button unreadable.
+
+---
+
+## Where the time goes
+
+**Shots render in parallel.** Each is its own ffmpeg process writing its own
+file, so they are independent by construction. The pool is sized at one process
+per core, from measurement rather than assumption: on a 4-core box a 21-shot
+reel took 74s sequentially, 58s with two workers, 54s with four, and 77s with
+six. Past the core count every segment slows down and the batch finishes later
+than it would have with fewer. Optical flow is excluded — `minterpolate` is
+memory-hungry enough that several at once can push a laptop into swap.
+
+**The page is cheap to hold open.** Text is gzipped (the stylesheet goes 7.5 KB →
+2.5 KB), shell assets revalidate by ETag so a reload costs a 304, connections
+are kept alive, and polling backs off from 1s to 5s while nothing is changing and
+stops entirely when the page is hidden.
+
+**Video is served by range.** Not an optimisation but a requirement: iOS Safari
+opens a video with `Range: bytes=0-1` and will not play anything answered with a
+plain 200 and the whole file.
+
 ---
 
 ## Testing
 
 ```bash
 python -m pytest tests/ -q                 # everything, including a render
-python -m pytest tests/ -q -m "not slow"   # 54 tests, ~4 seconds
+python -m pytest tests/ -q -m "not slow"   # ~75 tests, a few seconds
 ```
 
-The suite synthesises its own footage, so it needs no fixtures on disk.
+The suite synthesises its own footage, so it needs no fixtures on disk. The web
+tests bind a real socket and exercise the routes as served, including the
+`Range` requests iOS Safari uses to open a video.
+
+```bash
+python tests/fuzz.py            # ten thousand randomised cases
+```
+
+Separate from the suite, and deliberately: it checks *properties* rather than
+examples, and its job is to find the next thing worth a named test. Ten
+thousand cases put roughly 314,000 assertions through the EDL repairer, the
+ramp maths, the grammar passes, brief parsing, the upload parser, the static
+route and the account store. Everything it has caught has a test in
+`test_auteur.py` — a runtime that was only range-checked on one of its two
+routes in, a transition cap that rounded to nearest instead of down, and a
+static path that resolved one folder up.
 
 ---
 
@@ -216,3 +403,12 @@ The suite synthesises its own footage, so it needs no fixtures on disk.
   is used.
 - **The critic measures, it does not watch.** It can tell that a shot is frozen or
   that the film is off the beat. It cannot tell that the edit is boring.
+- **The phone app is for your own network.** It has a sign-in, hashed passwords
+  and a lockout, but no TLS: on a plain `http://` LAN address the password and
+  the session cookie cross the wifi in the clear. That is fine for your own
+  network and not fine for a public one. `--host 127.0.0.1` keeps it to the one
+  machine; anything wider should sit behind a reverse proxy with a certificate.
+- **The seeded account's hash is in the repository.** It is scrypt, not a
+  password, but a hash is still worth guessing at if the repository ever stops
+  being private. `python -m auteur account password` replaces it for good, and
+  `AUTEUR_PASSWORD=...` on the first run means it is never used at all.

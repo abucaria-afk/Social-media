@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import critic, render
+from . import critic, render, ui
 from .analysis import ClipDossier, build_dossiers, find_music_bed
 from .analysis.audio import AudioAnalysis
 from .config import DeliveryFormat, Settings, Workspace
@@ -22,6 +22,7 @@ from .director import plan
 from .director.brief import Brief, parse_brief
 from .edl import EditDecisionList
 from .ingest import Bin, MediaAsset, ingest
+from .ui import NullReporter, Reporter
 
 log = logging.getLogger("auteur.agent")
 
@@ -73,7 +74,11 @@ class Production:
             f"*{self.brief.prompt}*",
             "",
             f"- Directed by: **{self.directed_by}**"
-            + (f" (model unavailable: {self.fallback_reason})" if self.fallback_reason and self.directed_by == "heuristic" else ""),
+            + (
+                f" (model unavailable: {self.fallback_reason})"
+                if self.fallback_reason and self.directed_by == "heuristic"
+                else ""
+            ),
             f"- Runtime: **{self.edl.duration:.2f}s** across **{len(self.edl.shots)} shots**",
             f"- Brief read as: {self.brief.describe()}",
             f"- Total time: {self.seconds:.1f}s",
@@ -127,18 +132,33 @@ def direct(
     workspace: str | Path | None = None,
     formats: tuple[DeliveryFormat, ...] | None = None,
     duration: float | None = None,
+    reporter: Reporter | None = None,
 ) -> Production:
     """Turn a pile of clips and a sentence of direction into a finished film."""
     started = time.perf_counter()
     settings = settings or Settings()
     space = Workspace(workspace or Path.cwd() / "auteur-work")
+    say = reporter or NullReporter()
 
     # ---- 1. what have we got? -------------------------------------------
+    say.step("Looking at your footage")
     log.info("ingesting %s", ", ".join(str(path) for path in inputs))
     bin_ = ingest(inputs)
     log.info("%s", bin_.describe())
+    say.detail(
+        f"{ui.describe_count(len(bin_.visuals), 'clip')}, "
+        f"{ui.describe_duration(bin_.total_footage)} of material"
+        + (
+            f", plus {ui.describe_count(len(bin_.audio), 'music track')}"
+            if bin_.audio
+            else ", no music"
+        )
+    )
+    if bin_.rejected:
+        say.warn(f"skipped {ui.describe_count(len(bin_.rejected), 'file')} it could not read")
 
     # ---- 2. watch and listen to all of it --------------------------------
+    say.step("Watching every clip")
     log.info("analysing %d clip(s)", len(bin_.visuals))
     dossiers = build_dossiers(
         bin_.visuals,
@@ -146,23 +166,55 @@ def direct(
         analysis_width=settings.quality.analysis_width,
         workers=settings.threads,
     )
+    usable = sum(len(dossier.takes) for dossier in dossiers)
+    internal = sum(len(dossier.video.shot_boundaries) for dossier in dossiers)
+    say.detail(
+        f"found {ui.describe_count(usable, 'moment')} worth using"
+        + (f"; {ui.describe_count(internal, 'cut')} already in the footage" if internal else "")
+    )
+
     music, music_analysis = find_music_bed(bin_.audio)
+    if music_analysis is not None and music_analysis.has_beat:
+        say.step("Listening to the music")
+        say.detail(f"{music_analysis.tempo:.0f} beats per minute — the cuts will land on the beat")
 
     # ---- 3. read the brief and cut the film -------------------------------
     brief = parse_brief(prompt, duration=duration)
-    if duration is not None:
-        settings.target_duration = duration
-    elif brief.duration:
+    # brief.duration is the checked one — an explicit `duration=` argument used
+    # to be assigned here raw, which is how a negative runtime reached the
+    # planner. Anything unusable leaves the setting at its default.
+    if brief.duration:
         settings.target_duration = brief.duration
     log.info("brief: %s", brief.describe())
 
+    say.step("Planning the edit")
     direction = plan.direct(brief, dossiers, settings, music=music, music_analysis=music_analysis)
     edl = direction.edl
+    say.detail(
+        f"{ui.describe_count(len(edl.shots), 'shot')} over "
+        f"{ui.describe_duration(edl.duration)}, {edl.look.preset} look"
+    )
+    if direction.directed_by == "model":
+        say.detail("shots chosen by Claude")
+    else:
+        message, is_problem = ui.plain_model_reason(direction.fallback_reason)
+        if not message:
+            say.detail("shots chosen by the built-in editor")
+        elif is_problem:
+            say.warn(message)
+        else:
+            say.detail(message)
 
     production = Production(
-        brief=brief, bin=bin_, dossiers=dossiers, edl=edl, workspace=space,
-        directed_by=direction.directed_by, fallback_reason=direction.fallback_reason,
-        music=music, music_analysis=music_analysis,
+        brief=brief,
+        bin=bin_,
+        dossiers=dossiers,
+        edl=edl,
+        workspace=space,
+        directed_by=direction.directed_by,
+        fallback_reason=direction.fallback_reason,
+        music=music,
+        music_analysis=music_analysis,
     )
 
     by_id = {dossier.clip_id: dossier for dossier in dossiers}
@@ -174,19 +226,40 @@ def direct(
         round_started = time.perf_counter()
         edl.save(space.root / f"edl-pass{index}.json")
 
-        result = render.render(edl, space, settings, formats=target_formats, name=edl.title)
+        say.step("Rendering" if index == 0 else "Rendering the new cut")
+        result = render.render(
+            edl,
+            space,
+            settings,
+            formats=target_formats,
+            name=edl.title,
+            on_progress=say.progress,
+        )
+        say.progress_done("done")
+        for warning in result.warnings:
+            say.warn(warning)
+
         primary = result.primary
         if primary is None:  # pragma: no cover - render always writes something
             raise RuntimeError("the renderer produced no output")
 
+        say.step("Watching it back")
         critique = critic.review(
-            edl, primary, target_duration=settings.target_duration,
-            audio=music_analysis, music_offset=music_offset,
+            edl,
+            primary,
+            target_duration=settings.target_duration,
+            audio=music_analysis,
+            music_offset=music_offset,
         )
         round_ = Round(index=index, critique=critique, outputs=dict(result.outputs))
         log.info("pass %d scored %.2f", index, critique.score)
         for note in critique.notes:
             log.info("  %s", note)
+
+        if not critique.notes:
+            say.detail("nothing to fix")
+        for note in sorted(critique.notes, key=lambda n: -n.severity):
+            say.found("saw", ui.plain_finding(note.rule, note.message))
 
         last_pass = index >= settings.revision_rounds
         if last_pass or not critique.notes:
@@ -195,9 +268,12 @@ def direct(
             break
 
         round_.revisions = critic.revise(
-            edl, critique, by_id,
+            edl,
+            critique,
+            by_id,
             target_duration=settings.target_duration,
-            audio=music_analysis, music_offset=music_offset,
+            audio=music_analysis,
+            music_offset=music_offset,
             beat_sync=brief.beat_sync,
         )
         round_.seconds = time.perf_counter() - round_started
@@ -205,7 +281,10 @@ def direct(
 
         if not round_.revisions:
             log.info("nothing worth re-cutting; keeping this pass")
+            say.detail("left as it is — nothing worth re-cutting for")
             break
+        for revision in round_.revisions:
+            say.found("fixed", revision)
         log.info("re-cutting: %s", "; ".join(round_.revisions))
         space.clean_segments()
 

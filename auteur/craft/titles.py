@@ -91,7 +91,9 @@ def _hex_to_rgb(value: str) -> tuple[int, int, int]:
         return (255, 255, 255)
 
 
-def _text_width(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, tracking: int) -> int:
+def _text_width(
+    draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, tracking: int
+) -> int:
     if not text:
         return 0
     width = sum(draw.textlength(char, font=font) for char in text)
@@ -114,7 +116,11 @@ def _draw_tracked(
 
 
 def _wrap(
-    draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, tracking: int, max_width: int
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    tracking: int,
+    max_width: int,
 ) -> list[str]:
     words = text.split()
     if not words:
@@ -151,6 +157,7 @@ def _with_shadow(image: Image.Image, blur: float = 12.0, opacity: int = 150) -> 
 # Styles
 # ---------------------------------------------------------------------------
 
+
 def _render_title(cue: TextCue, width: int, height: int) -> Image.Image:
     """Big, tracked, centred. The card that opens the film."""
     base = min(width, height)
@@ -174,12 +181,18 @@ def _render_title(cue: TextCue, width: int, height: int) -> Image.Image:
 
     # A hairline under the block, the width of the type. Reads as designed.
     if lines:
-        rule_width = min(int(_text_width(draw, max(lines, key=len), font, tracking) * 0.5), int(width * 0.4))
+        rule_width = min(
+            int(_text_width(draw, max(lines, key=len), font, tracking) * 0.5), int(width * 0.4)
+        )
         rule_y = int(top + block_height + size * 0.34)
         accent = (*_hex_to_rgb(cue.accent), 210)
         draw.rectangle(
-            [cue.anchor[0] * width - rule_width / 2, rule_y,
-             cue.anchor[0] * width + rule_width / 2, rule_y + max(2, int(size * 0.035))],
+            [
+                cue.anchor[0] * width - rule_width / 2,
+                rule_y,
+                cue.anchor[0] * width + rule_width / 2,
+                rule_y + max(2, int(size * 0.035)),
+            ],
             fill=accent,
         )
 
@@ -229,7 +242,12 @@ def _render_kinetic(cue: TextCue, width: int, height: int, highlight: int | None
             if highlight is not None and counter == highlight:
                 pad_x, pad_y = size * 0.16, size * 0.1
                 draw.rounded_rectangle(
-                    [x - pad_x, y - pad_y * 0.4, x + word_width + pad_x, y + size * 1.12 + pad_y * 0.2],
+                    [
+                        x - pad_x,
+                        y - pad_y * 0.4,
+                        x + word_width + pad_x,
+                        y + size * 1.12 + pad_y * 0.2,
+                    ],
                     radius=int(size * 0.16),
                     fill=(*accent_rgb, 235),
                 )
@@ -260,13 +278,23 @@ def _render_lower_third(cue: TextCue, width: int, height: int) -> Image.Image:
     bar_width = max(3, int(size * 0.12))
 
     draw.rectangle(
-        [left - size * 0.42, top - size * 0.16, left - size * 0.42 + bar_width,
-         top + line_height * len(lines) + size * 0.06],
+        [
+            left - size * 0.42,
+            top - size * 0.16,
+            left - size * 0.42 + bar_width,
+            top + line_height * len(lines) + size * 0.06,
+        ],
         fill=(*_hex_to_rgb(cue.accent), 245),
     )
     for index, line in enumerate(lines):
-        _draw_tracked(draw, (left, top + index * line_height), line, font,
-                      (*_hex_to_rgb(cue.color), 245), tracking)
+        _draw_tracked(
+            draw,
+            (left, top + index * line_height),
+            line,
+            font,
+            (*_hex_to_rgb(cue.color), 245),
+            tracking,
+        )
 
     return _with_shadow(image, blur=size * 0.2, opacity=185)
 
@@ -287,14 +315,25 @@ def _render_caption(cue: TextCue, width: int, height: int) -> Image.Image:
     widest = max((_text_width(draw, line, font, tracking) for line in lines), default=0)
     pad = size * 0.45
     draw.rounded_rectangle(
-        [cue.anchor[0] * width - widest / 2 - pad, top - pad * 0.5,
-         cue.anchor[0] * width + widest / 2 + pad, top + block_height + pad * 0.4],
-        radius=int(size * 0.28), fill=(0, 0, 0, 150),
+        [
+            cue.anchor[0] * width - widest / 2 - pad,
+            top - pad * 0.5,
+            cue.anchor[0] * width + widest / 2 + pad,
+            top + block_height + pad * 0.4,
+        ],
+        radius=int(size * 0.28),
+        fill=(0, 0, 0, 150),
     )
     for index, line in enumerate(lines):
         line_width = _text_width(draw, line, font, tracking)
-        _draw_tracked(draw, (cue.anchor[0] * width - line_width / 2, top + index * line_height),
-                      line, font, (*_hex_to_rgb(cue.color), 255), tracking)
+        _draw_tracked(
+            draw,
+            (cue.anchor[0] * width - line_width / 2, top + index * line_height),
+            line,
+            font,
+            (*_hex_to_rgb(cue.color), 255),
+            tracking,
+        )
     return image
 
 
@@ -322,7 +361,14 @@ def _render_end_card(cue: TextCue, width: int, height: int) -> Image.Image:
 
     for index, line in enumerate(lines):
         line_width = _text_width(draw, line, font, tracking)
-        _draw_tracked(draw, (width / 2 - line_width / 2, top + index * line_height), line, font, fill, tracking)
+        _draw_tracked(
+            draw,
+            (width / 2 - line_width / 2, top + index * line_height),
+            line,
+            font,
+            fill,
+            tracking,
+        )
 
     return _with_shadow(image, blur=size * 0.16, opacity=150)
 
@@ -344,12 +390,16 @@ def _render_chapter(cue: TextCue, width: int, height: int) -> Image.Image:
 
 # ---------------------------------------------------------------------------
 
-def render_cue(cue: TextCue, *, width: int, height: int, directory: Path, index: int) -> list[TextOverlay]:
+
+def render_cue(
+    cue: TextCue, *, width: int, height: int, directory: Path, index: int, prefix: str = ""
+) -> list[TextOverlay]:
     """Render a cue to one or more plates, with their timings.
 
     Kinetic captions produce one plate per word; every other style produces one.
     """
     directory.mkdir(parents=True, exist_ok=True)
+    stem = f"text-{prefix}-" if prefix else "text-"
     style = cue.style
 
     if style == "kinetic" and cue.per_word:
@@ -359,7 +409,7 @@ def render_cue(cue: TextCue, *, width: int, height: int, directory: Path, index:
             step = cue.duration / len(words)
             for word_index in range(len(words)):
                 image = _render_kinetic(cue, width, height, highlight=word_index)
-                path = directory / f"text-{index:02d}-w{word_index:02d}.png"
+                path = directory / f"{stem}{index:02d}-w{word_index:02d}.png"
                 image.save(path)
                 overlays.append(
                     TextOverlay(
@@ -385,7 +435,7 @@ def render_cue(cue: TextCue, *, width: int, height: int, directory: Path, index:
     }
     image = renderers.get(style, _render_title)(cue, width, height)
 
-    path = directory / f"text-{index:02d}.png"
+    path = directory / f"{stem}{index:02d}.png"
     image.save(path)
 
     fade = min(0.32, cue.duration * 0.28)
@@ -401,11 +451,17 @@ def render_cue(cue: TextCue, *, width: int, height: int, directory: Path, index:
     ]
 
 
-def render_all(cues: list[TextCue], *, width: int, height: int, directory: Path) -> list[TextOverlay]:
+def render_all(
+    cues: list[TextCue], *, width: int, height: int, directory: Path, prefix: str = ""
+) -> list[TextOverlay]:
     overlays: list[TextOverlay] = []
     for index, cue in enumerate(cues):
         try:
-            overlays.extend(render_cue(cue, width=width, height=height, directory=directory, index=index))
+            overlays.extend(
+                render_cue(
+                    cue, width=width, height=height, directory=directory, index=index, prefix=prefix
+                )
+            )
         except Exception as exc:  # noqa: BLE001 - a bad title must not lose the film
             log.warning("could not render text %r: %s", cue.text[:32], exc)
     return overlays

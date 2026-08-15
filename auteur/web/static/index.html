@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- viewport-fit=cover lets the page paint under the notch; the CSS then puts
+     the controls back inside the safe area. Without it the page is letterboxed
+     by white bars on every modern iPhone. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c0b0a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f1e6" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="Turn clips from your camera roll into a finished film.">
+
+<!-- Before the stylesheet, before anything paints. Applying the saved choice
+     from app.js instead would show one frame of the wrong theme on every
+     load — the flash people notice most on a phone in a dark room. -->
+<script>
+  (function () {
+    try {
+      var mode = localStorage.getItem("auteur-theme");
+      if (mode === "light" || mode === "dark") {
+        document.documentElement.setAttribute("data-theme", mode);
+      }
+    } catch (e) { /* private mode: fall through to the system setting */ }
+  })();
+</script>
+
+<!-- Home-screen app on iOS: full screen, no browser chrome. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Auteur">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="icon" href="/icon-192.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<!-- theme.css is generated from auteur/theme.py; style.css only uses its tokens,
+     so it must load first. -->
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<title>Auteur — the edit room</title>
+</head>
+<body>
+
+<main id="app">
+
+  <!-- 1. Ask ---------------------------------------------------------- -->
+  <section class="screen" id="screen-start">
+    <div class="whoami" id="whoami" hidden>
+      <span id="whoami-name"></span>
+      <button type="button" id="sign-out">Sign out</button>
+    </div>
+
+    <header class="masthead">
+      <h1>Auteur</h1>
+      <p class="sub">Give it clips. Say what you want. Get a film.</p>
+    </header>
+
+    <form id="form" novalidate>
+
+      <label class="card picker" for="clips">
+        <span class="step-number">1</span>
+        <span class="card-body">
+          <span class="card-title">Pick your clips</span>
+          <span class="card-hint" id="clips-hint">Straight from your camera roll. Music too, if you have some.</span>
+        </span>
+        <!-- No `capture` attribute: on iOS that would force the camera and hide
+             the library, which is the opposite of what most people want. -->
+        <input type="file" id="clips" name="clips" accept="video/*,image/*,audio/*" multiple>
+      </label>
+
+      <div class="card">
+        <span class="step-number">2</span>
+        <span class="card-body">
+          <label class="card-title" for="prompt">Say what kind of film</label>
+          <textarea id="prompt" name="prompt" rows="2" enterkeyhint="done"
+                    placeholder="fast neon montage, 20 seconds"></textarea>
+          <!-- Short labels, full prompts. Spelling out each prompt on the chip
+               cost four stacked rows on a phone and pushed the button off screen. -->
+          <span class="chips" id="chips">
+            <button type="button" class="chip" data-prompt="fast neon montage">Neon</button>
+            <button type="button" class="chip" data-prompt="warm summer memories, gentle">Warm</button>
+            <button type="button" class="chip" data-prompt="slow and cinematic">Cinematic</button>
+            <button type="button" class="chip" data-prompt="gritty black and white">Black &amp; white</button>
+            <button type="button" class="chip" data-prompt="punchy, cut hard to the beat">Punchy</button>
+          </span>
+          <span class="card-hint">Anything you put "in quotes" appears on screen.</span>
+        </span>
+      </div>
+
+      <div class="card">
+        <span class="step-number">3</span>
+        <span class="card-body">
+          <span class="card-title">How it should look</span>
+          <div class="choices" id="shape" role="radiogroup" aria-label="Shape">
+            <button type="button" class="choice is-on" data-value="reel" role="radio" aria-checked="true">Tall<small>for phones</small></button>
+            <button type="button" class="choice" data-value="square" role="radio" aria-checked="false">Square<small>for feeds</small></button>
+            <button type="button" class="choice" data-value="wide" role="radio" aria-checked="false">Wide<small>for screens</small></button>
+          </div>
+          <div class="choices" id="seconds" role="radiogroup" aria-label="Length">
+            <button type="button" class="choice" data-value="10" role="radio" aria-checked="false">10s</button>
+            <button type="button" class="choice is-on" data-value="20" role="radio" aria-checked="true">20s</button>
+            <button type="button" class="choice" data-value="30" role="radio" aria-checked="false">30s</button>
+            <button type="button" class="choice" data-value="" role="radio" aria-checked="false">Let it<small>decide</small></button>
+          </div>
+        </span>
+      </div>
+
+      <p class="error" id="start-error" role="alert" hidden></p>
+
+      <button type="submit" class="go" id="go">Make my film</button>
+      <p class="fineprint">It takes a couple of minutes. Keep this page open.</p>
+    </form>
+
+    <div class="settings">
+      <span class="settings-label" id="appearance-label">Appearance</span>
+      <div class="choices" id="appearance" role="radiogroup" aria-labelledby="appearance-label">
+        <button type="button" class="choice is-on" data-value="system" role="radio" aria-checked="true">Automatic<small>match my phone</small></button>
+        <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
+        <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
+      </div>
+    </div>
+
+    <!-- Install. Chrome fires beforeinstallprompt and gets a real button;
+         every other browser gets the instructions for that browser. -->
+    <div class="install" id="install" hidden>
+      <button type="button" class="ghost" id="install-go" hidden>Install this as an app</button>
+      <p class="fineprint" id="install-hint"></p>
+    </div>
+  </section>
+
+  <!-- 2. Wait --------------------------------------------------------- -->
+  <section class="screen" id="screen-working" hidden>
+    <div class="working">
+      <div class="ring" aria-hidden="true"><span class="ring-fill" id="ring-fill"></span></div>
+      <h2 id="stage">Getting ready</h2>
+      <p class="detail" id="detail"></p>
+      <div class="bar"><span id="bar-fill"></span></div>
+      <ul class="log" id="log" aria-live="polite"></ul>
+      <button type="button" class="ghost" id="cancel">Start over</button>
+    </div>
+  </section>
+
+  <!-- 3. Watch -------------------------------------------------------- -->
+  <section class="screen" id="screen-done" hidden>
+    <h2 class="done-title">Your film is ready</h2>
+    <!-- playsinline is what stops iOS from hijacking into fullscreen. -->
+    <video id="player" controls playsinline preload="metadata"></video>
+    <ul class="facts" id="facts"></ul>
+    <a class="go" id="save" download="film.mp4">Save to my phone</a>
+    <a class="ghost" id="notes" target="_blank" rel="noopener">What it did, and why</a>
+    <button type="button" class="ghost" id="again">Make another</button>
+  </section>
+
+  <!-- 4. Trouble ------------------------------------------------------ -->
+  <section class="screen" id="screen-error" hidden>
+    <h2 class="done-title bad">It did not work</h2>
+    <p class="error" id="error-text"></p>
+    <button type="button" class="go" id="retry">Try again</button>
+  </section>
+
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

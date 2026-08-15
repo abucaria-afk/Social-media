@@ -24,9 +24,15 @@ OVERSCAN = 1.28
 RAMP_SLICES_PER_SECOND = 14
 RAMP_MIN_SLICES = 6
 RAMP_MAX_SLICES = 48
+#: Source frames each ramp slice must contain. `trim` selects frames whose
+#: timestamps fall inside its window, so a slice thinner than a frame selects
+#: nothing — and a concat of empty links yields an empty file, silently.
+RAMP_FRAMES_PER_SLICE = 2
 
 
-def cover_scale(source_w: int, source_h: int, target_w: int, target_h: int, *, factor: float = 1.0) -> tuple[int, int]:
+def cover_scale(
+    source_w: int, source_h: int, target_w: int, target_h: int, *, factor: float = 1.0
+) -> tuple[int, int]:
     """Smallest even frame size that fully covers the target, times `factor`."""
     if source_w <= 0 or source_h <= 0:
         return int(target_w * factor) // 2 * 2, int(target_h * factor) // 2 * 2
@@ -115,7 +121,9 @@ def motion_chain(
     return _zoom_move(motion.kind, intensity, ax, ay, target_w, target_h, fps, last)
 
 
-def _translation_move(kind: str, intensity: float, target_w: int, target_h: int, duration: float) -> str:
+def _translation_move(
+    kind: str, intensity: float, target_w: int, target_h: int, duration: float
+) -> str:
     """Pure pans and handheld float — cheaper and smoother than a zoom filter."""
     travel = 0.5 + 0.5 * intensity  # fraction of the available overscan to use
     duration = max(duration, 0.05)
@@ -141,8 +149,14 @@ def _translation_move(kind: str, intensity: float, target_w: int, target_h: int,
 
 
 def _zoom_move(
-    kind: str, intensity: float, ax: float, ay: float,
-    target_w: int, target_h: int, fps: int, last: int,
+    kind: str,
+    intensity: float,
+    ax: float,
+    ay: float,
+    target_w: int,
+    target_h: int,
+    fps: int,
+    last: int,
 ) -> str:
     """Push-ins, pull-outs and Ken Burns, via zoompan.
 
@@ -169,14 +183,29 @@ def _zoom_move(
     x = f"max(0\\,min(iw-iw/zoom\\,iw*{cx}-(iw/zoom)/2))"
     y = f"max(0\\,min(ih-ih/zoom\\,ih*{cy}-(ih/zoom)/2))"
 
-    return (
-        f"zoompan=z='{z}':x='{x}':y='{y}':d=1:s={target_w}x{target_h}:fps={fps}"
-    )
+    return f"zoompan=z='{z}':x='{x}':y='{y}':d=1:s={target_w}x{target_h}:fps={fps}"
 
 
 # ---------------------------------------------------------------------------
 # Speed
 # ---------------------------------------------------------------------------
+
+
+def ramp_slice_count(ramp: Ramp, source_duration: float, source_fps: float) -> int:
+    """How many constant-speed pieces to cut the source into.
+
+    Resolution is wanted in proportion to *screen* time, but the pieces are cut
+    out of the *source*, and a short clip stretched into a long slow-motion shot
+    has far less source than screen. Asking for 16 slices of a half-second 30fps
+    clip gives 31ms slices — shorter than one frame — and every one of them
+    trims to nothing, so the shot renders as a valid, empty file. Cap the count
+    by the frames actually available.
+    """
+    screen_time = ramp.output_duration(source_duration)
+    wanted = int(min(max(screen_time * RAMP_SLICES_PER_SECOND, RAMP_MIN_SLICES), RAMP_MAX_SLICES))
+    affordable = int(max(1.0, source_duration * max(source_fps, 1.0)) // RAMP_FRAMES_PER_SLICE)
+    return max(1, min(wanted, affordable))
+
 
 def ramp_video_graph(
     ramp: Ramp,
@@ -186,6 +215,7 @@ def ramp_video_graph(
     out_label: str,
     optical_flow: bool = False,
     fps: int = 30,
+    source_fps: float = 30.0,
 ) -> str:
     """Filter graph applying a speed curve to video.
 
@@ -205,13 +235,19 @@ def ramp_video_graph(
         return f"[{in_label}]{chain(*links)}[{out_label}]"
 
     screen_time = ramp.output_duration(source_duration)
-    slices = int(min(max(screen_time * RAMP_SLICES_PER_SECOND, RAMP_MIN_SLICES), RAMP_MAX_SLICES))
-    step = source_duration / slices
+    slices = ramp_slice_count(ramp, source_duration, source_fps)
+    if slices < 2:
+        # Too little source to shape a curve out of. Hold the screen time exactly
+        # at one constant speed — a flat ramp is a worse ramp, but it is a shot.
+        speed = max(source_duration / screen_time, 1e-6) if screen_time > 0 else 1.0
+        links = [f"setpts=PTS/{speed:.6f}"]
+        if optical_flow and speed < 0.55:
+            links.append(f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1")
+        return f"[{in_label}]{chain(*links)}[{out_label}]"
+    windows = slice_windows(source_duration, source_fps, slices)
 
     parts = [f"[{in_label}]split={slices}" + "".join(f"[rs{i}]" for i in range(slices))]
-    for index in range(slices):
-        start = index * step
-        end = source_duration if index == slices - 1 else (index + 1) * step
+    for index, (start, end) in enumerate(windows):
         speed = max(ramp.speed_at((index + 0.5) / slices), 1e-6)
         links = [
             f"trim=start={start:.6f}:end={end:.6f}",
@@ -227,12 +263,59 @@ def ramp_video_graph(
     return ";".join(parts)
 
 
-def ramp_audio_graph(ramp: Ramp, *, source_duration: float, in_label: str, out_label: str) -> str:
+def slice_windows(
+    source_duration: float, source_fps: float, slices: int
+) -> list[tuple[float, float]]:
+    """Trim windows for a ramp, aligned to the source's own frames.
+
+    Two things go wrong if you simply cut at `index * source_duration / slices`.
+
+    The boundaries land between frames, so `trim` rounds each end on its own and
+    the frame straddling a boundary belongs to neither side. Dividing the
+    *frames* evenly instead, and placing each boundary half a frame early, puts
+    every frame unambiguously in exactly one window.
+
+    The larger error is at the join: `concat` gives a segment's last frame no
+    duration of its own, so each slice loses one frame's worth of screen time.
+    Eleven slices at 30fps is a third of a second — and it compounds, once per
+    ramped shot. A 15-second cut of ramped stills came out at 10.5. So each
+    window is extended by one frame into the next: the frame `concat` discards
+    is then a duplicate rather than time the film never gets back.
+    """
+    rate = max(source_fps, 1.0)
+    frames = max(slices, int(round(source_duration * rate)))
+    edges = [round(index * frames / slices) for index in range(slices + 1)]
+
+    # Rounding can repeat an edge when frames barely exceeds slices; nudge them
+    # apart so no window is empty.
+    for index in range(1, len(edges)):
+        edges[index] = max(edges[index], edges[index - 1] + 1)
+    edges[-1] = max(edges[-1], frames)
+
+    half = 0.5 / rate
+    windows: list[tuple[float, float]] = []
+    for index in range(slices):
+        start = max(0.0, edges[index] / rate - half)
+        # +1 frame: the overlap that concat then eats. The last slice needs it
+        # too — its own final frame is dropped the same way.
+        end = (edges[index + 1] + 1) / rate - half
+        windows.append((start, end))
+    return windows
+
+
+def ramp_audio_graph(
+    ramp: Ramp, *, source_duration: float, in_label: str, out_label: str, source_fps: float = 30.0
+) -> str:
     """The same speed curve, applied to sound.
 
     atempo preserves pitch, which is what you want for dialogue under a mild
     ramp and emphatically not what you want under a dramatic one — but a
     dramatic ramp is normally scored, not sync, so pitch preservation wins.
+
+    Sliced identically to the picture. Sound has samples to spare where video
+    runs out of frames, but slicing the two differently lets their rounding
+    accumulate apart, and sound that drifts off its own picture is worse than
+    a slightly coarser curve.
     """
     ramp = ramp.normalise()
 
@@ -240,13 +323,14 @@ def ramp_audio_graph(ramp: Ramp, *, source_duration: float, in_label: str, out_l
         return f"[{in_label}]{_atempo(ramp.constant_speed)}[{out_label}]"
 
     screen_time = ramp.output_duration(source_duration)
-    slices = int(min(max(screen_time * RAMP_SLICES_PER_SECOND, RAMP_MIN_SLICES), RAMP_MAX_SLICES))
-    step = source_duration / slices
+    slices = ramp_slice_count(ramp, source_duration, source_fps)
+    if slices < 2:
+        speed = max(source_duration / screen_time, 1e-6) if screen_time > 0 else 1.0
+        return f"[{in_label}]{_atempo(speed)}[{out_label}]"
+    windows = slice_windows(source_duration, source_fps, slices)
 
     parts = [f"[{in_label}]asplit={slices}" + "".join(f"[as{i}]" for i in range(slices))]
-    for index in range(slices):
-        start = index * step
-        end = source_duration if index == slices - 1 else (index + 1) * step
+    for index, (start, end) in enumerate(windows):
         speed = max(ramp.speed_at((index + 0.5) / slices), 1e-6)
         parts.append(
             f"[as{index}]atrim=start={start:.6f}:end={end:.6f},asetpts=PTS-STARTPTS,"

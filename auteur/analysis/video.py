@@ -216,7 +216,9 @@ def _detect_shots(frames: np.ndarray, motion: np.ndarray, fps: float) -> list[fl
     if n < 4 or fps <= 0:
         return []
 
-    hist = np.stack([np.bincount((f.ravel() // 8).astype(np.int64), minlength=32)[:32] for f in frames])
+    hist = np.stack(
+        [np.bincount((f.ravel() // 8).astype(np.int64), minlength=32)[:32] for f in frames]
+    )
     hist = hist.astype(np.float32)
     hist /= hist.sum(axis=1, keepdims=True).clip(1e-6)
     hist_delta = np.abs(np.diff(hist, axis=0)).sum(axis=1) * 0.5  # 0..1
@@ -244,7 +246,11 @@ def _detect_shots(frames: np.ndarray, motion: np.ndarray, fps: float) -> list[fl
 def _colour_profile(asset: MediaAsset, analysis_fps: float) -> tuple:
     """Mean colour, saturation, warmth and a small dominant palette."""
     stream = ffmpeg.read_frames(
-        asset.path, width=48, fps=min(analysis_fps, 2.0), color=True, max_frames=240,
+        asset.path,
+        width=48,
+        fps=min(analysis_fps, 2.0),
+        color=True,
+        max_frames=240,
         still=asset.kind == "image",
     )
     if len(stream) == 0:
@@ -261,7 +267,9 @@ def _colour_profile(asset: MediaAsset, analysis_fps: float) -> tuple:
     return mean_rgb, saturation, warmth, _palette(pixels)
 
 
-def _palette(pixels: np.ndarray, colours: int = 5, iterations: int = 8) -> list[tuple[int, int, int]]:
+def _palette(
+    pixels: np.ndarray, colours: int = 5, iterations: int = 8
+) -> list[tuple[int, int, int]]:
     """k-means on a subsample. Used to keep the grade sympathetic to the footage."""
     if len(pixels) > 20000:
         step = len(pixels) // 20000
@@ -284,7 +292,9 @@ def _palette(pixels: np.ndarray, colours: int = 5, iterations: int = 8) -> list[
     return [tuple(int(np.clip(c, 0, 1) * 255) for c in centres[k]) for k in order]
 
 
-def analyse_video(asset: MediaAsset, *, analysis_fps: float = 6.0, width: int = 128) -> VideoAnalysis:
+def analyse_video(
+    asset: MediaAsset, *, analysis_fps: float = 6.0, width: int = 128
+) -> VideoAnalysis:
     """Watch a clip end to end and write down everything measurable about it."""
     if asset.kind == "image":
         return _analyse_still(asset, analysis_fps, width)

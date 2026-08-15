@@ -60,6 +60,7 @@ class DirectorUnavailable(RuntimeError):
 # The contract
 # ---------------------------------------------------------------------------
 
+
 def _shot_schema() -> dict:
     return {
         "type": "object",
@@ -89,8 +90,17 @@ def _shot_schema() -> dict:
             "transition_duration": {"type": "number", "description": "Seconds; ignored for cuts"},
             "note": {"type": "string", "description": "One short line on why this shot is here"},
         },
-        "required": ["clip", "start", "end", "speed", "ramp", "motion", "transition",
-                     "transition_duration", "note"],
+        "required": [
+            "clip",
+            "start",
+            "end",
+            "speed",
+            "ramp",
+            "motion",
+            "transition",
+            "transition_duration",
+            "note",
+        ],
         "additionalProperties": False,
     }
 
@@ -171,17 +181,27 @@ never past the end of a clip."""
 # Building the request
 # ---------------------------------------------------------------------------
 
+
 def _keyframe(dossier: ClipDossier, at: float) -> str | None:
     """Grab one frame as a base64 JPEG, for the model to actually look at."""
-    destination = Path(os.environ.get("TMPDIR", "/tmp")) / f"auteur-kf-{dossier.clip_id}-{at:.2f}.jpg"
+    destination = (
+        Path(os.environ.get("TMPDIR", "/tmp")) / f"auteur-kf-{dossier.clip_id}-{at:.2f}.jpg"
+    )
     args: list[str] = []
     if dossier.asset.kind != "image":
         args += ["-ss", f"{max(at, 0.0):.3f}"]
     args += [
-        "-i", str(dossier.asset.path),
-        "-frames:v", "1",
-        "-vf", f"scale={KEYFRAME_WIDTH}:-2:flags=bicubic",
-        "-q:v", "6", "-f", "mjpeg", str(destination),
+        "-i",
+        str(dossier.asset.path),
+        "-frames:v",
+        "1",
+        "-vf",
+        f"scale={KEYFRAME_WIDTH}:-2:flags=bicubic",
+        "-q:v",
+        "6",
+        "-f",
+        "mjpeg",
+        str(destination),
     ]
     try:
         ffmpeg.run(args, timeout=60)
@@ -210,14 +230,18 @@ def _vision_blocks(dossiers: list[ClipDossier]) -> list[dict]:
             frame = _keyframe(dossier, (take.start + take.end) / 2)
             if frame is None:
                 continue
-            blocks.append({
-                "type": "text",
-                "text": f"{dossier.clip_id} at {(take.start + take.end) / 2:.1f}s:",
-            })
-            blocks.append({
-                "type": "image",
-                "source": {"type": "base64", "media_type": "image/jpeg", "data": frame},
-            })
+            blocks.append(
+                {
+                    "type": "text",
+                    "text": f"{dossier.clip_id} at {(take.start + take.end) / 2:.1f}s:",
+                }
+            )
+            blocks.append(
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/jpeg", "data": frame},
+                }
+            )
             budget -= 1
     return blocks
 
@@ -238,7 +262,10 @@ def _briefing(
         f"Suggested average shot length: {brief.base_shot_length:.2f}s.",
     ]
     if brief.on_screen_text:
-        lines.append("Text the director asked to appear: " + "; ".join(f'"{t}"' for t in brief.on_screen_text))
+        lines.append(
+            "Text the director asked to appear: "
+            + "; ".join(f'"{t}"' for t in brief.on_screen_text)
+        )
     else:
         lines.append("No on-screen text was requested. Return an empty texts array.")
 
@@ -252,7 +279,8 @@ def _briefing(
 
     lines += [
         "",
-        "Available looks: " + ", ".join(f"{name} ({spec.description})" for name, spec in LOOKS.items()),
+        "Available looks: "
+        + ", ".join(f"{name} ({spec.description})" for name, spec in LOOKS.items()),
         "",
         "THE FOOTAGE (measured, not described by anyone):",
         json.dumps([dossier.to_json() for dossier in dossiers], indent=1),
@@ -270,6 +298,7 @@ def _briefing(
 
 # ---------------------------------------------------------------------------
 
+
 def available(settings: Settings) -> bool:
     """True when a model director can plausibly be reached."""
     if not settings.use_llm:
@@ -286,13 +315,16 @@ def available(settings: Settings) -> bool:
 
 def _request(client, *, model: str, system: str, blocks: list[dict], max_tokens: int):
     """One call, with a server-side fallback when the SDK and API support it."""
-    payload = dict(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": blocks}],
-        output_config={"effort": "high", "format": {"type": "json_schema", "schema": edl_schema()}},
-    )
+    payload = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": system,
+        "messages": [{"role": "user", "content": blocks}],
+        "output_config": {
+            "effort": "high",
+            "format": {"type": "json_schema", "schema": edl_schema()},
+        },
+    }
     try:
         return client.beta.messages.create(
             betas=["server-side-fallback-2026-07-01"], fallbacks="default", **payload

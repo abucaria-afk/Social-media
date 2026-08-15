@@ -13,7 +13,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -48,7 +48,7 @@ def _from_package(module: str, *relative: str) -> Path | None:
     return None
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def _locate(tool: str) -> Path:
     """Find ffmpeg/ffprobe. Prefers builds that ship the filters we depend on."""
     env = os.environ.get(f"AUTEUR_{tool.upper()}") or os.environ.get(tool.upper())
@@ -95,9 +95,7 @@ def run(args: Sequence[str], *, timeout: float = 3600.0, quiet: bool = True) -> 
     """Run ffmpeg. Returns stderr (where ffmpeg puts everything interesting)."""
     cmd = [str(ffmpeg_path()), "-hide_banner", "-nostdin", "-y", *map(str, args)]
     log.debug("ffmpeg %s", " ".join(cmd[3:]))
-    proc = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=timeout, errors="replace"
-    )
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, errors="replace")
     if proc.returncode != 0:
         raise FFmpegError(cmd, proc.returncode, proc.stderr)
     if not quiet and proc.stderr:
@@ -108,8 +106,14 @@ def run(args: Sequence[str], *, timeout: float = 3600.0, quiet: bool = True) -> 
 def probe(path: str | Path) -> dict:
     """ffprobe -> dict. Raises FFmpegError if the file is not readable media."""
     cmd = [
-        str(ffprobe_path()), "-v", "error", "-print_format", "json",
-        "-show_format", "-show_streams", str(path),
+        str(ffprobe_path()),
+        "-v",
+        "error",
+        "-print_format",
+        "json",
+        "-show_format",
+        "-show_streams",
+        str(path),
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
     if proc.returncode != 0:
@@ -173,9 +177,15 @@ def read_frames(
     scale = f"scale={width}:{height}:flags=bilinear"
     video_filter = scale if still else f"fps={fps},{scale}"
     args += [
-        "-vf", video_filter,
-        "-frames:v", "1" if still else str(max_frames),
-        "-pix_fmt", pix_fmt, "-f", "rawvideo", "-",
+        "-vf",
+        video_filter,
+        "-frames:v",
+        "1" if still else str(max_frames),
+        "-pix_fmt",
+        pix_fmt,
+        "-f",
+        "rawvideo",
+        "-",
     ]
 
     cmd = [str(ffmpeg_path()), "-hide_banner", "-nostdin", "-loglevel", "error", *args]
@@ -237,6 +247,35 @@ def scaled_height(path: str | Path, width: int) -> int:
     return max(2, int(round(width * source_h / source_w)) // 2 * 2)
 
 
+@functools.lru_cache(maxsize=256)
+def source_fps(path: str | Path) -> float:
+    """A source's real frame rate, for maths that must not out-run its frames.
+
+    Anything that slices a clip into pieces has to know how long a frame lasts:
+    a piece thinner than one frame contains no frames at all, and filters like
+    `trim` answer that with an empty link rather than an error.
+    """
+    try:
+        info = probe(path)
+    except FFmpegError:
+        return 30.0
+
+    stream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), None)
+    if not stream:
+        return 30.0
+    for key in ("avg_frame_rate", "r_frame_rate"):
+        value = str(stream.get(key) or "")
+        if "/" in value:
+            numerator, _, denominator = value.partition("/")
+            try:
+                rate = float(numerator) / float(denominator)
+            except (ValueError, ZeroDivisionError):
+                continue
+            if rate > 0.5:
+                return rate
+    return 30.0
+
+
 def read_audio(
     path: str | Path,
     *,
@@ -268,16 +307,6 @@ def has_audio(info: dict) -> bool:
 # --------------------------------------------------------------------------
 # Filter-graph text helpers
 # --------------------------------------------------------------------------
-
-def escape_text(text: str) -> str:
-    """Escape a string for use inside a drawtext= filter argument."""
-    out = text.replace("\\", "\\\\").replace(":", r"\:").replace("'", r"\'")
-    return out.replace("%", r"\%").replace(",", r"\,").replace("[", r"\[").replace("]", r"\]")
-
-
-def escape_path(path: str | Path) -> str:
-    """Escape a filesystem path for use inside a filter argument (movie=, lut3d=...)."""
-    return str(path).replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
 
 
 def chain(*links: str) -> str:

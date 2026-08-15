@@ -18,12 +18,16 @@ keep.
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
+import os
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import Callable
 
 from . import ffmpeg
-from .config import DeliveryFormat, Quality, Settings, Workspace
+from .config import IMAGE_SUFFIXES, DeliveryFormat, Quality, Settings, Workspace
 from .craft import color, motion as motion_craft, sound as sound_craft, titles, transitions
 from .edl import EditDecisionList, Shot
 from .ffmpeg import chain, graph
@@ -35,7 +39,7 @@ log = logging.getLogger("auteur.render")
 class RenderResult:
     outputs: dict[str, Path] = field(default_factory=dict)
     duration: float = 0.0
-    segments: list[Path] = field(default_factory=list)
+    segments: dict[str, list[Path]] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -46,6 +50,21 @@ class RenderResult:
 # ---------------------------------------------------------------------------
 # Pass one: shots
 # ---------------------------------------------------------------------------
+
+
+def _source_fps(shot: Shot, quality: Quality) -> float:
+    """The rate at which frames actually arrive from this shot's input.
+
+    For a still that is the delivery rate, not some nominal 30: the image
+    demuxer is opened with `-loop 1 -framerate {quality.fps}`, so that is
+    literally how fast its frames come. Guessing wrong misaligns every ramp
+    slice from the real frame grid, and the shot renders short — a 10-second
+    cut of stills at draft's 24fps delivered 7.9.
+    """
+    if shot.source.suffix.lower() in IMAGE_SUFFIXES:
+        return float(quality.fps)
+    return ffmpeg.source_fps(shot.source)
+
 
 def _segment_video_graph(shot: Shot, fmt: DeliveryFormat, quality: Quality) -> str:
     """The filter graph for one shot, from source frames to a delivery frame."""
@@ -59,18 +78,29 @@ def _segment_video_graph(shot: Shot, fmt: DeliveryFormat, quality: Quality) -> s
         out_label="ramped",
         optical_flow=quality.optical_flow,
         fps=quality.fps,
+        source_fps=_source_fps(shot, quality),
     )
 
     post = chain(
         f"fps={quality.fps}",
         motion_craft.reframe_chain(
-            fmt.width, fmt.height, mode=shot.reframe,
-            anchor=motion_craft.frame_of(shot.motion.anchor), overscan=overscan,
+            fmt.width,
+            fmt.height,
+            mode=shot.reframe,
+            anchor=motion_craft.frame_of(shot.motion.anchor),
+            overscan=overscan,
         ),
-        motion_craft.motion_chain(
-            shot.motion, target_w=fmt.width, target_h=fmt.height,
-            fps=quality.fps, duration=shot.duration,
-        ) if moving else "",
+        (
+            motion_craft.motion_chain(
+                shot.motion,
+                target_w=fmt.width,
+                target_h=fmt.height,
+                fps=quality.fps,
+                duration=shot.duration,
+            )
+            if moving
+            else ""
+        ),
         # Guarantee the delivery size even when a filter rounded against us.
         f"scale={fmt.width}:{fmt.height}:flags=bicubic",
         color.correction_chain(shot.look),
@@ -82,9 +112,23 @@ def _segment_video_graph(shot: Shot, fmt: DeliveryFormat, quality: Quality) -> s
     return graph(ramp, f"[ramped]{post}[vout]")
 
 
-def _segment_audio_graph(shot: Shot) -> str:
+def carries_audio(shot: Shot, *, want_audio: bool) -> bool:
+    """Whether this shot's segment is rendered with an audio track.
+
+    One predicate, used by both the segment renderer and the mixer. When the two
+    disagreed, the mixer asked for an audio stream the segment never got and the
+    whole assembly failed — a still frame with source audio was enough to do it.
+    """
+    return want_audio and shot.use_source_audio and shot.audio_gain > 0.001 and not shot.is_still
+
+
+def _segment_audio_graph(shot: Shot, quality: Quality) -> str:
     ramp = motion_craft.ramp_audio_graph(
-        shot.ramp, source_duration=shot.source_duration, in_label="asrc", out_label="aramped"
+        shot.ramp,
+        source_duration=shot.source_duration,
+        in_label="asrc",
+        out_label="aramped",
+        source_fps=_source_fps(shot, quality),
     )
     post = chain(
         f"volume={shot.audio_gain:.3f}",
@@ -94,35 +138,64 @@ def _segment_audio_graph(shot: Shot) -> str:
 
 
 def render_shot(
-    shot: Shot, index: int, workspace: Workspace, fmt: DeliveryFormat, quality: Quality, *, want_audio: bool
+    shot: Shot,
+    index: int,
+    workspace: Workspace,
+    fmt: DeliveryFormat,
+    quality: Quality,
+    *,
+    want_audio: bool,
 ) -> Path:
     """Render one shot to a self-contained segment file."""
     destination = workspace.segments / f"{fmt.name}-{index:03d}.mp4"
 
     args: list[str] = []
     if shot.is_still:
-        # A still is a one-frame video until we tell it otherwise.
-        args += ["-loop", "1", "-framerate", str(quality.fps), "-t", f"{shot.source_duration:.4f}"]
-        args += ["-i", str(shot.source)]
+        # Hold the frame for as long as the shot needs. `-loop` belongs to the
+        # image demuxer, so it only works on an actual image file — a video that
+        # happens to contain one frame has to be looped at the stream level.
+        if shot.source.suffix.lower() in IMAGE_SUFFIXES:
+            args += ["-loop", "1", "-framerate", str(quality.fps)]
+        else:
+            args += ["-stream_loop", "-1"]
+        args += ["-t", f"{shot.source_duration:.4f}", "-i", str(shot.source)]
     else:
-        args += ["-ss", f"{shot.start:.4f}", "-t", f"{shot.source_duration:.4f}", "-i", str(shot.source)]
+        args += [
+            "-ss",
+            f"{shot.start:.4f}",
+            "-t",
+            f"{shot.source_duration:.4f}",
+            "-i",
+            str(shot.source),
+        ]
 
-    has_source_audio = want_audio and shot.use_source_audio and not shot.is_still
+    has_source_audio = carries_audio(shot, want_audio=want_audio)
     filtergraph = _segment_video_graph(shot, fmt, quality)
     maps = ["-map", "[vout]"]
 
     if has_source_audio:
-        filtergraph = graph(filtergraph, _segment_audio_graph(shot))
+        filtergraph = graph(filtergraph, _segment_audio_graph(shot, quality))
         maps += ["-map", "[aout]"]
 
     args += [
-        "-filter_complex", graph("[0:v]null[src]", *(["[0:a]anull[asrc]"] if has_source_audio else []), filtergraph),
+        "-filter_complex",
+        graph("[0:v]null[src]", *(["[0:a]anull[asrc]"] if has_source_audio else []), filtergraph),
         *maps,
         # The ramp decides the length; trim to it so the assembly maths holds.
-        "-t", f"{shot.duration:.4f}",
-        "-c:v", "libx264", "-crf", str(quality.crf), "-preset", quality.preset,
-        "-pix_fmt", "yuv420p", "-r", str(quality.fps),
-        "-video_track_timescale", "90000",
+        "-t",
+        f"{shot.duration:.4f}",
+        "-c:v",
+        "libx264",
+        "-crf",
+        str(quality.crf),
+        "-preset",
+        quality.preset,
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        str(quality.fps),
+        "-video_track_timescale",
+        "90000",
     ]
     if has_source_audio:
         args += ["-c:a", "aac", "-b:a", quality.audio_bitrate, "-ar", str(sound_craft.SAMPLE_RATE)]
@@ -131,12 +204,35 @@ def render_shot(
     args += [str(destination)]
 
     ffmpeg.run(args)
+
+    # ffmpeg exits 0 for a graph that produced no frames, leaving a valid,
+    # streamless file. The assembly then asks it for [N:v] and fails with a
+    # filtergraph error naming no shot and no reason. Catch it at the source.
+    if not _has_video(destination):
+        raise ffmpeg.FFmpegError(
+            args,
+            0,
+            # The caller names the shot; this says only why.
+            f"no frames in {shot.source.name} " f"between {shot.start:.2f}s and {shot.end:.2f}s",
+        )
     return destination
+
+
+def _has_video(path: Path) -> bool:
+    """Whether a rendered segment actually contains picture."""
+    if not path.is_file() or path.stat().st_size < 1024:
+        return False
+    try:
+        info = ffmpeg.probe(path)
+    except ffmpeg.FFmpegError:
+        return False
+    return any(stream.get("codec_type") == "video" for stream in info.get("streams", []))
 
 
 # ---------------------------------------------------------------------------
 # Pass two: assembly
 # ---------------------------------------------------------------------------
+
 
 def _assemble_video(edl: EditDecisionList, segment_count: int) -> tuple[str, str]:
     """Chain segments together with their transitions.
@@ -148,7 +244,9 @@ def _assemble_video(edl: EditDecisionList, segment_count: int) -> tuple[str, str
     # concat and xfade disagree about time bases (1/1000000 against the
     # segments' 1/90000), and xfade refuses to join links that disagree. Pinning
     # every link to AVTB up front makes the chain composable in any order.
-    parts = [f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS[vin{index}]" for index in range(segment_count)]
+    parts = [
+        f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS[vin{index}]" for index in range(segment_count)
+    ]
 
     if segment_count == 1:
         return ";".join(parts), "vin0"
@@ -185,9 +283,7 @@ def _overlay_chain(overlays: list[titles.TextOverlay], video_label: str) -> tupl
         settle = max(overlay.fade_in, 0.2)
         if overlay.rise > 0.5:
             # Ease the plate up into its resting position as it fades in.
-            y = (
-                f"{overlay.rise:.1f}*(1-min(1\\,max(0\\,(t-{overlay.start:.3f})/{settle:.3f})))"
-            )
+            y = f"{overlay.rise:.1f}*(1-min(1\\,max(0\\,(t-{overlay.start:.3f})/{settle:.3f})))"
         else:
             y = "0"
         parts.append(
@@ -231,7 +327,9 @@ def _assemble_audio(
         parts.extend(voice_parts)
         joined = "".join(f"[voice{order}]" for order in range(len(source_audio_shots)))
         if len(source_audio_shots) > 1:
-            parts.append(f"{joined}amix=inputs={len(source_audio_shots)}:normalize=0:dropout_transition=0[voicemix]")
+            parts.append(
+                f"{joined}amix=inputs={len(source_audio_shots)}:normalize=0:dropout_transition=0[voicemix]"
+            )
             voice_stem = "voicemix"
         else:
             parts.append(f"{joined}anull[voicemix]")
@@ -273,7 +371,9 @@ def _assemble_audio(
 
     joined = "".join(f"[{stem}]" for stem in stems)
     if len(stems) > 1:
-        parts.append(f"{joined}amix=inputs={len(stems)}:normalize=0:dropout_transition=0[premaster]")
+        parts.append(
+            f"{joined}amix=inputs={len(stems)}:normalize=0:dropout_transition=0[premaster]"
+        )
     else:
         parts.append(f"{joined}anull[premaster]")
 
@@ -288,6 +388,8 @@ def _assemble(
     fmt: DeliveryFormat,
     quality: Quality,
     destination: Path,
+    *,
+    want_audio: bool,
 ) -> Path:
     """The single ffmpeg call that produces a finished film."""
     duration = edl.duration
@@ -319,12 +421,25 @@ def _assemble(
         sfx_inputs[key] = next_index
         next_index += 1
 
+    # Namespaced by format: two formats share the assets directory, and plates
+    # are rendered at the frame size, so a shared name lets one overwrite the other.
     text_overlays = titles.render_all(
-        edl.texts, width=fmt.width, height=fmt.height, directory=workspace.assets
+        edl.texts,
+        width=fmt.width,
+        height=fmt.height,
+        directory=workspace.assets,
+        prefix=fmt.name,
     )
     text_chains: list[str] = []
     for order, overlay in enumerate(text_overlays):
-        inputs += ["-loop", "1", "-t", f"{overlay.start + overlay.duration + 0.5:.3f}", "-i", str(overlay.path)]
+        inputs += [
+            "-loop",
+            "1",
+            "-t",
+            f"{overlay.start + overlay.duration + 0.5:.3f}",
+            "-i",
+            str(overlay.path),
+        ]
         links = ["format=rgba"]
         if overlay.fade_in > 0.01:
             links.append(f"fade=t=in:st=0:d={overlay.fade_in:.3f}:alpha=1")
@@ -351,8 +466,8 @@ def _assemble(
     overlay_graph, video_label = _overlay_chain(text_overlays, video_label)
 
     source_audio_shots: list[tuple[int, float]] = []
-    for (start, _, shot), index in zip(edl.timeline(), range(len(segments))):
-        if shot.use_source_audio and shot.audio_gain > 0.001:
+    for index, (start, _, shot) in enumerate(edl.timeline()):
+        if index < len(segments) and carries_audio(shot, want_audio=want_audio):
             source_audio_shots.append((index, max(0.0, start + shot.audio_offset)))
 
     audio_graph, audio_label = _assemble_audio(
@@ -374,16 +489,43 @@ def _assemble(
 
     args = [
         *inputs,
-        "-filter_complex", full_graph,
-        "-map", "[vout]", "-map", f"[{audio_label}]",
-        "-t", f"{duration:.4f}",
-        "-c:v", "libx264", "-crf", str(quality.crf), "-preset", quality.preset,
-        "-profile:v", "high", "-level", "4.1", "-pix_fmt", "yuv420p",
-        "-r", str(quality.fps),
-        "-g", str(quality.fps * 2), "-keyint_min", str(quality.fps),
-        "-c:a", "aac", "-b:a", quality.audio_bitrate, "-ar", "48000", "-ac", "2",
+        "-filter_complex",
+        full_graph,
+        "-map",
+        "[vout]",
+        "-map",
+        f"[{audio_label}]",
+        "-t",
+        f"{duration:.4f}",
+        "-c:v",
+        "libx264",
+        "-crf",
+        str(quality.crf),
+        "-preset",
+        quality.preset,
+        "-profile:v",
+        "high",
+        "-level",
+        "4.1",
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        str(quality.fps),
+        "-g",
+        str(quality.fps * 2),
+        "-keyint_min",
+        str(quality.fps),
+        "-c:a",
+        "aac",
+        "-b:a",
+        quality.audio_bitrate,
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
         # Metadata at the front: the file starts playing before it finishes downloading.
-        "-movflags", "+faststart",
+        "-movflags",
+        "+faststart",
         str(destination),
     ]
     (workspace.logs / f"filtergraph-{fmt.name}.txt").write_text(full_graph, encoding="utf-8")
@@ -393,6 +535,7 @@ def _assemble(
 
 # ---------------------------------------------------------------------------
 
+
 def render(
     edl: EditDecisionList,
     workspace: Workspace,
@@ -400,8 +543,13 @@ def render(
     *,
     formats: tuple[DeliveryFormat, ...] | None = None,
     name: str | None = None,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> RenderResult:
-    """Render the EDL to every requested delivery format."""
+    """Render the EDL to every requested delivery format.
+
+    `on_progress(done, total, label)` is called as each shot lands, because a
+    render takes minutes and silence is indistinguishable from a hang.
+    """
     result = RenderResult(duration=edl.duration)
     targets = formats if formats is not None else settings.all_formats
     quality = settings.quality
@@ -409,29 +557,122 @@ def render(
 
     want_audio = any(shot.use_source_audio for shot in edl.shots)
 
+    # One unit per shot, plus one for each format's final assembly.
+    total = (len(edl.shots) + 1) * len(targets)
+    done = 0
+
+    def report(label: str) -> None:
+        if on_progress is not None:
+            on_progress(done, total, label)
+
+    lock = threading.Lock()
+
     for fmt in targets:
-        log.info("rendering %s (%dx%d, %.2fs, %d shots)", fmt.name, fmt.width, fmt.height,
-                 edl.duration, len(edl.shots))
+        log.info(
+            "rendering %s (%dx%d, %.2fs, %d shots)",
+            fmt.name,
+            fmt.width,
+            fmt.height,
+            edl.duration,
+            len(edl.shots),
+        )
+        suffix = f" · {fmt.name}" if len(targets) > 1 else ""
+        shots = list(enumerate(edl.shots))
+        segments: list[Path] = [Path()] * len(shots)
 
-        segments: list[Path] = []
-        for index, shot in enumerate(edl.shots):
+        # Shots are independent by construction — each is its own ffmpeg call
+        # writing its own file — so they render concurrently. libx264 threads a
+        # single 1080x1920 segment poorly, and the segments are short, so the
+        # machine sits mostly idle doing these one at a time.
+        workers = segment_workers(settings, len(shots))
+        report(f"shot 1 of {len(shots)}{suffix}")
+
+        # `fmt` is bound as a default rather than captured: the pool is joined
+        # before the loop advances, so the closure is correct today, but a
+        # closure over a loop variable is one refactor away from rendering
+        # every format into the last format's frame.
+        def one(item: tuple[int, Shot], fmt: DeliveryFormat = fmt) -> tuple[int, Path | None]:
+            """Render one shot, or report that it could not be rendered.
+
+            A failure here returns None rather than raising. The module docstring
+            promises that one unusable clip costs one segment and not the whole
+            film, and it did not: a single shot whose source window happened to
+            contain no frames — a 0.44s cut of 1fps footage, say — took the
+            entire render down with it.
+            """
+            index, shot = item
             try:
-                segments.append(
-                    render_shot(shot, index, workspace, fmt, quality, want_audio=want_audio)
-                )
+                path = render_shot(shot, index, workspace, fmt, quality, want_audio=want_audio)
             except ffmpeg.FFmpegError as exc:
-                message = f"shot {index + 1} ({shot.clip_id}) failed to render: {exc.stderr.strip()[-200:]}"
-                log.error("%s", message)
-                result.warnings.append(message)
-                raise
+                reason = (exc.stderr or str(exc)).strip().splitlines()
+                message = (
+                    f"dropped shot {index + 1} ({shot.clip_id}): "
+                    f"{reason[-1][:160] if reason else 'it would not render'}"
+                )
+                log.info("%s", message)
+                with lock:
+                    result.warnings.append(message)
+                return index, None
+            return index, path
 
+        rendered: list[Path | None] = [None] * len(shots)
+        if workers > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+                for index, path in pool.map(one, shots):
+                    rendered[index] = path
+                    with lock:
+                        done += 1
+                        finished = done
+                    report(f"shot {min(finished, len(shots))} of {len(shots)}{suffix}")
+        else:
+            for item in shots:
+                index, path = one(item)
+                rendered[index] = path
+                done += 1
+                report(f"shot {index + 1} of {len(shots)}{suffix}")
+
+        # Assemble from whatever survived. The EDL is reduced to match, because
+        # the assembly reads shots and segments positionally.
+        kept = [index for index, path in enumerate(rendered) if path is not None]
+        if not kept:
+            raise RuntimeError("no shot could be rendered; the footage may be unreadable")
+        segments = [rendered[index] for index in kept]  # type: ignore[misc]
+        cut = (
+            edl
+            if len(kept) == len(shots)
+            else edl.without_shots([index for index in range(len(shots)) if index not in set(kept)])
+        )
+
+        report(f"putting it together{suffix}")
         destination = workspace.output / f"{stem}-{fmt.name}.mp4"
-        _assemble(edl, segments, workspace, fmt, quality, destination)
+        _assemble(cut, segments, workspace, fmt, quality, destination, want_audio=want_audio)
+        done += 1
+        report(f"putting it together{suffix}")
+
         result.outputs[fmt.name] = destination
-        result.segments = segments
+        result.segments[fmt.name] = segments
         log.info("wrote %s", destination)
 
     return result
+
+
+def segment_workers(settings: Settings, shot_count: int) -> int:
+    """How many shots to render at once.
+
+    Each worker is a whole ffmpeg process, so this is bounded by cores rather
+    than by threads. One per core, measured rather than assumed: on a 4-core box
+    a 21-shot reel took 74s sequentially, 58s with two workers, 54s with four,
+    and 77s with six. Past the core count every segment slows down and the batch
+    finishes later than it would have with fewer.
+
+    Optical flow is excluded — `minterpolate` is memory-hungry enough that
+    running several at once can push a laptop into swap, which is far worse than
+    rendering them in turn.
+    """
+    if shot_count <= 1 or settings.quality.optical_flow:
+        return 1
+    cores = os.cpu_count() or 2
+    return max(1, min(shot_count, cores, 8))
 
 
 def _slug(text: str) -> str:

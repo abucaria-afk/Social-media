@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
-from typing import Sequence
+from collections.abc import Sequence
 
 from . import ffmpeg
 from .config import AUDIO_SUFFIXES, IMAGE_SUFFIXES, VIDEO_SUFFIXES
@@ -166,6 +166,20 @@ def _duration(info: dict, stream: dict | None) -> float:
     return 0.0
 
 
+def _why_unreadable(stderr: str) -> str:
+    """What ffprobe's complaint means, in one plain line."""
+    text = " ".join((stderr or "").split())
+    if "moov atom not found" in text or "Invalid data found" in text:
+        return "not a video file, or the file is damaged"
+    if "No such file" in text:
+        return "the file went away while we were reading it"
+    if "Permission denied" in text:
+        return "no permission to read it"
+    if "Invalid argument" in text:
+        return "the file could not be opened"
+    return "it could not be read"
+
+
 def probe_asset(path: Path) -> MediaAsset | None:
     """Read one file's technical card. Returns None if it is not usable media."""
     kind = classify(path)
@@ -174,7 +188,10 @@ def probe_asset(path: Path) -> MediaAsset | None:
     try:
         info = ffmpeg.probe(path)
     except ffmpeg.FFmpegError as exc:
-        log.warning("skipping unreadable file %s (%s)", path.name, exc.stderr.strip()[:120])
+        # One line, in words. ffprobe's stderr is a paragraph of container
+        # internals with an absolute path in it, and truncating that to fit a
+        # log line produced messages that stopped mid-directory.
+        log.warning("skipping %s: %s", path.name, _why_unreadable(exc.stderr))
         return None
 
     video = _stream(info, "video")
@@ -186,10 +203,14 @@ def probe_asset(path: Path) -> MediaAsset | None:
         if duration <= 0:
             return None
         return MediaAsset(
-            path=path, kind="audio", duration=duration, has_audio=True,
+            path=path,
+            kind="audio",
+            duration=duration,
+            has_audio=True,
             audio_codec=(audio or {}).get("codec_name", ""),
             sample_rate=int((audio or {}).get("sample_rate") or 0),
-            bit_rate=int(fmt.get("bit_rate") or 0), raw=info,
+            bit_rate=int(fmt.get("bit_rate") or 0),
+            raw=info,
         )
 
     if video is None:
@@ -214,12 +235,19 @@ def probe_asset(path: Path) -> MediaAsset | None:
             kind, duration, fps = "image", STILL_DURATION, 0.0
 
     return MediaAsset(
-        path=path, kind=kind, duration=duration, width=width, height=height,
-        fps=fps, rotation=_rotation(video), has_audio=audio is not None,
+        path=path,
+        kind=kind,
+        duration=duration,
+        width=width,
+        height=height,
+        fps=fps,
+        rotation=_rotation(video),
+        has_audio=audio is not None,
         codec=video.get("codec_name", ""),
         audio_codec=(audio or {}).get("codec_name", ""),
         sample_rate=int((audio or {}).get("sample_rate") or 0),
-        bit_rate=int(fmt.get("bit_rate") or 0), raw=info,
+        bit_rate=int(fmt.get("bit_rate") or 0),
+        raw=info,
     )
 
 
@@ -264,8 +292,6 @@ def ingest(inputs: Sequence[str | Path], *, recursive: bool = True) -> Bin:
         (bin_.audio if asset.kind == "audio" else bin_.visuals).append(asset)
 
     if not bin_.visuals:
-        raise FileNotFoundError(
-            "found audio but no picture — an edit needs something to look at"
-        )
+        raise FileNotFoundError("found audio but no picture — an edit needs something to look at")
     log.info("ingested %d visual asset(s), %d audio asset(s)", len(bin_.visuals), len(bin_.audio))
     return bin_

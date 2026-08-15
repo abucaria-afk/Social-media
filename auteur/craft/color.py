@@ -36,8 +36,14 @@ def _blend(neutral: float, target: float, strength: float) -> float:
     return neutral + (target - neutral) * strength
 
 
-def _eq(*, contrast: float = 1.0, brightness: float = 0.0, saturation: float = 1.0,
-        gamma: float = 1.0, strength: float = 1.0) -> str:
+def _eq(
+    *,
+    contrast: float = 1.0,
+    brightness: float = 0.0,
+    saturation: float = 1.0,
+    gamma: float = 1.0,
+    strength: float = 1.0,
+) -> str:
     contrast = _blend(1.0, contrast, strength)
     brightness = _blend(0.0, brightness, strength)
     saturation = _blend(1.0, saturation, strength)
@@ -48,8 +54,12 @@ def _eq(*, contrast: float = 1.0, brightness: float = 0.0, saturation: float = 1
     )
 
 
-def _balance(shadows: tuple[float, float, float], mids: tuple[float, float, float],
-             highs: tuple[float, float, float], strength: float = 1.0) -> str:
+def _balance(
+    shadows: tuple[float, float, float],
+    mids: tuple[float, float, float],
+    highs: tuple[float, float, float],
+    strength: float = 1.0,
+) -> str:
     rs, gs, bs = (_blend(0.0, v, strength) for v in shadows)
     rm, gm, bm = (_blend(0.0, v, strength) for v in mids)
     rh, gh, bh = (_blend(0.0, v, strength) for v in highs)
@@ -89,6 +99,7 @@ def _vignette(amount: float) -> str:
 # The looks
 # ---------------------------------------------------------------------------
 
+
 def _neutral(s: float) -> str:
     return chain(_eq(contrast=1.06, saturation=1.05, strength=s))
 
@@ -96,8 +107,12 @@ def _neutral(s: float) -> str:
 def _blockbuster(s: float) -> str:
     """Teal shadows, orange skin. The summer tentpole grade."""
     return chain(
-        _balance(shadows=(-0.09, 0.02, 0.13), mids=(0.03, 0.0, -0.02),
-                 highs=(0.10, 0.03, -0.09), strength=s),
+        _balance(
+            shadows=(-0.09, 0.02, 0.13),
+            mids=(0.03, 0.0, -0.02),
+            highs=(0.10, 0.03, -0.09),
+            strength=s,
+        ),
         _eq(contrast=1.18, saturation=1.14, gamma=0.97, strength=s),
         _vignette(0.35 * s),
     )
@@ -106,8 +121,12 @@ def _blockbuster(s: float) -> str:
 def _steel(s: float) -> str:
     """Cold, hard, desaturated — the grade for concrete and consequence."""
     return chain(
-        _balance(shadows=(-0.10, -0.02, 0.14), mids=(-0.04, 0.0, 0.06),
-                 highs=(-0.03, 0.0, 0.05), strength=s),
+        _balance(
+            shadows=(-0.10, -0.02, 0.14),
+            mids=(-0.04, 0.0, 0.06),
+            highs=(-0.03, 0.0, 0.05),
+            strength=s,
+        ),
         _eq(contrast=1.22, saturation=0.72, gamma=0.94, strength=s),
         "curves=all='0/0 0.28/0.20 0.75/0.80 1/1'" if s > 0.5 else "",
         _vignette(0.42 * s),
@@ -117,8 +136,12 @@ def _steel(s: float) -> str:
 def _amber(s: float) -> str:
     """Warm, lifted, nostalgic. Late sun through a window."""
     return chain(
-        _balance(shadows=(0.05, 0.02, -0.06), mids=(0.07, 0.02, -0.07),
-                 highs=(0.12, 0.05, -0.10), strength=s),
+        _balance(
+            shadows=(0.05, 0.02, -0.06),
+            mids=(0.07, 0.02, -0.07),
+            highs=(0.12, 0.05, -0.10),
+            strength=s,
+        ),
         _eq(contrast=1.04, saturation=1.10, gamma=1.05, strength=s),
         _bloom(radius=14.0, opacity=0.22 * s),
         _vignette(0.25 * s),
@@ -137,8 +160,12 @@ def _noir(s: float) -> str:
 def _neon(s: float) -> str:
     """Magenta and cyan, blown highlights, wet streets."""
     return chain(
-        _balance(shadows=(0.06, -0.06, 0.15), mids=(0.02, -0.03, 0.08),
-                 highs=(0.10, -0.04, 0.12), strength=s),
+        _balance(
+            shadows=(0.06, -0.06, 0.15),
+            mids=(0.02, -0.03, 0.08),
+            highs=(0.10, -0.04, 0.12),
+            strength=s,
+        ),
         _eq(contrast=1.26, saturation=1.42, gamma=0.93, strength=s),
         _bloom(radius=18.0, opacity=0.34 * s, threshold=0.55),
         _vignette(0.45 * s),
@@ -148,10 +175,17 @@ def _neon(s: float) -> str:
 def _kodak(s: float) -> str:
     """A print-film curve: green in the shadows, warm highlights, soft toe."""
     return chain(
-        _balance(shadows=(-0.04, 0.06, -0.02), mids=(0.03, 0.0, -0.03),
-                 highs=(0.08, 0.02, -0.06), strength=s),
-        "curves=r='0/0.02 0.5/0.52 1/0.98':g='0/0.01 0.5/0.5 1/0.99':b='0/0.04 0.5/0.48 1/0.95'"
-        if s > 0.3 else "",
+        _balance(
+            shadows=(-0.04, 0.06, -0.02),
+            mids=(0.03, 0.0, -0.03),
+            highs=(0.08, 0.02, -0.06),
+            strength=s,
+        ),
+        (
+            "curves=r='0/0.02 0.5/0.52 1/0.98':g='0/0.01 0.5/0.5 1/0.99':b='0/0.04 0.5/0.48 1/0.95'"
+            if s > 0.3
+            else ""
+        ),
         _eq(contrast=1.05, saturation=0.96, gamma=1.03, strength=s),
         _bloom(radius=10.0, opacity=0.16 * s),
         _vignette(0.30 * s),
@@ -171,8 +205,9 @@ def _bloom_look(s: float) -> str:
     """Diffusion filter on the lens: soft, dreamy, lifted."""
     return chain(
         _bloom(radius=24.0, opacity=0.42 * s, threshold=0.45),
-        _balance(shadows=(0.04, 0.02, 0.06), mids=(0.02, 0.0, 0.02),
-                 highs=(0.04, 0.02, 0.04), strength=s),
+        _balance(
+            shadows=(0.04, 0.02, 0.06), mids=(0.02, 0.0, 0.02), highs=(0.04, 0.02, 0.04), strength=s
+        ),
         _eq(contrast=0.94, saturation=1.06, gamma=1.08, strength=s),
     )
 
@@ -186,8 +221,12 @@ def _punch(s: float) -> str:
 
 def _desert(s: float) -> str:
     return chain(
-        _balance(shadows=(0.06, 0.02, -0.08), mids=(0.08, 0.04, -0.10),
-                 highs=(0.14, 0.08, -0.12), strength=s),
+        _balance(
+            shadows=(0.06, 0.02, -0.08),
+            mids=(0.08, 0.04, -0.10),
+            highs=(0.14, 0.08, -0.12),
+            strength=s,
+        ),
         _eq(contrast=1.14, saturation=0.92, gamma=1.02, strength=s),
         _vignette(0.36 * s),
     )
@@ -195,8 +234,12 @@ def _desert(s: float) -> str:
 
 def _aqua(s: float) -> str:
     return chain(
-        _balance(shadows=(-0.12, 0.04, 0.12), mids=(-0.08, 0.04, 0.10),
-                 highs=(-0.04, 0.06, 0.08), strength=s),
+        _balance(
+            shadows=(-0.12, 0.04, 0.12),
+            mids=(-0.08, 0.04, 0.10),
+            highs=(-0.04, 0.06, 0.08),
+            strength=s,
+        ),
         _eq(contrast=1.1, saturation=1.05, gamma=1.04, strength=s),
         _bloom(radius=16.0, opacity=0.2 * s),
     )

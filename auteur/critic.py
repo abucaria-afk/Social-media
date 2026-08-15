@@ -54,10 +54,6 @@ class Critique:
     notes: list[Note] = field(default_factory=list)
     measured: dict[str, float] = field(default_factory=dict)
 
-    @property
-    def worst(self) -> Note | None:
-        return max(self.notes, key=lambda note: note.severity, default=None)
-
     def describe(self) -> str:
         lines = [f"critic score {self.score:.2f}"]
         for note in sorted(self.notes, key=lambda n: -n.severity):
@@ -117,9 +113,12 @@ def review(
     drift = runtime - target_duration
     if abs(drift) > max(1.5, target_duration * 0.12):
         critique.notes.append(
-            Note("runtime", f"{runtime:.1f}s against a {target_duration:.1f}s target",
-                 severity=min(abs(drift) / max(target_duration, 1e-6), 1.0) * 0.7,
-                 at=None)
+            Note(
+                "runtime",
+                f"{runtime:.1f}s against a {target_duration:.1f}s target",
+                severity=min(abs(drift) / max(target_duration, 1e-6), 1.0) * 0.7,
+                at=None,
+            )
         )
 
     # ---- dead air --------------------------------------------------------
@@ -132,7 +131,12 @@ def review(
     for index, (start, _, shot) in enumerate(edl.timeline(), start=1):
         if shot.duration < MIN_SHOT * 1.2:
             critique.notes.append(
-                Note("flash-frame", f"shot {index} is only {shot.duration:.2f}s", severity=0.5, at=start)
+                Note(
+                    "flash-frame",
+                    f"shot {index} is only {shot.duration:.2f}s",
+                    severity=0.5,
+                    at=start,
+                )
             )
 
     # ---- exposure continuity across cuts ---------------------------------
@@ -148,8 +152,11 @@ def review(
     if jumps:
         critique.measured["exposure_jumps"] = float(jumps)
         critique.notes.append(
-            Note("exposure", f"{jumps} cut(s) jump hard in brightness",
-                 severity=min(jumps / max(len(cuts), 1), 1.0) * 0.5)
+            Note(
+                "exposure",
+                f"{jumps} cut(s) jump hard in brightness",
+                severity=min(jumps / max(len(cuts), 1), 1.0) * 0.5,
+            )
         )
 
     # ---- rhythm ----------------------------------------------------------
@@ -166,9 +173,15 @@ def review(
             beat = 60.0 / audio.tempo
             multiples = {max(1, int(round(length / beat))) for length in lengths}
             critique.measured["beat_multiples"] = float(len(multiples))
-            metronomic = len(multiples) < 3
-            detail = f"every shot is {multiples.pop()} beat(s) long" if len(multiples) == 1 else \
-                     f"only {len(multiples)} distinct shot lengths in beats"
+            # With only a handful of shots there is no room for a
+            # two- or four-beat shot without gutting the cut, so uniformity is
+            # a consequence of the length, not a fault.
+            metronomic = len(multiples) < 3 and len(lengths) >= 8
+            detail = (
+                f"every shot is {multiples.pop()} beat(s) long"
+                if len(multiples) == 1
+                else f"only {len(multiples)} distinct shot lengths in beats"
+            )
         else:
             metronomic = variety < 0.25
             detail = f"only {len(set(lengths))} distinct shot lengths across {len(lengths)} shots"
@@ -185,8 +198,11 @@ def review(
             critique.measured["cuts_on_beat"] = on_beat
             if on_beat < 0.55:
                 critique.notes.append(
-                    Note("off-beat", f"only {on_beat * 100:.0f}% of cuts land on the beat",
-                         severity=0.55)
+                    Note(
+                        "off-beat",
+                        f"only {on_beat * 100:.0f}% of cuts land on the beat",
+                        severity=0.55,
+                    )
                 )
 
     # ---- the hook --------------------------------------------------------
@@ -197,7 +213,12 @@ def review(
         critique.measured["hook_motion"] = hook_motion
         if rest_motion > 1e-6 and hook_motion < rest_motion * 0.6:
             critique.notes.append(
-                Note("weak-hook", "the opening is quieter than the rest of the film", severity=0.6, at=0.0)
+                Note(
+                    "weak-hook",
+                    "the opening is quieter than the rest of the film",
+                    severity=0.6,
+                    at=0.0,
+                )
             )
 
     # ---- black frames ----------------------------------------------------
@@ -216,6 +237,7 @@ def review(
 # Acting on the critique
 # ---------------------------------------------------------------------------
 
+
 def revise(
     edl: EditDecisionList,
     critique: Critique,
@@ -228,21 +250,7 @@ def revise(
 ) -> list[str]:
     """Apply fixes for what the critic found. Returns what was changed."""
     changes: list[str] = []
-    timeline = edl.timeline()
-
-    # Dead air: lift the offending shot out entirely rather than trying to
-    # rescue it. There is no filter that makes nothing happening interesting.
-    dead = [note for note in critique.notes if note.rule == "dead-air" and note.at is not None]
-    for note in dead:
-        if len(edl.shots) <= 3:
-            break
-        victim = next(
-            (shot for start, end, shot in timeline if start <= note.at < end), None
-        )
-        if victim is not None and victim in edl.shots:
-            edl.shots.remove(victim)
-            changes.append(f"dropped the frozen shot at {note.at:.1f}s ({victim.clip_id})")
-            timeline = edl.timeline()
+    signature_before = _length_signature(edl, audio)
 
     # Flash frames: give them enough screen time to register.
     for note in critique.notes:
@@ -252,21 +260,50 @@ def revise(
         if shot is not None and grammar._rescale_ramp(shot, MIN_SHOT * 2.0):
             changes.append(f"lengthened the flash frame at {note.at:.1f}s")
 
+    # Dead air: lift the offending shot out entirely rather than trying to
+    # rescue it. There is no filter that makes nothing happening interesting.
+    timeline = edl.timeline()
+    dead = [note for note in critique.notes if note.rule == "dead-air" and note.at is not None]
+    for note in dead:
+        if len(edl.shots) <= 3:
+            break
+        victim = next((shot for start, end, shot in timeline if start <= note.at < end), None)
+        if victim is not None and victim in edl.shots:
+            edl.shots.remove(victim)
+            changes.append(f"dropped the frozen shot at {note.at:.1f}s ({victim.clip_id})")
+            timeline = edl.timeline()
+
     if any(note.rule == "weak-hook" for note in critique.notes) and len(edl.shots) > 2:
         # Promote the liveliest shot in the first third to the front.
         window = edl.shots[: max(2, len(edl.shots) // 3)]
-        best = max(window, key=lambda shot: dossiers[shot.clip_id].video.slice_stats(
-            shot.start, shot.end)["motion"] if shot.clip_id in dossiers else 0.0)
+        best = max(
+            window,
+            key=lambda shot: (
+                dossiers[shot.clip_id].video.slice_stats(shot.start, shot.end)["motion"]
+                if shot.clip_id in dossiers
+                else 0.0
+            ),
+        )
         if best is not edl.shots[0]:
             edl.shots.remove(best)
             edl.shots.insert(0, best)
             changes.append(f"opened on {best.clip_id} instead — it has more life in it")
 
     if any(note.rule == "metronomic" for note in critique.notes):
-        if grammar.vary_pacing(edl, run_length=3, spread=0.22):
-            changes.append("broke up the metronomic cutting")
+        before = _length_signature(edl, audio)
+        if audio is not None and audio.has_beat and audio.tempo > 0:
+            # Stay on the grid: hold some shots for two beats instead of one.
+            grammar.vary_beat_multiples(edl, 60.0 / audio.tempo)
+        else:
+            grammar.vary_pacing(edl, run_length=3, spread=0.22)
+        if _length_signature(edl, audio) != before:
+            changes.append("varied the shot lengths so it stops feeling like a metronome")
 
-    if any(note.rule in ("runtime",) for note in critique.notes):
+    # Always, not only when the critic complained about runtime: holding shots
+    # for two beats instead of one makes the film longer, so a fix for one fault
+    # introduces another, and the critic only gets to see it on the pass after
+    # the last one it can act on.
+    if changes or any(note.rule == "runtime" for note in critique.notes):
         if grammar.trim_to_duration(edl, target_duration, tolerance=0.6):
             changes.append(f"brought the runtime back toward {target_duration:.0f}s")
 
@@ -276,4 +313,17 @@ def revise(
         grammar.snap_cuts_to_beats(edl, audio if beat_sync else None, offset=music_offset)
         edl.repair(dossiers, target_duration=target_duration)
 
+    # Everything above ran before the beat snap and the repair, either of which
+    # can undo a change. Report only what survived them.
+    if audio is not None and _length_signature(edl, audio) == signature_before:
+        changes = [c for c in changes if "shot lengths" not in c]
+
     return changes
+
+
+def _length_signature(edl: EditDecisionList, audio: AudioAnalysis | None) -> tuple:
+    """How the film's shot lengths look, in beats when there is a beat."""
+    if audio is not None and audio.has_beat and audio.tempo > 0:
+        beat = 60.0 / audio.tempo
+        return tuple(max(1, round(shot.duration / beat)) for shot in edl.shots)
+    return tuple(round(shot.duration, 2) for shot in edl.shots)
