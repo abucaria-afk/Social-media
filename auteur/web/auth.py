@@ -52,8 +52,13 @@ def hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
     """Return (salt_hex, hash_hex) for a password."""
     salt = salt or secrets.token_bytes(16)
     digest = hashlib.scrypt(
-        password.encode("utf-8"), salt=salt,
-        n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P, dklen=KEY_BYTES, maxmem=SCRYPT_MAXMEM,
+        password.encode("utf-8"),
+        salt=salt,
+        n=SCRYPT_N,
+        r=SCRYPT_R,
+        p=SCRYPT_P,
+        dklen=KEY_BYTES,
+        maxmem=SCRYPT_MAXMEM,
     )
     return salt.hex(), digest.hex()
 
@@ -194,8 +199,9 @@ class Accounts:
 
     def add(self, username: str, email: str, password: str) -> Account:
         salt, digest = hash_password(password)
-        account = Account(username=username.strip(), email=email.strip().lower(),
-                          salt=salt, password_hash=digest)
+        account = Account(
+            username=username.strip(), email=email.strip().lower(), salt=salt, password_hash=digest
+        )
         with self.lock:
             self.accounts[account.username.lower()] = account
             self._save()
@@ -209,8 +215,7 @@ class Accounts:
             account.reset_hash, account.reset_expires = "", 0.0
             # Every other device is signed out. A password change is usually a
             # response to worrying that somebody else has it.
-            self.sessions = {k: v for k, v in self.sessions.items()
-                             if v[0] != account.username}
+            self.sessions = {k: v for k, v in self.sessions.items() if v[0] != account.username}
             self._save()
 
     @property
@@ -245,8 +250,7 @@ class Accounts:
         token = secrets.token_urlsafe(32)
         with self.lock:
             account.failures, account.locked_until = 0, 0.0
-            self.sessions[_token_hash(token)] = (account.username,
-                                                 time.time() + SESSION_LIFETIME)
+            self.sessions[_token_hash(token)] = (account.username, time.time() + SESSION_LIFETIME)
             self._save()
         return token, "Signed in."
 
@@ -292,9 +296,11 @@ class Accounts:
         digest = _token_hash(token)
         with self.lock:
             for account in self.accounts.values():
-                if (account.reset_hash
-                        and hmac.compare_digest(account.reset_hash, digest)
-                        and account.reset_expires > time.time()):
+                if (
+                    account.reset_hash
+                    and hmac.compare_digest(account.reset_hash, digest)
+                    and account.reset_expires > time.time()
+                ):
                     return account
         return None
 
@@ -327,6 +333,7 @@ def password_problem(password: str) -> str:
 # ---------------------------------------------------------------------------
 # Delivering the reset link
 # ---------------------------------------------------------------------------
+
 
 def send_reset(email: str, link: str) -> str:
     """Get the reset link to its owner. Returns how it was delivered.

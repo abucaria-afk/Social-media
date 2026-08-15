@@ -8,8 +8,21 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 VIDEO_SUFFIXES = {
-    ".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".mts", ".m2ts",
-    ".mpg", ".mpeg", ".wmv", ".flv", ".3gp", ".ts", ".mxf",
+    ".mp4",
+    ".mov",
+    ".m4v",
+    ".mkv",
+    ".webm",
+    ".avi",
+    ".mts",
+    ".m2ts",
+    ".mpg",
+    ".mpeg",
+    ".wmv",
+    ".flv",
+    ".3gp",
+    ".ts",
+    ".mxf",
 }
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic"}
 AUDIO_SUFFIXES = {".mp3", ".wav", ".aac", ".m4a", ".flac", ".ogg", ".opus", ".aif", ".aiff"}
@@ -60,12 +73,36 @@ class Quality:
 
 
 QUALITIES: dict[str, Quality] = {
-    "draft": Quality("draft", crf=28, preset="veryfast", fps=24, audio_bitrate="128k",
-                     optical_flow=False, analysis_fps=4.0, analysis_width=96),
-    "standard": Quality("standard", crf=20, preset="medium", fps=30, audio_bitrate="192k",
-                        optical_flow=False, analysis_fps=6.0, analysis_width=128),
-    "master": Quality("master", crf=16, preset="slow", fps=30, audio_bitrate="320k",
-                      optical_flow=True, analysis_fps=8.0, analysis_width=160),
+    "draft": Quality(
+        "draft",
+        crf=28,
+        preset="veryfast",
+        fps=24,
+        audio_bitrate="128k",
+        optical_flow=False,
+        analysis_fps=4.0,
+        analysis_width=96,
+    ),
+    "standard": Quality(
+        "standard",
+        crf=20,
+        preset="medium",
+        fps=30,
+        audio_bitrate="192k",
+        optical_flow=False,
+        analysis_fps=6.0,
+        analysis_width=128,
+    ),
+    "master": Quality(
+        "master",
+        crf=16,
+        preset="slow",
+        fps=30,
+        audio_bitrate="320k",
+        optical_flow=True,
+        analysis_fps=8.0,
+        analysis_width=160,
+    ),
 }
 
 
@@ -130,10 +167,19 @@ def resolve_format(name: str) -> DeliveryFormat:
     if key in FORMATS:
         return FORMATS[key]
     aliases = {
-        "9:16": "reel", "vertical": "reel", "tiktok": "reel", "shorts": "reel",
-        "1:1": "square", "16:9": "wide", "landscape": "wide", "youtube": "wide",
-        "2.35:1": "cinema", "scope": "cinema", "anamorphic": "cinema",
-        "4:5": "portrait", "feed": "portrait",
+        "9:16": "reel",
+        "vertical": "reel",
+        "tiktok": "reel",
+        "shorts": "reel",
+        "1:1": "square",
+        "16:9": "wide",
+        "landscape": "wide",
+        "youtube": "wide",
+        "2.35:1": "cinema",
+        "scope": "cinema",
+        "anamorphic": "cinema",
+        "4:5": "portrait",
+        "feed": "portrait",
     }
     if key in aliases:
         return FORMATS[aliases[key]]

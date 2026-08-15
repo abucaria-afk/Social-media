@@ -23,53 +23,53 @@ from __future__ import annotations
 
 #: What each role is for. The two palettes below must define exactly these.
 ROLES: dict[str, str] = {
-    "ground":     "the page behind everything",
-    "surface":    "cards and panels lifted off the ground",
-    "raised":     "a control sitting on a surface",
-    "line":       "borders and separators",
-    "text":       "primary text",
+    "ground": "the page behind everything",
+    "surface": "cards and panels lifted off the ground",
+    "raised": "a control sitting on a surface",
+    "line": "borders and separators",
+    "text": "primary text",
     "text_muted": "secondary text, hints, and detail lines",
     "text_faint": "the quietest text that is still readable",
-    "ember":      "the accent as a fill: primary button, progress, focus ring",
+    "ember": "the accent as a fill: primary button, progress, focus ring",
     "ember_text": "the accent as text, dark enough to read on this ground",
-    "on_ember":   "text sitting on an ember fill",
-    "cream":      "the accent's soft tint, for large gentle fills",
-    "moss":       "it worked",
-    "rust":       "it did not work, or needs attention",
+    "on_ember": "text sitting on an ember fill",
+    "cream": "the accent's soft tint, for large gentle fills",
+    "moss": "it worked",
+    "rust": "it did not work, or needs attention",
 }
 
 #: Night. The frame the footage is shot in, and the program's own look.
 DARK: dict[str, str] = {
-    "ground":     "#0c0b0a",
-    "surface":    "#171614",
-    "raised":     "#201e1b",
-    "line":       "#2e2b26",
-    "text":       "#f2ede4",
+    "ground": "#0c0b0a",
+    "surface": "#171614",
+    "raised": "#201e1b",
+    "line": "#2e2b26",
+    "text": "#f2ede4",
     "text_muted": "#a9a49a",
     "text_faint": "#8b857a",
-    "ember":      "#e9a85c",
+    "ember": "#e9a85c",
     "ember_text": "#e9a85c",
-    "on_ember":   "#241703",
-    "cream":      "#e8c8a8",
-    "moss":       "#8fb283",
-    "rust":       "#d4785a",
+    "on_ember": "#241703",
+    "cream": "#e8c8a8",
+    "moss": "#8fb283",
+    "rust": "#d4785a",
 }
 
 #: The lit side of the same photographs. Warm paper, not clinical white.
 LIGHT: dict[str, str] = {
-    "ground":     "#f6f1e6",
-    "surface":    "#fffdf7",
-    "raised":     "#efe6d5",
-    "line":       "#d8cab2",
-    "text":       "#1c1815",
+    "ground": "#f6f1e6",
+    "surface": "#fffdf7",
+    "raised": "#efe6d5",
+    "line": "#d8cab2",
+    "text": "#1c1815",
     "text_muted": "#5c554b",
     "text_faint": "#6f675b",
-    "ember":      "#e9a85c",
+    "ember": "#e9a85c",
     "ember_text": "#7f4f11",
-    "on_ember":   "#241703",
-    "cream":      "#ead2ae",
-    "moss":       "#37613d",
-    "rust":       "#9b3618",
+    "on_ember": "#241703",
+    "cream": "#ead2ae",
+    "moss": "#37613d",
+    "rust": "#9b3618",
 }
 
 SCHEMES: dict[str, dict[str, str]] = {"dark": DARK, "light": LIGHT}
@@ -90,13 +90,12 @@ def hex_of(role: str, scheme: str = "dark") -> str:
 def rgb_of(role: str, scheme: str = "dark") -> tuple[int, int, int]:
     """The role as an (r, g, b) triple, for Pillow."""
     value = hex_of(role, scheme).lstrip("#")
-    return tuple(int(value[index:index + 2], 16) for index in (0, 2, 4))  # type: ignore[return-value]
+    return tuple(int(value[index : index + 2], 16) for index in (0, 2, 4))  # type: ignore[return-value]
 
 
 def _block(scheme: str, indent: str = "  ") -> str:
     return "\n".join(
-        f"{indent}--{role.replace('_', '-')}: {SCHEMES[scheme][role]};"
-        for role in ROLES
+        f"{indent}--{role.replace('_', '-')}: {SCHEMES[scheme][role]};" for role in ROLES
     )
 
 
@@ -154,12 +153,14 @@ def ansi(role: str) -> str:
 
 def contrast(foreground: tuple[int, int, int], background: tuple[int, int, int]) -> float:
     """WCAG contrast ratio between two colours, 1.0 (identical) to 21.0."""
+
     def luminance(rgb: tuple[int, int, int]) -> float:
         channels = []
         for value in rgb:
             portion = value / 255
-            channels.append(portion / 12.92 if portion <= 0.03928
-                            else ((portion + 0.055) / 1.055) ** 2.4)
+            channels.append(
+                portion / 12.92 if portion <= 0.03928 else ((portion + 0.055) / 1.055) ** 2.4
+            )
         return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
 
     first, second = sorted((luminance(foreground), luminance(background)), reverse=True)

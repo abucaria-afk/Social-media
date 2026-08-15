@@ -74,7 +74,11 @@ class Production:
             f"*{self.brief.prompt}*",
             "",
             f"- Directed by: **{self.directed_by}**"
-            + (f" (model unavailable: {self.fallback_reason})" if self.fallback_reason and self.directed_by == "heuristic" else ""),
+            + (
+                f" (model unavailable: {self.fallback_reason})"
+                if self.fallback_reason and self.directed_by == "heuristic"
+                else ""
+            ),
             f"- Runtime: **{self.edl.duration:.2f}s** across **{len(self.edl.shots)} shots**",
             f"- Brief read as: {self.brief.describe()}",
             f"- Total time: {self.seconds:.1f}s",
@@ -144,7 +148,11 @@ def direct(
     say.detail(
         f"{ui.describe_count(len(bin_.visuals), 'clip')}, "
         f"{ui.describe_duration(bin_.total_footage)} of material"
-        + (f", plus {ui.describe_count(len(bin_.audio), 'music track')}" if bin_.audio else ", no music")
+        + (
+            f", plus {ui.describe_count(len(bin_.audio), 'music track')}"
+            if bin_.audio
+            else ", no music"
+        )
     )
     if bin_.rejected:
         say.warn(f"skipped {ui.describe_count(len(bin_.rejected), 'file')} it could not read")
@@ -198,9 +206,15 @@ def direct(
             say.detail(message)
 
     production = Production(
-        brief=brief, bin=bin_, dossiers=dossiers, edl=edl, workspace=space,
-        directed_by=direction.directed_by, fallback_reason=direction.fallback_reason,
-        music=music, music_analysis=music_analysis,
+        brief=brief,
+        bin=bin_,
+        dossiers=dossiers,
+        edl=edl,
+        workspace=space,
+        directed_by=direction.directed_by,
+        fallback_reason=direction.fallback_reason,
+        music=music,
+        music_analysis=music_analysis,
     )
 
     by_id = {dossier.clip_id: dossier for dossier in dossiers}
@@ -214,7 +228,11 @@ def direct(
 
         say.step("Rendering" if index == 0 else "Rendering the new cut")
         result = render.render(
-            edl, space, settings, formats=target_formats, name=edl.title,
+            edl,
+            space,
+            settings,
+            formats=target_formats,
+            name=edl.title,
             on_progress=say.progress,
         )
         say.progress_done("done")
@@ -225,8 +243,11 @@ def direct(
 
         say.step("Watching it back")
         critique = critic.review(
-            edl, primary, target_duration=settings.target_duration,
-            audio=music_analysis, music_offset=music_offset,
+            edl,
+            primary,
+            target_duration=settings.target_duration,
+            audio=music_analysis,
+            music_offset=music_offset,
         )
         round_ = Round(index=index, critique=critique, outputs=dict(result.outputs))
         log.info("pass %d scored %.2f", index, critique.score)
@@ -245,9 +266,12 @@ def direct(
             break
 
         round_.revisions = critic.revise(
-            edl, critique, by_id,
+            edl,
+            critique,
+            by_id,
             target_duration=settings.target_duration,
-            audio=music_analysis, music_offset=music_offset,
+            audio=music_analysis,
+            music_offset=music_offset,
             beat_sync=brief.beat_sync,
         )
         round_.seconds = time.perf_counter() - round_started

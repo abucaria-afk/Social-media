@@ -48,35 +48,76 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=f"auteur {__version__}")
-    parser.add_argument("-q", "--quiet", action="store_true", help="print nothing but the finished path")
-    parser.add_argument("-v", "--verbose", action="count", default=0,
-                        help="show what it is doing internally (-vv for every ffmpeg call)")
+    parser.add_argument(
+        "-q", "--quiet", action="store_true", help="print nothing but the finished path"
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="show what it is doing internally (-vv for every ffmpeg call)",
+    )
 
-    sub = parser.add_subparsers(dest="command", required=True,
-                                metavar="{edit,demo,serve,account,analyse,looks}")
+    sub = parser.add_subparsers(
+        dest="command", required=True, metavar="{edit,demo,serve,account,analyse,looks}"
+    )
 
     edit = sub.add_parser(
-        "edit", help="make a film", epilog=EXAMPLES,
+        "edit",
+        help="make a film",
+        epilog=EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    edit.add_argument("paths", nargs="+", metavar="FOOTAGE",
-                      help="folder or files to edit; the last one may be the prompt instead")
-    edit.add_argument("-p", "--prompt", default=None,
-                      help="what kind of film you want, in your own words")
-    edit.add_argument("-l", "--length", type=float, default=None, metavar="SECONDS",
-                      help="how long it should be (you can also just say it in the prompt)")
-    edit.add_argument("-s", "--shape", default="vertical", metavar="SHAPE",
-                      help="vertical (default), square, widescreen, cinematic — "
-                           "comma-separate to get several")
-    edit.add_argument("--quality", default="standard", choices=["draft", "standard", "best"],
-                      help="draft is quick and rough, best is slow and beautiful")
-    edit.add_argument("-o", "--out", default=None, metavar="FOLDER",
-                      help="where to put everything (default ./auteur-work)")
+    edit.add_argument(
+        "paths",
+        nargs="+",
+        metavar="FOOTAGE",
+        help="folder or files to edit; the last one may be the prompt instead",
+    )
+    edit.add_argument(
+        "-p", "--prompt", default=None, help="what kind of film you want, in your own words"
+    )
+    edit.add_argument(
+        "-l",
+        "--length",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="how long it should be (you can also just say it in the prompt)",
+    )
+    edit.add_argument(
+        "-s",
+        "--shape",
+        default="vertical",
+        metavar="SHAPE",
+        help="vertical (default), square, widescreen, cinematic — " "comma-separate to get several",
+    )
+    edit.add_argument(
+        "--quality",
+        default="standard",
+        choices=["draft", "standard", "best"],
+        help="draft is quick and rough, best is slow and beautiful",
+    )
+    edit.add_argument(
+        "-o",
+        "--out",
+        default=None,
+        metavar="FOLDER",
+        help="where to put everything (default ./auteur-work)",
+    )
     edit.add_argument("--details", action="store_true", help="also print the full shot list")
-    edit.add_argument("--revisions", type=int, default=None, metavar="N",
-                      help="how many times to watch it back and improve it (default 1)")
+    edit.add_argument(
+        "--revisions",
+        type=int,
+        default=None,
+        metavar="N",
+        help="how many times to watch it back and improve it (default 1)",
+    )
     edit.add_argument("--seed", type=int, default=None, help="change this for a different cut")
-    edit.add_argument("--no-ai", action="store_true", help="never call Claude; use the built-in editor")
+    edit.add_argument(
+        "--no-ai", action="store_true", help="never call Claude; use the built-in editor"
+    )
     edit.add_argument("--model", default=None, help=argparse.SUPPRESS)
     edit.add_argument("--rounds", type=int, default=None, help=argparse.SUPPRESS)  # old name
 
@@ -85,21 +126,43 @@ def _build_parser() -> argparse.ArgumentParser:
     demo.add_argument("-p", "--prompt", default='fast neon montage, 12 seconds, "AFTER DARK"')
 
     serve = sub.add_parser(
-        "serve", help="open the edit room in a browser, so you can use it from your phone")
+        "serve", help="open the edit room in a browser, so you can use it from your phone"
+    )
     serve.add_argument("--port", type=int, default=8000, help="default 8000")
-    serve.add_argument("--host", default="0.0.0.0",
-                       help="0.0.0.0 lets your phone reach it; 127.0.0.1 keeps it to this computer")
-    serve.add_argument("-o", "--out", default=None, metavar="FOLDER",
-                       help="where uploads and finished films go (default ./auteur-web)")
-    serve.add_argument("--quality", default="draft", choices=["draft", "standard", "best"],
-                       help="draft keeps phone renders quick (default)")
+    serve.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="0.0.0.0 lets your phone reach it; 127.0.0.1 keeps it to this computer",
+    )
+    serve.add_argument(
+        "-o",
+        "--out",
+        default=None,
+        metavar="FOLDER",
+        help="where uploads and finished films go (default ./auteur-web)",
+    )
+    serve.add_argument(
+        "--quality",
+        default="draft",
+        choices=["draft", "standard", "best"],
+        help="draft keeps phone renders quick (default)",
+    )
 
     account = sub.add_parser("account", help="who can sign in to the phone app")
-    account.add_argument("action", nargs="?", default="show",
-                         choices=["show", "add", "password"],
-                         help="show (default), add a person, or change a password")
-    account.add_argument("-o", "--out", default=None, metavar="FOLDER",
-                         help="the serve folder the accounts live in (default ./auteur-web)")
+    account.add_argument(
+        "action",
+        nargs="?",
+        default="show",
+        choices=["show", "add", "password"],
+        help="show (default), add a person, or change a password",
+    )
+    account.add_argument(
+        "-o",
+        "--out",
+        default=None,
+        metavar="FOLDER",
+        help="the serve folder the accounts live in (default ./auteur-web)",
+    )
     account.add_argument("-u", "--user", default=None, help="username")
     account.add_argument("-e", "--email", default=None, help="email, for password resets")
 
@@ -116,9 +179,17 @@ def _build_parser() -> argparse.ArgumentParser:
 # ---------------------------------------------------------------------------
 
 SHAPES = {
-    "vertical": "reel", "portrait": "portrait", "square": "square",
-    "widescreen": "wide", "wide": "wide", "cinematic": "cinema", "cinema": "cinema",
-    "phone": "reel", "tiktok": "reel", "reel": "reel", "youtube": "wide",
+    "vertical": "reel",
+    "portrait": "portrait",
+    "square": "square",
+    "widescreen": "wide",
+    "wide": "wide",
+    "cinematic": "cinema",
+    "cinema": "cinema",
+    "phone": "reel",
+    "tiktok": "reel",
+    "reel": "reel",
+    "youtube": "wide",
 }
 QUALITIES = {"draft": "draft", "standard": "standard", "best": "master"}
 
@@ -147,12 +218,18 @@ def _run_edit(args: argparse.Namespace, say: Reporter) -> int:
     if not prompt:
         say.failure(
             "I need to know what kind of film to make",
-            'try:  auteur edit ' + (paths[0] if paths else "./clips") + ' "fast neon montage, 20 seconds"',
+            "try:  auteur edit "
+            + (paths[0] if paths else "./clips")
+            + ' "fast neon montage, 20 seconds"',
         )
         return 2
 
     try:
-        names = [SHAPES.get(part.strip().lower(), part.strip()) for part in args.shape.split(",") if part.strip()]
+        names = [
+            SHAPES.get(part.strip().lower(), part.strip())
+            for part in args.shape.split(",")
+            if part.strip()
+        ]
         formats = tuple(resolve_format(name) for name in names)
         quality = resolve_quality(QUALITIES.get(args.quality, args.quality))
     except ValueError:
@@ -184,8 +261,13 @@ def _run_edit(args: argparse.Namespace, say: Reporter) -> int:
 
     try:
         production = direct(
-            paths, prompt, settings=settings, workspace=args.out,
-            formats=formats, duration=args.length, reporter=say,
+            paths,
+            prompt,
+            settings=settings,
+            workspace=args.out,
+            formats=formats,
+            duration=args.length,
+            reporter=say,
         )
     except FileNotFoundError as exc:
         say.failure("I could not find any footage to edit", str(exc))
@@ -229,7 +311,9 @@ def _run_demo(args: argparse.Namespace, say: Reporter) -> int:
     if not script.exists():
         say.failure("the demo footage generator is missing", f"expected it at {script}")
         return 1
-    result = subprocess.run([sys.executable, str(script), str(rushes)], capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, str(script), str(rushes)], capture_output=True, text=True
+    )
     if result.returncode != 0:
         say.failure("could not make the practice footage", result.stderr.strip()[-300:])
         return 1
@@ -239,13 +323,23 @@ def _run_demo(args: argparse.Namespace, say: Reporter) -> int:
     # flags (--quiet, --verbose) carry through and a new `edit` option cannot
     # leave this namespace missing an attribute — which it did, and the demo
     # reported "something went wrong" straight after printing the finished film.
-    namespace = argparse.Namespace(**{
-        **vars(args),
-        "paths": [str(rushes)], "prompt": args.prompt, "length": None,
-        "shape": "vertical", "quality": "draft", "out": str(out / "work"),
-        "details": False, "revisions": 1, "seed": None, "no_ai": False,
-        "model": None, "rounds": None,
-    })
+    namespace = argparse.Namespace(
+        **{
+            **vars(args),
+            "paths": [str(rushes)],
+            "prompt": args.prompt,
+            "length": None,
+            "shape": "vertical",
+            "quality": "draft",
+            "out": str(out / "work"),
+            "details": False,
+            "revisions": 1,
+            "seed": None,
+            "no_ai": False,
+            "model": None,
+            "rounds": None,
+        }
+    )
     return _run_edit(namespace, say)
 
 
@@ -254,7 +348,8 @@ def _run_serve(args: argparse.Namespace, say: Reporter) -> int:
 
     try:
         serve(
-            host=args.host, port=args.port,
+            host=args.host,
+            port=args.port,
             workspace=Path(args.out) if args.out else None,
             quality=QUALITIES.get(args.quality, args.quality),
         )
@@ -320,8 +415,10 @@ def _run_account(args: argparse.Namespace, say: Reporter) -> int:
         print(f"\n  added {username} <{email}>\n")
     else:
         accounts.set_password(accounts.get(username), password)
-        print(f"\n  changed the password for {username}"
-              f"\n  every signed-in device has been signed out\n")
+        print(
+            f"\n  changed the password for {username}"
+            f"\n  every signed-in device has been signed out\n"
+        )
     return 0
 
 
@@ -341,21 +438,33 @@ def _run_analyse(args: argparse.Namespace, say: Reporter) -> int:
         return 0
 
     print()
-    print(f"  {describe_count(len(bin_.visuals), 'clip')}, "
-          f"{describe_duration(bin_.total_footage)} of footage")
+    print(
+        f"  {describe_count(len(bin_.visuals), 'clip')}, "
+        f"{describe_duration(bin_.total_footage)} of footage"
+    )
     print()
     for dossier in dossiers:
         stars = "*" * max(1, round(dossier.quality * 5))
         print(f"  {dossier.asset.name}")
         print(f"      worth using: {stars:<5}  ({dossier.quality:.0%})")
-        print(f"      {describe_count(len(dossier.takes), 'good moment')}"
-              + (f", {describe_count(len(dossier.video.shot_boundaries), 'cut')} already in it"
-                 if dossier.video.shot_boundaries else ""))
+        print(
+            f"      {describe_count(len(dossier.takes), 'good moment')}"
+            + (
+                f", {describe_count(len(dossier.video.shot_boundaries), 'cut')} already in it"
+                if dossier.video.shot_boundaries
+                else ""
+            )
+        )
         best = dossier.best_take
         if best:
-            print(f"      best bit: {best.start:.1f}s to {best.end:.1f}s ({best.scale} shot, {best.camera})")
+            print(
+                f"      best bit: {best.start:.1f}s to {best.end:.1f}s ({best.scale} shot, {best.camera})"
+            )
         if not dossier.audio.silent:
-            print("      has sound" + (" — sounds like talking" if dossier.audio.speechiness > 0.5 else ""))
+            print(
+                "      has sound"
+                + (" — sounds like talking" if dossier.audio.speechiness > 0.5 else "")
+            )
         print()
 
     music, analysis = find_music_bed(bin_.audio)
@@ -378,7 +487,7 @@ def _run_looks() -> int:
     print()
     names = sorted(set(transitions.BUILTIN) | set(transitions.CUSTOM_EXPRESSIONS))
     for row in range(0, len(names), 4):
-        print("      " + "".join(f"{n:<16}" for n in names[row:row + 4]))
+        print("      " + "".join(f"{n:<16}" for n in names[row : row + 4]))
     print()
     print("  It prefers straight cuts, and only uses these when the shots invite it.")
     print()

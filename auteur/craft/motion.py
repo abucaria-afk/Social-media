@@ -30,7 +30,9 @@ RAMP_MAX_SLICES = 48
 RAMP_FRAMES_PER_SLICE = 2
 
 
-def cover_scale(source_w: int, source_h: int, target_w: int, target_h: int, *, factor: float = 1.0) -> tuple[int, int]:
+def cover_scale(
+    source_w: int, source_h: int, target_w: int, target_h: int, *, factor: float = 1.0
+) -> tuple[int, int]:
     """Smallest even frame size that fully covers the target, times `factor`."""
     if source_w <= 0 or source_h <= 0:
         return int(target_w * factor) // 2 * 2, int(target_h * factor) // 2 * 2
@@ -119,7 +121,9 @@ def motion_chain(
     return _zoom_move(motion.kind, intensity, ax, ay, target_w, target_h, fps, last)
 
 
-def _translation_move(kind: str, intensity: float, target_w: int, target_h: int, duration: float) -> str:
+def _translation_move(
+    kind: str, intensity: float, target_w: int, target_h: int, duration: float
+) -> str:
     """Pure pans and handheld float — cheaper and smoother than a zoom filter."""
     travel = 0.5 + 0.5 * intensity  # fraction of the available overscan to use
     duration = max(duration, 0.05)
@@ -145,8 +149,14 @@ def _translation_move(kind: str, intensity: float, target_w: int, target_h: int,
 
 
 def _zoom_move(
-    kind: str, intensity: float, ax: float, ay: float,
-    target_w: int, target_h: int, fps: int, last: int,
+    kind: str,
+    intensity: float,
+    ax: float,
+    ay: float,
+    target_w: int,
+    target_h: int,
+    fps: int,
+    last: int,
 ) -> str:
     """Push-ins, pull-outs and Ken Burns, via zoompan.
 
@@ -173,14 +183,13 @@ def _zoom_move(
     x = f"max(0\\,min(iw-iw/zoom\\,iw*{cx}-(iw/zoom)/2))"
     y = f"max(0\\,min(ih-ih/zoom\\,ih*{cy}-(ih/zoom)/2))"
 
-    return (
-        f"zoompan=z='{z}':x='{x}':y='{y}':d=1:s={target_w}x{target_h}:fps={fps}"
-    )
+    return f"zoompan=z='{z}':x='{x}':y='{y}':d=1:s={target_w}x{target_h}:fps={fps}"
 
 
 # ---------------------------------------------------------------------------
 # Speed
 # ---------------------------------------------------------------------------
+
 
 def ramp_slice_count(ramp: Ramp, source_duration: float, source_fps: float) -> int:
     """How many constant-speed pieces to cut the source into.
@@ -254,7 +263,9 @@ def ramp_video_graph(
     return ";".join(parts)
 
 
-def slice_windows(source_duration: float, source_fps: float, slices: int) -> list[tuple[float, float]]:
+def slice_windows(
+    source_duration: float, source_fps: float, slices: int
+) -> list[tuple[float, float]]:
     """Trim windows for a ramp, aligned to the source's own frames.
 
     Two things go wrong if you simply cut at `index * source_duration / slices`.
@@ -292,8 +303,9 @@ def slice_windows(source_duration: float, source_fps: float, slices: int) -> lis
     return windows
 
 
-def ramp_audio_graph(ramp: Ramp, *, source_duration: float, in_label: str, out_label: str,
-                     source_fps: float = 30.0) -> str:
+def ramp_audio_graph(
+    ramp: Ramp, *, source_duration: float, in_label: str, out_label: str, source_fps: float = 30.0
+) -> str:
     """The same speed curve, applied to sound.
 
     atempo preserves pitch, which is what you want for dialogue under a mild

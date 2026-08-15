@@ -51,6 +51,7 @@ class RenderResult:
 # Pass one: shots
 # ---------------------------------------------------------------------------
 
+
 def _source_fps(shot: Shot, quality: Quality) -> float:
     """The rate at which frames actually arrive from this shot's input.
 
@@ -83,13 +84,23 @@ def _segment_video_graph(shot: Shot, fmt: DeliveryFormat, quality: Quality) -> s
     post = chain(
         f"fps={quality.fps}",
         motion_craft.reframe_chain(
-            fmt.width, fmt.height, mode=shot.reframe,
-            anchor=motion_craft.frame_of(shot.motion.anchor), overscan=overscan,
+            fmt.width,
+            fmt.height,
+            mode=shot.reframe,
+            anchor=motion_craft.frame_of(shot.motion.anchor),
+            overscan=overscan,
         ),
-        motion_craft.motion_chain(
-            shot.motion, target_w=fmt.width, target_h=fmt.height,
-            fps=quality.fps, duration=shot.duration,
-        ) if moving else "",
+        (
+            motion_craft.motion_chain(
+                shot.motion,
+                target_w=fmt.width,
+                target_h=fmt.height,
+                fps=quality.fps,
+                duration=shot.duration,
+            )
+            if moving
+            else ""
+        ),
         # Guarantee the delivery size even when a filter rounded against us.
         f"scale={fmt.width}:{fmt.height}:flags=bicubic",
         color.correction_chain(shot.look),
@@ -113,7 +124,10 @@ def carries_audio(shot: Shot, *, want_audio: bool) -> bool:
 
 def _segment_audio_graph(shot: Shot, quality: Quality) -> str:
     ramp = motion_craft.ramp_audio_graph(
-        shot.ramp, source_duration=shot.source_duration, in_label="asrc", out_label="aramped",
+        shot.ramp,
+        source_duration=shot.source_duration,
+        in_label="asrc",
+        out_label="aramped",
         source_fps=_source_fps(shot, quality),
     )
     post = chain(
@@ -124,7 +138,13 @@ def _segment_audio_graph(shot: Shot, quality: Quality) -> str:
 
 
 def render_shot(
-    shot: Shot, index: int, workspace: Workspace, fmt: DeliveryFormat, quality: Quality, *, want_audio: bool
+    shot: Shot,
+    index: int,
+    workspace: Workspace,
+    fmt: DeliveryFormat,
+    quality: Quality,
+    *,
+    want_audio: bool,
 ) -> Path:
     """Render one shot to a self-contained segment file."""
     destination = workspace.segments / f"{fmt.name}-{index:03d}.mp4"
@@ -140,7 +160,14 @@ def render_shot(
             args += ["-stream_loop", "-1"]
         args += ["-t", f"{shot.source_duration:.4f}", "-i", str(shot.source)]
     else:
-        args += ["-ss", f"{shot.start:.4f}", "-t", f"{shot.source_duration:.4f}", "-i", str(shot.source)]
+        args += [
+            "-ss",
+            f"{shot.start:.4f}",
+            "-t",
+            f"{shot.source_duration:.4f}",
+            "-i",
+            str(shot.source),
+        ]
 
     has_source_audio = carries_audio(shot, want_audio=want_audio)
     filtergraph = _segment_video_graph(shot, fmt, quality)
@@ -151,13 +178,24 @@ def render_shot(
         maps += ["-map", "[aout]"]
 
     args += [
-        "-filter_complex", graph("[0:v]null[src]", *(["[0:a]anull[asrc]"] if has_source_audio else []), filtergraph),
+        "-filter_complex",
+        graph("[0:v]null[src]", *(["[0:a]anull[asrc]"] if has_source_audio else []), filtergraph),
         *maps,
         # The ramp decides the length; trim to it so the assembly maths holds.
-        "-t", f"{shot.duration:.4f}",
-        "-c:v", "libx264", "-crf", str(quality.crf), "-preset", quality.preset,
-        "-pix_fmt", "yuv420p", "-r", str(quality.fps),
-        "-video_track_timescale", "90000",
+        "-t",
+        f"{shot.duration:.4f}",
+        "-c:v",
+        "libx264",
+        "-crf",
+        str(quality.crf),
+        "-preset",
+        quality.preset,
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        str(quality.fps),
+        "-video_track_timescale",
+        "90000",
     ]
     if has_source_audio:
         args += ["-c:a", "aac", "-b:a", quality.audio_bitrate, "-ar", str(sound_craft.SAMPLE_RATE)]
@@ -172,7 +210,8 @@ def render_shot(
     # filtergraph error naming no shot and no reason. Catch it at the source.
     if not _has_video(destination):
         raise ffmpeg.FFmpegError(
-            args, 0,
+            args,
+            0,
             f"shot {index + 1} ({shot.clip_id}) rendered no frames from "
             f"{shot.source.name} [{shot.start:.2f}s-{shot.end:.2f}s]",
         )
@@ -194,6 +233,7 @@ def _has_video(path: Path) -> bool:
 # Pass two: assembly
 # ---------------------------------------------------------------------------
 
+
 def _assemble_video(edl: EditDecisionList, segment_count: int) -> tuple[str, str]:
     """Chain segments together with their transitions.
 
@@ -204,7 +244,9 @@ def _assemble_video(edl: EditDecisionList, segment_count: int) -> tuple[str, str
     # concat and xfade disagree about time bases (1/1000000 against the
     # segments' 1/90000), and xfade refuses to join links that disagree. Pinning
     # every link to AVTB up front makes the chain composable in any order.
-    parts = [f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS[vin{index}]" for index in range(segment_count)]
+    parts = [
+        f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS[vin{index}]" for index in range(segment_count)
+    ]
 
     if segment_count == 1:
         return ";".join(parts), "vin0"
@@ -241,9 +283,7 @@ def _overlay_chain(overlays: list[titles.TextOverlay], video_label: str) -> tupl
         settle = max(overlay.fade_in, 0.2)
         if overlay.rise > 0.5:
             # Ease the plate up into its resting position as it fades in.
-            y = (
-                f"{overlay.rise:.1f}*(1-min(1\\,max(0\\,(t-{overlay.start:.3f})/{settle:.3f})))"
-            )
+            y = f"{overlay.rise:.1f}*(1-min(1\\,max(0\\,(t-{overlay.start:.3f})/{settle:.3f})))"
         else:
             y = "0"
         parts.append(
@@ -287,7 +327,9 @@ def _assemble_audio(
         parts.extend(voice_parts)
         joined = "".join(f"[voice{order}]" for order in range(len(source_audio_shots)))
         if len(source_audio_shots) > 1:
-            parts.append(f"{joined}amix=inputs={len(source_audio_shots)}:normalize=0:dropout_transition=0[voicemix]")
+            parts.append(
+                f"{joined}amix=inputs={len(source_audio_shots)}:normalize=0:dropout_transition=0[voicemix]"
+            )
             voice_stem = "voicemix"
         else:
             parts.append(f"{joined}anull[voicemix]")
@@ -329,7 +371,9 @@ def _assemble_audio(
 
     joined = "".join(f"[{stem}]" for stem in stems)
     if len(stems) > 1:
-        parts.append(f"{joined}amix=inputs={len(stems)}:normalize=0:dropout_transition=0[premaster]")
+        parts.append(
+            f"{joined}amix=inputs={len(stems)}:normalize=0:dropout_transition=0[premaster]"
+        )
     else:
         parts.append(f"{joined}anull[premaster]")
 
@@ -380,12 +424,22 @@ def _assemble(
     # Namespaced by format: two formats share the assets directory, and plates
     # are rendered at the frame size, so a shared name lets one overwrite the other.
     text_overlays = titles.render_all(
-        edl.texts, width=fmt.width, height=fmt.height,
-        directory=workspace.assets, prefix=fmt.name,
+        edl.texts,
+        width=fmt.width,
+        height=fmt.height,
+        directory=workspace.assets,
+        prefix=fmt.name,
     )
     text_chains: list[str] = []
     for order, overlay in enumerate(text_overlays):
-        inputs += ["-loop", "1", "-t", f"{overlay.start + overlay.duration + 0.5:.3f}", "-i", str(overlay.path)]
+        inputs += [
+            "-loop",
+            "1",
+            "-t",
+            f"{overlay.start + overlay.duration + 0.5:.3f}",
+            "-i",
+            str(overlay.path),
+        ]
         links = ["format=rgba"]
         if overlay.fade_in > 0.01:
             links.append(f"fade=t=in:st=0:d={overlay.fade_in:.3f}:alpha=1")
@@ -435,16 +489,43 @@ def _assemble(
 
     args = [
         *inputs,
-        "-filter_complex", full_graph,
-        "-map", "[vout]", "-map", f"[{audio_label}]",
-        "-t", f"{duration:.4f}",
-        "-c:v", "libx264", "-crf", str(quality.crf), "-preset", quality.preset,
-        "-profile:v", "high", "-level", "4.1", "-pix_fmt", "yuv420p",
-        "-r", str(quality.fps),
-        "-g", str(quality.fps * 2), "-keyint_min", str(quality.fps),
-        "-c:a", "aac", "-b:a", quality.audio_bitrate, "-ar", "48000", "-ac", "2",
+        "-filter_complex",
+        full_graph,
+        "-map",
+        "[vout]",
+        "-map",
+        f"[{audio_label}]",
+        "-t",
+        f"{duration:.4f}",
+        "-c:v",
+        "libx264",
+        "-crf",
+        str(quality.crf),
+        "-preset",
+        quality.preset,
+        "-profile:v",
+        "high",
+        "-level",
+        "4.1",
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        str(quality.fps),
+        "-g",
+        str(quality.fps * 2),
+        "-keyint_min",
+        str(quality.fps),
+        "-c:a",
+        "aac",
+        "-b:a",
+        quality.audio_bitrate,
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
         # Metadata at the front: the file starts playing before it finishes downloading.
-        "-movflags", "+faststart",
+        "-movflags",
+        "+faststart",
         str(destination),
     ]
     (workspace.logs / f"filtergraph-{fmt.name}.txt").write_text(full_graph, encoding="utf-8")
@@ -453,6 +534,7 @@ def _assemble(
 
 
 # ---------------------------------------------------------------------------
+
 
 def render(
     edl: EditDecisionList,
@@ -486,8 +568,14 @@ def render(
     lock = threading.Lock()
 
     for fmt in targets:
-        log.info("rendering %s (%dx%d, %.2fs, %d shots)", fmt.name, fmt.width, fmt.height,
-                 edl.duration, len(edl.shots))
+        log.info(
+            "rendering %s (%dx%d, %.2fs, %d shots)",
+            fmt.name,
+            fmt.width,
+            fmt.height,
+            edl.duration,
+            len(edl.shots),
+        )
         suffix = f" · {fmt.name}" if len(targets) > 1 else ""
         shots = list(enumerate(edl.shots))
         segments: list[Path] = [Path()] * len(shots)
@@ -508,8 +596,10 @@ def render(
             try:
                 path = render_shot(shot, index, workspace, fmt, quality, want_audio=want_audio)
             except ffmpeg.FFmpegError as exc:
-                message = (f"shot {index + 1} ({shot.clip_id}) failed to render: "
-                           f"{exc.stderr.strip()[-200:]}")
+                message = (
+                    f"shot {index + 1} ({shot.clip_id}) failed to render: "
+                    f"{exc.stderr.strip()[-200:]}"
+                )
                 log.error("%s", message)
                 with lock:
                     result.warnings.append(message)

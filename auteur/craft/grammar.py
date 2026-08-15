@@ -241,7 +241,8 @@ def limit_transition_density(edl: EditDecisionList, *, max_fraction: float = 0.2
         edl.shots[0].transition_in = Transition("cut", 0.0)
 
     fancy = [
-        (index, shot) for index, shot in enumerate(edl.shots)
+        (index, shot)
+        for index, shot in enumerate(edl.shots)
         if index > 0 and not shot.transition_in.is_cut
     ]
     allowance = int(len(edl.shots) * max_fraction)
@@ -281,7 +282,9 @@ def trim_to_duration(edl: EditDecisionList, target: float, *, tolerance: float =
     if edl.duration < target - tolerance:
         deficit = target - edl.duration
         # Spread the shortfall over the slowest shots — they absorb it invisibly.
-        candidates = sorted(edl.shots, key=lambda shot: -shot.duration)[: max(1, len(edl.shots) // 3)]
+        candidates = sorted(edl.shots, key=lambda shot: -shot.duration)[
+            : max(1, len(edl.shots) // 3)
+        ]
         share = deficit / len(candidates)
         for shot in candidates:
             if _rescale_ramp(shot, shot.duration + share):

@@ -34,10 +34,10 @@ from auteur.director.heuristic import cut
 from auteur.edl import MIN_SHOT, EditDecisionList, Look, Motion, Ramp, Shot, Transition
 from auteur.ingest import ingest, probe_asset
 
-
 # ---------------------------------------------------------------------------
 # Fixtures — synthesised, so the suite carries no media
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="session")
 def rushes(tmp_path_factory) -> Path:
@@ -52,9 +52,28 @@ def rushes(tmp_path_factory) -> Path:
     ]
     for name, source, duration in sources:
         subprocess.run(
-            [binary, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", source,
-             "-t", str(duration), "-c:v", "libx264", "-crf", "30", "-preset", "ultrafast",
-             "-pix_fmt", "yuv420p", str(directory / name)],
+            [
+                binary,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                source,
+                "-t",
+                str(duration),
+                "-c:v",
+                "libx264",
+                "-crf",
+                "30",
+                "-preset",
+                "ultrafast",
+                "-pix_fmt",
+                "yuv420p",
+                str(directory / name),
+            ],
             check=True,
         )
 
@@ -65,7 +84,9 @@ def rushes(tmp_path_factory) -> Path:
     for start in range(0, len(track) - step, step):
         t = np.arange(min(int(rate * 0.25), len(track) - start)) / rate
         pitch = 50.0 + 90.0 * np.exp(-t * 30.0)
-        track[start : start + len(t)] += np.sin(2 * np.pi * np.cumsum(pitch) / rate) * np.exp(-t * 12.0)
+        track[start : start + len(t)] += np.sin(2 * np.pi * np.cumsum(pitch) / rate) * np.exp(
+            -t * 12.0
+        )
     track /= max(float(np.abs(track).max()), 1e-6)
     with wave.open(str(directory / "beat.wav"), "wb") as handle:
         handle.setnchannels(1)
@@ -79,6 +100,7 @@ def rushes(tmp_path_factory) -> Path:
 # ---------------------------------------------------------------------------
 # ffmpeg plumbing
 # ---------------------------------------------------------------------------
+
 
 def test_binaries_are_reachable():
     assert ffmpeg.ffmpeg_path().exists()
@@ -113,6 +135,7 @@ def test_scaled_height_matches_aspect(rushes):
 # ---------------------------------------------------------------------------
 # Ingest and analysis
 # ---------------------------------------------------------------------------
+
 
 def test_ingest_sorts_picture_from_sound(rushes):
     bin_ = ingest([rushes])
@@ -154,6 +177,7 @@ def test_dossier_finds_usable_takes(rushes):
 # The EDL: timing arithmetic and self-repair
 # ---------------------------------------------------------------------------
 
+
 def _shot(clip="C01", start=0.0, end=2.0, **kwargs) -> Shot:
     return Shot(clip_id=clip, source=Path("/dev/null"), start=start, end=end, **kwargs)
 
@@ -174,10 +198,12 @@ def test_a_ramp_integrates_rather_than_averaging_speed():
 
 
 def test_transitions_shorten_the_timeline_by_their_overlap():
-    edl = EditDecisionList(shots=[
-        _shot(end=2.0),
-        _shot(clip="C02", end=2.0, transition_in=Transition("dissolve", 0.5)),
-    ])
+    edl = EditDecisionList(
+        shots=[
+            _shot(end=2.0),
+            _shot(clip="C02", end=2.0, transition_in=Transition("dissolve", 0.5)),
+        ]
+    )
     assert edl.duration == pytest.approx(3.5)
     starts = [start for start, _, _ in edl.timeline()]
     assert starts == pytest.approx([0.0, 1.5])
@@ -207,19 +233,23 @@ def test_repair_drops_a_shot_from_a_clip_that_is_not_there():
 
 
 def test_repair_never_dissolves_into_the_first_frame():
-    edl = EditDecisionList(shots=[
-        _shot(transition_in=Transition("dissolve", 0.5)),
-        _shot(clip="C02"),
-    ])
+    edl = EditDecisionList(
+        shots=[
+            _shot(transition_in=Transition("dissolve", 0.5)),
+            _shot(clip="C02"),
+        ]
+    )
     edl.repair({"C01": _FakeDossier(4.0), "C02": _FakeDossier(4.0)})
     assert edl.shots[0].transition_in.is_cut
 
 
 def test_repair_shortens_a_transition_longer_than_its_shots():
-    edl = EditDecisionList(shots=[
-        _shot(end=1.0),
-        _shot(clip="C02", end=1.0, transition_in=Transition("dissolve", 5.0)),
-    ])
+    edl = EditDecisionList(
+        shots=[
+            _shot(end=1.0),
+            _shot(clip="C02", end=1.0, transition_in=Transition("dissolve", 5.0)),
+        ]
+    )
     edl.repair({"C01": _FakeDossier(4.0), "C02": _FakeDossier(4.0)})
     assert edl.shots[1].transition_in.duration <= 0.5
 
@@ -236,19 +266,27 @@ class _FakeDossier:
 # Film grammar
 # ---------------------------------------------------------------------------
 
+
 def test_variety_pass_breaks_up_a_repeated_clip():
-    edl = EditDecisionList(shots=[
-        _shot(clip="C01"), _shot(clip="C01"), _shot(clip="C02"), _shot(clip="C03"),
-    ])
+    edl = EditDecisionList(
+        shots=[
+            _shot(clip="C01"),
+            _shot(clip="C01"),
+            _shot(clip="C02"),
+            _shot(clip="C03"),
+        ]
+    )
     grammar.enforce_variety(edl)
     ids = [shot.clip_id for shot in edl.shots]
     assert ids[0] != ids[1], "consecutive shots from one clip read as a mistake"
 
 
 def test_transition_density_is_capped():
-    edl = EditDecisionList(shots=[
-        _shot(clip=f"C{i:02d}", transition_in=Transition("dissolve", 0.3)) for i in range(10)
-    ])
+    edl = EditDecisionList(
+        shots=[
+            _shot(clip=f"C{i:02d}", transition_in=Transition("dissolve", 0.3)) for i in range(10)
+        ]
+    )
     demoted = grammar.limit_transition_density(edl, max_fraction=0.2)
     fancy = sum(1 for shot in edl.shots if not shot.transition_in.is_cut)
     assert demoted > 0
@@ -275,6 +313,7 @@ def test_trimming_removes_shots_from_the_middle():
 # Craft: filter construction
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("preset", sorted(color.LOOKS))
 def test_every_look_builds_a_filter_chain(preset):
     chain = color.look_chain(Look(preset=preset, strength=1.0))
@@ -297,13 +336,13 @@ def test_look_is_identity_when_nothing_is_set():
 
 
 def test_ramp_graph_slices_a_curve_and_leaves_flat_speeds_alone():
-    flat = motion.ramp_video_graph(Ramp.constant(2.0), source_duration=2.0,
-                                   in_label="v", out_label="o")
+    flat = motion.ramp_video_graph(
+        Ramp.constant(2.0), source_duration=2.0, in_label="v", out_label="o"
+    )
     assert "split" not in flat
     assert "setpts=PTS/2.0" in flat
 
-    curved = motion.ramp_video_graph(Ramp.hit(), source_duration=2.0,
-                                     in_label="v", out_label="o")
+    curved = motion.ramp_video_graph(Ramp.hit(), source_duration=2.0, in_label="v", out_label="o")
     assert "split=" in curved and "concat=" in curved
 
 
@@ -320,8 +359,9 @@ def test_reframe_covers_the_target_frame():
 
 def test_motion_chain_lands_on_the_delivery_size():
     for kind in ("none", "ken-burns", "punch-in", "drift-left", "shake"):
-        chain = motion.motion_chain(Motion(kind, 0.5), target_w=1080, target_h=1920,
-                                    fps=30, duration=2.0)
+        chain = motion.motion_chain(
+            Motion(kind, 0.5), target_w=1080, target_h=1920, fps=30, duration=2.0
+        )
         assert "1080" in chain and "1920" in chain, kind
 
 
@@ -335,6 +375,7 @@ def test_transition_specs_are_well_formed():
 # ---------------------------------------------------------------------------
 # Sound synthesis
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("kind", ["whoosh", "impact", "sub-drop", "riser", "tick"])
 def test_effects_are_finite_and_normalised(kind):
@@ -358,6 +399,7 @@ def test_wav_round_trips(tmp_path):
 # Reading the brief
 # ---------------------------------------------------------------------------
 
+
 def test_brief_extracts_runtime_look_and_text():
     brief = parse_brief('a moody neon chase, 20 seconds, ends on "THE SIGN"')
     assert brief.duration == pytest.approx(20.0)
@@ -366,7 +408,10 @@ def test_brief_extracts_runtime_look_and_text():
 
 
 def test_pace_words_move_the_shot_length():
-    assert parse_brief("frenetic montage").base_shot_length < parse_brief("slow montage").base_shot_length
+    assert (
+        parse_brief("frenetic montage").base_shot_length
+        < parse_brief("slow montage").base_shot_length
+    )
 
 
 def test_energy_arcs_stay_in_range():
@@ -391,6 +436,7 @@ def test_cuts_only_brief_disables_transitions():
 # ---------------------------------------------------------------------------
 # The director
 # ---------------------------------------------------------------------------
+
 
 def test_heuristic_director_produces_a_legal_edit(rushes):
     bin_ = ingest([rushes])
@@ -424,6 +470,7 @@ def test_the_same_seed_gives_the_same_cut(rushes):
 # Regressions — each of these shipped broken once
 # ---------------------------------------------------------------------------
 
+
 def test_a_still_with_source_audio_is_never_mixed():
     """The renderer and the mixer must agree on which segments have sound.
 
@@ -454,27 +501,48 @@ def test_a_single_frame_video_can_be_held(rushes, tmp_path):
     binary = str(ffmpeg.ffmpeg_path())
     clip = tmp_path / "one_frame.mp4"
     subprocess.run(
-        [binary, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
-         "-i", "testsrc2=size=320x240:rate=25", "-frames:v", "1",
-         "-c:v", "libx264", "-crf", "30", "-preset", "ultrafast",
-         "-pix_fmt", "yuv420p", str(clip)],
+        [
+            binary,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x240:rate=25",
+            "-frames:v",
+            "1",
+            "-c:v",
+            "libx264",
+            "-crf",
+            "30",
+            "-preset",
+            "ultrafast",
+            "-pix_fmt",
+            "yuv420p",
+            str(clip),
+        ],
         check=True,
     )
 
     shot = Shot(clip_id="C01", source=clip, start=0.0, end=1.5, is_still=True)
-    segment = render_shot(shot, 0, Workspace(tmp_path / "w"), FORMATS["square"],
-                          QUALITIES["draft"], want_audio=False)
+    segment = render_shot(
+        shot, 0, Workspace(tmp_path / "w"), FORMATS["square"], QUALITIES["draft"], want_audio=False
+    )
     assert segment.exists() and segment.stat().st_size > 1000
 
 
 def test_swapping_shots_leaves_the_transitions_where_they_were():
     """A transition was chosen for a position on the timeline, not for a shot."""
-    edl = EditDecisionList(shots=[
-        _shot(clip="C01"),
-        _shot(clip="C01", transition_in=Transition("dissolve", 0.4)),
-        _shot(clip="C02", transition_in=Transition("whip-left", 0.2)),
-        _shot(clip="C03", transition_in=Transition("cut", 0.0)),
-    ])
+    edl = EditDecisionList(
+        shots=[
+            _shot(clip="C01"),
+            _shot(clip="C01", transition_in=Transition("dissolve", 0.4)),
+            _shot(clip="C02", transition_in=Transition("whip-left", 0.2)),
+            _shot(clip="C03", transition_in=Transition("cut", 0.0)),
+        ]
+    )
     before = [(shot.transition_in.kind, shot.transition_in.duration) for shot in edl.shots]
 
     grammar.enforce_variety(edl)
@@ -519,6 +587,7 @@ def test_text_plates_are_named_per_format(tmp_path):
 # The command line
 # ---------------------------------------------------------------------------
 
+
 def test_the_prompt_can_be_the_last_argument(tmp_path):
     from auteur.cli import _split_paths_and_prompt
 
@@ -552,7 +621,9 @@ def test_plain_english_helpers():
     assert ui.describe_duration(45) == "45 seconds"
     assert ui.describe_duration(95) == "1m 35s"
 
-    assert "metronome" in ui.plain_finding("metronomic", "x") or "same length" in ui.plain_finding("metronomic", "x")
+    assert "metronome" in ui.plain_finding("metronomic", "x") or "same length" in ui.plain_finding(
+        "metronomic", "x"
+    )
     assert ui.plain_finding("unknown-rule", "the fallback") == "the fallback"
 
 
@@ -587,6 +658,7 @@ def test_the_quiet_reporter_prints_nothing(capsys):
 # Config
 # ---------------------------------------------------------------------------
 
+
 def test_format_aliases_resolve():
     assert resolve_format("9:16") is FORMATS["reel"]
     assert resolve_format("tiktok") is FORMATS["reel"]
@@ -606,14 +678,21 @@ def test_workspace_creates_its_layout(tmp_path):
 # End to end
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.slow
 def test_the_agent_renders_a_playable_film(rushes, tmp_path):
     from auteur.agent import direct
 
     production = direct(
-        [rushes], 'punchy montage, 6 seconds, "TEST"',
-        settings=Settings(quality=QUALITIES["draft"], primary_format=FORMATS["square"],
-                          target_duration=6.0, use_llm=False, revision_rounds=0),
+        [rushes],
+        'punchy montage, 6 seconds, "TEST"',
+        settings=Settings(
+            quality=QUALITIES["draft"],
+            primary_format=FORMATS["square"],
+            target_duration=6.0,
+            use_llm=False,
+            revision_rounds=0,
+        ),
         workspace=tmp_path / "work",
         duration=6.0,
     )
@@ -637,6 +716,7 @@ def test_the_agent_renders_a_playable_film(rushes, tmp_path):
 # Speed ramps against short sources
 # ---------------------------------------------------------------------------
 
+
 def test_a_ramp_never_slices_finer_than_the_source_frames():
     """A slice thinner than one frame trims to nothing, and nothing concatenates
     to an empty file that ffmpeg still calls a success.
@@ -654,7 +734,11 @@ def test_a_ramp_never_slices_finer_than_the_source_frames():
     assert frames_per_slice >= motion.RAMP_FRAMES_PER_SLICE - 1e-9
 
     graph = motion.ramp_video_graph(
-        ramp, source_duration=source_duration, in_label="src", out_label="out", source_fps=source_fps
+        ramp,
+        source_duration=source_duration,
+        in_label="src",
+        out_label="out",
+        source_fps=source_fps,
     )
     assert "concat=n=1:" not in graph
     for piece in graph.split(";"):
@@ -694,15 +778,19 @@ def test_a_shot_that_renders_no_frames_is_reported_not_shipped(rushes, tmp_path)
 
     space = Workspace(tmp_path / "work")
     shot = Shot(
-        clip_id="C01", source=rushes / "a_wide.mp4", start=0.0, end=0.02,
+        clip_id="C01",
+        source=rushes / "a_wide.mp4",
+        start=0.0,
+        end=0.02,
         ramp=Ramp(points=((0.0, 1.0),)),
     )
     # Force the pathology the guard exists for: a window with no frames in it.
     shot.start, shot.end = 3.999, 4.0
 
     try:
-        path = render.render_shot(shot, 0, space, FORMATS["square"], QUALITIES["draft"],
-                                  want_audio=False)
+        path = render.render_shot(
+            shot, 0, space, FORMATS["square"], QUALITIES["draft"], want_audio=False
+        )
     except ffmpeg.FFmpegError as exc:
         assert "C01" in str(exc) and "no frames" in str(exc)
     else:
@@ -713,6 +801,7 @@ def test_a_shot_that_renders_no_frames_is_reported_not_shipped(rushes, tmp_path)
 # ---------------------------------------------------------------------------
 # The phone app
 # ---------------------------------------------------------------------------
+
 
 def test_the_upload_parser_separates_fields_from_files():
     from auteur.web.server import _parse_multipart
@@ -853,10 +942,11 @@ def web_server(tmp_path):
     thread.start()
     base = f"http://127.0.0.1:{httpd.server_address[1]}"
 
-    request = Request(base + "/api/login",
-                      data=_json.dumps({"username": "tester",
-                                        "password": "a-long-enough-one"}).encode(),
-                      headers={"Content-Type": "application/json"})
+    request = Request(
+        base + "/api/login",
+        data=_json.dumps({"username": "tester", "password": "a-long-enough-one"}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
     with urlopen(request) as response:
         cookie = response.headers["Set-Cookie"].split(";")[0]
 
@@ -950,9 +1040,9 @@ def test_a_post_without_clips_says_so_in_plain_words(web_server):
         f"--{boundary}--\r\n"
     ).encode()
     request = Request(
-        base + "/api/jobs", data=body,
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}",
-                 "Cookie": cookie},
+        base + "/api/jobs",
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "Cookie": cookie},
     )
     with pytest.raises(HTTPError) as caught:
         urlopen(request)
@@ -990,11 +1080,13 @@ def test_the_demo_hands_edit_a_complete_namespace(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "_run_edit", fake_edit)
     monkeypatch.setattr(
         cli.subprocess if hasattr(cli, "subprocess") else __import__("subprocess"),
-        "run", lambda *a, **k: type("R", (), {"returncode": 0, "stderr": ""})(),
+        "run",
+        lambda *a, **k: type("R", (), {"returncode": 0, "stderr": ""})(),
     )
 
-    args = argparse.Namespace(command="demo", quiet=True, verbose=0,
-                              out=str(tmp_path / "demo"), prompt="a film")
+    args = argparse.Namespace(
+        command="demo", quiet=True, verbose=0, out=str(tmp_path / "demo"), prompt="a film"
+    )
     assert cli._run_demo(args, cli.NullReporter()) == 0
     assert captured["missing"] == []
     assert captured["quiet"] is True
@@ -1007,7 +1099,9 @@ def test_a_failure_reaches_the_phone_as_one_readable_line():
     from auteur.web.server import _plain_cause
 
     graph_dump = "Stream specifier ':v' in filtergraph description " + "[0:v]settb=AVTB;" * 400
-    assert _plain_cause(ffmpeg.FFmpegError([], 1, graph_dump)) == "One of the clips could not be used."
+    assert (
+        _plain_cause(ffmpeg.FFmpegError([], 1, graph_dump)) == "One of the clips could not be used."
+    )
 
     assert len(_plain_cause(RuntimeError("x" * 900))) <= 160
     assert _plain_cause(RuntimeError("the folder was empty")) == "the folder was empty"
@@ -1019,8 +1113,11 @@ def test_a_failed_job_says_something_a_person_can_read(tmp_path):
 
     studio = Studio(tmp_path / "web")
     job = studio.create("prompt", "reel", 10.0)
-    studio._fail(job, "Something went wrong making the film.",
-                 RuntimeError("Stream specifier ':v' in filtergraph description " + "[0:v]x;" * 500))
+    studio._fail(
+        job,
+        "Something went wrong making the film.",
+        RuntimeError("Stream specifier ':v' in filtergraph description " + "[0:v]x;" * 500),
+    )
 
     assert job.status == "error"
     assert len(job.error) < 200
@@ -1032,6 +1129,7 @@ def test_a_failed_job_says_something_a_person_can_read(tmp_path):
 # The theme
 # ---------------------------------------------------------------------------
 
+
 def test_the_stylesheet_hard_codes_no_colour():
     """One palette, in theme.py. A hex typed into the CSS is a second copy that
     will drift away from the icons and the terminal."""
@@ -1039,8 +1137,11 @@ def test_the_stylesheet_hard_codes_no_colour():
     from auteur.web import server
 
     style = (server.STATIC / "style.css").read_text()
-    stray = [line.strip() for line in style.splitlines()
-             if re.search(r"#[0-9a-fA-F]{3,8}\b", line) or "rgba(" in line or "rgb(" in line]
+    stray = [
+        line.strip()
+        for line in style.splitlines()
+        if re.search(r"#[0-9a-fA-F]{3,8}\b", line) or "rgba(" in line or "rgb(" in line
+    ]
     assert stray == [], f"colours hard-coded in style.css: {stray}"
 
 
@@ -1089,6 +1190,7 @@ def test_the_icon_and_the_page_use_the_same_palette():
     assert f'content="{theme.THEME_COLOR}"' in page
 
     import json as _json
+
     manifest = _json.loads((server.STATIC / "manifest.webmanifest").read_text())
     assert manifest["theme_color"] == theme.THEME_COLOR
     assert manifest["background_color"] == theme.THEME_COLOR
@@ -1105,6 +1207,7 @@ def test_the_terminal_reads_the_same_palette():
 # ---------------------------------------------------------------------------
 # Chrome
 # ---------------------------------------------------------------------------
+
 
 def test_the_manifest_meets_chromes_install_requirements():
     """Chrome will not offer to install without all of these."""
@@ -1142,17 +1245,18 @@ def test_the_page_offers_installation_on_both_browsers():
 # Optimisation
 # ---------------------------------------------------------------------------
 
+
 def test_shots_render_in_parallel_but_not_past_the_cores(monkeypatch):
     from auteur import render
 
     settings = Settings(quality=QUALITIES["draft"])
     monkeypatch.setattr(render.os, "cpu_count", lambda: 4)
-    assert render.segment_workers(settings, 20) == 4     # one per core
-    assert render.segment_workers(settings, 3) == 3      # never more than the shots
-    assert render.segment_workers(settings, 1) == 1      # nothing to overlap
+    assert render.segment_workers(settings, 20) == 4  # one per core
+    assert render.segment_workers(settings, 3) == 3  # never more than the shots
+    assert render.segment_workers(settings, 1) == 1  # nothing to overlap
 
     monkeypatch.setattr(render.os, "cpu_count", lambda: 64)
-    assert render.segment_workers(settings, 100) == 8    # capped
+    assert render.segment_workers(settings, 100) == 8  # capped
 
     # Optical flow is memory-hungry; several at once can push a machine to swap.
     assert render.segment_workers(Settings(quality=QUALITIES["master"]), 20) == 1
@@ -1167,10 +1271,18 @@ def test_parallel_and_sequential_renders_agree(rushes, tmp_path, monkeypatch):
     def run(folder: str, workers: int) -> list[str]:
         monkeypatch.setattr(render, "segment_workers", lambda settings, count: workers)
         production = direct(
-            [rushes], "punchy montage, 5 seconds",
-            settings=Settings(quality=QUALITIES["draft"], primary_format=FORMATS["square"],
-                              target_duration=5.0, use_llm=False, revision_rounds=0, seed=11),
-            workspace=tmp_path / folder, duration=5.0,
+            [rushes],
+            "punchy montage, 5 seconds",
+            settings=Settings(
+                quality=QUALITIES["draft"],
+                primary_format=FORMATS["square"],
+                target_duration=5.0,
+                use_llm=False,
+                revision_rounds=0,
+                seed=11,
+            ),
+            workspace=tmp_path / folder,
+            duration=5.0,
         )
         return [shot.clip_id for shot in production.edl.shots]
 
@@ -1204,7 +1316,7 @@ def test_an_unchanged_asset_comes_back_as_a_304(web_server):
     try:
         with urlopen(request) as response:
             assert response.status == 304
-    except HTTPError as exc:            # urllib raises on 304 in some versions
+    except HTTPError as exc:  # urllib raises on 304 in some versions
         assert exc.code == 304
 
 
@@ -1218,15 +1330,19 @@ def test_a_ramped_shot_lands_on_its_intended_screen_time(rushes, tmp_path):
 
     space = Workspace(tmp_path / "work")
     shot = Shot(
-        clip_id="C01", source=rushes / "a_wide.mp4", start=0.4, end=1.5,
+        clip_id="C01",
+        source=rushes / "a_wide.mp4",
+        start=0.4,
+        end=1.5,
         ramp=Ramp(points=((0.0, 1.14), (0.45, 1.14), (1.0, 2.16))),
     )
-    path = render.render_shot(shot, 0, space, FORMATS["square"], QUALITIES["draft"],
-                              want_audio=False)
-    measured = float(ffmpeg.probe(path)["format"]["duration"])
-    assert measured == pytest.approx(shot.duration, abs=0.06), (
-        f"wanted {shot.duration:.3f}s of screen time, got {measured:.3f}s"
+    path = render.render_shot(
+        shot, 0, space, FORMATS["square"], QUALITIES["draft"], want_audio=False
     )
+    measured = float(ffmpeg.probe(path)["format"]["duration"])
+    assert measured == pytest.approx(
+        shot.duration, abs=0.06
+    ), f"wanted {shot.duration:.3f}s of screen time, got {measured:.3f}s"
 
 
 def test_ramp_windows_overlap_by_exactly_one_frame():
@@ -1243,21 +1359,24 @@ def test_ramp_windows_overlap_by_exactly_one_frame():
     # frame inside exactly one window.
     for start, _ in windows[1:]:
         assert ((start + 0.5 / fps) * fps) == pytest.approx(
-            round((start + 0.5 / fps) * fps), abs=1e-6)
+            round((start + 0.5 / fps) * fps), abs=1e-6
+        )
 
 
 def test_a_still_survives_being_written_out_and_read_back():
     """`is_still` decides whether a shot is looped or seeked into. A saved EDL
     that omits it renders every photo as almost nothing."""
     edl = EditDecisionList(title="t")
-    edl.shots.append(Shot(clip_id="C01", source=Path("/tmp/photo.jpg"), start=0.0, end=2.0,
-                          is_still=True))
+    edl.shots.append(
+        Shot(clip_id="C01", source=Path("/tmp/photo.jpg"), start=0.0, end=2.0, is_still=True)
+    )
     assert edl.to_json()["shots"][0]["is_still"] is True
 
 
 # ---------------------------------------------------------------------------
 # Stills and frame rates
 # ---------------------------------------------------------------------------
+
 
 def test_a_still_is_clocked_at_the_delivery_rate():
     """`-loop 1 -framerate {quality.fps}` is literally how fast a still's frames
@@ -1280,27 +1399,48 @@ def test_a_film_of_stills_lands_on_its_runtime_at_every_quality(rushes, tmp_path
     binary = str(ff.ffmpeg_path())
     for index, source in enumerate(("testsrc2=size=800x600", "mandelbrot=size=600x800")):
         subprocess.run(
-            [binary, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
-             "-i", source, "-frames:v", "1", str(photos / f"still{index}.png")],
+            [
+                binary,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                source,
+                "-frames:v",
+                "1",
+                str(photos / f"still{index}.png"),
+            ],
             check=True,
         )
 
     for name in ("draft", "standard"):
         production = direct(
-            [photos], "slow and cinematic, 8 seconds",
-            settings=Settings(quality=QUALITIES[name], primary_format=FORMATS["square"],
-                              target_duration=8.0, use_llm=False, revision_rounds=0, seed=3),
-            workspace=tmp_path / f"work-{name}", duration=8.0,
+            [photos],
+            "slow and cinematic, 8 seconds",
+            settings=Settings(
+                quality=QUALITIES[name],
+                primary_format=FORMATS["square"],
+                target_duration=8.0,
+                use_llm=False,
+                revision_rounds=0,
+                seed=3,
+            ),
+            workspace=tmp_path / f"work-{name}",
+            duration=8.0,
         )
         measured = float(ff.probe(production.primary)["format"]["duration"])
-        assert measured == pytest.approx(production.edl.duration, abs=0.35), (
-            f"{name}: planned {production.edl.duration:.2f}s, delivered {measured:.2f}s"
-        )
+        assert measured == pytest.approx(
+            production.edl.duration, abs=0.35
+        ), f"{name}: planned {production.edl.duration:.2f}s, delivered {measured:.2f}s"
 
 
 # ---------------------------------------------------------------------------
 # Accounts
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def accounts(tmp_path):
@@ -1328,8 +1468,12 @@ def test_the_right_password_is_accepted_and_others_are_not(accounts):
 
 
 def test_you_can_sign_in_with_either_the_username_or_the_email(accounts):
-    for who in ("streetlightseason", "STREETLIGHTSEASON",
-                "streetlightseason@gmail.com", "  Streetlightseason@Gmail.com  "):
+    for who in (
+        "streetlightseason",
+        "STREETLIGHTSEASON",
+        "streetlightseason@gmail.com",
+        "  Streetlightseason@Gmail.com  ",
+    ):
         token, _ = accounts.sign_in(who, "Tacit25#")
         assert token, who
         assert accounts.session_user(token) == "streetlightseason"
@@ -1410,7 +1554,9 @@ def test_accounts_survive_a_restart(accounts, tmp_path):
     token, _ = accounts.sign_in("streetlightseason", "Tacit25#")
     reopened = Accounts(tmp_path / "accounts.json")
     assert reopened.get("streetlightseason").check("Tacit25#")
-    assert reopened.session_user(token) == "streetlightseason", "a restart must not sign the phone out"
+    assert (
+        reopened.session_user(token) == "streetlightseason"
+    ), "a restart must not sign the phone out"
 
 
 def test_weak_passwords_are_explained_not_just_refused():
@@ -1430,8 +1576,12 @@ def test_the_seed_account_carries_a_hash_and_not_a_password():
     source = Path(seed.__file__).read_text()
     assert "Tacit25#" not in source
 
-    account = Account(username=seed.SEED_USERNAME, email=seed.SEED_EMAIL,
-                      salt=seed.SEED_SALT, password_hash=seed.SEED_HASH)
+    account = Account(
+        username=seed.SEED_USERNAME,
+        email=seed.SEED_EMAIL,
+        salt=seed.SEED_SALT,
+        password_hash=seed.SEED_HASH,
+    )
     assert account.check("Tacit25#"), "the seeded account must actually sign in"
     assert not account.check("wrong")
 
@@ -1466,6 +1616,7 @@ def test_the_environment_beats_the_committed_seed(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # The gate, over HTTP
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def guarded_server(tmp_path):
@@ -1535,8 +1686,14 @@ def test_the_sign_in_page_and_its_assets_stay_open(guarded_server):
     from urllib.request import urlopen
 
     base, _ = guarded_server
-    for path in ("/login", "/static/login.js", "/static/style.css",
-                 "/static/theme.css", "/manifest.webmanifest", "/icon-192.png"):
+    for path in (
+        "/login",
+        "/static/login.js",
+        "/static/style.css",
+        "/static/theme.css",
+        "/manifest.webmanifest",
+        "/icon-192.png",
+    ):
         with urlopen(base + path) as response:
             assert response.status == 200, path
 
@@ -1544,17 +1701,19 @@ def test_the_sign_in_page_and_its_assets_stay_open(guarded_server):
 def test_signing_in_sets_a_cookie_a_script_cannot_read(guarded_server):
     base, _ = guarded_server
 
-    status, payload, _ = _post(base, "/api/login",
-                               {"username": "streetlightseason", "password": "wrong"})
+    status, payload, _ = _post(
+        base, "/api/login", {"username": "streetlightseason", "password": "wrong"}
+    )
     assert status == 401 and "error" in payload
 
-    status, payload, headers = _post(base, "/api/login",
-                                     {"username": "streetlightseason", "password": "Tacit25#"})
+    status, payload, headers = _post(
+        base, "/api/login", {"username": "streetlightseason", "password": "Tacit25#"}
+    )
     assert status == 200 and payload["user"] == "streetlightseason"
 
     cookie = headers["Set-Cookie"]
-    assert "HttpOnly" in cookie      # no script can read the session
-    assert "SameSite=Strict" in cookie   # no other site can spend it
+    assert "HttpOnly" in cookie  # no script can read the session
+    assert "SameSite=Strict" in cookie  # no other site can spend it
     assert "Path=/" in cookie
 
 
@@ -1563,8 +1722,9 @@ def test_a_signed_in_request_gets_through(guarded_server):
     from urllib.request import Request, urlopen
 
     base, _ = guarded_server
-    _, _, headers = _post(base, "/api/login",
-                          {"username": "streetlightseason", "password": "Tacit25#"})
+    _, _, headers = _post(
+        base, "/api/login", {"username": "streetlightseason", "password": "Tacit25#"}
+    )
     token = headers["Set-Cookie"].split(";")[0]
 
     request = Request(base + "/api/session", headers={"Cookie": token})
@@ -1581,8 +1741,9 @@ def test_signing_out_invalidates_the_cookie(guarded_server):
     from urllib.request import Request, urlopen
 
     base, _ = guarded_server
-    _, _, headers = _post(base, "/api/login",
-                          {"username": "streetlightseason", "password": "Tacit25#"})
+    _, _, headers = _post(
+        base, "/api/login", {"username": "streetlightseason", "password": "Tacit25#"}
+    )
     token = headers["Set-Cookie"].split(";")[0]
 
     status, _, out_headers = _post(base, "/api/logout", {}, cookie=token)
@@ -1599,8 +1760,7 @@ def test_forgot_answers_identically_for_real_and_invented_accounts(guarded_serve
     have accounts — including which keys the JSON happens to carry."""
     base, _ = guarded_server
 
-    real_status, real, _ = _post(base, "/api/forgot",
-                                 {"username": "streetlightseason@gmail.com"})
+    real_status, real, _ = _post(base, "/api/forgot", {"username": "streetlightseason@gmail.com"})
     fake_status, fake, _ = _post(base, "/api/forgot", {"username": "nobody@example.com"})
 
     assert real_status == fake_status == 200
@@ -1622,25 +1782,30 @@ def test_a_reset_over_http_replaces_the_password(guarded_server):
     status, payload, _ = _post(base, "/api/reset", {"token": token, "password": "short"})
     assert status == 400 and "8 characters" in payload["error"]
 
-    status, payload, _ = _post(base, "/api/reset",
-                               {"token": "not-a-real-token", "password": "a-much-longer-one"})
+    status, payload, _ = _post(
+        base, "/api/reset", {"token": "not-a-real-token", "password": "a-much-longer-one"}
+    )
     assert status == 400
 
-    status, payload, _ = _post(base, "/api/reset",
-                               {"token": token, "password": "a-much-longer-one"})
+    status, payload, _ = _post(
+        base, "/api/reset", {"token": token, "password": "a-much-longer-one"}
+    )
     assert status == 200
 
-    status, _, _ = _post(base, "/api/login",
-                         {"username": "streetlightseason", "password": "Tacit25#"})
+    status, _, _ = _post(
+        base, "/api/login", {"username": "streetlightseason", "password": "Tacit25#"}
+    )
     assert status == 401, "the old password must stop working"
-    status, _, _ = _post(base, "/api/login",
-                         {"username": "streetlightseason", "password": "a-much-longer-one"})
+    status, _, _ = _post(
+        base, "/api/login", {"username": "streetlightseason", "password": "a-much-longer-one"}
+    )
     assert status == 200
 
 
 # ---------------------------------------------------------------------------
 # Light and dark
 # ---------------------------------------------------------------------------
+
 
 def test_both_palettes_define_every_role():
     from auteur import theme
@@ -1669,7 +1834,7 @@ def test_the_stylesheet_covers_system_light_and_dark():
     css = theme.css_variables()
     # System: follow the phone, but only while the reader has not overridden it.
     assert "@media (prefers-color-scheme: light)" in css
-    assert ':root:not([data-theme])' in css
+    assert ":root:not([data-theme])" in css
     # And an explicit choice must win in both directions.
     assert ':root[data-theme="light"]' in css
     assert ':root[data-theme="dark"]' in css
@@ -1704,6 +1869,7 @@ def test_the_switch_offers_exactly_the_three_modes():
 # Findings from the security review
 # ---------------------------------------------------------------------------
 
+
 def test_a_reset_link_ignores_the_host_header(guarded_server, monkeypatch):
     """The reset URL is emailed to the account's owner, so it must not be built
     from a header the requester controls. Otherwise anyone who can reach the
@@ -1714,8 +1880,9 @@ def test_a_reset_link_ignores_the_host_header(guarded_server, monkeypatch):
 
     base, _ = guarded_server
     sent: list[str] = []
-    monkeypatch.setattr("auteur.web.auth.send_reset",
-                        lambda email, link: sent.append(link) or "console")
+    monkeypatch.setattr(
+        "auteur.web.auth.send_reset", lambda email, link: sent.append(link) or "console"
+    )
 
     request = Request(
         base + "/api/forgot",
@@ -1738,13 +1905,16 @@ def test_the_public_url_can_be_set_deliberately(guarded_server, monkeypatch):
 
     base, _ = guarded_server
     sent: list[str] = []
-    monkeypatch.setattr("auteur.web.auth.send_reset",
-                        lambda email, link: sent.append(link) or "email")
+    monkeypatch.setattr(
+        "auteur.web.auth.send_reset", lambda email, link: sent.append(link) or "email"
+    )
     monkeypatch.setenv("AUTEUR_PUBLIC_URL", "https://films.example.com/")
 
-    request = Request(base + "/api/forgot",
-                      data=_json.dumps({"username": "streetlightseason"}).encode(),
-                      headers={"Content-Type": "application/json"})
+    request = Request(
+        base + "/api/forgot",
+        data=_json.dumps({"username": "streetlightseason"}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
     with urlopen(request):
         pass
     assert sent and sent[0].startswith("https://films.example.com/reset?token=")
@@ -1761,7 +1931,7 @@ def test_no_account_store_means_no_access(tmp_path):
 
     assets.ensure(web.STATIC)
     web.Handler.studio = web.Studio(tmp_path / "web")
-    web.Handler.accounts = None          # exactly the misconfiguration
+    web.Handler.accounts = None  # exactly the misconfiguration
 
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -1808,15 +1978,15 @@ def test_one_signed_in_user_cannot_read_anothers_film(guarded_server, tmp_path):
     film.write_bytes(b"not really a film")
     job.video, job.status = film, "done"
 
-    request = Request(base + "/api/login",
-                      data=_json.dumps({"username": "someone-else",
-                                        "password": "a-long-enough-one"}).encode(),
-                      headers={"Content-Type": "application/json"})
+    request = Request(
+        base + "/api/login",
+        data=_json.dumps({"username": "someone-else", "password": "a-long-enough-one"}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
     with urlopen(request) as response:
         intruder = response.headers["Set-Cookie"].split(";")[0]
 
-    for path in (f"/api/jobs/{job.id}", f"/api/jobs/{job.id}/video",
-                 f"/api/jobs/{job.id}/notes"):
+    for path in (f"/api/jobs/{job.id}", f"/api/jobs/{job.id}/video", f"/api/jobs/{job.id}/notes"):
         with pytest.raises(HTTPError) as caught:
             urlopen(Request(base + path, headers={"Cookie": intruder}))
         assert caught.value.code == 404, path
@@ -1892,6 +2062,7 @@ def test_an_untouched_file_is_not_reread(tmp_path):
 # Found by fuzzing
 # ---------------------------------------------------------------------------
 
+
 def test_a_runtime_is_checked_however_it_arrives():
     """Only the number read out of the prompt used to be range-checked. An
     explicit `duration=` went straight through, so `--length -5` reached the
@@ -1918,10 +2089,17 @@ def test_a_negative_length_does_not_reach_the_planner(rushes, tmp_path):
     from auteur.agent import direct
 
     production = direct(
-        [rushes], "a montage",
-        settings=Settings(quality=QUALITIES["draft"], primary_format=FORMATS["square"],
-                          target_duration=6.0, use_llm=False, revision_rounds=0),
-        workspace=tmp_path / "work", duration=-5.0,
+        [rushes],
+        "a montage",
+        settings=Settings(
+            quality=QUALITIES["draft"],
+            primary_format=FORMATS["square"],
+            target_duration=6.0,
+            use_llm=False,
+            revision_rounds=0,
+        ),
+        workspace=tmp_path / "work",
+        duration=-5.0,
     )
     # The nonsense is discarded and the settings default stands.
     assert production.brief.duration is None
@@ -1934,11 +2112,15 @@ def test_a_transition_never_outlasts_half_its_shorter_neighbour():
     exact instead of nearly true."""
     edl = EditDecisionList(title="t")
     for index in range(4):
-        edl.shots.append(Shot(
-            clip_id="C01", source=Path("/tmp/a.mp4"),
-            start=index * 1.0, end=index * 1.0 + 0.6212345,
-            transition_in=Transition("dissolve", 2.0),
-        ))
+        edl.shots.append(
+            Shot(
+                clip_id="C01",
+                source=Path("/tmp/a.mp4"),
+                start=index * 1.0,
+                end=index * 1.0 + 0.6212345,
+                transition_in=Transition("dissolve", 2.0),
+            )
+        )
 
     class _Asset:
         path, duration, kind = Path("/tmp/a.mp4"), 60.0, "video"
@@ -1950,9 +2132,9 @@ def test_a_transition_never_outlasts_half_its_shorter_neighbour():
     for index in range(1, len(edl.shots)):
         overlap = edl.shots[index].transition_in.duration
         shorter = min(edl.shots[index - 1].duration, edl.shots[index].duration)
-        assert overlap <= shorter / 2, (
-            f"transition {index} is {overlap!r}, more than half of {shorter!r}"
-        )
+        assert (
+            overlap <= shorter / 2
+        ), f"transition {index} is {overlap!r}, more than half of {shorter!r}"
 
 
 def test_the_static_route_stays_inside_its_folder(web_server):

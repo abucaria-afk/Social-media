@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,17 +10,17 @@ readme = "AUTEUR.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
-    "numpy>=1.24",
+    "numpy>=2.2.6",
     "pillow>=10.0",
 ]
 
 [project.optional-dependencies]
 # Wheel-bundled static ffmpeg + ffprobe. A system ffmpeg works too, but distro
 # builds sometimes ship without libx264, xfade or loudnorm.
-ffmpeg = ["ffmpeg-binaries>=1.0"]
+ffmpeg = ["ffmpeg-binaries>=1.1.0"]
 # Lets Claude direct the edit. Without it the algorithmic director is used.
 llm = ["anthropic>=0.40"]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=9.1.1"]
 
 [project.scripts]
 auteur = "auteur.cli:main"
@@ -53,3 +53,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Tests import inside functions on purpose, to keep the module import cheap.
 "tests/*" = ["E402"]
+
+[tool.black]
+# Matches the ruff line-length above, so the two never disagree about a line.
+line-length = 100
+target-version = ["py310"]

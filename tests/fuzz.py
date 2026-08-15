@@ -56,6 +56,7 @@ def guard(area: str, seed: object, fn) -> None:
 # Fake footage the EDL can be repaired against
 # ---------------------------------------------------------------------------
 
+
 class FakeVideo:
     def __init__(self, rng):
         self.shot_boundaries = []
@@ -87,15 +88,23 @@ def random_shot(rng, clip_ids):
     return Shot(
         clip_id=clip,
         source=Path(f"/tmp/{clip}.mp4"),
-        start=start, end=end, ramp=ramp,
-        motion=Motion(kind=rng.choice(list(MOTIONS) + ["nonsense"]),
-                      intensity=rng.uniform(-1, 2),
-                      anchor=(rng.uniform(-1, 2), rng.uniform(-1, 2))),
+        start=start,
+        end=end,
+        ramp=ramp,
+        motion=Motion(
+            kind=rng.choice(list(MOTIONS) + ["nonsense"]),
+            intensity=rng.uniform(-1, 2),
+            anchor=(rng.uniform(-1, 2), rng.uniform(-1, 2)),
+        ),
         reframe=rng.choice(list(REFRAMES) + ["bogus"]),
-        look=Look(preset=rng.choice(["neon", "noir", "??", ""]),
-                  exposure=rng.uniform(-3, 3), saturation=rng.uniform(-3, 3)),
-        transition_in=Transition(kind=rng.choice(list(TRANSITIONS) + ["???"]),
-                                 duration=rng.uniform(-1, 6)),
+        look=Look(
+            preset=rng.choice(["neon", "noir", "??", ""]),
+            exposure=rng.uniform(-3, 3),
+            saturation=rng.uniform(-3, 3),
+        ),
+        transition_in=Transition(
+            kind=rng.choice(list(TRANSITIONS) + ["???"]), duration=rng.uniform(-1, 6)
+        ),
         use_source_audio=rng.random() < 0.5,
         audio_gain=rng.uniform(-1, 3),
         is_still=rng.random() < 0.2,
@@ -127,15 +136,22 @@ def fuzz_edl(rng):
     for index, shot in enumerate(edl.shots):
         limit = sources[shot.clip_id].duration
         check("edl", shot.start >= -1e-6, f"shot {index} starts before zero: {shot.start}")
-        check("edl", shot.end <= limit + 1e-6 or shot.is_still,
-              f"shot {index} runs past its clip: {shot.end:.3f} > {limit:.3f}")
+        check(
+            "edl",
+            shot.end <= limit + 1e-6 or shot.is_still,
+            f"shot {index} runs past its clip: {shot.end:.3f} > {limit:.3f}",
+        )
         check("edl", shot.end > shot.start, f"shot {index} is empty or reversed")
-        check("edl", shot.duration >= MIN_SHOT - 1e-6,
-              f"shot {index} is a flash frame after repair: {shot.duration:.4f}")
+        check(
+            "edl",
+            shot.duration >= MIN_SHOT - 1e-6,
+            f"shot {index} is a flash frame after repair: {shot.duration:.4f}",
+        )
         check("edl", shot.motion.kind in MOTIONS, f"shot {index} kept a bogus motion")
         check("edl", shot.reframe in REFRAMES, f"shot {index} kept a bogus reframe")
-        check("edl", shot.transition_in.kind in TRANSITIONS,
-              f"shot {index} kept a bogus transition")
+        check(
+            "edl", shot.transition_in.kind in TRANSITIONS, f"shot {index} kept a bogus transition"
+        )
         check("edl", 0.0 <= shot.audio_gain <= 4.0, f"shot {index} gain {shot.audio_gain}")
 
     check("edl", edl.shots[0].transition_in.is_cut, "the film does not open on a cut")
@@ -143,8 +159,11 @@ def fuzz_edl(rng):
     for index in range(1, len(edl.shots)):
         overlap = edl.shots[index].transition_in.duration
         shorter = min(edl.shots[index - 1].duration, edl.shots[index].duration)
-        check("edl", overlap <= shorter / 2 + 1e-6,
-              f"transition {index} ({overlap:.3f}s) longer than half its shorter neighbour")
+        check(
+            "edl",
+            overlap <= shorter / 2 + 1e-6,
+            f"transition {index} ({overlap:.3f}s) longer than half its shorter neighbour",
+        )
 
     # The timeline must be contiguous and monotonic.
     last_end = None
@@ -153,8 +172,11 @@ def fuzz_edl(rng):
         if last_end is not None:
             check("edl", start <= last_end + 1e-6, "the timeline jumps backwards")
         last_end = end
-    check("edl", abs(edl.duration - (last_end or 0.0)) < 1e-3,
-          f"duration {edl.duration:.4f} disagrees with the timeline {last_end}")
+    check(
+        "edl",
+        abs(edl.duration - (last_end or 0.0)) < 1e-3,
+        f"duration {edl.duration:.4f} disagrees with the timeline {last_end}",
+    )
 
     # Round-tripping through JSON must not change the film.
     payload = edl.to_json()
@@ -164,6 +186,7 @@ def fuzz_edl(rng):
 # ---------------------------------------------------------------------------
 # Ramps
 # ---------------------------------------------------------------------------
+
 
 def fuzz_ramp(rng):
     source = rng.choice([rng.uniform(0.02, 12.0), 0.04, rng.uniform(0.2, 1.0)])
@@ -182,20 +205,33 @@ def fuzz_ramp(rng):
         for i, (a, b) in enumerate(windows):
             check("ramp", b > a, f"window {i} is empty: {a}..{b}")
             frames = (b - a) * fps
-            check("ramp", frames >= 1.0,
-                  f"window {i} holds {frames:.2f} frames at {fps}fps ({source}s / {slices})")
+            check(
+                "ramp",
+                frames >= 1.0,
+                f"window {i} holds {frames:.2f} frames at {fps}fps ({source}s / {slices})",
+            )
         for i in range(len(windows) - 1):
             check("ramp", windows[i + 1][0] > windows[i][0], "windows are not monotonic")
             overlap = windows[i][1] - windows[i + 1][0]
-            check("ramp", abs(overlap - 1.0 / fps) < 1e-6,
-                  f"windows {i}/{i+1} overlap {overlap:.6f}, wanted {1/fps:.6f}")
-        check("ramp", windows[-1][1] >= source - 1e-6,
-              f"the last window stops at {windows[-1][1]:.4f} before {source:.4f}")
+            check(
+                "ramp",
+                abs(overlap - 1.0 / fps) < 1e-6,
+                f"windows {i}/{i+1} overlap {overlap:.6f}, wanted {1/fps:.6f}",
+            )
+        check(
+            "ramp",
+            windows[-1][1] >= source - 1e-6,
+            f"the last window stops at {windows[-1][1]:.4f} before {source:.4f}",
+        )
 
-    graph = motion.ramp_video_graph(ramp, source_duration=source, in_label="src",
-                                    out_label="out", source_fps=fps)
-    check("ramp", graph.startswith("[src]") or graph.startswith("[src]split"),
-          "graph does not start from its input")
+    graph = motion.ramp_video_graph(
+        ramp, source_duration=source, in_label="src", out_label="out", source_fps=fps
+    )
+    check(
+        "ramp",
+        graph.startswith("[src]") or graph.startswith("[src]split"),
+        "graph does not start from its input",
+    )
     check("ramp", graph.rstrip().endswith("[out]"), "graph does not end at its output")
     check("ramp", "concat=n=1:" not in graph, "a one-way concat was emitted")
 
@@ -208,17 +244,48 @@ def fuzz_ramp(rng):
 # Briefs
 # ---------------------------------------------------------------------------
 
-WORDS = ["fast", "slow", "neon", "moody", "warm", "gritty", "black", "white", "montage",
-         "cinematic", "seconds", "chase", "summer", "punchy", "beat", "20", "0", "-5",
-         "999999", "3.5", '"TITLE"', "'x'", "\\", "%s", "{}", "🎬", "…", "ünïcødé"]
+WORDS = [
+    "fast",
+    "slow",
+    "neon",
+    "moody",
+    "warm",
+    "gritty",
+    "black",
+    "white",
+    "montage",
+    "cinematic",
+    "seconds",
+    "chase",
+    "summer",
+    "punchy",
+    "beat",
+    "20",
+    "0",
+    "-5",
+    "999999",
+    "3.5",
+    '"TITLE"',
+    "'x'",
+    "\\",
+    "%s",
+    "{}",
+    "🎬",
+    "…",
+    "ünïcødé",
+]
 
 
 def fuzz_brief(rng):
     prompt = " ".join(rng.choice(WORDS) for _ in range(rng.randint(0, 18)))
     duration = rng.choice([None, rng.uniform(-10, 400), 0.0])
     brief = parse_brief(prompt, duration=duration)
-    check("brief", brief.duration is None or 3.0 <= brief.duration <= 900.0,
-          f"duration {brief.duration} from {prompt!r} / {duration!r}", prompt)
+    check(
+        "brief",
+        brief.duration is None or 3.0 <= brief.duration <= 900.0,
+        f"duration {brief.duration} from {prompt!r} / {duration!r}",
+        prompt,
+    )
     check("brief", isinstance(brief.describe(), str), "describe() is not a string", prompt)
     length = brief.shot_length_at(rng.uniform(-1, 2))
     check("brief", MIN_SHOT / 2 <= length <= 30, f"shot length {length} from {prompt!r}", prompt)
@@ -227,6 +294,7 @@ def fuzz_brief(rng):
 # ---------------------------------------------------------------------------
 # Grammar passes
 # ---------------------------------------------------------------------------
+
 
 def fuzz_grammar(rng):
     clip_ids = [f"C{i:02d}" for i in range(rng.randint(1, 5))]
@@ -245,28 +313,43 @@ def fuzz_grammar(rng):
     grammar.vary_beat_multiples(edl, beat)
     check("grammar", len(edl.shots) == before, "vary_beat_multiples changed the shot count")
     for i, shot in enumerate(edl.shots):
-        check("grammar", shot.duration >= MIN_SHOT - 1e-6,
-              f"vary_beat_multiples made shot {i} a flash frame: {shot.duration:.4f}")
+        check(
+            "grammar",
+            shot.duration >= MIN_SHOT - 1e-6,
+            f"vary_beat_multiples made shot {i} a flash frame: {shot.duration:.4f}",
+        )
 
     grammar.vary_pacing(edl, run_length=rng.randint(2, 5), spread=rng.uniform(0.05, 0.5))
     for i, shot in enumerate(edl.shots):
-        check("grammar", shot.duration >= MIN_SHOT - 1e-6,
-              f"vary_pacing made shot {i} a flash frame: {shot.duration:.4f}")
+        check(
+            "grammar",
+            shot.duration >= MIN_SHOT - 1e-6,
+            f"vary_pacing made shot {i} a flash frame: {shot.duration:.4f}",
+        )
 
     grammar.enforce_variety(edl)
     check("grammar", len(edl.shots) == before, "enforce_variety changed the shot count")
-    check("grammar", edl.shots[0].transition_in.is_cut,
-          "enforce_variety moved a transition onto the first shot")
+    check(
+        "grammar",
+        edl.shots[0].transition_in.is_cut,
+        "enforce_variety moved a transition onto the first shot",
+    )
 
     grammar.limit_transition_density(edl)
-    check("grammar", edl.shots[0].transition_in.is_cut,
-          "limit_transition_density left shot 0 with a transition")
+    check(
+        "grammar",
+        edl.shots[0].transition_in.is_cut,
+        "limit_transition_density left shot 0 with a transition",
+    )
 
     grammar.trim_to_duration(edl, target, tolerance=0.6)
     check("grammar", len(edl.shots) >= 1, "trim_to_duration emptied the film")
     for i, shot in enumerate(edl.shots):
-        check("grammar", shot.duration >= MIN_SHOT - 1e-6,
-              f"trim_to_duration made shot {i} a flash frame: {shot.duration:.4f}")
+        check(
+            "grammar",
+            shot.duration >= MIN_SHOT - 1e-6,
+            f"trim_to_duration made shot {i} a flash frame: {shot.duration:.4f}",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -281,23 +364,43 @@ def fuzz_multipart(rng):
 
     boundary = "".join(rng.choice(string.ascii_letters) for _ in range(rng.randint(1, 12)))
     body = b"".join(rng.choice(BYTES) for _ in range(rng.randint(0, 8)))
-    content_type = rng.choice([
-        f"multipart/form-data; boundary={boundary}",
-        "multipart/form-data",
-        "text/plain",
-        "",
-        f"multipart/form-data; boundary={boundary}\r\nX-Injected: yes",
-    ])
+    content_type = rng.choice(
+        [
+            f"multipart/form-data; boundary={boundary}",
+            "multipart/form-data",
+            "text/plain",
+            "",
+            f"multipart/form-data; boundary={boundary}\r\nX-Injected: yes",
+        ]
+    )
     try:
         fields, files = _parse_multipart(body, content_type)
     except Exception:
         return  # the handler catches this and answers 400
-    check("upload", isinstance(fields, dict) and isinstance(files, list),
-          "parser returned the wrong shape")
+    check(
+        "upload",
+        isinstance(fields, dict) and isinstance(files, list),
+        "parser returned the wrong shape",
+    )
 
 
-NASTY = ["..", "../", "..%2f", "%2e%2e", "....//", "/etc/passwd", "\\..\\", "a" * 300,
-         "\x00", "%00", "..;/", "./../../", "server.py", "auth.py", "accounts.json"]
+NASTY = [
+    "..",
+    "../",
+    "..%2f",
+    "%2e%2e",
+    "....//",
+    "/etc/passwd",
+    "\\..\\",
+    "a" * 300,
+    "\x00",
+    "%00",
+    "..;/",
+    "./../../",
+    "server.py",
+    "auth.py",
+    "accounts.json",
+]
 
 
 def fuzz_routes(rng):
@@ -319,19 +422,26 @@ def fuzz_routes(rng):
         served = inside and candidate.is_file()
     except (OSError, ValueError):
         served = False
-    check("routing", inside or not served,
-          f"path {path!r} would be served from {resolved}", path)
-    check("routing", not (resolved == STATIC.resolve().parent and served),
-          f"path {path!r} reached the parent folder", path)
+    check("routing", inside or not served, f"path {path!r} would be served from {resolved}", path)
+    check(
+        "routing",
+        not (resolved == STATIC.resolve().parent and served),
+        f"path {path!r} reached the parent folder",
+        path,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Accounts
 # ---------------------------------------------------------------------------
 
+
 def fuzz_auth(rng, store):
     from auteur.web import auth  # noqa: F401 - kept for the reduced-cost note
-    who = "".join(rng.choice(string.ascii_letters + string.digits) for _ in range(rng.randint(1, 12)))
+
+    who = "".join(
+        rng.choice(string.ascii_letters + string.digits) for _ in range(rng.randint(1, 12))
+    )
     password = "".join(rng.choice(string.printable[:94]) for _ in range(rng.randint(8, 40)))
     email = f"{who}@example.com"
 
@@ -359,15 +469,18 @@ def fuzz_auth(rng, store):
         _, reset_token = started
         new = password[::-1] + "Z9"
         check("auth", store.finish_reset(reset_token, new), "a fresh reset token was refused")
-        check("auth", not store.finish_reset(reset_token, new + "2"),
-              "a reset token worked twice")
+        check("auth", not store.finish_reset(reset_token, new + "2"), "a reset token worked twice")
         check("auth", store.get(who).check(new), "the new password does not verify")
         if token:
-            check("auth", store.session_user(token) is None,
-                  "a password change left an old session alive")
+            check(
+                "auth",
+                store.session_user(token) is None,
+                "a password change left an old session alive",
+            )
 
 
 # ---------------------------------------------------------------------------
+
 
 def main(total: int = 10_000) -> int:
     rng = random.Random(0xA17EE)
@@ -376,10 +489,12 @@ def main(total: int = 10_000) -> int:
     # hour of waiting. The parameters are lowered here and only here; what is
     # under test is the logic around the hash, not the hash's cost.
     from auteur.web import auth
+
     auth.SCRYPT_N = 1 << 12
     auth.SCRYPT_MAXMEM = 128 * auth.SCRYPT_N * auth.SCRYPT_R * 2
 
     import tempfile
+
     store = auth.Accounts(Path(tempfile.mkdtemp()) / "accounts.json")
 
     areas = [

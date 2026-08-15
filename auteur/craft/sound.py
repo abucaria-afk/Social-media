@@ -28,7 +28,9 @@ SAMPLE_RATE = 48000
 TARGET_LUFS = -14.0
 
 
-def _svf_bandpass(signal: np.ndarray, cutoff: np.ndarray, resonance: float, sample_rate: int) -> np.ndarray:
+def _svf_bandpass(
+    signal: np.ndarray, cutoff: np.ndarray, resonance: float, sample_rate: int
+) -> np.ndarray:
     """State-variable filter with a per-sample cutoff.
 
     A sweeping resonant band is what separates a whoosh from a hiss, and it
@@ -47,7 +49,9 @@ def _svf_bandpass(signal: np.ndarray, cutoff: np.ndarray, resonance: float, samp
     return out
 
 
-def _envelope(length: int, attack: float, decay: float, sample_rate: int, curve: float = 2.0) -> np.ndarray:
+def _envelope(
+    length: int, attack: float, decay: float, sample_rate: int, curve: float = 2.0
+) -> np.ndarray:
     attack_samples = max(1, int(attack * sample_rate))
     decay_samples = max(1, length - attack_samples)
     rise = np.linspace(0.0, 1.0, attack_samples) ** 0.6
@@ -162,7 +166,9 @@ def write_wav(path: Path, samples: np.ndarray, *, sample_rate: int = SAMPLE_RATE
     return path
 
 
-def render_effects(cues: list[SoundCue], directory: Path, *, sample_rate: int = SAMPLE_RATE) -> dict[str, Path]:
+def render_effects(
+    cues: list[SoundCue], directory: Path, *, sample_rate: int = SAMPLE_RATE
+) -> dict[str, Path]:
     """Render every distinct (kind, duration) once and reuse it across the film."""
     directory.mkdir(parents=True, exist_ok=True)
     rendered: dict[str, Path] = {}
@@ -172,7 +178,11 @@ def render_effects(cues: list[SoundCue], directory: Path, *, sample_rate: int = 
             continue
         path = directory / f"sfx-{key.replace('.', '_')}.wav"
         if not path.exists():
-            write_wav(path, synthesise(cue.kind, cue.duration, sample_rate=sample_rate), sample_rate=sample_rate)
+            write_wav(
+                path,
+                synthesise(cue.kind, cue.duration, sample_rate=sample_rate),
+                sample_rate=sample_rate,
+            )
         rendered[key] = path
     return rendered
 
@@ -184,6 +194,7 @@ def effect_key(cue: SoundCue) -> str:
 # ---------------------------------------------------------------------------
 # The mix
 # ---------------------------------------------------------------------------
+
 
 def music_chain(cue: MusicCue, duration: float, *, sample_rate: int = SAMPLE_RATE) -> str:
     """Trim, level and fade the bed to exactly the length of the film.

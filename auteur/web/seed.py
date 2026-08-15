@@ -48,8 +48,9 @@ def bootstrap(accounts) -> str | None:
 
     from .auth import Account
 
-    account = Account(username=SEED_USERNAME, email=SEED_EMAIL,
-                      salt=SEED_SALT, password_hash=SEED_HASH)
+    account = Account(
+        username=SEED_USERNAME, email=SEED_EMAIL, salt=SEED_SALT, password_hash=SEED_HASH
+    )
     with accounts.lock:
         accounts.accounts[account.username.lower()] = account
         accounts._save()

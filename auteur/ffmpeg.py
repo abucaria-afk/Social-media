@@ -95,9 +95,7 @@ def run(args: Sequence[str], *, timeout: float = 3600.0, quiet: bool = True) -> 
     """Run ffmpeg. Returns stderr (where ffmpeg puts everything interesting)."""
     cmd = [str(ffmpeg_path()), "-hide_banner", "-nostdin", "-y", *map(str, args)]
     log.debug("ffmpeg %s", " ".join(cmd[3:]))
-    proc = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=timeout, errors="replace"
-    )
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, errors="replace")
     if proc.returncode != 0:
         raise FFmpegError(cmd, proc.returncode, proc.stderr)
     if not quiet and proc.stderr:
@@ -108,8 +106,14 @@ def run(args: Sequence[str], *, timeout: float = 3600.0, quiet: bool = True) -> 
 def probe(path: str | Path) -> dict:
     """ffprobe -> dict. Raises FFmpegError if the file is not readable media."""
     cmd = [
-        str(ffprobe_path()), "-v", "error", "-print_format", "json",
-        "-show_format", "-show_streams", str(path),
+        str(ffprobe_path()),
+        "-v",
+        "error",
+        "-print_format",
+        "json",
+        "-show_format",
+        "-show_streams",
+        str(path),
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
     if proc.returncode != 0:
@@ -173,9 +177,15 @@ def read_frames(
     scale = f"scale={width}:{height}:flags=bilinear"
     video_filter = scale if still else f"fps={fps},{scale}"
     args += [
-        "-vf", video_filter,
-        "-frames:v", "1" if still else str(max_frames),
-        "-pix_fmt", pix_fmt, "-f", "rawvideo", "-",
+        "-vf",
+        video_filter,
+        "-frames:v",
+        "1" if still else str(max_frames),
+        "-pix_fmt",
+        pix_fmt,
+        "-f",
+        "rawvideo",
+        "-",
     ]
 
     cmd = [str(ffmpeg_path()), "-hide_banner", "-nostdin", "-loglevel", "error", *args]
@@ -297,6 +307,7 @@ def has_audio(info: dict) -> bool:
 # --------------------------------------------------------------------------
 # Filter-graph text helpers
 # --------------------------------------------------------------------------
+
 
 def chain(*links: str) -> str:
     """Join filter links, dropping the empty ones so callers can use conditionals."""

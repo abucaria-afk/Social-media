@@ -81,7 +81,11 @@ def _whip_expr(direction: str) -> str:
 
         def tap(source: str, position: str, offset: str) -> str:
             coord = f"{position}{offset}"
-            return f"{source}{plane}({coord}\\,{other})" if horizontal else f"{source}{plane}({other}\\,{coord})"
+            return (
+                f"{source}{plane}({coord}\\,{other})"
+                if horizontal
+                else f"{source}{plane}({other}\\,{coord})"
+            )
 
         outgoing = f"({tap('a', out_pos, f'-{smear}')}+{tap('a', out_pos, '')}+{tap('a', out_pos, f'+{smear}')})/3"
         incoming = f"({tap('b', in_pos, f'-{smear}')}+{tap('b', in_pos, '')}+{tap('b', in_pos, f'+{smear}')})/3"
@@ -126,12 +130,27 @@ def supports_custom() -> bool:
     """
     expr = CUSTOM_EXPRESSIONS["whip-left"]
     command = [
-        str(ffmpeg.ffmpeg_path()), "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-        "-f", "lavfi", "-i", "color=c=red:s=64x64:r=10:d=1",
-        "-f", "lavfi", "-i", "color=c=blue:s=64x64:r=10:d=1",
+        str(ffmpeg.ffmpeg_path()),
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=red:s=64x64:r=10:d=1",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=blue:s=64x64:r=10:d=1",
         "-filter_complex",
         f"[0:v][1:v]xfade=transition=custom:duration=0.4:offset=0.2:expr='{expr}',format=yuv420p",
-        "-frames:v", "4", "-f", "null", "-",
+        "-frames:v",
+        "4",
+        "-f",
+        "null",
+        "-",
     ]
     try:
         result = subprocess.run(command, capture_output=True, timeout=60)
@@ -139,9 +158,7 @@ def supports_custom() -> bool:
         return False
     ok = result.returncode == 0
     if not ok:
-        log.info(
-            "this ffmpeg build rejects xfade custom expressions; using built-in transitions"
-        )
+        log.info("this ffmpeg build rejects xfade custom expressions; using built-in transitions")
     return ok
 
 

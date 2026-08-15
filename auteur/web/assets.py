@@ -47,9 +47,7 @@ def _draw(size: int):
 
     # The ground: a rounded square, because iOS masks square icons anyway and
     # Android does not — drawing the radius ourselves looks right on both.
-    draw.rounded_rectangle(
-        [0, 0, size - 1, size - 1], radius=int(22 * unit), fill=INK + (255,)
-    )
+    draw.rounded_rectangle([0, 0, size - 1, size - 1], radius=int(22 * unit), fill=INK + (255,))
 
     # A film frame: two perforated edges with an aperture between them.
     perforation = _mix(PAPER, INK, 0.34)
@@ -59,7 +57,8 @@ def _draw(size: int):
         for left in (9 * unit, size - 9 * unit - hole_w):
             draw.rounded_rectangle(
                 [left, top, left + hole_w, top + hole_h],
-                radius=int(1.5 * unit), fill=perforation,
+                radius=int(1.5 * unit),
+                fill=perforation,
             )
 
     draw.rounded_rectangle(
@@ -74,7 +73,8 @@ def _draw(size: int):
     # program is about where to put this line, so it is the whole icon.
     draw.line(
         [(34 * unit, size - 26 * unit), (size - 34 * unit, 26 * unit)],
-        fill=AMBER + (255,), width=int(7 * unit),
+        fill=AMBER + (255,),
+        width=int(7 * unit),
     )
     draw.ellipse(
         [size / 2 - 6 * unit, size / 2 - 6 * unit, size / 2 + 6 * unit, size / 2 + 6 * unit],

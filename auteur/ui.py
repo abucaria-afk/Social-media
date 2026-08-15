@@ -93,7 +93,9 @@ class Reporter:
 
     def banner(self, prompt: str) -> None:
         self._write()
-        self._write("  " + self._tint("auteur", "accent", "1") + self._paint("  ·  the edit room", "2"))
+        self._write(
+            "  " + self._tint("auteur", "accent", "1") + self._paint("  ·  the edit room", "2")
+        )
         self._write("  " + self._paint(f'"{prompt}"', "2"))
         self._write()
 
@@ -181,8 +183,9 @@ class NullReporter(Reporter):
 # Turning internals into plain English
 # ---------------------------------------------------------------------------
 
+
 def describe_shape(width: int, height: int) -> str:
-    """"vertical, for phones" beats "9:16"."""
+    """ "vertical, for phones" beats "9:16"."""
     ratio = width / height if height else 1.0
     if ratio < 0.95:
         return "vertical, for phones" if ratio < 0.7 else "portrait"

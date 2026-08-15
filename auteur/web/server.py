@@ -54,16 +54,26 @@ SESSION_LIFETIME = 30 * 24 * 3600
 
 #: Reachable without signing in. Everything else — including finished films and
 #: production notes, which are the user's own footage — needs a session.
-PUBLIC_PATHS = frozenset({
-    "/login", "/login.html", "/reset", "/manifest.webmanifest", "/sw.js",
-    "/api/session", "/api/login", "/api/forgot", "/api/reset",
-})
+PUBLIC_PATHS = frozenset(
+    {
+        "/login",
+        "/login.html",
+        "/reset",
+        "/manifest.webmanifest",
+        "/sw.js",
+        "/api/session",
+        "/api/login",
+        "/api/forgot",
+        "/api/reset",
+    }
+)
 PUBLIC_PREFIXES = ("/static/",)
 
 
 # ---------------------------------------------------------------------------
 # Jobs
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class Job:
@@ -162,8 +172,7 @@ class Studio:
         # Rendering is CPU-bound; running two at once just makes both slower.
         self.queue_lock = threading.Lock()
 
-    def create(self, prompt: str, shape: str, seconds: float | None,
-               owner: str = "") -> Job:
+    def create(self, prompt: str, shape: str, seconds: float | None, owner: str = "") -> Job:
         self.sweep()
         job_id = uuid.uuid4().hex[:12]
         folder = self.workspace / job_id
@@ -209,9 +218,13 @@ class Studio:
                 )
                 reporter = WebReporter(job, self.lock)
                 production = direct(
-                    [job.folder / "clips"], job.prompt,
-                    settings=settings, workspace=job.folder / "work",
-                    formats=(fmt,), duration=seconds, reporter=reporter,
+                    [job.folder / "clips"],
+                    job.prompt,
+                    settings=settings,
+                    workspace=job.folder / "work",
+                    formats=(fmt,),
+                    duration=seconds,
+                    reporter=reporter,
                 )
 
                 critique = production.final_critique
@@ -248,8 +261,11 @@ class Studio:
         """Delete finished jobs older than a few hours, so a phone-sized box copes."""
         cutoff = time.time() - max_age_hours * 3600
         with self.lock:
-            stale = [job for job in self.jobs.values()
-                     if job.created < cutoff and job.status in ("done", "error")]
+            stale = [
+                job
+                for job in self.jobs.values()
+                if job.created < cutoff and job.status in ("done", "error")
+            ]
             for job in stale:
                 self.jobs.pop(job.id, None)
         for job in stale:
@@ -279,7 +295,10 @@ def _plain_cause(exc: BaseException) -> str:
 # HTTP
 # ---------------------------------------------------------------------------
 
-def _parse_multipart(body: bytes, content_type: str) -> tuple[dict[str, str], list[tuple[str, bytes]]]:
+
+def _parse_multipart(
+    body: bytes, content_type: str
+) -> tuple[dict[str, str], list[tuple[str, bytes]]]:
     """Pull fields and files out of a browser form post, using only stdlib."""
     parser = email.parser.BytesParser(policy=email.policy.default)
     message = parser.parsebytes(b"Content-Type: " + content_type.encode() + b"\r\n\r\n" + body)
@@ -341,8 +360,13 @@ class Handler(BaseHTTPRequestHandler):
         # HttpOnly so a script cannot read it; SameSite=Strict so another site
         # cannot make the browser spend it. Secure only over HTTPS — setting it
         # on a plain LAN address would make the cookie silently not stick.
-        bits = [f"{COOKIE}={token}", "Path=/", "HttpOnly", "SameSite=Strict",
-                f"Max-Age={SESSION_LIFETIME}"]
+        bits = [
+            f"{COOKIE}={token}",
+            "Path=/",
+            "HttpOnly",
+            "SameSite=Strict",
+            f"Max-Age={SESSION_LIFETIME}",
+        ]
         if self.headers.get("X-Forwarded-Proto", "").lower() == "https":
             bits.append("Secure")
         return "; ".join(bits)
@@ -352,12 +376,17 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- helpers ---------------------------------------------------------
 
-    def _send(self, code: int, body: bytes, content_type: str, *, extra: dict | None = None) -> None:
+    def _send(
+        self, code: int, body: bytes, content_type: str, *, extra: dict | None = None
+    ) -> None:
         headers = dict(extra or {})
         # Text compresses by ~4x, and the shell is fetched over wifi from a
         # phone. Skip it for anything already compressed (png, mp4).
-        if (len(body) > 512 and "gzip" in self.headers.get("Accept-Encoding", "")
-                and _compressible(content_type)):
+        if (
+            len(body) > 512
+            and "gzip" in self.headers.get("Accept-Encoding", "")
+            and _compressible(content_type)
+        ):
             body = gzip.compress(body, 6)
             headers["Content-Encoding"] = "gzip"
             headers["Vary"] = "Accept-Encoding"
@@ -372,8 +401,12 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def _json(self, payload: dict, code: int = 200) -> None:
-        self._send(code, json.dumps(payload).encode(), "application/json; charset=utf-8",
-                   extra={"Cache-Control": "no-store"})
+        self._send(
+            code,
+            json.dumps(payload).encode(),
+            "application/json; charset=utf-8",
+            extra={"Cache-Control": "no-store"},
+        )
 
     def _static(self, path: Path, content_type: str | None = None) -> None:
         """Serve a shell file, revalidated by ETag.
@@ -405,12 +438,17 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         guessed = content_type or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-        self._send(200, path.read_bytes(), guessed, extra={
-            "ETag": etag,
-            # Revalidate rather than trust: a restarted server may have a new
-            # palette or a new script, and a stale shell is a confusing bug.
-            "Cache-Control": "no-cache",
-        })
+        self._send(
+            200,
+            path.read_bytes(),
+            guessed,
+            extra={
+                "ETag": etag,
+                # Revalidate rather than trust: a restarted server may have a new
+                # palette or a new script, and a stale shell is a confusing bug.
+                "Cache-Control": "no-cache",
+            },
+        )
 
     def _file(self, path: Path, content_type: str | None = None) -> None:
         """Serve a file, honouring Range.
@@ -525,8 +563,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if path.startswith("/api/jobs/"):
             parts = path.strip("/").split("/")
-            job = (self.studio.get(parts[2], owner=self.current_user())
-                   if len(parts) > 2 else None)
+            job = self.studio.get(parts[2], owner=self.current_user()) if len(parts) > 2 else None
             if job is None:
                 self._json({"error": "no such job"}, 404)
                 return
@@ -552,17 +589,20 @@ class Handler(BaseHTTPRequestHandler):
         self.accounts.refresh()
         payload = self._json_body()
         token, message = self.accounts.sign_in(
-            str(payload.get("username", "")), str(payload.get("password", "")))
+            str(payload.get("username", "")), str(payload.get("password", ""))
+        )
         if token is None:
             # 401 with the same wording whatever went wrong, so the response
             # never distinguishes "no such user" from "wrong password".
             self._json({"error": message}, 401)
             return
         user = self.accounts.session_user(token)
-        self._send(200, json.dumps({"user": user}).encode(),
-                   "application/json; charset=utf-8",
-                   extra={"Set-Cookie": self._set_session_cookie(token),
-                          "Cache-Control": "no-store"})
+        self._send(
+            200,
+            json.dumps({"user": user}).encode(),
+            "application/json; charset=utf-8",
+            extra={"Set-Cookie": self._set_session_cookie(token), "Cache-Control": "no-store"},
+        )
 
     def _forgot(self) -> None:
         from .auth import send_reset
@@ -656,9 +696,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/logout":
             self.accounts.sign_out(self.session_token)
-            self._send(200, b'{"ok":true}', "application/json; charset=utf-8",
-                       extra={"Set-Cookie": self._clear_session_cookie(),
-                              "Cache-Control": "no-store"})
+            self._send(
+                200,
+                b'{"ok":true}',
+                "application/json; charset=utf-8",
+                extra={"Set-Cookie": self._clear_session_cookie(), "Cache-Control": "no-store"},
+            )
             return
         if path == "/api/forgot":
             self._forgot()
@@ -716,8 +759,9 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             seconds = None
 
-        job = self.studio.create(prompt, fields.get("shape", "reel"), seconds,
-                                 owner=self.current_user() or "")
+        job = self.studio.create(
+            prompt, fields.get("shape", "reel"), seconds, owner=self.current_user() or ""
+        )
         clips = job.folder / "clips"
         for index, (filename, payload) in enumerate(files):
             safe = Path(filename).name or f"clip{index}"
@@ -766,8 +810,14 @@ def local_address() -> str:
         probe.close()
 
 
-def serve(host: str = "0.0.0.0", port: int = 8000, *, workspace: Path | None = None,
-          quality: str = "draft", announce: bool = True) -> ThreadingHTTPServer:
+def serve(
+    host: str = "0.0.0.0",
+    port: int = 8000,
+    *,
+    workspace: Path | None = None,
+    quality: str = "draft",
+    announce: bool = True,
+) -> ThreadingHTTPServer:
     """Run the web app until interrupted."""
     from . import assets, seed
     from .auth import Accounts

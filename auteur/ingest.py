@@ -186,10 +186,14 @@ def probe_asset(path: Path) -> MediaAsset | None:
         if duration <= 0:
             return None
         return MediaAsset(
-            path=path, kind="audio", duration=duration, has_audio=True,
+            path=path,
+            kind="audio",
+            duration=duration,
+            has_audio=True,
             audio_codec=(audio or {}).get("codec_name", ""),
             sample_rate=int((audio or {}).get("sample_rate") or 0),
-            bit_rate=int(fmt.get("bit_rate") or 0), raw=info,
+            bit_rate=int(fmt.get("bit_rate") or 0),
+            raw=info,
         )
 
     if video is None:
@@ -214,12 +218,19 @@ def probe_asset(path: Path) -> MediaAsset | None:
             kind, duration, fps = "image", STILL_DURATION, 0.0
 
     return MediaAsset(
-        path=path, kind=kind, duration=duration, width=width, height=height,
-        fps=fps, rotation=_rotation(video), has_audio=audio is not None,
+        path=path,
+        kind=kind,
+        duration=duration,
+        width=width,
+        height=height,
+        fps=fps,
+        rotation=_rotation(video),
+        has_audio=audio is not None,
         codec=video.get("codec_name", ""),
         audio_codec=(audio or {}).get("codec_name", ""),
         sample_rate=int((audio or {}).get("sample_rate") or 0),
-        bit_rate=int(fmt.get("bit_rate") or 0), raw=info,
+        bit_rate=int(fmt.get("bit_rate") or 0),
+        raw=info,
     )
 
 
@@ -264,8 +275,6 @@ def ingest(inputs: Sequence[str | Path], *, recursive: bool = True) -> Bin:
         (bin_.audio if asset.kind == "audio" else bin_.visuals).append(asset)
 
     if not bin_.visuals:
-        raise FileNotFoundError(
-            "found audio but no picture — an edit needs something to look at"
-        )
+        raise FileNotFoundError("found audio but no picture — an edit needs something to look at")
     log.info("ingested %d visual asset(s), %d audio asset(s)", len(bin_.visuals), len(bin_.audio))
     return bin_

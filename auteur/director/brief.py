@@ -29,42 +29,116 @@ ARCS: dict[str, str] = {
 
 #: Words that move the pace dial, and the average shot length they imply.
 PACE_WORDS: dict[str, float] = {
-    "frenetic": 0.42, "frantic": 0.42, "hyper": 0.45, "chaotic": 0.45, "rapid": 0.5,
-    "fast": 0.55, "punchy": 0.55, "snappy": 0.55, "energetic": 0.6, "hype": 0.55,
-    "kinetic": 0.55, "quick": 0.6, "upbeat": 0.7, "brisk": 0.7,
-    "steady": 1.1, "measured": 1.3, "calm": 1.8, "slow": 2.2, "languid": 2.6,
-    "meditative": 2.8, "contemplative": 2.8, "gentle": 2.0, "patient": 2.4,
-    "epic": 1.4, "cinematic": 1.3, "dramatic": 1.2, "moody": 1.6, "atmospheric": 1.8,
+    "frenetic": 0.42,
+    "frantic": 0.42,
+    "hyper": 0.45,
+    "chaotic": 0.45,
+    "rapid": 0.5,
+    "fast": 0.55,
+    "punchy": 0.55,
+    "snappy": 0.55,
+    "energetic": 0.6,
+    "hype": 0.55,
+    "kinetic": 0.55,
+    "quick": 0.6,
+    "upbeat": 0.7,
+    "brisk": 0.7,
+    "steady": 1.1,
+    "measured": 1.3,
+    "calm": 1.8,
+    "slow": 2.2,
+    "languid": 2.6,
+    "meditative": 2.8,
+    "contemplative": 2.8,
+    "gentle": 2.0,
+    "patient": 2.4,
+    "epic": 1.4,
+    "cinematic": 1.3,
+    "dramatic": 1.2,
+    "moody": 1.6,
+    "atmospheric": 1.8,
 }
 
 #: Look vocabulary → grade preset (see craft.color.LOOKS).
 LOOK_WORDS: dict[str, str] = {
-    "teal": "blockbuster", "orange": "blockbuster", "blockbuster": "blockbuster",
-    "action": "blockbuster", "summer": "blockbuster",
-    "noir": "noir", "black and white": "noir", "monochrome": "noir", "b&w": "noir",
-    "moody": "moody", "brooding": "moody", "somber": "moody", "sombre": "moody",
-    "cold": "steel", "steel": "steel", "clinical": "steel", "bleak": "steel",
-    "nolan": "steel", "heist": "steel", "thriller": "steel",
-    "warm": "amber", "amber": "amber", "golden": "amber", "nostalgic": "amber",
-    "spielberg": "amber", "wonder": "amber", "summer evening": "amber",
-    "neon": "neon", "cyberpunk": "neon", "synthwave": "neon", "night city": "neon",
-    "vintage": "kodak", "film": "kodak", "16mm": "kodak", "35mm": "kodak",
-    "retro": "kodak", "analog": "kodak", "analogue": "kodak",
-    "bleach": "bleach-bypass", "gritty": "bleach-bypass", "war": "bleach-bypass",
-    "dreamy": "bloom", "ethereal": "bloom", "soft": "bloom", "romantic": "bloom",
-    "vibrant": "punch", "punchy": "punch", "bold": "punch", "pop": "punch",
-    "desert": "desert", "arid": "desert", "western": "desert",
-    "underwater": "aqua", "ocean": "aqua", "aquatic": "aqua",
+    "teal": "blockbuster",
+    "orange": "blockbuster",
+    "blockbuster": "blockbuster",
+    "action": "blockbuster",
+    "summer": "blockbuster",
+    "noir": "noir",
+    "black and white": "noir",
+    "monochrome": "noir",
+    "b&w": "noir",
+    "moody": "moody",
+    "brooding": "moody",
+    "somber": "moody",
+    "sombre": "moody",
+    "cold": "steel",
+    "steel": "steel",
+    "clinical": "steel",
+    "bleak": "steel",
+    "nolan": "steel",
+    "heist": "steel",
+    "thriller": "steel",
+    "warm": "amber",
+    "amber": "amber",
+    "golden": "amber",
+    "nostalgic": "amber",
+    "spielberg": "amber",
+    "wonder": "amber",
+    "summer evening": "amber",
+    "neon": "neon",
+    "cyberpunk": "neon",
+    "synthwave": "neon",
+    "night city": "neon",
+    "vintage": "kodak",
+    "film": "kodak",
+    "16mm": "kodak",
+    "35mm": "kodak",
+    "retro": "kodak",
+    "analog": "kodak",
+    "analogue": "kodak",
+    "bleach": "bleach-bypass",
+    "gritty": "bleach-bypass",
+    "war": "bleach-bypass",
+    "dreamy": "bloom",
+    "ethereal": "bloom",
+    "soft": "bloom",
+    "romantic": "bloom",
+    "vibrant": "punch",
+    "punchy": "punch",
+    "bold": "punch",
+    "pop": "punch",
+    "desert": "desert",
+    "arid": "desert",
+    "western": "desert",
+    "underwater": "aqua",
+    "ocean": "aqua",
+    "aquatic": "aqua",
 }
 
 STYLE_WORDS: dict[str, str] = {
-    "trailer": "trailer", "teaser": "trailer",
-    "music video": "music-video", "montage": "montage", "recap": "montage",
-    "documentary": "documentary", "doc": "documentary", "interview": "documentary",
-    "vlog": "vlog", "day in the life": "vlog",
-    "advert": "commercial", "ad": "commercial", "commercial": "commercial", "brand": "commercial",
-    "travel": "travel", "highlight": "highlights", "highlights": "highlights",
-    "tutorial": "explainer", "explainer": "explainer", "how to": "explainer",
+    "trailer": "trailer",
+    "teaser": "trailer",
+    "music video": "music-video",
+    "montage": "montage",
+    "recap": "montage",
+    "documentary": "documentary",
+    "doc": "documentary",
+    "interview": "documentary",
+    "vlog": "vlog",
+    "day in the life": "vlog",
+    "advert": "commercial",
+    "ad": "commercial",
+    "commercial": "commercial",
+    "brand": "commercial",
+    "travel": "travel",
+    "highlight": "highlights",
+    "highlights": "highlights",
+    "tutorial": "explainer",
+    "explainer": "explainer",
+    "how to": "explainer",
 }
 
 
@@ -88,9 +162,9 @@ def _energy(arc: str, position: float) -> float:
         return 0.92 - 0.7 * p**0.8
     # hook-drop: the shape almost every good short-form edit actually has.
     if p < 0.12:
-        return 0.88                       # the hook, at full tilt
+        return 0.88  # the hook, at full tilt
     if p < 0.28:
-        return 0.88 - 0.42 * ((p - 0.12) / 0.16)   # let it breathe
+        return 0.88 - 0.42 * ((p - 0.12) / 0.16)  # let it breathe
     return 0.46 + 0.5 * ((p - 0.28) / 0.72) ** 1.25  # build to the finish
 
 
@@ -138,7 +212,9 @@ class Brief:
 
     def describe(self) -> str:
         bits = [
-            f"style={self.style}", f"arc={self.arc}", f"look={self.look}",
+            f"style={self.style}",
+            f"arc={self.arc}",
+            f"look={self.look}",
             f"~{self.base_shot_length:.2f}s/shot",
         ]
         if self.duration:
@@ -240,7 +316,8 @@ def _first_match(text: str, table: dict[str, str]) -> str | None:
 def _pace(text: str) -> float | None:
     lowered = f" {text.lower()} "
     hits = [
-        length for word, length in PACE_WORDS.items()
+        length
+        for word, length in PACE_WORDS.items()
         if re.search(rf"(?<![a-z]){re.escape(word)}(?![a-z])", lowered)
     ]
     if not hits:
@@ -291,9 +368,17 @@ def parse_brief(prompt: str, *, duration: float | None = None) -> Brief:
 
     base = _pace(prompt)
     if base is None:
-        base = {"trailer": 1.1, "documentary": 2.0, "explainer": 2.2, "vlog": 1.6,
-                "commercial": 0.8, "music-video": 0.6, "highlights": 0.7,
-                "travel": 1.4, "montage": 0.9}.get(style, 0.9)
+        base = {
+            "trailer": 1.1,
+            "documentary": 2.0,
+            "explainer": 2.2,
+            "vlog": 1.6,
+            "commercial": 0.8,
+            "music-video": 0.6,
+            "highlights": 0.7,
+            "travel": 1.4,
+            "montage": 0.9,
+        }.get(style, 0.9)
 
     brief = Brief(
         prompt=prompt,
@@ -307,15 +392,23 @@ def parse_brief(prompt: str, *, duration: float | None = None) -> Brief:
     )
 
     # Texture: film words earn grain, clean words remove it.
-    if any(word in lowered for word in ("grain", "film", "16mm", "35mm", "analog", "analogue", "vintage")):
+    if any(
+        word in lowered
+        for word in ("grain", "film", "16mm", "35mm", "analog", "analogue", "vintage")
+    ):
         brief.texture = 0.45
     elif any(word in lowered for word in ("clean", "crisp", "digital", "sharp", "pristine")):
         brief.texture = 0.0
 
-    if any(word in lowered for word in ("anamorphic", "widescreen", "2.35", "scope", "letterbox", "cinemascope")):
+    if any(
+        word in lowered
+        for word in ("anamorphic", "widescreen", "2.35", "scope", "letterbox", "cinemascope")
+    ):
         brief.letterbox = 0.11
 
-    if any(word in lowered for word in ("no transitions", "hard cuts", "straight cuts", "cuts only")):
+    if any(
+        word in lowered for word in ("no transitions", "hard cuts", "straight cuts", "cuts only")
+    ):
         brief.transitions = ("cut",)
     elif style in ("music-video", "highlights") or base < 0.7:
         brief.transitions = ("cut", "cut", "cut", "whip-left", "whip-right", "zoom-blur", "glitch")
@@ -326,9 +419,15 @@ def parse_brief(prompt: str, *, duration: float | None = None) -> Brief:
 
     if any(word in lowered for word in ("no music", "silent", "natural sound", "no soundtrack")):
         brief.beat_sync = False
-    if any(word in lowered for word in ("dialogue", "interview", "talking", "speech", "voice", "what they say")):
+    if any(
+        word in lowered
+        for word in ("dialogue", "interview", "talking", "speech", "voice", "what they say")
+    ):
         brief.keep_source_audio = True
-    if any(word in lowered for word in ("no speed", "real time", "realtime", "no slow motion", "constant speed")):
+    if any(
+        word in lowered
+        for word in ("no speed", "real time", "realtime", "no slow motion", "constant speed")
+    ):
         brief.ramps = False
 
     for phrase in ("ends on", "end on", "open on", "opens on", "start with", "finish on"):

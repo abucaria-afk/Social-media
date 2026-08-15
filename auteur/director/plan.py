@@ -51,7 +51,9 @@ def direct(
     if llm.available(settings):
         try:
             edl = llm.direct(
-                brief, dossiers, settings,
+                brief,
+                dossiers,
+                settings,
                 music_path=music.path if music else None,
                 music_analysis=music_analysis,
                 music_offset=offset,
@@ -80,7 +82,11 @@ def direct(
 
     log.info(
         "%s directed %d shots over %.2fs (grammar: %s)",
-        directed_by, len(edl.shots), edl.duration,
+        directed_by,
+        len(edl.shots),
+        edl.duration,
         ", ".join(f"{k}={v}" for k, v in report.items() if v),
     )
-    return Direction(edl=edl, directed_by=directed_by, grammar_report=report, fallback_reason=reason)
+    return Direction(
+        edl=edl, directed_by=directed_by, grammar_report=report, fallback_reason=reason
+    )

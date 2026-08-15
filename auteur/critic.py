@@ -113,9 +113,12 @@ def review(
     drift = runtime - target_duration
     if abs(drift) > max(1.5, target_duration * 0.12):
         critique.notes.append(
-            Note("runtime", f"{runtime:.1f}s against a {target_duration:.1f}s target",
-                 severity=min(abs(drift) / max(target_duration, 1e-6), 1.0) * 0.7,
-                 at=None)
+            Note(
+                "runtime",
+                f"{runtime:.1f}s against a {target_duration:.1f}s target",
+                severity=min(abs(drift) / max(target_duration, 1e-6), 1.0) * 0.7,
+                at=None,
+            )
         )
 
     # ---- dead air --------------------------------------------------------
@@ -128,7 +131,12 @@ def review(
     for index, (start, _, shot) in enumerate(edl.timeline(), start=1):
         if shot.duration < MIN_SHOT * 1.2:
             critique.notes.append(
-                Note("flash-frame", f"shot {index} is only {shot.duration:.2f}s", severity=0.5, at=start)
+                Note(
+                    "flash-frame",
+                    f"shot {index} is only {shot.duration:.2f}s",
+                    severity=0.5,
+                    at=start,
+                )
             )
 
     # ---- exposure continuity across cuts ---------------------------------
@@ -144,8 +152,11 @@ def review(
     if jumps:
         critique.measured["exposure_jumps"] = float(jumps)
         critique.notes.append(
-            Note("exposure", f"{jumps} cut(s) jump hard in brightness",
-                 severity=min(jumps / max(len(cuts), 1), 1.0) * 0.5)
+            Note(
+                "exposure",
+                f"{jumps} cut(s) jump hard in brightness",
+                severity=min(jumps / max(len(cuts), 1), 1.0) * 0.5,
+            )
         )
 
     # ---- rhythm ----------------------------------------------------------
@@ -166,8 +177,11 @@ def review(
             # two- or four-beat shot without gutting the cut, so uniformity is
             # a consequence of the length, not a fault.
             metronomic = len(multiples) < 3 and len(lengths) >= 8
-            detail = f"every shot is {multiples.pop()} beat(s) long" if len(multiples) == 1 else \
-                     f"only {len(multiples)} distinct shot lengths in beats"
+            detail = (
+                f"every shot is {multiples.pop()} beat(s) long"
+                if len(multiples) == 1
+                else f"only {len(multiples)} distinct shot lengths in beats"
+            )
         else:
             metronomic = variety < 0.25
             detail = f"only {len(set(lengths))} distinct shot lengths across {len(lengths)} shots"
@@ -184,8 +198,11 @@ def review(
             critique.measured["cuts_on_beat"] = on_beat
             if on_beat < 0.55:
                 critique.notes.append(
-                    Note("off-beat", f"only {on_beat * 100:.0f}% of cuts land on the beat",
-                         severity=0.55)
+                    Note(
+                        "off-beat",
+                        f"only {on_beat * 100:.0f}% of cuts land on the beat",
+                        severity=0.55,
+                    )
                 )
 
     # ---- the hook --------------------------------------------------------
@@ -196,7 +213,12 @@ def review(
         critique.measured["hook_motion"] = hook_motion
         if rest_motion > 1e-6 and hook_motion < rest_motion * 0.6:
             critique.notes.append(
-                Note("weak-hook", "the opening is quieter than the rest of the film", severity=0.6, at=0.0)
+                Note(
+                    "weak-hook",
+                    "the opening is quieter than the rest of the film",
+                    severity=0.6,
+                    at=0.0,
+                )
             )
 
     # ---- black frames ----------------------------------------------------
@@ -214,6 +236,7 @@ def review(
 # ---------------------------------------------------------------------------
 # Acting on the critique
 # ---------------------------------------------------------------------------
+
 
 def revise(
     edl: EditDecisionList,
@@ -244,9 +267,7 @@ def revise(
     for note in dead:
         if len(edl.shots) <= 3:
             break
-        victim = next(
-            (shot for start, end, shot in timeline if start <= note.at < end), None
-        )
+        victim = next((shot for start, end, shot in timeline if start <= note.at < end), None)
         if victim is not None and victim in edl.shots:
             edl.shots.remove(victim)
             changes.append(f"dropped the frozen shot at {note.at:.1f}s ({victim.clip_id})")
@@ -255,8 +276,14 @@ def revise(
     if any(note.rule == "weak-hook" for note in critique.notes) and len(edl.shots) > 2:
         # Promote the liveliest shot in the first third to the front.
         window = edl.shots[: max(2, len(edl.shots) // 3)]
-        best = max(window, key=lambda shot: dossiers[shot.clip_id].video.slice_stats(
-            shot.start, shot.end)["motion"] if shot.clip_id in dossiers else 0.0)
+        best = max(
+            window,
+            key=lambda shot: (
+                dossiers[shot.clip_id].video.slice_stats(shot.start, shot.end)["motion"]
+                if shot.clip_id in dossiers
+                else 0.0
+            ),
+        )
         if best is not edl.shots[0]:
             edl.shots.remove(best)
             edl.shots.insert(0, best)
