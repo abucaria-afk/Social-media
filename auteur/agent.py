@@ -236,6 +236,8 @@ def direct(
             on_progress=say.progress,
         )
         say.progress_done("done")
+        for warning in result.warnings:
+            say.warn(warning)
 
         primary = result.primary
         if primary is None:  # pragma: no cover - render always writes something

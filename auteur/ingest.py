@@ -166,6 +166,20 @@ def _duration(info: dict, stream: dict | None) -> float:
     return 0.0
 
 
+def _why_unreadable(stderr: str) -> str:
+    """What ffprobe's complaint means, in one plain line."""
+    text = " ".join((stderr or "").split())
+    if "moov atom not found" in text or "Invalid data found" in text:
+        return "not a video file, or the file is damaged"
+    if "No such file" in text:
+        return "the file went away while we were reading it"
+    if "Permission denied" in text:
+        return "no permission to read it"
+    if "Invalid argument" in text:
+        return "the file could not be opened"
+    return "it could not be read"
+
+
 def probe_asset(path: Path) -> MediaAsset | None:
     """Read one file's technical card. Returns None if it is not usable media."""
     kind = classify(path)
@@ -174,7 +188,10 @@ def probe_asset(path: Path) -> MediaAsset | None:
     try:
         info = ffmpeg.probe(path)
     except ffmpeg.FFmpegError as exc:
-        log.warning("skipping unreadable file %s (%s)", path.name, exc.stderr.strip()[:120])
+        # One line, in words. ffprobe's stderr is a paragraph of container
+        # internals with an absolute path in it, and truncating that to fit a
+        # log line produced messages that stopped mid-directory.
+        log.warning("skipping %s: %s", path.name, _why_unreadable(exc.stderr))
         return None
 
     video = _stream(info, "video")

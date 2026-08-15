@@ -310,6 +310,12 @@ rather than admitting them. The other direction — treating "auth is not set up
 as "everyone is allowed" — turns one missing line of start-up into a server
 quietly handing out the user's footage, with nothing in the log to say so.
 
+**One bad clip costs one shot, not the film.** A shot whose source window holds
+no frames — a fraction of a second of low-frame-rate footage, say — used to take
+the whole render down. It is dropped now, named in plain words, and the timeline
+is rebuilt around the gap. A folder of zero-byte files, truncated containers,
+text renamed to .mp4, 4K, 16x16 and 1fps clips still produces a film.
+
 **Nothing may fail quietly.** ffmpeg exits 0 for a filter graph that produced no
 frames, so a shot can render to a valid, empty file and only explode later, deep
 in the assembly, with an error naming neither the shot nor the cause. Every

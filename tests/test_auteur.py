@@ -31,7 +31,17 @@ from auteur.config import FORMATS, QUALITIES, Settings, Workspace, resolve_forma
 from auteur.craft import color, grammar, motion, sound, transitions
 from auteur.director.brief import parse_brief
 from auteur.director.heuristic import cut
-from auteur.edl import MIN_SHOT, EditDecisionList, Look, Motion, Ramp, Shot, Transition
+from auteur.edl import (
+    MIN_SHOT,
+    EditDecisionList,
+    Look,
+    Motion,
+    Ramp,
+    Shot,
+    SoundCue,
+    TextCue,
+    Transition,
+)
 from auteur.ingest import ingest, probe_asset
 
 # ---------------------------------------------------------------------------
@@ -792,7 +802,7 @@ def test_a_shot_that_renders_no_frames_is_reported_not_shipped(rushes, tmp_path)
             shot, 0, space, FORMATS["square"], QUALITIES["draft"], want_audio=False
         )
     except ffmpeg.FFmpegError as exc:
-        assert "C01" in str(exc) and "no frames" in str(exc)
+        assert "no frames" in str(exc)
     else:
         # If ffmpeg did find a frame, the guard must agree the file is usable.
         assert render._has_video(path)
@@ -2172,3 +2182,97 @@ def test_a_dropped_connection_is_not_an_error(caplog):
         except ConnectionResetError:
             fake.handle_error(None, ("127.0.0.1", 1234))
     assert "went away" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Surviving bad footage
+# ---------------------------------------------------------------------------
+
+
+def test_removing_a_shot_leaves_a_legal_film():
+    """The assembly reads shots and segments positionally, so when a segment is
+    dropped the timeline has to shrink to match it."""
+    edl = EditDecisionList(title="t")
+    for index in range(5):
+        edl.shots.append(
+            Shot(
+                clip_id=f"C{index}",
+                source=Path("/tmp/a.mp4"),
+                start=0.0,
+                end=1.0,
+                transition_in=Transition("cut", 0.0) if index == 0 else Transition("dissolve", 0.3),
+            )
+        )
+    edl.texts.append(TextCue(text="late", start=4.5, duration=0.5))
+    edl.sfx.append(SoundCue("whoosh", at=4.6))
+
+    reduced = edl.without_shots([0, 3])
+    assert [shot.clip_id for shot in reduced.shots] == ["C1", "C2", "C4"]
+    # Whatever is first now cannot dissolve out of something that is gone.
+    assert reduced.shots[0].transition_in.is_cut
+    # Text and effects timed past the new, shorter end are dropped.
+    assert reduced.texts == [] and reduced.sfx == []
+    # And the original is untouched.
+    assert len(edl.shots) == 5 and not edl.shots[1].transition_in.is_cut
+
+
+def test_removing_every_shot_is_allowed_but_empty():
+    edl = EditDecisionList(title="t")
+    edl.shots.append(Shot(clip_id="C0", source=Path("/tmp/a.mp4"), start=0.0, end=1.0))
+    assert edl.without_shots([0]).shots == []
+
+
+@pytest.mark.slow
+def test_one_unrenderable_shot_does_not_lose_the_film(rushes, tmp_path):
+    """A shot whose source window holds no frames — a fraction of a second of
+    low-frame-rate footage — used to take the whole render down with it. The
+    module's own docstring promises one bad clip costs one segment."""
+    from auteur import ffmpeg as ff
+    from auteur import render
+
+    space = Workspace(tmp_path / "work")
+    edl = EditDecisionList(title="survivor")
+    for index in range(3):
+        edl.shots.append(
+            Shot(
+                clip_id="C01",
+                source=rushes / "a_wide.mp4",
+                start=index * 0.8,
+                end=index * 0.8 + 0.7,
+            )
+        )
+    # A window past the end of the clip: nothing to decode.
+    edl.shots.insert(2, Shot(clip_id="C99", source=rushes / "a_wide.mp4", start=3.999, end=4.0))
+
+    result = render.render(
+        edl,
+        space,
+        Settings(quality=QUALITIES["draft"]),
+        formats=(FORMATS["square"],),
+        name="survivor",
+    )
+
+    assert result.primary is not None and result.primary.exists()
+    assert any("dropped shot" in warning for warning in result.warnings)
+    probed = ff.probe(result.primary)
+    assert any(s.get("codec_type") == "video" for s in probed["streams"])
+
+
+def test_an_unreadable_file_is_explained_in_words():
+    """ffprobe's stderr is a paragraph of container internals with an absolute
+    path in it. Truncating that to fit a log line produced messages that
+    stopped mid-directory."""
+    from auteur.ingest import _why_unreadable
+
+    long_path = "/very/long/path/" + "x" * 200 + "/clip.mp4"
+    assert _why_unreadable(f"[mov,mp4] moov atom not found\n{long_path}") == (
+        "not a video file, or the file is damaged"
+    )
+    assert _why_unreadable("x: Invalid data found when processing input") == (
+        "not a video file, or the file is damaged"
+    )
+    assert "permission" in _why_unreadable("Permission denied")
+    assert _why_unreadable("") == "it could not be read"
+    for stderr in ("", "anything at all", "moov atom not found"):
+        assert "\n" not in _why_unreadable(stderr)
+        assert len(_why_unreadable(stderr)) < 60

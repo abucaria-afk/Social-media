@@ -212,8 +212,8 @@ def render_shot(
         raise ffmpeg.FFmpegError(
             args,
             0,
-            f"shot {index + 1} ({shot.clip_id}) rendered no frames from "
-            f"{shot.source.name} [{shot.start:.2f}s-{shot.end:.2f}s]",
+            # The caller names the shot; this says only why.
+            f"no frames in {shot.source.name} " f"between {shot.start:.2f}s and {shot.end:.2f}s",
         )
     return destination
 
@@ -591,25 +591,35 @@ def render(
         # before the loop advances, so the closure is correct today, but a
         # closure over a loop variable is one refactor away from rendering
         # every format into the last format's frame.
-        def one(item: tuple[int, Shot], fmt: DeliveryFormat = fmt) -> tuple[int, Path]:
+        def one(item: tuple[int, Shot], fmt: DeliveryFormat = fmt) -> tuple[int, Path | None]:
+            """Render one shot, or report that it could not be rendered.
+
+            A failure here returns None rather than raising. The module docstring
+            promises that one unusable clip costs one segment and not the whole
+            film, and it did not: a single shot whose source window happened to
+            contain no frames — a 0.44s cut of 1fps footage, say — took the
+            entire render down with it.
+            """
             index, shot = item
             try:
                 path = render_shot(shot, index, workspace, fmt, quality, want_audio=want_audio)
             except ffmpeg.FFmpegError as exc:
+                reason = (exc.stderr or str(exc)).strip().splitlines()
                 message = (
-                    f"shot {index + 1} ({shot.clip_id}) failed to render: "
-                    f"{exc.stderr.strip()[-200:]}"
+                    f"dropped shot {index + 1} ({shot.clip_id}): "
+                    f"{reason[-1][:160] if reason else 'it would not render'}"
                 )
-                log.error("%s", message)
+                log.info("%s", message)
                 with lock:
                     result.warnings.append(message)
-                raise
+                return index, None
             return index, path
 
+        rendered: list[Path | None] = [None] * len(shots)
         if workers > 1:
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
                 for index, path in pool.map(one, shots):
-                    segments[index] = path
+                    rendered[index] = path
                     with lock:
                         done += 1
                         finished = done
@@ -617,13 +627,25 @@ def render(
         else:
             for item in shots:
                 index, path = one(item)
-                segments[index] = path
+                rendered[index] = path
                 done += 1
                 report(f"shot {index + 1} of {len(shots)}{suffix}")
 
+        # Assemble from whatever survived. The EDL is reduced to match, because
+        # the assembly reads shots and segments positionally.
+        kept = [index for index, path in enumerate(rendered) if path is not None]
+        if not kept:
+            raise RuntimeError("no shot could be rendered; the footage may be unreadable")
+        segments = [rendered[index] for index in kept]  # type: ignore[misc]
+        cut = (
+            edl
+            if len(kept) == len(shots)
+            else edl.without_shots([index for index in range(len(shots)) if index not in set(kept)])
+        )
+
         report(f"putting it together{suffix}")
         destination = workspace.output / f"{stem}-{fmt.name}.mp4"
-        _assemble(edl, segments, workspace, fmt, quality, destination, want_audio=want_audio)
+        _assemble(cut, segments, workspace, fmt, quality, destination, want_audio=want_audio)
         done += 1
         report(f"putting it together{suffix}")
 

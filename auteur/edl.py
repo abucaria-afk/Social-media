@@ -471,6 +471,29 @@ class EditDecisionList:
 
     # ------------------------------------------------------------ (de)serialise
 
+    def without_shots(self, drop: Iterable[int]) -> EditDecisionList:
+        """A copy of the film with some shots removed.
+
+        Used when a shot cannot be rendered: the assembly reads shots and
+        segments positionally, so the timeline has to shrink to match the
+        segments that actually exist. The film re-opens on a cut — the shot now
+        first may have been carrying a dissolve into something that is gone.
+        """
+        import copy
+
+        gone = set(drop)
+        keep = [shot for index, shot in enumerate(self.shots) if index not in gone]
+        reduced = copy.copy(self)
+        reduced.shots = keep
+        if keep:
+            reduced.shots[0] = copy.copy(keep[0])
+            reduced.shots[0].transition_in = Transition("cut", 0.0)
+        # Text and effects are timed against a timeline that just got shorter.
+        runtime = reduced.duration
+        reduced.texts = [cue for cue in self.texts if cue.start < runtime - 0.15]
+        reduced.sfx = [cue for cue in self.sfx if 0.0 <= cue.at < runtime]
+        return reduced
+
     def to_json(self) -> dict:
         def shot_json(shot: Shot) -> dict:
             return {
