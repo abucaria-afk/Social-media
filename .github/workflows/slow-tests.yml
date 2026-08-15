@@ -1,0 +1,30 @@
+name: Slow tests (scheduled / manual)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * 0' # weekly
+
+jobs:
+  slow-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install system ffmpeg
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run slow tests
+        run: |
+          pytest -q -m slow
