@@ -442,12 +442,16 @@ def read_asset(path: str | Path, *, samples: int = 5) -> Reading:
     if asset.kind == "image":
         frames = [_load_image(file)]
     else:
-        frames = []
-        stream = ff.read_frames(file, fps=max(0.2, samples / max(asset.duration, 1.0)), width=320)
-        for frame in stream:
-            frames.append(frame)
-            if len(frames) >= samples:
-                break
+        # `color=True` matters: half of what a reading reports — palette, hue,
+        # hue spread — does not exist in a luma stream, and the default is luma.
+        stream = ff.read_frames(
+            file,
+            fps=max(0.2, samples / max(asset.duration, 1.0)),
+            width=320,
+            color=True,
+            max_frames=max(1, samples),
+        )
+        frames = [stream.frames[i].astype(np.float32) / 255.0 for i in range(len(stream))][:samples]
     if not frames:
         raise ValueError(f"no frames could be read from {file.name}")
 

@@ -151,20 +151,57 @@ def _spread(values: Sequence[float]) -> float:
     return float(statistics.pstdev(values)) if len(values) > 1 else 0.0
 
 
-def measure(paths: Sequence[str | Path], *, analysis_fps: float = 8.0) -> StyleTarget:
+def _cuts_at_full_rate(ff, file: Path, duration: float, fps: float) -> tuple[list[float], bool]:
+    """Cut times, and whether the sampling could resolve them.
+
+    Separate from the dossier's own `shot_boundaries` because that list is built
+    for a different question — where may this program safely cut into somebody
+    else's footage — and its 350ms refractory period is right for that and
+    wrong for describing a montage. One decode serves both answers.
+    """
+    from ..analysis.video import _detect_shots, resolves_cutting
+    import numpy as np
+
+    stream = ff.read_frames(file, width=128, fps=fps, max_frames=4000)
+    frames = stream.frames
+    if frames.ndim == 4:
+        frames = frames[..., 0]
+    if len(frames) < 4:
+        return [], True
+    motion = np.concatenate(
+        [[0.0], np.abs(np.diff(frames.astype(np.float32) / 255.0, axis=0)).mean(axis=(1, 2))]
+    ).astype(np.float32)
+    # Two frames is the shortest join anyone can perceive as a cut rather than
+    # a flicker, so that is the floor rather than a round number of milliseconds.
+    cuts = [c for c in _detect_shots(frames, motion, fps, min_gap=2.0 / fps) if c < duration]
+    return cuts, resolves_cutting(frames, motion)
+
+
+def measure(paths: Sequence[str | Path], *, analysis_fps: float = 24.0) -> StyleTarget:
     """Watch some footage and describe how it was cut.
 
     Uses the project's own analysis rather than anything special: the same
     shot-boundary detection that finds the cuts already inside your rushes
     finds the cuts in a reference reel, because they are the same problem.
+
+    It is sampled far faster than a dossier normally is, and with a much shorter
+    refractory period, because the two jobs want opposite things. Reading your
+    own rushes, a 350ms floor is a feature — it stops one cut being counted as
+    three. Reading a reference, it is a ceiling on what can be reported, and
+    short-form montages routinely cut every four frames. Measured at eight
+    frames a second with the default floor, a reel cutting six times a second
+    reports as *meditative*, which is not a small error but an inversion: the
+    director would be told to slow down by the fastest thing in the room.
     """
     from ..analysis.dossier import build_dossier
+    from .. import ffmpeg as ff
     from ..ingest import probe_asset
 
     import numpy as np
 
     per_clip: list[dict] = []
     names: list[str] = []
+    under_resolved: list[str] = []
     for path in paths:
         file = Path(path)
         asset = probe_asset(file)
@@ -173,7 +210,9 @@ def measure(paths: Sequence[str | Path], *, analysis_fps: float = 8.0) -> StyleT
             continue
         dossier = build_dossier(file.stem[:8], asset, analysis_fps=analysis_fps, analysis_width=160)
         video = dossier.video
-        cuts = [float(c) for c in video.shot_boundaries]
+        cuts, resolved = _cuts_at_full_rate(ff, file, asset.duration, analysis_fps)
+        if not resolved:
+            under_resolved.append(file.name)
         duration = asset.duration
         lengths = list(np.diff([0.0, *cuts, duration])) if cuts else [duration]
 
@@ -194,6 +233,13 @@ def measure(paths: Sequence[str | Path], *, analysis_fps: float = 8.0) -> StyleT
 
     if not per_clip:
         return StyleTarget()
+    for name in under_resolved:
+        log.warning(
+            "%s cuts faster than %.0f frames a second can resolve; its pace is a floor, "
+            "not a measurement",
+            name,
+            analysis_fps,
+        )
 
     def across(key: str) -> float:
         return _median([clip[key] for clip in per_clip])

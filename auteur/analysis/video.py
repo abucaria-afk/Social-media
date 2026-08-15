@@ -202,12 +202,26 @@ def _smooth_track(track: np.ndarray, window: int = 5) -> np.ndarray:
     ).astype(np.float32)
 
 
-def _detect_shots(frames: np.ndarray, motion: np.ndarray, fps: float) -> list[float]:
+def _detect_shots(
+    frames: np.ndarray, motion: np.ndarray, fps: float, *, min_gap: float = 0.35
+) -> list[float]:
     """Find hard cuts already present in the source.
 
     Handed a pre-edited clip, the agent must not treat it as one continuous
     shot — it would cut across someone else's cut. Compares both frame
     difference and luma histograms, and only fires where both agree.
+
+    `min_gap` is the refractory period: two "cuts" closer together than this are
+    one cut plus its rattle. The default suits rushes. Measuring a *reference*
+    reel needs it much smaller, because short-form montages really do cut every
+    four frames, and a 350ms floor caps what can be reported at under three cuts
+    a second — which would quietly misdescribe the very styles worth copying.
+
+    The threshold is a median plus a MAD rather than a mean plus a standard
+    deviation. With a mean, a clip where most sampled frames are boundaries
+    pulls its own threshold above every one of them and the function returns no
+    cuts at all — confidently claiming a six-cuts-a-second montage is one
+    continuous take, which is the exact mistake this exists to prevent.
     """
     n = len(frames)
     if n < 4 or fps <= 0:
@@ -227,17 +241,36 @@ def _detect_shots(frames: np.ndarray, motion: np.ndarray, fps: float) -> list[fl
     hist_delta, pixel_delta = hist_delta[:size], _normalise(pixel_delta[:size])
 
     score = hist_delta * 0.6 + pixel_delta * 0.4
-    threshold = max(float(score.mean() + 2.5 * score.std()), 0.28)
+    median = float(np.median(score))
+    mad = float(np.median(np.abs(score - median))) or 1e-6
+    threshold = max(median + 4.0 * mad * 1.4826, 0.28)
 
     boundaries: list[float] = []
     last = -1e9
     for index in np.flatnonzero(score > threshold):
         time = float(index + 1) / fps
-        # Two "cuts" 200ms apart are one cut plus its rattle.
-        if time - last > 0.35:
+        if time - last > min_gap:
             boundaries.append(round(time, 3))
             last = time
     return boundaries
+
+
+def resolves_cutting(frames: np.ndarray, motion: np.ndarray) -> bool:
+    """Is the sample rate fast enough to describe how this was cut?
+
+    When most consecutive sampled frames come from different shots there is no
+    quiet bed left for a boundary to stand out against, and any detector — this
+    one included — will under-report. The answer is to sample faster, so say so
+    rather than hand back a number that reads as measurement.
+    """
+    if len(frames) < 4 or len(motion) < 2:
+        return True
+    hist = np.stack(
+        [np.bincount((f.ravel() // 8).astype(np.int64), minlength=32)[:32] for f in frames]
+    ).astype(np.float32)
+    hist /= hist.sum(axis=1, keepdims=True).clip(1e-6)
+    delta = np.abs(np.diff(hist, axis=0)).sum(axis=1) * 0.5
+    return float(np.mean(delta > 0.28)) < 0.4
 
 
 def _colour_profile(asset: MediaAsset, analysis_fps: float) -> tuple:

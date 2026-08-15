@@ -55,6 +55,28 @@ MOTIONS = {
 }
 REFRAMES = {"subject", "center", "fill", "blur-pad"}
 TEXT_STYLES = {"title", "kinetic", "lower-third", "caption", "end-card", "chapter"}
+#: Drawn graphics — everything on screen that is not type.
+GRAPHIC_KINDS = {
+    "circle",  # ring around the subject
+    "arrow",  # points from somewhere to somewhere
+    "underline",  # a stroke under a line of type
+    "highlight",  # a marker swipe behind type
+    "bracket",  # viewfinder corners around a subject
+    "burst",  # radiating lines, one hit
+    "progress",  # a bar that fills as the film runs
+    "tape",  # a torn strip, decorative
+    "sticker",  # a PNG the user supplied
+}
+#: How a graphic behaves over its life.
+GRAPHIC_MOVES = {
+    "none",
+    "pop",  # overshoot in, settle
+    "pulse",  # breathe
+    "drift",  # travel slowly
+    "sweep",  # wipe on left to right
+    "wiggle",  # rotational jitter, sticker-ish
+    "draw",  # the stroke draws itself
+}
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -298,6 +320,61 @@ class TextCue:
 
 
 @dataclass
+class GraphicCue:
+    """A drawn thing on screen: a shape, an arrow, a bar, or the user's sticker.
+
+    Graphics carry no words. They exist to move the eye and to give it a reason
+    to stay: a ring lands attention on the subject faster than the subject can
+    earn it, a filling bar tells the viewer the end is reachable, an arrow
+    resolves an ambiguous frame in a third of a second. All of them are drawn
+    here with Pillow — nothing is fetched, so nothing carries a licence.
+    """
+
+    kind: str = "circle"
+    start: float = 0.0
+    duration: float = 1.5
+    #: Normalised position of the graphic's pivot.
+    anchor: tuple[float, float] = (0.5, 0.5)
+    #: Second point, for the kinds that span a distance (arrow, underline,
+    #: highlight). None means the kind picks a sensible span from the anchor.
+    toward: tuple[float, float] | None = None
+    size: float = 1.0  # relative to the kind's default
+    color: str = "#FFFFFF"
+    move: str = "pop"
+    #: 0..1. How solid it sits over the picture.
+    opacity: float = 1.0
+    #: A transparent PNG the user dropped in, for kind == "sticker".
+    source: Path | None = None
+    #: Why it is there, for the timeline printout.
+    note: str = ""
+
+    def normalise(self) -> GraphicCue:
+        self.kind = (self.kind or "circle").strip().lower()
+        if self.kind not in GRAPHIC_KINDS:
+            self.kind = "circle"
+        self.move = (self.move or "pop").strip().lower()
+        if self.move not in GRAPHIC_MOVES:
+            self.move = "pop"
+        self.start = max(0.0, self.start)
+        self.duration = _clamp(self.duration, 0.2, 60.0)
+        self.anchor = (_clamp(self.anchor[0], 0.02, 0.98), _clamp(self.anchor[1], 0.02, 0.98))
+        if self.toward is not None:
+            self.toward = (
+                _clamp(self.toward[0], 0.02, 0.98),
+                _clamp(self.toward[1], 0.02, 0.98),
+            )
+        self.size = _clamp(self.size, 0.2, 4.0)
+        self.opacity = _clamp(self.opacity, 0.05, 1.0)
+        if self.source is not None:
+            self.source = Path(self.source)
+        return self
+
+    @property
+    def end(self) -> float:
+        return self.start + self.duration
+
+
+@dataclass
 class MusicCue:
     """The bed the whole thing is cut to."""
 
@@ -329,6 +406,7 @@ class EditDecisionList:
     title: str = "untitled"
     shots: list[Shot] = field(default_factory=list)
     texts: list[TextCue] = field(default_factory=list)
+    graphics: list[GraphicCue] = field(default_factory=list)
     music: MusicCue = field(default_factory=MusicCue)
     sfx: list[SoundCue] = field(default_factory=list)
     look: Look = field(default_factory=Look)
@@ -460,6 +538,19 @@ class EditDecisionList:
             kept.append(cue)
         self.texts = kept
 
+        drawn: list[GraphicCue] = []
+        for cue in self.graphics:
+            cue.normalise()
+            if cue.kind == "sticker" and (cue.source is None or not Path(cue.source).exists()):
+                notes.append("dropped a sticker: its file is not there")
+                continue
+            if cue.start >= runtime - 0.1:
+                notes.append(f"dropped a {cue.kind}: it starts after the film ends")
+                continue
+            cue.duration = min(cue.duration, runtime - cue.start)
+            drawn.append(cue)
+        self.graphics = drawn
+
         self.sfx = [cue for cue in self.sfx if 0.0 <= cue.at < runtime]
         self.look = self.look.normalise()
         self.texture = _clamp(self.texture, 0.0, 1.0)
@@ -491,6 +582,7 @@ class EditDecisionList:
         # Text and effects are timed against a timeline that just got shorter.
         runtime = reduced.duration
         reduced.texts = [cue for cue in self.texts if cue.start < runtime - 0.15]
+        reduced.graphics = [cue for cue in self.graphics if cue.start < runtime - 0.1]
         reduced.sfx = [cue for cue in self.sfx if 0.0 <= cue.at < runtime]
         return reduced
 
@@ -548,6 +640,22 @@ class EditDecisionList:
                 }
                 for cue in self.texts
             ],
+            "graphics": [
+                {
+                    "kind": cue.kind,
+                    "start": round(cue.start, 3),
+                    "duration": round(cue.duration, 3),
+                    "anchor": list(cue.anchor),
+                    "toward": list(cue.toward) if cue.toward else None,
+                    "size": round(cue.size, 3),
+                    "color": cue.color,
+                    "move": cue.move,
+                    "opacity": round(cue.opacity, 3),
+                    "source": str(cue.source) if cue.source else None,
+                    "note": cue.note,
+                }
+                for cue in self.graphics
+            ],
             "music": {
                 "source": str(self.music.source) if self.music.source else None,
                 "offset": round(self.music.offset, 3),
@@ -598,6 +706,10 @@ class EditDecisionList:
             )
         for cue in self.texts:
             lines.append(f'  text @{cue.start:6.2f} ({cue.style}): "{cue.text}"')
+        for cue in self.graphics:
+            where = f"({cue.anchor[0]:.2f}, {cue.anchor[1]:.2f})"
+            why = f"  — {cue.note}" if cue.note else ""
+            lines.append(f"  {cue.kind:>9} @{cue.start:6.2f} {cue.move} at {where}{why}")
         if self.music.source:
             lines.append(f"  music: {Path(self.music.source).name} @{self.music.gain:.2f}")
         if self.sfx:
