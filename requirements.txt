@@ -1,5 +1,5 @@
 # auteur — the video editor agent (see AUTEUR.md)
-numpy>=1.24
+numpy>=2.2.6
 pillow>=10.0
 
 # ffmpeg + ffprobe as a wheel. Skip if you already have a system ffmpeg built
