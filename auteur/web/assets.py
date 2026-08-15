@@ -25,7 +25,7 @@ SIZES = (180, 192, 512)
 
 INK = theme.rgb_of("ground")
 AMBER = theme.rgb_of("ember")
-PAPER = theme.rgb_of("paper")
+PAPER = theme.rgb_of("text")
 
 
 def _mix(over: tuple[int, int, int], under: tuple[int, int, int], amount: float) -> tuple[int, ...]:

@@ -115,6 +115,52 @@ and says so rather than showing a button that would do nothing.
 
 Renders run one at a time, and finished jobs are swept after six hours.
 
+### Signing in
+
+The first run creates one account and prints its username. Everything behind
+the sign-in page is closed without it — including finished films and production
+notes, which are your own footage.
+
+- **Forgot your password?** The sign-in page has a link. It asks for your
+  username or email and sends a link that works once, for 30 minutes. With no
+  mail server configured the link is printed in the window where `serve` is
+  running, which for a tool on your own machine is the right default: whoever
+  can read that console is the person who owns the account. To send real email
+  instead, set `AUTEUR_SMTP_HOST`, `AUTEUR_SMTP_PORT`, `AUTEUR_SMTP_USER`,
+  `AUTEUR_SMTP_PASSWORD` and `AUTEUR_SMTP_FROM`.
+- Five wrong passwords lock the account for fifteen minutes.
+- Changing a password signs every other device out.
+- The reply to "I forgot my password" is identical whether or not the account
+  exists, so the page cannot be used to discover which addresses have one.
+
+```bash
+python -m auteur account            # who can sign in
+python -m auteur account password   # change one (asks, never echoes)
+python -m auteur account add        # another person
+```
+
+Passwords are stored as salted scrypt hashes (n=2¹⁵, ~0.1s and 32MB a guess) in
+`<serve folder>/accounts.json` — outside the repository, and gitignored. Session
+tokens are stored hashed too, so a copy of that file cannot be replayed.
+
+To start from your own credentials and inherit nothing from version control:
+
+```bash
+AUTEUR_USERNAME=me AUTEUR_EMAIL=me@example.com AUTEUR_PASSWORD=... python -m auteur serve
+```
+
+### Light, dark, or whatever the phone is doing
+
+The bottom of every screen has an **Appearance** switch: *Automatic*, *Light*,
+*Dark*. Automatic is the default and follows the phone's own setting; the other
+two override it and are remembered. The choice is applied by a small script in
+`<head>` before the stylesheet loads, so the page never flashes the wrong theme
+on the way in.
+
+Both palettes come from the same photographs — the dark one from the shadow, the
+light one from the torch-lit side — so switching changes the exposure rather than
+the identity. A test asserts every text/background pair in *both* clears WCAG AA.
+
 ### Every option
 
 ```bash
@@ -325,7 +371,12 @@ tests bind a real socket and exercise the routes as served, including the
   is used.
 - **The critic measures, it does not watch.** It can tell that a shot is frozen or
   that the film is off the beat. It cannot tell that the edit is boring.
-- **The phone app is for your own network.** There is no login, no TLS and no
-  rate limiting: anyone who can reach the port can post a render. It is meant to
-  be your laptop and your phone on the same wifi, and `--host 127.0.0.1` keeps it
-  to the one machine. Do not put it on a public address.
+- **The phone app is for your own network.** It has a sign-in, hashed passwords
+  and a lockout, but no TLS: on a plain `http://` LAN address the password and
+  the session cookie cross the wifi in the clear. That is fine for your own
+  network and not fine for a public one. `--host 127.0.0.1` keeps it to the one
+  machine; anything wider should sit behind a reverse proxy with a certificate.
+- **The seeded account's hash is in the repository.** It is scrypt, not a
+  password, but a hash is still worth guessing at if the repository ever stops
+  being private. `python -m auteur account password` replaces it for good, and
+  `AUTEUR_PASSWORD=...` on the first run means it is never used at all.

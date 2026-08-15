@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c0b0a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f1e6" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<meta name="robots" content="noindex">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Auteur">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="icon" href="/icon-192.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<script>
+  (function () {
+    try {
+      var mode = localStorage.getItem("auteur-theme");
+      if (mode === "light" || mode === "dark") {
+        document.documentElement.setAttribute("data-theme", mode);
+      }
+    } catch (e) { /* private mode */ }
+  })();
+</script>
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<title>Sign in — Auteur</title>
+</head>
+<body>
+
+<main id="app" class="narrow">
+
+  <header class="masthead">
+    <h1>Auteur</h1>
+    <p class="sub" id="subtitle">Sign in to make a film.</p>
+  </header>
+
+  <!-- 1. Sign in ------------------------------------------------------- -->
+  <section class="screen" id="screen-signin">
+    <form id="signin-form" novalidate>
+      <div class="card block">
+        <label class="card-title" for="username">Username or email</label>
+        <input type="text" id="username" name="username" autocomplete="username"
+               autocapitalize="none" autocorrect="off" spellcheck="false"
+               enterkeyhint="next" required>
+
+        <label class="card-title spaced" for="password">Password</label>
+        <div class="reveal">
+          <input type="password" id="password" name="password"
+                 autocomplete="current-password" enterkeyhint="go" required>
+          <button type="button" class="reveal-go" id="show-password"
+                  aria-label="Show password">Show</button>
+        </div>
+      </div>
+
+      <p class="error" id="signin-error" role="alert" hidden></p>
+      <button type="submit" class="go" id="signin-go">Sign in</button>
+      <button type="button" class="ghost" id="to-forgot">I forgot my password</button>
+    </form>
+  </section>
+
+  <!-- 2. Forgot -------------------------------------------------------- -->
+  <section class="screen" id="screen-forgot" hidden>
+    <form id="forgot-form" novalidate>
+      <div class="card block">
+        <span class="card-title">Reset your password</span>
+        <p class="card-hint">
+          Tell us the username or email on the account and we will send a link
+          that works for the next 30 minutes.
+        </p>
+        <label class="card-title spaced" for="forgot-who">Username or email</label>
+        <input type="text" id="forgot-who" name="who" autocomplete="username"
+               autocapitalize="none" autocorrect="off" spellcheck="false"
+               enterkeyhint="go" required>
+      </div>
+
+      <p class="notice" id="forgot-said" role="status" hidden></p>
+      <button type="submit" class="go" id="forgot-go">Send me a link</button>
+      <button type="button" class="ghost" id="back-to-signin">Back to signing in</button>
+    </form>
+  </section>
+
+  <!-- 3. Choose a new password ----------------------------------------- -->
+  <section class="screen" id="screen-reset" hidden>
+    <form id="reset-form" novalidate>
+      <div class="card block">
+        <span class="card-title">Choose a new password</span>
+        <p class="card-hint">At least 8 characters. Longer is better than cleverer.</p>
+        <label class="card-title spaced" for="new-password">New password</label>
+        <div class="reveal">
+          <input type="password" id="new-password" name="password"
+                 autocomplete="new-password" enterkeyhint="go" required>
+          <button type="button" class="reveal-go" id="show-new"
+                  aria-label="Show password">Show</button>
+        </div>
+      </div>
+
+      <p class="error" id="reset-error" role="alert" hidden></p>
+      <button type="submit" class="go" id="reset-go">Save it and sign in</button>
+    </form>
+  </section>
+
+  <div class="settings">
+    <span class="settings-label" id="appearance-label">Appearance</span>
+    <div class="choices" id="appearance" role="radiogroup" aria-labelledby="appearance-label">
+      <button type="button" class="choice is-on" data-value="system" role="radio" aria-checked="true">Automatic<small>match my phone</small></button>
+      <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
+      <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
+    </div>
+  </div>
+
+</main>
+
+<script src="/static/login.js"></script>
+</body>
+</html>

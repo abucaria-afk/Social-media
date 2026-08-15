@@ -42,6 +42,60 @@
   wireChoices($("shape"), function (value) { state.shape = value; });
   wireChoices($("seconds"), function (value) { state.seconds = value; });
 
+  // -- who is signed in -----------------------------------------------------
+
+  fetch("/api/session", { cache: "no-store" })
+    .then(function (response) { return response.json(); })
+    .then(function (payload) {
+      if (!payload.user) { window.location.href = "/login"; return; }
+      $("whoami-name").textContent = "Signed in as " + payload.user;
+      $("whoami").hidden = false;
+    })
+    .catch(function () { /* offline: the cached shell is still worth showing */ });
+
+  $("sign-out").addEventListener("click", function () {
+    fetch("/api/logout", { method: "POST", cache: "no-store" })
+      .catch(function () { /* going to the login page regardless */ })
+      .then(function () { window.location.href = "/login"; });
+  });
+
+  // -- appearance -----------------------------------------------------------
+
+  function applyTheme(mode) {
+    if (mode === "light" || mode === "dark") {
+      document.documentElement.setAttribute("data-theme", mode);
+    } else {
+      document.documentElement.removeAttribute("data-theme");
+    }
+    // Keep the status bar and the browser chrome in step with the page. The
+    // media-scoped <meta theme-color> tags cover the automatic case; an
+    // explicit choice needs the value written directly.
+    var colours = { dark: "#0c0b0a", light: "#f6f1e6" };
+    var bar = document.querySelector('meta[name="theme-color"]:not([media])');
+    if (mode === "system") {
+      if (bar) { bar.remove(); }
+    } else {
+      if (!bar) {
+        bar = document.createElement("meta");
+        bar.setAttribute("name", "theme-color");
+        document.head.appendChild(bar);
+      }
+      bar.setAttribute("content", colours[mode]);
+    }
+    try { localStorage.setItem("auteur-theme", mode); } catch (e) { /* private mode */ }
+  }
+
+  var savedTheme = "system";
+  try { savedTheme = localStorage.getItem("auteur-theme") || "system"; } catch (e) { /* */ }
+
+  wireChoices($("appearance"), applyTheme);
+  Array.prototype.forEach.call($("appearance").querySelectorAll(".choice"), function (button) {
+    var on = button.dataset.value === savedTheme;
+    button.classList.toggle("is-on", on);
+    button.setAttribute("aria-checked", on ? "true" : "false");
+  });
+  applyTheme(savedTheme);
+
   $("chips").addEventListener("click", function (event) {
     var chip = event.target.closest(".chip");
     if (!chip) { return; }

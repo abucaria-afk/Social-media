@@ -20,8 +20,9 @@ python -m auteur serve                       # then open the printed address on 
 ```
 
 `serve` puts the same agent behind a mobile web app you can add to the iPhone
-home screen: pick clips from the camera roll, say what you want, and save the
-finished film back to Photos.
+home screen — or install from Chrome on desktop and Android: pick clips from the
+camera roll, say what you want, and save the finished film back to Photos. It
+has its own sign-in with password reset, and a light/dark/automatic switch.
 
 It measures every clip frame by frame (motion, camera move, focus, exposure,
 colour, subject position), derives a beat grid from the music, cuts to it, grades

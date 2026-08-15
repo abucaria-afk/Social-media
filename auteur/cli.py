@@ -53,7 +53,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="show what it is doing internally (-vv for every ffmpeg call)")
 
     sub = parser.add_subparsers(dest="command", required=True,
-                                metavar="{edit,demo,serve,analyse,looks}")
+                                metavar="{edit,demo,serve,account,analyse,looks}")
 
     edit = sub.add_parser(
         "edit", help="make a film", epilog=EXAMPLES,
@@ -93,6 +93,15 @@ def _build_parser() -> argparse.ArgumentParser:
                        help="where uploads and finished films go (default ./auteur-web)")
     serve.add_argument("--quality", default="draft", choices=["draft", "standard", "best"],
                        help="draft keeps phone renders quick (default)")
+
+    account = sub.add_parser("account", help="who can sign in to the phone app")
+    account.add_argument("action", nargs="?", default="show",
+                         choices=["show", "add", "password"],
+                         help="show (default), add a person, or change a password")
+    account.add_argument("-o", "--out", default=None, metavar="FOLDER",
+                         help="the serve folder the accounts live in (default ./auteur-web)")
+    account.add_argument("-u", "--user", default=None, help="username")
+    account.add_argument("-e", "--email", default=None, help="email, for password resets")
 
     analyse = sub.add_parser("analyse", help="show what the agent sees in your footage")
     analyse.add_argument("paths", nargs="+", metavar="FOOTAGE")
@@ -258,6 +267,64 @@ def _run_serve(args: argparse.Namespace, say: Reporter) -> int:
     return 0
 
 
+def _run_account(args: argparse.Namespace, say: Reporter) -> int:
+    """Manage who can sign in, without anyone having to edit a JSON file."""
+    import getpass
+
+    from .web.auth import Accounts, password_problem
+
+    root = Path(args.out) if args.out else Path.cwd() / "auteur-web"
+    accounts = Accounts(Accounts.default_path(root))
+
+    if args.action == "show":
+        print()
+        print(f"  accounts in {accounts.path}")
+        print()
+        if accounts.empty:
+            print("     nobody yet — `auteur serve` creates the first one")
+        for account in accounts.accounts.values():
+            state = "  (locked)" if account.locked else ""
+            print(f"     {account.username:<24} {account.email}{state}")
+        print()
+        return 0
+
+    username = args.user or input("username: ").strip()
+    if not username:
+        say.failure("a username is needed")
+        return 2
+
+    if args.action == "add":
+        if accounts.get(username) is not None:
+            say.failure(f"{username} already exists", "use `auteur account password` instead")
+            return 1
+        email = args.email or input("email (for password resets): ").strip()
+    else:
+        existing = accounts.get(username)
+        if existing is None:
+            say.failure(f"no account called {username!r}")
+            return 1
+        username, email = existing.username, existing.email
+
+    # getpass so the password never lands in the shell history or the screen.
+    password = getpass.getpass("new password: ")
+    if password != getpass.getpass("again: "):
+        say.failure("those did not match")
+        return 1
+    problem = password_problem(password)
+    if problem:
+        say.failure("that password will not do", problem)
+        return 1
+
+    if args.action == "add":
+        accounts.add(username, email, password)
+        print(f"\n  added {username} <{email}>\n")
+    else:
+        accounts.set_password(accounts.get(username), password)
+        print(f"\n  changed the password for {username}"
+              f"\n  every signed-in device has been signed out\n")
+    return 0
+
+
 def _run_analyse(args: argparse.Namespace, say: Reporter) -> int:
     from .analysis import build_dossiers, find_music_bed
     from .ingest import ingest
@@ -331,6 +398,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_demo(args, say)
         if args.command == "serve":
             return _run_serve(args, say)
+        if args.command == "account":
+            return _run_account(args, say)
         if args.command == "analyse":
             return _run_analyse(args, say)
         if args.command == "looks":

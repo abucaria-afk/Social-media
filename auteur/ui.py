@@ -26,9 +26,9 @@ INDENT = "     "
 #: run in the phone app are recognisably the same program. Terminals that do not
 #: do 24-bit colour fall back to the plain bold/dim codes below.
 INK = {
-    "heading": "1;" + theme.ansi("paper"),
+    "heading": "1;" + theme.ansi("text"),
     "accent": theme.ansi("ember"),
-    "muted": theme.ansi("muted"),
+    "muted": theme.ansi("text_muted"),
     "good": "1;" + theme.ansi("moss"),
     "bad": "1;" + theme.ansi("rust"),
 }

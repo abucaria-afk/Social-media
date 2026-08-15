@@ -25,7 +25,7 @@ html, body {
   margin: 0;
   padding: 0;
   background: var(--ground);
-  color: var(--paper);
+  color: var(--text);
   font: 17px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-text-size-adjust: 100%;
   overscroll-behavior-y: none;
@@ -58,7 +58,7 @@ body {
   letter-spacing: -0.5px;
   font-weight: 700;
 }
-.masthead .sub { margin: 6px 0 0; color: var(--muted); font-size: 16px; }
+.masthead .sub { margin: 6px 0 0; color: var(--text-muted); font-size: 16px; }
 
 /* -- cards --------------------------------------------------------------- */
 
@@ -89,7 +89,7 @@ body {
   height: 26px;
   border-radius: 50%;
   background: var(--line);
-  color: var(--paper);
+  color: var(--text);
   font-size: 14px;
   font-weight: 700;
   display: flex;
@@ -99,14 +99,14 @@ body {
 
 .card-body { flex: 1 1 auto; min-width: 0; display: block; }
 .card-title { display: block; font-weight: 600; font-size: 17px; margin-bottom: 4px; }
-.card-hint { display: block; color: var(--muted); font-size: 14px; margin-top: 8px; }
+.card-hint { display: block; color: var(--text-muted); font-size: 14px; margin-top: 8px; }
 
 textarea {
   width: 100%;
   margin-top: 6px;
   padding: 12px;
   min-height: 56px;
-  color: var(--paper);
+  color: var(--text);
   background: var(--ground);
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -130,7 +130,7 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   border-radius: 999px;
   border: 1px solid var(--line);
   background: transparent;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 14px;
 }
 .chip:active { background: var(--line); }
@@ -143,7 +143,7 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   border-radius: 14px;
   border: 1px solid var(--line);
   background: transparent;
-  color: var(--paper);
+  color: var(--text);
   font-size: 15px;
   font-weight: 600;
   display: flex;
@@ -152,7 +152,7 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   justify-content: center;
   gap: 2px;
 }
-.choice small { font-weight: 400; font-size: 11px; color: var(--muted); }
+.choice small { font-weight: 400; font-size: 11px; color: var(--text-muted); }
 .choice.is-on {
   border-color: var(--ember);
   /* Flat fill first for anything older than Chrome 111 / Safari 16.2, which
@@ -160,7 +160,7 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   background: var(--raised);
   background: color-mix(in srgb, var(--ember) 14%, transparent);
 }
-.choice.is-on small { color: var(--ember); }
+.choice.is-on small { color: var(--ember-text); }
 
 /* -- buttons ------------------------------------------------------------- */
 
@@ -190,14 +190,14 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: transparent;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 16px;
   text-align: center;
   text-decoration: none;
   line-height: 46px;
 }
 
-.fineprint { margin: 12px 0 0; text-align: center; color: var(--muted); font-size: 13px; }
+.fineprint { margin: 12px 0 0; text-align: center; color: var(--text-muted); font-size: 13px; }
 .error { color: var(--rust); font-size: 15px; margin: 12px 0 0; }
 
 /* -- working ------------------------------------------------------------- */
@@ -225,7 +225,7 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
 }
 
 #stage { margin: 0; font-size: 22px; font-weight: 700; }
-.detail { margin: 6px 0 18px; color: var(--muted); font-size: 15px; min-height: 22px; }
+.detail { margin: 6px 0 18px; color: var(--text-muted); font-size: 15px; min-height: 22px; }
 
 .bar {
   height: 8px;
@@ -247,11 +247,11 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   padding: 0;
   text-align: left;
   font-size: 14px;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 .log li { padding: 5px 0; border-bottom: 1px solid var(--line); }
-.log li.step { color: var(--paper); font-weight: 600; }
-.log li.warn { color: var(--ember); }
+.log li.step { color: var(--text); font-weight: 600; }
+.log li.warn { color: var(--ember-text); }
 
 /* -- done ---------------------------------------------------------------- */
 
@@ -270,13 +270,100 @@ video {
   list-style: none;
   margin: 16px 0 0;
   padding: 0;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 15px;
 }
 .facts li { padding: 4px 0; }
-.facts li::before { content: "·  "; color: var(--ember); }
+.facts li::before { content: "·  "; color: var(--ember-text); }
 
 /* -- install ------------------------------------------------------------- */
 
 .install { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
 .install .fineprint { margin-top: 8px; }
+
+/* -- appearance switch --------------------------------------------------- */
+
+.settings { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line); }
+.settings-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.settings .choices { margin-top: 10px; }
+
+/* -- signing in ---------------------------------------------------------- */
+
+#app.narrow { max-width: 440px; }
+
+.card.block { display: block; }
+.card.block .card-title { margin-bottom: 6px; }
+.card-title.spaced { margin-top: 16px; }
+
+input[type="text"],
+input[type="password"],
+input[type="email"] {
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 14px;
+  color: var(--text);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-family: inherit;
+  /* 16px minimum, or iOS zooms the page in the moment the field is focused. */
+  font-size: 16px;
+  line-height: 1.4;
+}
+input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
+
+/* The password field and its Show button share one rounded box. */
+.reveal { position: relative; display: block; }
+.reveal input { padding-right: 76px; }
+.reveal-go {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ember-text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.notice {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ember);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 15px;
+}
+.notice.error { border-left-color: var(--rust); color: var(--rust); }
+
+/* -- who is signed in ----------------------------------------------------- */
+
+.whoami {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+.whoami button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+}

@@ -51,10 +51,17 @@ class RenderResult:
 # Pass one: shots
 # ---------------------------------------------------------------------------
 
-def _source_fps(shot: Shot) -> float:
-    """The frame rate of the footage this shot is cut from."""
+def _source_fps(shot: Shot, quality: Quality) -> float:
+    """The rate at which frames actually arrive from this shot's input.
+
+    For a still that is the delivery rate, not some nominal 30: the image
+    demuxer is opened with `-loop 1 -framerate {quality.fps}`, so that is
+    literally how fast its frames come. Guessing wrong misaligns every ramp
+    slice from the real frame grid, and the shot renders short — a 10-second
+    cut of stills at draft's 24fps delivered 7.9.
+    """
     if shot.source.suffix.lower() in IMAGE_SUFFIXES:
-        return 30.0  # a still has no rate; the ramp maths only needs a sane one
+        return float(quality.fps)
     return ffmpeg.source_fps(shot.source)
 
 
@@ -70,7 +77,7 @@ def _segment_video_graph(shot: Shot, fmt: DeliveryFormat, quality: Quality) -> s
         out_label="ramped",
         optical_flow=quality.optical_flow,
         fps=quality.fps,
-        source_fps=_source_fps(shot),
+        source_fps=_source_fps(shot, quality),
     )
 
     post = chain(
@@ -104,10 +111,10 @@ def carries_audio(shot: Shot, *, want_audio: bool) -> bool:
     return want_audio and shot.use_source_audio and shot.audio_gain > 0.001 and not shot.is_still
 
 
-def _segment_audio_graph(shot: Shot) -> str:
+def _segment_audio_graph(shot: Shot, quality: Quality) -> str:
     ramp = motion_craft.ramp_audio_graph(
         shot.ramp, source_duration=shot.source_duration, in_label="asrc", out_label="aramped",
-        source_fps=_source_fps(shot),
+        source_fps=_source_fps(shot, quality),
     )
     post = chain(
         f"volume={shot.audio_gain:.3f}",
@@ -140,7 +147,7 @@ def render_shot(
     maps = ["-map", "[vout]"]
 
     if has_source_audio:
-        filtergraph = graph(filtergraph, _segment_audio_graph(shot))
+        filtergraph = graph(filtergraph, _segment_audio_graph(shot, quality))
         maps += ["-map", "[aout]"]
 
     args += [

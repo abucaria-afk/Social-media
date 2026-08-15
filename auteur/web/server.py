@@ -17,6 +17,7 @@ import gzip
 import json
 import logging
 import mimetypes
+import os
 import shutil
 import socket
 import threading
@@ -44,6 +45,19 @@ COMPRESSIBLE = ("text/", "javascript", "json", "manifest", "xml", "svg")
 
 def _compressible(content_type: str) -> bool:
     return any(token in content_type for token in COMPRESSIBLE)
+
+
+#: The session cookie's name, and how long the browser should keep it.
+COOKIE = "auteur_session"
+SESSION_LIFETIME = 30 * 24 * 3600
+
+#: Reachable without signing in. Everything else — including finished films and
+#: production notes, which are the user's own footage — needs a session.
+PUBLIC_PATHS = frozenset({
+    "/login", "/login.html", "/reset", "/manifest.webmanifest", "/sw.js",
+    "/api/session", "/api/login", "/api/forgot", "/api/reset",
+})
+PUBLIC_PREFIXES = ("/static/",)
 
 
 # ---------------------------------------------------------------------------
@@ -277,9 +291,39 @@ class Handler(BaseHTTPRequestHandler):
     #: so; a fresh TCP handshake per poll is pure latency.
     protocol_version = "HTTP/1.1"
     studio: Studio
+    accounts: Any = None  # an auth.Accounts once serve() has run
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quieter than the default
         log.debug("%s - %s", self.address_string(), fmt % args)
+
+    # -- who is asking ---------------------------------------------------
+
+    @property
+    def session_token(self) -> str | None:
+        raw = self.headers.get("Cookie", "")
+        for part in raw.split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == COOKIE:
+                return value or None
+        return None
+
+    def current_user(self) -> str | None:
+        if self.accounts is None:      # auth not configured: the library case
+            return "anonymous"
+        return self.accounts.session_user(self.session_token)
+
+    def _set_session_cookie(self, token: str) -> str:
+        # HttpOnly so a script cannot read it; SameSite=Strict so another site
+        # cannot make the browser spend it. Secure only over HTTPS — setting it
+        # on a plain LAN address would make the cookie silently not stick.
+        bits = [f"{COOKIE}={token}", "Path=/", "HttpOnly", "SameSite=Strict",
+                f"Max-Age={SESSION_LIFETIME}"]
+        if self.headers.get("X-Forwarded-Proto", "").lower() == "https":
+            bits.append("Secure")
+        return "; ".join(bits)
+
+    def _clear_session_cookie(self) -> str:
+        return f"{COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"
 
     # -- helpers ---------------------------------------------------------
 
@@ -398,8 +442,36 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- routes ----------------------------------------------------------
 
+    def _allowed(self, path: str) -> bool:
+        """Whether this request may proceed without signing in."""
+        if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES):
+            return True
+        name = Path(path).name
+        if name.startswith("icon") and name.endswith(".png") and path == "/" + name:
+            return True
+        return self.current_user() is not None
+
     def do_GET(self) -> None:  # noqa: N802 - stdlib naming
         path = self.path.split("?", 1)[0]
+
+        if not self._allowed(path):
+            # A page navigation gets sent to the sign-in screen; a fetch gets a
+            # 401 it can act on, because redirecting XHR to HTML is a riddle.
+            if path.startswith("/api/"):
+                self._json({"error": "Please sign in."}, 401)
+            else:
+                self.send_response(303)
+                self.send_header("Location", "/login")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            return
+
+        if path in ("/login", "/login.html", "/reset"):
+            self._static(STATIC / "login.html", "text/html; charset=utf-8")
+            return
+        if path == "/api/session":
+            self._json({"user": self.current_user()})
+            return
 
         if path in ("/", "/index.html"):
             self._static(STATIC / "index.html", "text/html; charset=utf-8")
@@ -439,8 +511,115 @@ class Handler(BaseHTTPRequestHandler):
 
     do_HEAD = do_GET  # noqa: N815 - stdlib naming
 
+    # -- signing in ------------------------------------------------------
+
+    def _sign_in(self) -> None:
+        payload = self._json_body()
+        token, message = self.accounts.sign_in(
+            str(payload.get("username", "")), str(payload.get("password", "")))
+        if token is None:
+            # 401 with the same wording whatever went wrong, so the response
+            # never distinguishes "no such user" from "wrong password".
+            self._json({"error": message}, 401)
+            return
+        user = self.accounts.session_user(token)
+        self._send(200, json.dumps({"user": user}).encode(),
+                   "application/json; charset=utf-8",
+                   extra={"Set-Cookie": self._set_session_cookie(token),
+                          "Cache-Control": "no-store"})
+
+    def _forgot(self) -> None:
+        from .auth import send_reset
+
+        payload = self._json_body()
+        who = str(payload.get("username", "")).strip()
+
+        # Byte-for-byte the same answer whether or not the account exists —
+        # including `via`, which is a property of how this server is configured
+        # and not of the account. Returning it only for real accounts turned
+        # this endpoint into a way of asking which addresses have one.
+        reply = {
+            "ok": True,
+            "message": "If that account exists, a reset link is on its way.",
+            "via": "email" if os.environ.get("AUTEUR_SMTP_HOST", "").strip() else "console",
+        }
+
+        started = self.accounts.begin_reset(who) if who else None
+        if started is not None:
+            account, token = started
+            link = f"{self._site_root()}/reset?token={token}"
+            try:
+                send_reset(account.email, link)
+            except Exception:  # noqa: BLE001 - a mailer must not break the endpoint
+                log.exception("reset delivery failed")
+        self._json(reply)
+
+    def _reset(self) -> None:
+        from .auth import password_problem
+
+        payload = self._json_body()
+        token = str(payload.get("token", ""))
+        password = str(payload.get("password", ""))
+
+        problem = password_problem(password)
+        if problem:
+            self._json({"error": problem}, 400)
+            return
+        if not self.accounts.finish_reset(token, password):
+            self._json({"error": "That link has expired. Ask for a new one."}, 400)
+            return
+        self._json({"ok": True, "message": "Password changed. You can sign in now."})
+
+    def _site_root(self) -> str:
+        host = self.headers.get("Host") or f"localhost:{self.server.server_address[1]}"
+        scheme = self.headers.get("X-Forwarded-Proto", "http").lower()
+        return f"{scheme}://{host}"
+
+    def _read_body(self, limit: int) -> bytes | None:
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > limit:
+            return None
+        chunks: list[bytes] = []
+        remaining = length
+        while remaining > 0:
+            block = self.rfile.read(min(CHUNK, remaining))
+            if not block:
+                return None
+            chunks.append(block)
+            remaining -= len(block)
+        return b"".join(chunks)
+
+    def _json_body(self) -> dict:
+        body = self._read_body(64 * 1024) or b"{}"
+        try:
+            payload = json.loads(body.decode("utf-8", "replace"))
+        except ValueError:
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
     def do_POST(self) -> None:  # noqa: N802 - stdlib naming
-        if self.path.split("?", 1)[0] != "/api/jobs":
+        path = self.path.split("?", 1)[0]
+
+        if path == "/api/login":
+            self._sign_in()
+            return
+        if path == "/api/logout":
+            self.accounts.sign_out(self.session_token)
+            self._send(200, b'{"ok":true}', "application/json; charset=utf-8",
+                       extra={"Set-Cookie": self._clear_session_cookie(),
+                              "Cache-Control": "no-store"})
+            return
+        if path == "/api/forgot":
+            self._forgot()
+            return
+        if path == "/api/reset":
+            self._reset()
+            return
+
+        if not self._allowed(path):
+            self._json({"error": "Please sign in."}, 401)
+            return
+        if path != "/api/jobs":
             self._json({"error": "not found"}, 404)
             return
 
@@ -518,10 +697,15 @@ def local_address() -> str:
 def serve(host: str = "0.0.0.0", port: int = 8000, *, workspace: Path | None = None,
           quality: str = "draft", announce: bool = True) -> ThreadingHTTPServer:
     """Run the web app until interrupted."""
-    from . import assets
+    from . import assets, seed
+    from .auth import Accounts
 
     assets.ensure(STATIC)
-    Handler.studio = Studio(workspace or Path.cwd() / "auteur-web", quality=quality)
+    root = Path(workspace or Path.cwd() / "auteur-web")
+    Handler.studio = Studio(root, quality=quality)
+    Handler.accounts = Accounts(Accounts.default_path(root))
+    created = seed.bootstrap(Handler.accounts)
+
     server = ThreadingHTTPServer((host, port), Handler)
     server.daemon_threads = True
 
@@ -535,6 +719,9 @@ def serve(host: str = "0.0.0.0", port: int = 8000, *, workspace: Path | None = N
         print()
         print("     Open that on your iPhone, then Share -> Add to Home Screen")
         print("     to keep it as an app. Both devices need the same wifi.")
+        if created:
+            print()
+            print(f"     Sign in as        {created}")
         print()
         print("     Press Ctrl-C to close it.")
         print()

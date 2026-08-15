@@ -6,9 +6,24 @@
      the controls back inside the safe area. Without it the page is letterboxed
      by white bars on every modern iPhone. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0c0b0a">
-<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0c0b0a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f1e6" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
 <meta name="description" content="Turn clips from your camera roll into a finished film.">
+
+<!-- Before the stylesheet, before anything paints. Applying the saved choice
+     from app.js instead would show one frame of the wrong theme on every
+     load — the flash people notice most on a phone in a dark room. -->
+<script>
+  (function () {
+    try {
+      var mode = localStorage.getItem("auteur-theme");
+      if (mode === "light" || mode === "dark") {
+        document.documentElement.setAttribute("data-theme", mode);
+      }
+    } catch (e) { /* private mode: fall through to the system setting */ }
+  })();
+</script>
 
 <!-- Home-screen app on iOS: full screen, no browser chrome. -->
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -30,6 +45,11 @@
 
   <!-- 1. Ask ---------------------------------------------------------- -->
   <section class="screen" id="screen-start">
+    <div class="whoami" id="whoami" hidden>
+      <span id="whoami-name"></span>
+      <button type="button" id="sign-out">Sign out</button>
+    </div>
+
     <header class="masthead">
       <h1>Auteur</h1>
       <p class="sub">Give it clips. Say what you want. Get a film.</p>
@@ -90,6 +110,15 @@
       <button type="submit" class="go" id="go">Make my film</button>
       <p class="fineprint">It takes a couple of minutes. Keep this page open.</p>
     </form>
+
+    <div class="settings">
+      <span class="settings-label" id="appearance-label">Appearance</span>
+      <div class="choices" id="appearance" role="radiogroup" aria-labelledby="appearance-label">
+        <button type="button" class="choice is-on" data-value="system" role="radio" aria-checked="true">Automatic<small>match my phone</small></button>
+        <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
+        <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
+      </div>
+    </div>
 
     <!-- Install. Chrome fires beforeinstallprompt and gets a real button;
          every other browser gets the instructions for that browser. -->

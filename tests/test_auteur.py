@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import time
 import wave
 from pathlib import Path
 
@@ -1032,7 +1033,7 @@ def test_every_token_the_stylesheet_uses_actually_exists():
     assert missing == set(), f"style.css uses undefined tokens: {sorted(missing)}"
 
     # And every palette role really is generated from the module.
-    for role in theme.PALETTE:
+    for role in theme.ROLES:
         assert f"--{role.replace('_', '-')}:" in generated
 
 
@@ -1064,33 +1065,11 @@ def test_the_icon_and_the_page_use_the_same_palette():
     assert manifest["background_color"] == theme.THEME_COLOR
 
 
-def test_text_on_the_accent_stays_readable():
-    """The primary button is dark text on ember. If that pair ever falls below
-    the WCAG AA ratio the main action becomes unreadable in daylight."""
-    from auteur import theme
-
-    def luminance(rgb):
-        channels = []
-        for value in rgb:
-            v = value / 255
-            channels.append(v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4)
-        return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
-
-    def ratio(a, b):
-        first, second = sorted((luminance(a), luminance(b)), reverse=True)
-        return (first + 0.05) / (second + 0.05)
-
-    ground = theme.rgb_of("ground")
-    assert ratio(theme.rgb_of("on_ember"), theme.rgb_of("ember")) >= 4.5
-    for role in ("paper", "muted", "ember", "moss", "rust"):
-        assert ratio(theme.rgb_of(role), ground) >= 4.5, f"{role} on ground"
-
-
 def test_the_terminal_reads_the_same_palette():
     from auteur import theme, ui
 
     assert ui.INK["accent"] == theme.ansi("ember")
-    red, green, blue = theme.rgb_of("ember")
+    red, green, blue = theme.rgb_of("ember", "dark")
     assert ui.INK["accent"] == f"38;2;{red};{green};{blue}"
 
 
@@ -1245,3 +1224,448 @@ def test_a_still_survives_being_written_out_and_read_back():
     edl.shots.append(Shot(clip_id="C01", source=Path("/tmp/photo.jpg"), start=0.0, end=2.0,
                           is_still=True))
     assert edl.to_json()["shots"][0]["is_still"] is True
+
+
+# ---------------------------------------------------------------------------
+# Stills and frame rates
+# ---------------------------------------------------------------------------
+
+def test_a_still_is_clocked_at_the_delivery_rate():
+    """`-loop 1 -framerate {quality.fps}` is literally how fast a still's frames
+    arrive. Assuming 30 misaligns every ramp slice at draft's 24, and a
+    10-second cut of photographs delivered 7.9."""
+    from auteur import render
+
+    still = Shot(clip_id="C01", source=Path("/tmp/photo.jpg"), start=0.0, end=2.0, is_still=True)
+    assert render._source_fps(still, QUALITIES["draft"]) == 24.0
+    assert render._source_fps(still, QUALITIES["standard"]) == 30.0
+
+
+@pytest.mark.slow
+def test_a_film_of_stills_lands_on_its_runtime_at_every_quality(rushes, tmp_path):
+    from auteur import ffmpeg as ff
+    from auteur.agent import direct
+
+    photos = tmp_path / "photos"
+    photos.mkdir()
+    binary = str(ff.ffmpeg_path())
+    for index, source in enumerate(("testsrc2=size=800x600", "mandelbrot=size=600x800")):
+        subprocess.run(
+            [binary, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+             "-i", source, "-frames:v", "1", str(photos / f"still{index}.png")],
+            check=True,
+        )
+
+    for name in ("draft", "standard"):
+        production = direct(
+            [photos], "slow and cinematic, 8 seconds",
+            settings=Settings(quality=QUALITIES[name], primary_format=FORMATS["square"],
+                              target_duration=8.0, use_llm=False, revision_rounds=0, seed=3),
+            workspace=tmp_path / f"work-{name}", duration=8.0,
+        )
+        measured = float(ff.probe(production.primary)["format"]["duration"])
+        assert measured == pytest.approx(production.edl.duration, abs=0.35), (
+            f"{name}: planned {production.edl.duration:.2f}s, delivered {measured:.2f}s"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Accounts
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def accounts(tmp_path):
+    from auteur.web.auth import Accounts
+
+    store = Accounts(tmp_path / "accounts.json")
+    store.add("streetlightseason", "streetlightseason@gmail.com", "Tacit25#")
+    return store
+
+
+def test_a_password_is_never_stored(accounts, tmp_path):
+    raw = (tmp_path / "accounts.json").read_text()
+    assert "Tacit25#" not in raw
+    account = accounts.get("streetlightseason")
+    assert account.password_hash != "Tacit25#"
+    assert len(account.salt) == 32 and len(account.password_hash) == 64
+
+
+def test_the_right_password_is_accepted_and_others_are_not(accounts):
+    account = accounts.get("streetlightseason")
+    assert account.check("Tacit25#")
+    assert not account.check("tacit25#")
+    assert not account.check("Tacit25")
+    assert not account.check("")
+
+
+def test_you_can_sign_in_with_either_the_username_or_the_email(accounts):
+    for who in ("streetlightseason", "STREETLIGHTSEASON",
+                "streetlightseason@gmail.com", "  Streetlightseason@Gmail.com  "):
+        token, _ = accounts.sign_in(who, "Tacit25#")
+        assert token, who
+        assert accounts.session_user(token) == "streetlightseason"
+
+
+def test_a_wrong_password_says_the_same_thing_as_a_wrong_username(accounts):
+    """Different wording would let someone find out which accounts exist."""
+    _, one = accounts.sign_in("streetlightseason", "wrong")
+    _, two = accounts.sign_in("nobody-at-all", "wrong")
+    assert one == two
+
+
+def test_guessing_locks_the_account(accounts):
+    from auteur.web import auth
+
+    for _ in range(auth.MAX_ATTEMPTS):
+        token, _ = accounts.sign_in("streetlightseason", "wrong")
+        assert token is None
+
+    # Even the correct password is refused while the lock stands.
+    token, message = accounts.sign_in("streetlightseason", "Tacit25#")
+    assert token is None
+    assert "Too many" in message
+
+    accounts.get("streetlightseason").locked_until = 0.0
+    token, _ = accounts.sign_in("streetlightseason", "Tacit25#")
+    assert token
+
+
+def test_a_session_can_be_ended(accounts):
+    token, _ = accounts.sign_in("streetlightseason", "Tacit25#")
+    assert accounts.session_user(token) == "streetlightseason"
+    accounts.sign_out(token)
+    assert accounts.session_user(token) is None
+    assert accounts.session_user("some-other-token") is None
+    assert accounts.session_user(None) is None
+
+
+def test_session_tokens_are_stored_hashed(accounts, tmp_path):
+    """The account file must not hold anything replayable."""
+    token, _ = accounts.sign_in("streetlightseason", "Tacit25#")
+    assert token not in (tmp_path / "accounts.json").read_text()
+
+
+def test_a_reset_link_works_once(accounts):
+    started = accounts.begin_reset("streetlightseason@gmail.com")
+    assert started is not None
+    _, token = started
+
+    assert accounts.finish_reset(token, "a-much-longer-one")
+    assert accounts.get("streetlightseason").check("a-much-longer-one")
+    assert not accounts.get("streetlightseason").check("Tacit25#")
+    assert not accounts.finish_reset(token, "third-attempt-here")
+
+
+def test_an_expired_reset_link_is_refused(accounts):
+    _, token = accounts.begin_reset("streetlightseason")
+    accounts.get("streetlightseason").reset_expires = time.time() - 1
+    assert accounts.account_for_reset(token) is None
+    assert not accounts.finish_reset(token, "a-much-longer-one")
+
+
+def test_resetting_for_an_unknown_account_gives_nothing_away(accounts):
+    assert accounts.begin_reset("someone@example.com") is None
+
+
+def test_changing_the_password_signs_every_device_out(accounts):
+    first, _ = accounts.sign_in("streetlightseason", "Tacit25#")
+    second, _ = accounts.sign_in("streetlightseason", "Tacit25#")
+    accounts.set_password(accounts.get("streetlightseason"), "a-much-longer-one")
+    assert accounts.session_user(first) is None
+    assert accounts.session_user(second) is None
+
+
+def test_accounts_survive_a_restart(accounts, tmp_path):
+    from auteur.web.auth import Accounts
+
+    token, _ = accounts.sign_in("streetlightseason", "Tacit25#")
+    reopened = Accounts(tmp_path / "accounts.json")
+    assert reopened.get("streetlightseason").check("Tacit25#")
+    assert reopened.session_user(token) == "streetlightseason", "a restart must not sign the phone out"
+
+
+def test_weak_passwords_are_explained_not_just_refused():
+    from auteur.web.auth import password_problem
+
+    assert password_problem("short") == "Use at least 8 characters."
+    assert "space" in password_problem(" has-spaces-around ")
+    assert password_problem("password") != ""
+    assert password_problem("a-perfectly-fine-one") == ""
+
+
+def test_the_seed_account_carries_a_hash_and_not_a_password():
+    """The repository must never contain the password itself."""
+    from auteur.web import seed
+    from auteur.web.auth import Account
+
+    source = Path(seed.__file__).read_text()
+    assert "Tacit25#" not in source
+
+    account = Account(username=seed.SEED_USERNAME, email=seed.SEED_EMAIL,
+                      salt=seed.SEED_SALT, password_hash=seed.SEED_HASH)
+    assert account.check("Tacit25#"), "the seeded account must actually sign in"
+    assert not account.check("wrong")
+
+
+def test_the_first_run_creates_exactly_one_account(tmp_path, monkeypatch):
+    from auteur.web import seed
+    from auteur.web.auth import Accounts
+
+    monkeypatch.delenv("AUTEUR_PASSWORD", raising=False)
+    store = Accounts(tmp_path / "accounts.json")
+    assert seed.bootstrap(store) == "streetlightseason"
+    assert len(store.accounts) == 1
+    # Running again must not add a second.
+    assert seed.bootstrap(store) is None
+    assert len(store.accounts) == 1
+
+
+def test_the_environment_beats_the_committed_seed(tmp_path, monkeypatch):
+    from auteur.web import seed
+    from auteur.web.auth import Accounts
+
+    monkeypatch.setenv("AUTEUR_USERNAME", "someone")
+    monkeypatch.setenv("AUTEUR_EMAIL", "someone@example.com")
+    monkeypatch.setenv("AUTEUR_PASSWORD", "a-much-longer-one")
+    store = Accounts(tmp_path / "accounts.json")
+
+    assert seed.bootstrap(store) == "someone"
+    assert store.get("someone").check("a-much-longer-one")
+    assert store.get("streetlightseason") is None
+
+
+# ---------------------------------------------------------------------------
+# The gate, over HTTP
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def guarded_server(tmp_path):
+    """A server with a real account, exercised through real requests."""
+    import threading
+    from http.server import ThreadingHTTPServer
+    from auteur.web import assets, server as web
+    from auteur.web.auth import Accounts
+
+    assets.ensure(web.STATIC)
+    web.Handler.studio = web.Studio(tmp_path / "web")
+    web.Handler.accounts = Accounts(tmp_path / "web" / "accounts.json")
+    web.Handler.accounts.add("streetlightseason", "streetlightseason@gmail.com", "Tacit25#")
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{httpd.server_address[1]}", web.Handler.accounts
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        web.Handler.accounts = None
+
+
+def _post(base, path, payload, cookie=None):
+    import json as _json
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    headers = {"Content-Type": "application/json"}
+    if cookie:
+        headers["Cookie"] = cookie
+    request = Request(base + path, data=_json.dumps(payload).encode(), headers=headers)
+    try:
+        with urlopen(request) as response:
+            return response.status, _json.loads(response.read() or b"{}"), response.headers
+    except HTTPError as exc:
+        return exc.code, _json.loads(exc.read() or b"{}"), exc.headers
+
+
+def test_the_app_is_closed_until_you_sign_in(guarded_server):
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    base, _ = guarded_server
+
+    # A page navigation is sent to the sign-in screen...
+    request = Request(base + "/")
+    opener = urlopen
+    try:
+        with opener(request) as response:
+            assert response.url.endswith("/login")
+    except HTTPError as exc:  # pragma: no cover - only if redirects are disabled
+        assert exc.code == 303
+
+    # ...and an API call gets something a script can act on.
+    for path in ("/api/jobs/anything", "/api/jobs/anything/video", "/api/jobs/anything/notes"):
+        try:
+            with urlopen(base + path):
+                raise AssertionError(f"{path} answered without a session")
+        except HTTPError as exc:
+            assert exc.code == 401, path
+
+
+def test_the_sign_in_page_and_its_assets_stay_open(guarded_server):
+    from urllib.request import urlopen
+
+    base, _ = guarded_server
+    for path in ("/login", "/static/login.js", "/static/style.css",
+                 "/static/theme.css", "/manifest.webmanifest", "/icon-192.png"):
+        with urlopen(base + path) as response:
+            assert response.status == 200, path
+
+
+def test_signing_in_sets_a_cookie_a_script_cannot_read(guarded_server):
+    base, _ = guarded_server
+
+    status, payload, _ = _post(base, "/api/login",
+                               {"username": "streetlightseason", "password": "wrong"})
+    assert status == 401 and "error" in payload
+
+    status, payload, headers = _post(base, "/api/login",
+                                     {"username": "streetlightseason", "password": "Tacit25#"})
+    assert status == 200 and payload["user"] == "streetlightseason"
+
+    cookie = headers["Set-Cookie"]
+    assert "HttpOnly" in cookie      # no script can read the session
+    assert "SameSite=Strict" in cookie   # no other site can spend it
+    assert "Path=/" in cookie
+
+
+def test_a_signed_in_request_gets_through(guarded_server):
+    import json as _json
+    from urllib.request import Request, urlopen
+
+    base, _ = guarded_server
+    _, _, headers = _post(base, "/api/login",
+                          {"username": "streetlightseason", "password": "Tacit25#"})
+    token = headers["Set-Cookie"].split(";")[0]
+
+    request = Request(base + "/api/session", headers={"Cookie": token})
+    with urlopen(request) as response:
+        assert _json.loads(response.read())["user"] == "streetlightseason"
+
+    with urlopen(Request(base + "/", headers={"Cookie": token})) as response:
+        assert response.status == 200
+        assert b"Make my film" in response.read()
+
+
+def test_signing_out_invalidates_the_cookie(guarded_server):
+    import json as _json
+    from urllib.request import Request, urlopen
+
+    base, _ = guarded_server
+    _, _, headers = _post(base, "/api/login",
+                          {"username": "streetlightseason", "password": "Tacit25#"})
+    token = headers["Set-Cookie"].split(";")[0]
+
+    status, _, out_headers = _post(base, "/api/logout", {}, cookie=token)
+    assert status == 200
+    assert "Max-Age=0" in out_headers["Set-Cookie"]
+
+    request = Request(base + "/api/session", headers={"Cookie": token})
+    with urlopen(request) as response:
+        assert _json.loads(response.read())["user"] is None
+
+
+def test_forgot_answers_identically_for_real_and_invented_accounts(guarded_server):
+    """Any difference at all turns this into a way of asking which addresses
+    have accounts — including which keys the JSON happens to carry."""
+    base, _ = guarded_server
+
+    real_status, real, _ = _post(base, "/api/forgot",
+                                 {"username": "streetlightseason@gmail.com"})
+    fake_status, fake, _ = _post(base, "/api/forgot", {"username": "nobody@example.com"})
+
+    assert real_status == fake_status == 200
+    assert real == fake
+
+
+def test_a_reset_over_http_replaces_the_password(guarded_server):
+    base, accounts = guarded_server
+
+    _post(base, "/api/forgot", {"username": "streetlightseason"})
+    account = accounts.get("streetlightseason")
+    assert account.reset_hash, "the reset should have been recorded"
+
+    # Recover the token the way the emailed link carries it.
+    started = accounts.begin_reset("streetlightseason")
+    assert started is not None
+    _, token = started
+
+    status, payload, _ = _post(base, "/api/reset", {"token": token, "password": "short"})
+    assert status == 400 and "8 characters" in payload["error"]
+
+    status, payload, _ = _post(base, "/api/reset",
+                               {"token": "not-a-real-token", "password": "a-much-longer-one"})
+    assert status == 400
+
+    status, payload, _ = _post(base, "/api/reset",
+                               {"token": token, "password": "a-much-longer-one"})
+    assert status == 200
+
+    status, _, _ = _post(base, "/api/login",
+                         {"username": "streetlightseason", "password": "Tacit25#"})
+    assert status == 401, "the old password must stop working"
+    status, _, _ = _post(base, "/api/login",
+                         {"username": "streetlightseason", "password": "a-much-longer-one"})
+    assert status == 200
+
+
+# ---------------------------------------------------------------------------
+# Light and dark
+# ---------------------------------------------------------------------------
+
+def test_both_palettes_define_every_role():
+    from auteur import theme
+
+    assert set(theme.DARK) == set(theme.ROLES)
+    assert set(theme.LIGHT) == set(theme.ROLES)
+
+
+def test_both_palettes_are_readable():
+    """A theme switch must not be able to make text disappear."""
+    from auteur import theme
+
+    for scheme in ("dark", "light"):
+        ground = theme.rgb_of("ground", scheme)
+        for role in ("text", "text_muted", "text_faint", "ember_text", "moss", "rust"):
+            ratio = theme.contrast(theme.rgb_of(role, scheme), ground)
+            assert ratio >= 4.5, f"{role} on {scheme} ground is only {ratio:.2f}:1"
+
+        button = theme.contrast(theme.rgb_of("on_ember", scheme), theme.rgb_of("ember", scheme))
+        assert button >= 4.5, f"the main button on {scheme} is only {button:.2f}:1"
+
+
+def test_the_stylesheet_covers_system_light_and_dark():
+    from auteur import theme
+
+    css = theme.css_variables()
+    # System: follow the phone, but only while the reader has not overridden it.
+    assert "@media (prefers-color-scheme: light)" in css
+    assert ':root:not([data-theme])' in css
+    # And an explicit choice must win in both directions.
+    assert ':root[data-theme="light"]' in css
+    assert ':root[data-theme="dark"]' in css
+    # Dark is the base, so anything matching nothing still gets the designed look.
+    assert css.index(":root {") < css.index("@media")
+
+
+def test_the_theme_is_applied_before_the_page_paints():
+    """Reading localStorage from app.js instead would show one frame of the
+    wrong theme on every load."""
+    from auteur.web import server
+
+    for page in ("index.html", "login.html"):
+        markup = (server.STATIC / page).read_text()
+        early = markup.index("auteur-theme")
+        assert early < markup.index('href="/static/style.css"'), page
+        assert 'setAttribute("data-theme"' in markup
+
+
+def test_the_switch_offers_exactly_the_three_modes():
+    from auteur import theme
+    from auteur.web import server
+
+    assert theme.MODES == ("system", "light", "dark")
+    for page in ("index.html", "login.html"):
+        markup = (server.STATIC / page).read_text()
+        for mode in theme.MODES:
+            assert f'data-value="{mode}"' in markup, f"{page} is missing {mode}"
