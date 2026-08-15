@@ -1,0 +1,174 @@
+{
+  "version": 1,
+  "settings": {
+    "gap_hours": 4.0,
+    "per_day": 3
+  },
+  "posts": [
+    {
+      "id": "a1b2c3d4",
+      "platform": "instagram-reel",
+      "service": "Instagram",
+      "when": "2026-08-18T12:00:00Z",
+      "video": "",
+      "caption": "Harbour lights after the last ferry leaves.\n\n#cinematic #moodygrams #darkaesthetic #harbour #nightvibes #reels #reelsinstagram",
+      "cover": "",
+      "status": "queued",
+      "note": "Monday midday — high engagement window"
+    },
+    {
+      "id": "b2c3d4e5",
+      "platform": "tiktok",
+      "service": "TikTok",
+      "when": "2026-08-18T18:00:00Z",
+      "video": "",
+      "caption": "The streetlights come on one at a time and nobody is watching.\n\n#cinematic #moody #streetlights #nightvibes #fyp #foryou",
+      "cover": "",
+      "status": "queued",
+      "note": "Monday evening — peak TikTok hours"
+    },
+    {
+      "id": "c3d4e5f6",
+      "platform": "youtube-short",
+      "service": "YouTube",
+      "when": "2026-08-19T08:00:00Z",
+      "video": "",
+      "caption": "Morning fog on the estuary — everything is grey until it isn't.\n\n#shorts #cinematic #coldtones #estuary #cinematography",
+      "cover": "",
+      "status": "queued",
+      "note": "Tuesday morning — YouTube audience active"
+    },
+    {
+      "id": "d4e5f6a7",
+      "platform": "instagram-reel",
+      "service": "Instagram",
+      "when": "2026-08-19T17:00:00Z",
+      "video": "",
+      "caption": "Rain on the windscreen and a song you forgot you knew.\n\n#moody #moodygrams #darkaesthetic #rain #filmmaking #reels #reelsinstagram",
+      "cover": "",
+      "status": "queued",
+      "note": "Tuesday afternoon — commute scroll"
+    },
+    {
+      "id": "e5f6a7b8",
+      "platform": "tiktok",
+      "service": "TikTok",
+      "when": "2026-08-19T21:00:00Z",
+      "video": "",
+      "caption": "Shot this at the bus stop nobody uses anymore.\n\n#cinematic #moodygrams #nightvibes #abandoned #fyp #foryou",
+      "cover": "",
+      "status": "queued",
+      "note": "Tuesday night — late scroll window"
+    },
+    {
+      "id": "f6a7b8c9",
+      "platform": "youtube-short",
+      "service": "YouTube",
+      "when": "2026-08-20T11:00:00Z",
+      "video": "",
+      "caption": "Three seconds of heron, twenty of patience.\n\n#shorts #cinematic #wildlife #estuary #coldtones #cinematography",
+      "cover": "",
+      "status": "queued",
+      "note": "Wednesday midmorning"
+    },
+    {
+      "id": "a7b8c9d0",
+      "platform": "instagram-reel",
+      "service": "Instagram",
+      "when": "2026-08-20T19:00:00Z",
+      "video": "",
+      "caption": "The last light hits the water for six minutes and then it's gone until tomorrow.\n\n#goldenhour #warmtones #harbour #cinematic #reels #reelsinstagram",
+      "cover": "",
+      "status": "queued",
+      "note": "Wednesday evening — golden hour post at golden hour"
+    },
+    {
+      "id": "b8c9d0e1",
+      "platform": "tiktok",
+      "service": "TikTok",
+      "when": "2026-08-21T07:00:00Z",
+      "video": "",
+      "caption": "Early enough that the city sounds different.\n\n#moody #cinematic #earlymorning #city #fyp #foryou",
+      "cover": "",
+      "status": "queued",
+      "note": "Thursday morning — early risers"
+    },
+    {
+      "id": "c9d0e1f2",
+      "platform": "instagram-reel",
+      "service": "Instagram",
+      "when": "2026-08-21T12:00:00Z",
+      "video": "",
+      "caption": "Overhead wires and a sky that can't decide.\n\n#cinematic #moodygrams #minimal #streetphotography #reels #reelsinstagram",
+      "cover": "",
+      "status": "queued",
+      "note": "Thursday midday"
+    },
+    {
+      "id": "d0e1f2a3",
+      "platform": "youtube-short",
+      "service": "YouTube",
+      "when": "2026-08-21T18:00:00Z",
+      "video": "",
+      "caption": "Puddle reflections at 2x speed — the city upside down.\n\n#shorts #cinematic #reflection #urban #cinematography",
+      "cover": "",
+      "status": "queued",
+      "note": "Thursday evening"
+    },
+    {
+      "id": "e1f2a3b4",
+      "platform": "tiktok",
+      "service": "TikTok",
+      "when": "2026-08-22T17:00:00Z",
+      "video": "",
+      "caption": "Found a staircase nobody uses and the light was doing something.\n\n#cinematic #moody #architecture #light #fyp #foryou",
+      "cover": "",
+      "status": "queued",
+      "note": "Friday afternoon — weekend mood starts"
+    },
+    {
+      "id": "f2a3b4c5",
+      "platform": "instagram-reel",
+      "service": "Instagram",
+      "when": "2026-08-22T20:00:00Z",
+      "video": "",
+      "caption": "The bridge at night when there's nobody on it.\n\n#cinematic #nightvibes #neon #bridge #moodygrams #reels #reelsinstagram",
+      "cover": "",
+      "status": "queued",
+      "note": "Friday night — high engagement"
+    },
+    {
+      "id": "a3b4c5d6",
+      "platform": "youtube-short",
+      "service": "YouTube",
+      "when": "2026-08-23T11:00:00Z",
+      "video": "",
+      "caption": "Wind through the reeds — no music needed.\n\n#shorts #cinematic #nature #estuary #ambient #cinematography",
+      "cover": "",
+      "status": "queued",
+      "note": "Saturday midmorning — weekend watch"
+    },
+    {
+      "id": "b4c5d6e7",
+      "platform": "tiktok",
+      "service": "TikTok",
+      "when": "2026-08-23T19:00:00Z",
+      "video": "",
+      "caption": "Neon signs reflecting off wet tarmac — the city writes itself at night.\n\n#neon #nightvibes #cyberpunk #cinematic #fyp #foryou",
+      "cover": "",
+      "status": "queued",
+      "note": "Saturday evening"
+    },
+    {
+      "id": "c5d6e7f8",
+      "platform": "instagram-reel",
+      "service": "Instagram",
+      "when": "2026-08-24T12:00:00Z",
+      "video": "",
+      "caption": "Sunday morning, empty streets, long shadows.\n\n#cinematic #moodygrams #minimal #shadows #sundaymorning #reels #reelsinstagram",
+      "cover": "",
+      "status": "queued",
+      "note": "Sunday midday — reflective scroll"
+    }
+  ]
+}
