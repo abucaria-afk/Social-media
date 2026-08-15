@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c0b0a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f1e6" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<title>auteur — an autonomous cinematic editor</title>
+<meta name="description" content="Point it at a pile of unsorted clips, give it a sentence of direction, and it returns a finished, graded, beat-cut short film.">
+<style>
+  /* Generated from auteur/theme.py — the same palette the app and icons use. */
+  :root {
+    color-scheme: dark light;
+      --ground: #0c0b0a;
+      --surface: #171614;
+      --raised: #201e1b;
+      --line: #2e2b26;
+      --text: #f2ede4;
+      --text-muted: #a9a49a;
+      --text-faint: #8b857a;
+      --ember: #e9a85c;
+      --ember-text: #e9a85c;
+      --on-ember: #241703;
+      --cream: #e8c8a8;
+      --moss: #8fb283;
+      --rust: #d4785a;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+        --ground: #f6f1e6;
+        --surface: #fffdf7;
+        --raised: #efe6d5;
+        --line: #d8cab2;
+        --text: #1c1815;
+        --text-muted: #5c554b;
+        --text-faint: #6f675b;
+        --ember: #e9a85c;
+        --ember-text: #7f4f11;
+        --on-ember: #241703;
+        --cream: #ead2ae;
+        --moss: #37613d;
+        --rust: #9b3618;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: max(env(safe-area-inset-top), 40px) 22px 80px;
+  }
+  h1 { font-size: clamp(34px, 8vw, 52px); margin: 0 0 6px; letter-spacing: -1px; }
+  .sub { color: var(--text-muted); font-size: 19px; margin: 0 0 34px; }
+  h2 { font-size: 22px; margin: 44px 0 12px; }
+  p { margin: 0 0 16px; }
+  a { color: var(--ember-text); }
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--ember);
+    border-radius: 12px;
+    padding: 16px;
+    overflow-x: auto;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .go {
+    display: inline-block;
+    margin: 8px 8px 0 0;
+    padding: 14px 22px;
+    border-radius: 16px;
+    background: var(--ember);
+    color: var(--on-ember);
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .ghost {
+    display: inline-block;
+    margin: 8px 8px 0 0;
+    padding: 14px 22px;
+    border-radius: 16px;
+    border: 1px solid var(--line);
+    color: var(--text-muted);
+    text-decoration: none;
+  }
+  ul { padding-left: 20px; }
+  li { margin-bottom: 8px; }
+  .note {
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--rust);
+    border-radius: 12px;
+    padding: 14px 16px;
+    color: var(--text-muted);
+    font-size: 15px;
+  }
+  footer { margin-top: 60px; color: var(--text-faint); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+
+  <h1>auteur</h1>
+  <p class="sub">Point it at a pile of unsorted clips, give it a sentence of
+  direction, and it returns a finished, graded, beat-cut, sound-designed short
+  film — from the command line, or from your phone.</p>
+
+  <a class="go" href="https://github.com/abucaria-afk/Social-media">View the code</a>
+  <a class="ghost" href="https://github.com/abucaria-afk/Social-media/blob/main/AUTEUR.md">Documentation</a>
+
+  <h2>Run it</h2>
+  <pre><code>git clone https://github.com/abucaria-afk/Social-media.git
+cd Social-media
+pip install -r requirements.txt
+
+python -m auteur demo      # makes practice clips, then edits them
+python -m auteur serve     # then open the printed address on your phone</code></pre>
+
+  <p><code>demo</code> needs no footage, no arguments and no API key. <code>serve</code>
+  puts the same agent behind a mobile web app you can add to the iPhone home
+  screen, or install from Chrome.</p>
+
+  <div class="note">
+    <strong>There is no hosted version.</strong> The app decodes and re-encodes
+    video, so it needs a machine with ffmpeg and CPU to spare — this page is
+    static and cannot run it. It is meant to run on your own computer, with your
+    phone reaching it over the same wifi.
+  </div>
+
+  <h2>What it actually does</h2>
+  <p>It measures every clip frame by frame — motion, camera move, focus,
+  exposure, colour, subject position — derives a beat grid from the music, cuts
+  to it, grades and matches the shots, mixes the sound, and then
+  <strong>watches its own output back and re-cuts what it got wrong</strong>.
+  Claude directs when an API key is present; a full algorithmic director takes
+  over when there is not one, so the film always gets made.</p>
+
+  <ul>
+    <li>Cuts land on the beat, from a tempo and phase it works out itself</li>
+    <li>Reframes horizontal footage to vertical by following the subject</li>
+    <li>Speed ramps, invented camera moves, film grades, titles, sound design</li>
+    <li>Delivers several aspect ratios from one edit</li>
+    <li>Writes production notes explaining what it decided and why</li>
+  </ul>
+
+  <h2>How it was built</h2>
+  <p>145 tests, plus a fuzz campaign of ten thousand randomised cases checking
+  properties rather than examples. Everything either found has a named test.
+  The palette on this page is generated from the same module the app, the icons
+  and the terminal read, and a test asserts every text/background pair clears
+  WCAG AA in both light and dark.</p>
+
+  <footer>
+    MIT licensed · <a href="https://github.com/abucaria-afk/Social-media">github.com/abucaria-afk/Social-media</a>
+  </footer>
+
+</main>
+</body>
+</html>
