@@ -38,11 +38,17 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
-      - name: Install dependencies
-        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+      # `trailofbits/pip-audit-action` used to be here. It no longer exists —
+      # the project moved to pypa — so every run failed with "repository not
+      # found" before it audited a single package. Nobody saw it, because the
+      # workflow only ran on a weekly schedule; adding the push trigger above
+      # is what surfaced it on the first commit.
+      #
+      # pip-audit is a PyPI package and running it directly is one fewer
+      # third-party action to trust in the workflow whose entire job is to
+      # notice untrustworthy dependencies.
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip pip-audit
 
-      # Left on the action this repository has actually been running. Swapping
-      # it for the pypa-hosted one is probably right, but "probably" is not a
-      # reason to change the only workflow whose job is to notice problems.
-      - name: Run pip-audit
-        uses: trailofbits/pip-audit-action@v1
+      - name: Audit the pinned dependencies
+        run: pip-audit --requirement requirements.txt --progress-spinner off
