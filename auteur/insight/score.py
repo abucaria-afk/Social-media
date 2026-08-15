@@ -559,6 +559,83 @@ class Prediction:
         return "\n".join(lines)
 
 
+def timeline_of(path, *, analysis_fps: float = 8.0) -> EditDecisionList:
+    """Reconstruct a timeline from a finished video, so it can be scored.
+
+    Everything in `predict` reads the *edit* — shot lengths, where the first cut
+    lands, how the ends relate. A finished file has all of that in it; it just
+    has to be measured back out. Shot boundaries come from the same detector
+    that finds the cuts already inside your rushes.
+
+    What cannot be recovered: which source clip each shot came from. So the
+    loop objective is judged on whether the last shot *resembles* the first —
+    same detected scene — rather than on a clip id that no longer exists. That
+    is a weaker test than the one used on a planned edit, and it is the honest
+    one for a file somebody else cut.
+    """
+    from pathlib import Path as _Path
+
+    import numpy as np
+
+    from ..analysis.dossier import build_dossier
+    from ..edl import Shot, TextCue, Transition
+    from ..ingest import probe_asset
+
+    file = _Path(path)
+    asset = probe_asset(file)
+    if asset is None or asset.duration <= 0:
+        raise ValueError(f"{file.name} is not readable video")
+
+    dossier = build_dossier(file.stem[:8], asset, analysis_fps=analysis_fps, analysis_width=160)
+    video = dossier.video
+    cuts = [float(c) for c in video.shot_boundaries]
+    edges = [0.0, *cuts, asset.duration]
+
+    # Each detected scene becomes a shot. Scenes are numbered rather than named
+    # because there is no clip id to recover — but the *first* and *last* get
+    # compared for similarity below, which is what the loop objective needs.
+    shots: list[Shot] = []
+    for index in range(len(edges) - 1):
+        start, end = edges[index], edges[index + 1]
+        if end - start < 0.04:
+            continue
+        shots.append(
+            Shot(
+                clip_id=f"S{index:02d}",
+                source=file,
+                start=start,
+                end=end,
+                transition_in=Transition(kind="cut"),
+            )
+        )
+
+    if len(shots) >= 2 and len(video.luma):
+        # Does it hand you back to the top? Compare the mean luma and the mean
+        # colour of the first and last scenes. Two shots that look alike at this
+        # resolution are the closest thing to "same place" available here.
+        def window(shot):
+            lo = int(shot.start / asset.duration * len(video.luma))
+            hi = max(lo + 1, int(shot.end / asset.duration * len(video.luma)))
+            return float(np.mean(video.luma[lo:hi]))
+
+        first, last = window(shots[0]), window(shots[-1])
+        if abs(first - last) < 0.06:
+            shots[-1].clip_id = shots[0].clip_id
+
+    edl = EditDecisionList(
+        title=file.stem,
+        shots=shots,
+        width=asset.display_size[0],
+        height=asset.display_size[1],
+        fps=int(asset.fps or 30),
+    )
+    # Words on screen cannot be read without OCR, and guessing would flatter the
+    # hook score of anything with a caption burned in. Left empty, and the
+    # report says so.
+    edl.texts = list[TextCue]()
+    return edl
+
+
 def _opening_seconds(edl: EditDecisionList) -> float:
     """How long before the first cut. This is the hook, mechanically."""
     return edl.shots[0].duration if edl.shots else 0.0

@@ -748,6 +748,14 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
         say.step("Reading what your data says")
         model = _model_for(args, say)
         agents = list(default_crew())
+        # The eye goes first. Reframing, overlay placement, joins and sound all
+        # depend on knowing where the subject is, and nothing else in the crew
+        # looks at a pixel.
+        readings = _read_the_footage(paths, say)
+        if readings:
+            from .agents import FinishingAgent
+
+            agents.append(FinishingAgent(readings, spec=spec))
         if style is not None and not style.is_empty:
             # First in the list, and deliberately: a reference outranks a
             # correlation. The crew still scores every proposal, so a style
@@ -874,6 +882,38 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
     return 0
 
 
+def _read_the_footage(paths: list[str], say: Reporter) -> dict:
+    """Read every clip the way a picture is read, keyed by clip id.
+
+    Clip ids are assigned by `ingest` in discovery order, so this walks the same
+    order to agree with the edit. A clip that will not read is skipped rather
+    than guessed at — the finishing agent proposes nothing for what it has not
+    seen, which is the right answer.
+    """
+    from .ingest import ingest
+    from .vision import read_asset
+
+    try:
+        bin_ = ingest(paths)
+    except FileNotFoundError:
+        return {}
+
+    readings: dict = {}
+    say.step("Looking at the frames")
+    for index, asset in enumerate(bin_.visuals):
+        try:
+            readings[f"C{index:02d}"] = read_asset(asset.path)
+        except (ValueError, OSError) as exc:
+            say.warn(f"could not read {asset.name}: {exc}")
+    if readings:
+        from collections import Counter
+
+        common = Counter(r.composition for r in readings.values()).most_common(1)[0]
+        lit = Counter(r.lighting for r in readings.values()).most_common(1)[0]
+        say.detail(f"{len(readings)} frame(s) read — mostly {common[0]}, {lit[0]}")
+    return readings
+
+
 def _terminal_gate(mode_name: str):
     """A gate that asks at the terminal, and refuses if nobody is there.
 
@@ -926,6 +966,65 @@ def _model_for(args: argparse.Namespace, say: Reporter):
     return model
 
 
+def _run_score(args: argparse.Namespace, say: Reporter) -> int:
+    """Score a finished video against the model.
+
+    The first path is the video; anything else is training data. Scoring a file
+    somebody else cut is the fastest way to find out whether the model agrees
+    with your own eye — and where it does not, the model is the one to doubt.
+    """
+    from .insight import corpus, fit, predict, timeline_of
+
+    videos = [p for p in args.paths if Path(p).suffix.lower() in (".mp4", ".mov", ".m4v", ".webm")]
+    exports = [p for p in args.paths if p not in videos]
+    if not videos:
+        say.failure(
+            "I need a video to score", "try:  auteur insight score reel.mp4 ./exports/*.csv"
+        )
+        return 2
+
+    model = fit(corpus(exports, simulate_rows=0 if exports else 2000))
+    say.detail(model.provenance)
+
+    for video in videos:
+        try:
+            edl = timeline_of(video)
+        except (ValueError, OSError) as exc:
+            say.failure(f"could not read {Path(video).name}", str(exc))
+            continue
+        prediction = predict(edl, model)
+        pace = len(edl.shots) / max(edl.duration, 1e-6) * 10
+
+        print()
+        print(f"  {Path(video).name}")
+        print(
+            f"     {edl.duration:.1f}s · {edl.width}x{edl.height} · "
+            f"{len(edl.shots)} scenes · {pace:.1f} cuts / 10s"
+        )
+        print()
+        print("     " + prediction.describe().replace("\n", "\n     "))
+        if model.separation:
+            print()
+            print("     against the labelled boundary between winners and failures:")
+            for name, (win, fail, cut) in sorted(model.separation.items()):
+                got = {
+                    "three_second_watch_rate": prediction.hook.predicted,
+                    "loop_count": prediction.loop.predicted,
+                }.get(name)
+                if got is None:
+                    continue
+                verdict = "over" if got >= cut else "under"
+                print(
+                    f"       {name.replace('_', ' '):<24} {got:.2f} — {verdict} {cut:.2f}"
+                    f"   (winners {win:.2f}, failures {fail:.2f})"
+                )
+        print()
+        print("     read from the cut alone: no words on screen were read, and nothing")
+        print("     here knows what the footage is of.")
+        print()
+    return 0
+
+
 def _run_insight(args: argparse.Namespace, say: Reporter) -> int:
     """What the performance data says about hooks, shares and loops."""
     from .insight import corpus, fit, load, simulate, write_csv
@@ -943,6 +1042,9 @@ def _run_insight(args: argparse.Namespace, say: Reporter) -> int:
             files=[("the corpus", str(destination))],
         )
         return 0
+
+    if args.action == "score":
+        return _run_score(args, say)
 
     try:
         measured = load(args.paths) if args.paths else []

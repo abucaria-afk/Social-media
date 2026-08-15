@@ -36,7 +36,7 @@ from .schema import (
     Signal,
     detect_form,
 )
-from .score import FitReport, Objective, Prediction, fit, predict
+from .score import FitReport, Objective, Prediction, fit, predict, timeline_of
 
 __all__ = [
     "CURVE_POINTS",
@@ -59,6 +59,7 @@ __all__ = [
     "load_jsonl",
     "measure",
     "predict",
+    "timeline_of",
     "simulate",
     "write_csv",
     "write_json",

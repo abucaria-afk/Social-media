@@ -3811,3 +3811,311 @@ def test_slowing_the_cut_keeps_the_runtime(labelled_model):
     assert 2.0 < pace < 4.5, f"{pace:.1f} per 10s"
     # The hook and the ending are load-bearing for the other agents.
     assert edit.shots[0] is not None and len(edit.shots) >= 2
+
+
+# ---------------------------------------------------------------------------
+# Vision: reading a frame rather than measuring one
+# ---------------------------------------------------------------------------
+
+
+def _spot(cy: float, cx: float, *, size: int = 18, bg: float = 0.06, fg: float = 0.95):
+    """A bright square on a dark field, at a known place."""
+    frame = np.full((240, 320, 3), bg, dtype=np.float32)
+    y, x = int(cy * 240), int(cx * 320)
+    frame[max(0, y - size) : y + size, max(0, x - size) : x + size] = fg
+    return frame
+
+
+def test_the_eye_lands_where_the_subject_actually_is():
+    """The centroid of a whole salience field is the middle of the frame for
+    anything symmetric — five photographs with subjects in five places all read
+    'dead centre'. And a zero-padded blur dims the frame edge, pulling any peak
+    inward: a subject a fifth across was reported three tenths across."""
+    from auteur.vision import read_frame
+
+    for cy, cx in ((0.20, 0.20), (0.80, 0.75), (0.50, 0.50), (0.35, 0.66), (0.15, 0.85)):
+        reading = read_frame(_spot(cy, cx))
+        error = math.hypot(reading.focus[0] - cx, reading.focus[1] - cy)
+        assert error < 0.05, f"want ({cx}, {cy}), got {reading.focus}, off by {error:.3f}"
+
+
+def test_a_subject_at_the_frame_edge_is_not_dragged_inward():
+    """The case that matters most for deciding where a title can go."""
+    from auteur.vision import read_frame
+
+    reading = read_frame(_spot(0.5, 0.12))
+    assert reading.focus[0] < 0.25, reading.focus
+
+
+def test_not_every_frame_is_a_dutch_angle():
+    """Averaging sin(2θ) over edge angles gives about 2/π for any even spread —
+    comfortably over any threshold — so every frame came back tilted. A
+    classifier that always returns the same answer is reporting its own bias."""
+    from auteur.vision import read_frame
+
+    # Axis-aligned bars: emphatically not a Dutch angle.
+    square = np.full((240, 320, 3), 0.1, dtype=np.float32)
+    square[60:180, 80:240] = 0.9
+    assert read_frame(square).composition != "Dutch Angle"
+
+    # A frame built from diagonals should be.
+    diagonal = np.full((240, 320, 3), 0.1, dtype=np.float32)
+    ys, xs = np.mgrid[0:240, 0:320]
+    diagonal[((xs + ys) % 40) < 20] = 0.9
+    assert read_frame(diagonal).composition == "Dutch Angle"
+
+
+def test_an_almost_empty_frame_does_not_read_as_busy():
+    """`busy` was measured against a percentile. On a flat frame the 90th
+    percentile sits near zero, so nearly every empty pixel cleared it."""
+    from auteur.vision import read_frame
+
+    assert read_frame(_spot(0.5, 0.5)).busy < 0.15
+
+    noisy = np.random.default_rng(4).random((240, 320, 3)).astype(np.float32)
+    assert read_frame(noisy).busy > read_frame(_spot(0.5, 0.5)).busy
+
+
+def test_the_light_is_named_from_the_histogram_not_the_mean():
+    """Chiaroscuro, high-key and low-key can share a mean and are three
+    different pictures."""
+    from auteur.vision import read_frame
+
+    # Bright and dark, nothing in between.
+    chiaroscuro = np.full((240, 320, 3), 0.04, dtype=np.float32)
+    chiaroscuro[:, :100] = 0.92
+    assert read_frame(chiaroscuro).lighting == "Chiaroscuro/Moody"
+
+    flat = np.full((240, 320, 3), 0.5, dtype=np.float32)
+    flat[100:140, 140:180] = 0.55
+    assert read_frame(flat).lighting == "Natural Flat"
+
+
+def test_hue_is_averaged_the_way_a_circle_works():
+    """Averaging 350 and 10 arithmetically gives 180 — the opposite colour."""
+    from auteur.vision import read_frame
+
+    frame = np.zeros((240, 320, 3), dtype=np.float32)
+    frame[:, :160] = (0.9, 0.1, 0.05)  # red, hue near 0
+    frame[:, 160:] = (0.9, 0.25, 0.05)  # orange-red, hue near 15
+    hue = read_frame(frame).hue
+    assert hue < 60 or hue > 300, f"hue {hue} is nowhere near red"
+
+
+def test_palette_names_a_relationship_not_a_colour():
+    from auteur.vision import read_frame
+
+    mono = np.zeros((240, 320, 3), dtype=np.float32)
+    mono[:, :] = (0.8, 0.2, 0.2)
+    mono[80:160, 80:240] = (0.4, 0.1, 0.1)
+    assert read_frame(mono).palette == "Monochromatic"
+
+    opposed = np.zeros((240, 320, 3), dtype=np.float32)
+    opposed[:, :160] = (0.9, 0.15, 0.15)
+    opposed[:, 160:] = (0.15, 0.75, 0.9)
+    assert read_frame(opposed).palette in ("Split-Complementary", "Triadic")
+
+
+def test_a_reading_survives_a_real_photograph(tmp_path):
+    """Including the EXIF rotation — a phone photo read sideways gives a
+    confident answer about a composition nobody will ever see."""
+    from auteur import ffmpeg as ff
+    from auteur.vision import read_asset
+
+    photo = tmp_path / "shot.png"
+    subprocess.run(
+        [
+            str(ff.ffmpeg_path()),
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=640x360",
+            "-frames:v",
+            "1",
+            str(photo),
+        ],
+        check=True,
+    )
+    reading = read_asset(photo)
+    assert reading.composition in __import__("auteur.vision", fromlist=["x"]).COMPOSITIONS
+    assert reading.lighting in __import__("auteur.vision", fromlist=["x"]).LIGHTING
+    assert reading.palette in __import__("auteur.vision", fromlist=["x"]).PALETTES
+    assert 0.0 <= reading.focus[0] <= 1.0 and 0.0 <= reading.focus[1] <= 1.0
+    assert reading.to_json()["composition"] == reading.composition
+
+
+# ---------------------------------------------------------------------------
+# Finishing: reframe, overlays, transitions, sound
+# ---------------------------------------------------------------------------
+
+
+def _readings_for(*focuses, luma=0.3, hue=30.0, strength=0.4):
+    from auteur.vision import Reading
+
+    return {
+        f"C{index:02d}": Reading(
+            focus=focus, focus_strength=strength, luma=luma, hue=hue, depth_separation=0.5
+        )
+        for index, focus in enumerate(focuses)
+    }
+
+
+def _still_edl(readings, *, text_anchor=None, transitions=None):
+    from auteur.edl import EditDecisionList, Motion, Shot, TextCue, Transition
+
+    shots = []
+    for index in range(len(readings)):
+        shot = Shot(
+            clip_id=f"C{index:02d}",
+            source=Path(f"/x/{index}.jpg"),
+            start=0.0,
+            end=2.5,
+            is_still=True,
+            motion=Motion(kind="punch-in", intensity=0.2, anchor=(0.5, 0.5)),
+        )
+        if transitions and index in transitions:
+            shot.transition_in = Transition(kind=transitions[index], duration=0.4)
+        shots.append(shot)
+    texts = []
+    if text_anchor is not None:
+        texts.append(TextCue(text="TITLE", start=0.2, duration=1.5, anchor=text_anchor))
+    return EditDecisionList(title="t", shots=shots, texts=texts)
+
+
+def test_the_finishing_agent_anchors_moves_on_the_subject(model):
+    """A punch-in toward the middle of a frame whose subject is off to one side
+    pushes the subject out of shot."""
+    from auteur.agents import FinishingAgent
+    from auteur.insight import predict
+
+    readings = _readings_for((0.86, 0.44), (0.20, 0.55), (0.5, 0.5))
+    edl = _still_edl(readings)
+
+    proposals = FinishingAgent(readings).inspect(edl, predict(edl, model), model)
+    reframe = next(p for p in proposals if "Reframe" in p.title)
+    reframe.change(edl)
+
+    for shot in edl.shots:
+        assert shot.motion.anchor == readings[shot.clip_id].focus
+
+
+def test_titles_are_moved_off_the_subject_and_still_obey_the_safe_area(model):
+    from auteur.agents import FinishingAgent
+    from auteur.insight import predict
+    from auteur.workflows import resolve
+
+    spec = resolve("tiktok")
+    readings = _readings_for((0.54, 0.38), (0.3, 0.5), (0.7, 0.5))
+    edl = _still_edl(readings, text_anchor=(0.54, 0.38))  # right on top of the subject
+
+    proposals = FinishingAgent(readings, spec=spec).inspect(edl, predict(edl, model), model)
+    move = next(p for p in proposals if "title" in p.title)
+    move.change(edl)
+
+    anchor = edl.texts[0].anchor
+    assert math.hypot(anchor[0] - 0.54, anchor[1] - 0.38) > 0.15, "still on the subject"
+    assert spec.safe.top <= anchor[1] <= 1 - spec.safe.bottom, "and still under the caption box"
+    assert spec.safe.left <= anchor[0] <= 1 - spec.safe.right
+
+
+def test_a_dissolve_between_two_matching_shots_is_cut(model):
+    """It looks like a mistake rather than a transition."""
+    from auteur.agents import FinishingAgent
+    from auteur.insight import predict
+
+    # Three near-identical frames, one of them joined with a dissolve.
+    readings = _readings_for((0.5, 0.5), (0.52, 0.51), (0.5, 0.49))
+    edl = _still_edl(readings, transitions={1: "dissolve"})
+
+    proposals = FinishingAgent(readings).inspect(edl, predict(edl, model), model)
+    fix = next(p for p in proposals if "dissolve" in p.title)
+    fix.change(edl)
+    assert edl.shots[1].transition_in.is_cut
+
+
+def test_sound_lands_only_on_the_joins_the_picture_marks(model):
+    """Sound on every cut is a metronome."""
+    from auteur.agents import FinishingAgent
+    from auteur.insight import predict
+    from auteur.vision import Reading
+
+    readings = {
+        "C00": Reading(focus=(0.5, 0.5), focus_strength=0.4, luma=0.1, hue=20.0),
+        "C01": Reading(focus=(0.5, 0.5), focus_strength=0.4, luma=0.11, hue=22.0),  # same
+        "C02": Reading(focus=(0.5, 0.5), focus_strength=0.4, luma=0.72, hue=210.0),  # a jump
+    }
+    edl = _still_edl(readings)
+
+    proposals = FinishingAgent(readings).inspect(edl, predict(edl, model), model)
+    sound = next(p for p in proposals if "effect" in p.title)
+    sound.change(edl)
+
+    ats = sorted(round(cue.at, 2) for cue in edl.sfx if cue.kind == "impact")
+    assert ats == [5.0], f"one impact, on the join at 5s, got {ats}"
+    assert any(cue.kind == "riser" for cue in edl.sfx), "a big jump earns a riser into it"
+
+
+def test_the_finishing_agent_says_nothing_without_a_reading(model):
+    """Every decision is only as good as the reading behind it, and a
+    default-driven finishing pass is worse than none."""
+    from auteur.agents import FinishingAgent
+    from auteur.insight import predict
+
+    readings = _readings_for((0.5, 0.5), (0.5, 0.5))
+    edl = _still_edl(readings)
+    assert FinishingAgent({}).inspect(edl, predict(edl, model), model) == []
+
+
+# ---------------------------------------------------------------------------
+# Scoring a finished video
+# ---------------------------------------------------------------------------
+
+
+def test_a_finished_video_can_be_scored(tmp_path):
+    from auteur import ffmpeg as ff
+    from auteur.insight import corpus, fit, predict, timeline_of
+
+    video = tmp_path / "cut.mp4"
+    subprocess.run(
+        [
+            str(ff.ffmpeg_path()),
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:size=320x240:rate=24:duration=2",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=white:size=320x240:rate=24:duration=2",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:size=320x240:rate=24:duration=2",
+            "-filter_complex",
+            "[0:v][1:v][2:v]concat=n=3:v=1:a=0",
+            "-pix_fmt",
+            "yuv420p",
+            str(video),
+        ],
+        check=True,
+    )
+
+    edl = timeline_of(video)
+    assert edl.shots, "a finished file has a timeline in it; it just has to be measured out"
+    assert edl.duration == pytest.approx(6.0, abs=0.5)
+    assert (edl.width, edl.height) == (320, 240)
+    # Black at both ends: the loop objective should notice the ends match.
+    assert edl.shots[-1].clip_id == edl.shots[0].clip_id
+
+    prediction = predict(edl, fit(corpus([], simulate_rows=400)))
+    assert 0.0 <= prediction.overall <= 1.0
+    # Nothing read any words, so nothing may claim a text-driven hook.
+    assert edl.texts == []

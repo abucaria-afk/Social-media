@@ -30,6 +30,7 @@ from .base import (
 )
 from .editors import HookAgent, LoopAgent, ShareAgent, default_crew
 from .finalcheck import FinalCheckAgent
+from .finishing import FinishingAgent
 from .gaze import GazeAgent
 from .preflight import CHECKABLE, Finding, StyleAgent, check_render, preflight, unknowable
 
@@ -51,6 +52,7 @@ __all__ = [
     "ShareAgent",
     "CHECKABLE",
     "Finding",
+    "FinishingAgent",
     "StyleAgent",
     "check_render",
     "default_crew",
