@@ -20,7 +20,7 @@ dependencies = [
 ffmpeg = ["ffmpeg-binaries>=1.0"]
 # Lets Claude direct the edit. Without it the algorithmic director is used.
 llm = ["anthropic>=0.40"]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=9.1.1"]
 
 [project.scripts]
 auteur = "auteur.cli:main"
