@@ -29,6 +29,8 @@ from .base import (
     Round,
 )
 from .editors import HookAgent, LoopAgent, ShareAgent, default_crew
+from .finalcheck import FinalCheckAgent
+from .gaze import GazeAgent
 from .preflight import CHECKABLE, Finding, StyleAgent, check_render, preflight, unknowable
 
 __all__ = [
@@ -37,7 +39,9 @@ __all__ = [
     "Crew",
     "CrewResult",
     "Decision",
+    "FinalCheckAgent",
     "Gate",
+    "GazeAgent",
     "HookAgent",
     "LoopAgent",
     "Mode",
