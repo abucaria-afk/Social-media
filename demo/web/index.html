@@ -4,38 +4,72 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0a0a0a">
-  <link rel="manifest" href="/demo/web/manifest.json">
-  <link rel="apple-touch-icon" href="/demo/web/apple-touch-icon.svg">
-  <title>Demo PWA placeholders</title>
+  <title>Demo PWA placeholders — accessible</title>
   <style>
     :root {
       --safe-top: env(safe-area-inset-top);
       --safe-bottom: env(safe-area-inset-bottom);
+      --accent: #0b66ff;
+      --bg: #ffffff;
+      --text: #111111;
+      --muted: #555555;
     }
-    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:0; padding: calc(16px + var(--safe-top)) calc(16px) calc(16px + var(--safe-bottom)); background:#fff; color:#111; }
-    header { display:flex; align-items:center; gap:12px; }
+
+    html,body{height:100%;}
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:0; padding: calc(16px + var(--safe-top)) calc(16px) calc(16px + var(--safe-bottom)); background:var(--bg); color:var(--text); -webkit-font-smoothing:antialiased; }
+
+    /* Skip link for screen-reader & keyboard users */
+    .skip-link {
+      position: absolute; left: -999px; top: auto; width: 1px; height: 1px; overflow: hidden;
+    }
+    .skip-link:focus {
+      left: 16px; top: 16px; width: auto; height: auto; background: #000; color: #fff; padding: 8px 12px; z-index:1000; border-radius:4px;
+    }
+
+    header[role="banner"] { display:flex; align-items:center; gap:12px; }
     .hero { max-width:720px; margin: 16px auto; }
-    .btn { display:inline-block; background:#0b66ff; color:#fff; border-radius:8px; padding:12px 18px; min-height:44px; min-width:44px; text-decoration:none; }
+    .btn { display:inline-block; background:var(--accent); color:#fff; border-radius:8px; padding:12px 18px; min-height:44px; min-width:44px; text-decoration:none; line-height:1; border:none; cursor:pointer; }
+
+    .btn:focus-visible { outline: 3px solid #003f8a; outline-offset:3px; }
+    a:focus-visible { outline: 3px solid #003f8a; outline-offset:3px; }
+
     img.responsive { width:100%; height:auto; aspect-ratio:16/9; object-fit:cover; }
-    .note { font-size:0.9rem; color:#555; margin-top:8px }
+    .note { font-size:0.9rem; color:var(--muted); margin-top:8px }
+
+    /* Ensure touch targets are comfortably big */
+    .btn { min-width: 48px; min-height: 48px; }
+
+    /* Respect reduced motion preferences */
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; animation: none !important; }
+    }
+
+    /* Visible focus for keyboard users when focus outlines are suppressed */
+    :focus { outline-offset: 3px; }
   </style>
 </head>
 <body>
-  <header>
-    <img src="apple-touch-icon.svg" alt="icon" width="48" height="48">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header role="banner">
+    <img src="apple-touch-icon.svg" alt="Demo icon" width="48" height="48">
     <h1>Demo PWA placeholders</h1>
   </header>
 
-  <main class="hero">
-    <p>This folder provides minimal mobile-first placeholders you can use when you deploy a web frontend: manifest, icons and an example index.html tuned for iOS (iPhone 13).</p>
+  <main id="main" role="main" class="hero">
+    <p>This folder provides minimal mobile-first placeholders you can use when you deploy a web frontend: manifest, icons and an example index.html tuned for mobile testing and accessibility.</p>
 
-    <a class="btn" href="#" onclick="alert('touch target OK')">Primary action</a>
+    <button class="btn" onclick="alert('Primary action')" aria-label="Primary action">Primary action</button>
 
     <h2>Responsive image (srcset)</h2>
-    <img class="responsive" src="image-1x.svg" srcset="image-1x.svg 1x, image-2x.svg 2x, image-3x.svg 3x" alt="placeholder image">
+    <img class="responsive" src="image-1x.svg" srcset="image-1x.svg 1x, image-2x.svg 2x, image-3x.svg 3x" alt="Decorative placeholder image" role="img">
 
-    <p class="note">Tips: serve this page over HTTPS; the meta viewport and safe-area CSS help on iPhone notch devices. Replace the SVG placeholders with real PNG/WebP assets sized for 1x/2x/3x DPR.</p>
+    <p class="note">Tips: serve this page over HTTPS for service worker features; meta viewport and safe-area CSS help on iPhone notch devices. Replace SVG placeholders with real PNG/WebP assets sized for 1x/2x/3x DPR. Use real alt text for content images.</p>
   </main>
+
+  <footer role="contentinfo" style="max-width:720px;margin:16px auto;color:var(--muted)">
+    <p>Accessible demo — default checks: keyboard focus, skip link, reduced motion respected.</p>
+  </footer>
 
 </body>
 </html>
