@@ -238,6 +238,14 @@ def review(
 # ---------------------------------------------------------------------------
 
 
+#: Shots the style agent lengthened on purpose. Imported by name rather than by
+#: string so the two files cannot drift apart.
+try:  # pragma: no cover - the agents package is optional at import time
+    from .agents.preflight import HELD_ON_PURPOSE
+except ImportError:  # pragma: no cover
+    HELD_ON_PURPOSE = "held for the reference style"
+
+
 def revise(
     edl: EditDecisionList,
     critique: Critique,
@@ -268,6 +276,11 @@ def revise(
         if len(edl.shots) <= 3:
             break
         victim = next((shot for start, end, shot in timeline if start <= note.at < end), None)
+        if victim is not None and victim.note == HELD_ON_PURPOSE:
+            # Somebody asked for this hold by pointing at footage that holds.
+            # From the pixels it is indistinguishable from a frozen shot, and
+            # the difference is entirely intent, which is not in the pixels.
+            continue
         if victim is not None and victim in edl.shots:
             edl.shots.remove(victim)
             changes.append(f"dropped the frozen shot at {note.at:.1f}s ({victim.clip_id})")

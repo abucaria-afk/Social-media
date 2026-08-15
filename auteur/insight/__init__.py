@@ -23,7 +23,8 @@ from __future__ import annotations
 from pathlib import Path
 from collections.abc import Sequence
 
-from .dataset import CURVE_POINTS, load, simulate, write_csv, write_json
+from .dataset import CURVE_POINTS, load, load_jsonl, simulate, write_csv, write_json
+from .reference import StyleTarget, measure
 from .schema import (
     FORMS,
     HOOK_STYLES,
@@ -53,7 +54,10 @@ __all__ = [
     "corpus",
     "detect_form",
     "fit",
+    "StyleTarget",
     "load",
+    "load_jsonl",
+    "measure",
     "predict",
     "simulate",
     "write_csv",

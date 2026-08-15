@@ -43,6 +43,8 @@ FORMS = (
     "multimodal_matrix",
     "metadata_emulation",
     "metadata_emulation_wide",
+    "workflow_outcome",
+    "metadata_domain",
 )
 
 #: Forms that describe *how a video was made* rather than a different medium.
@@ -56,6 +58,8 @@ CRAFT_FORMS = (
     "multimodal_matrix",
     "metadata_emulation",
     "metadata_emulation_wide",
+    "workflow_outcome",
+    "metadata_domain",
 )
 
 #: Header signatures used to recognise a CSV without being told what it is.
@@ -195,6 +199,18 @@ class Signal:
 
     tier: str = ""
     sentiment: str = ""
+    #: "win" | "fail" | "" — the label that makes discrimination possible at
+    #: all. Everything before this arrived was winners describing themselves.
+    outcome: str = ""
+    #: Why it failed, from the export's own taxonomy.
+    error_state: str = ""
+    #: What the export says to do about it. The agents map these to checks.
+    recommended_action: str = ""
+    editing_style: str = ""
+    content_bucket: str = ""
+    platform: str = ""
+    schedule_time: str = ""
+    seed_tier: int = 0
     observed: frozenset[str] = field(default_factory=frozenset)
     #: field -> the column it was inferred from, for fields the export did not
     #: carry. Correlating a derived field against its own source returns 1.0
@@ -227,7 +243,13 @@ class Signal:
             return -1
 
     @property
+    def failed(self) -> bool:
+        return self.outcome == "fail"
+
+    @property
     def stalled(self) -> bool:
+        if self.outcome == "fail":
+            return True
         """Did the system stop pushing this — the only real negative label.
 
         A corpus with none of these can describe what winners look like and
@@ -304,6 +326,31 @@ class Signal:
         }
 
 
+def _is_domain_export(columns: set[str]) -> bool:
+    """One family, one column per domain.
+
+    These arrive as `viral_metadata_<domain>.csv` — human condition, art
+    history, art theory, cinematography, human behaviour — identical but for a
+    `Primary_<domain>` column. Matching them by a fixed signature would mean a
+    new edit to this file every time somebody adds a domain, so they are
+    recognised by their shape instead: an id, a primary lever, and a watch time.
+    """
+    return (
+        "metadata_id" in columns
+        and "avg_watch_time_pct" in columns
+        and any(name.startswith("primary_") for name in columns)
+    )
+
+
+def domain_of(header: list[str]) -> str:
+    """Which lever a domain export varies, from its `Primary_` column."""
+    for name in header:
+        lowered = name.strip().lower()
+        if lowered.startswith("primary_"):
+            return lowered[len("primary_") :]
+    return ""
+
+
 def detect_form(header: list[str]) -> str:
     """Which of the three forms a CSV holds, by its columns.
 
@@ -311,6 +358,8 @@ def detect_form(header: list[str]) -> str:
     call the export whatever they like, which is what they are going to do.
     """
     columns = {name.strip().lower() for name in header}
+    if _is_domain_export(columns):
+        return "metadata_domain"
     best, best_hits = "", 0
     for form, signature in _SIGNATURES.items():
         hits = sum(1 for column in signature if column in columns)

@@ -115,6 +115,15 @@ to be observations are down-weighted, disagreements between sources are surfaced
 rather than averaged away, and a corpus with no failures in it is told it has
 none. With no data at all it fits on simulated rows and says so every time.
 
+`--reference ./refs/*.mp4` measures footage you point at and pulls the edit
+toward its cutting rate and exposure. A reference **outranks the corpus**: style
+proposals are binding, so they skip the "does this improve the prediction?" test
+that would otherwise let a population-level correlation overrule your own eye.
+
+With a labelled outcome export loaded, every render is also checked against the
+seven failure modes the data recorded — and told which two it cannot see.
+See **[docs/agent-briefs.md](docs/agent-briefs.md)**.
+
 `auteur serve` exposes all of this at **/studio** — pick a destination, see the
 prediction and the retention curve, approve or reject each proposal.
 

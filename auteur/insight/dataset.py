@@ -141,6 +141,28 @@ def _row_to_signal(row: dict, form: str, index: int) -> Signal:
         audio_anchor=take_text("audio_anchor", "music_theory_anchor", "music_theory_audio_anchor"),
     )
 
+    # The domain exports name their lever after the domain — `Primary_Art_Theory`,
+    # `Primary_Human_Behavior` — so it has to be found by prefix rather than by
+    # name. A new domain then needs no code at all.
+    if not signal.theme:
+        for key, value in row.items():
+            if key.startswith("primary_") and value:
+                signal.theme = str(value).strip()
+                signal.dataset_origin = key[len("primary_") :]
+                observed.add("theme")
+                break
+    if not signal.framework:
+        for key, value in row.items():
+            if key.startswith("secondary_") and value:
+                signal.framework = str(value).strip()
+                observed.add("framework")
+                break
+    if not signal.trigger:
+        text, present = _text(row, "psychological_philosophy_anchor")
+        if present:
+            signal.trigger = text
+            observed.add("trigger")
+
     if not signal.hook:
         text, present = _text(row, "hook_text", "hook_text_metadata")
         if present:
@@ -155,7 +177,7 @@ def _row_to_signal(row: dict, form: str, index: int) -> Signal:
     # The emulation exports carry counts, not ratios. Compute the ratios the
     # objectives are actually stated in — and treat them as measured, because
     # a division is not an inference.
-    views, has_views = _number(row, "simulated_views", "total_views", "views")
+    views, has_views = _number(row, "simulated_views", "total_views", "views")  # noqa: E501
     if has_views and views > 0:
         signal.views_10m = int(views)
         for target, columns in (
@@ -260,13 +282,129 @@ def _curve_from(start: float, end: float, points: int = CURVE_POINTS) -> tuple[f
     )
 
 
+def _dig(row: dict, *path: str):
+    """Follow a dotted path into nested JSON, returning None if it breaks.
+
+    The failure export nests its metrics under `algorithmic_signals` and
+    `distribution_metadata` while the success export keeps them flat. Rather
+    than two loaders that can drift apart, both go through one that can reach
+    either way.
+    """
+    value = row
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
+def _first(row: dict, *paths: str):
+    for dotted in paths:
+        value = _dig(row, *dotted.split("."))
+        if value is not None:
+            return value
+    return None
+
+
+def load_jsonl(path: Path) -> list[Signal]:
+    """Read a workflow-outcome export: one JSON object per line.
+
+    These are the only exports that carry *failures*, which makes them the only
+    ones that can teach the difference between a post that worked and one that
+    did not. Everything else in this package describes winners.
+    """
+    signals: list[Signal] = []
+    for index, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict):
+            continue
+
+        error = str(_first(row, "error_state_detected") or "")
+        # A row is a failure if it says why it failed. Absence of an error is
+        # what "optimal" means in the paired export.
+        outcome = "fail" if error else "win"
+
+        dropoff = _first(row, "hook_dropoff_rate_3s", "algorithmic_signals.hook_dropoff_rate_3s")
+        completion = _first(row, "metrics_completion_rate", "algorithmic_signals.completion_rate")
+        rewatch = _first(row, "metrics_rewatch_ratio", "algorithmic_signals.rewatch_ratio")
+        velocity = _first(row, "metrics_velocity_score_1m", "algorithmic_signals.velocity_score_1m")
+        share = _first(row, "metrics_share_ratio")
+        seed = _first(row, "distribution_metadata.initial_seed_pool_size", "seed_pool_size")
+        tier = _first(row, "distribution_metadata.current_bucket_tier")
+        when = _first(row, "optimal_schedule_time", "distribution_metadata.optimal_schedule_time")
+
+        observed: set[str] = set()
+        signal = Signal(
+            post_id=str(_first(row, "content_id") or f"jsonl_{index}"),
+            form="workflow_outcome",
+            outcome=outcome,
+            error_state=error,
+            recommended_action=str(_first(row, "agent_action_recommended") or ""),
+            editing_style=str(_first(row, "editing_style") or ""),
+            content_bucket=str(_first(row, "content_bucket") or ""),
+            platform=str(_first(row, "target_platform") or ""),
+            schedule_time=str(when or ""),
+            seed_pool_size=int(seed or 0),
+            seed_tier=int(tier or 0),
+            kill_signal=outcome == "fail",
+        )
+        # A three-second *drop-off* is the complement of a three-second watch
+        # rate. This is the only export that measures it directly, so it is the
+        # only place the hook objective has a genuinely observed number.
+        if isinstance(dropoff, (int, float)):
+            signal.three_second_watch_rate = max(0.0, min(1.0, 1.0 - float(dropoff)))
+            observed.add("three_second_watch_rate")
+        if isinstance(completion, (int, float)):
+            signal.completion_rate = float(completion)
+            observed.add("completion_rate")
+        if isinstance(rewatch, (int, float)):
+            # A rewatch ratio is plays beyond the first; loop_count is plays.
+            signal.loop_count = 1.0 + float(rewatch)
+            observed.add("loop_count")
+        if isinstance(velocity, (int, float)):
+            signal.velocity_score_10m = float(velocity)
+            observed.add("velocity_score_10m")
+        if isinstance(share, (int, float)):
+            signal.share_to_view_ratio = float(share)
+            observed.add("share_to_view_ratio")
+        for name, value in (
+            ("seo_keyword_density", _first(row, "seo_keyword_density_score")),
+            ("watch_time_multiplier", _first(row, "audio_trending_multiplier")),
+            ("avg_time_spent_sec", _first(row, "metrics_avg_watch_sec")),
+        ):
+            if isinstance(value, (int, float)):
+                setattr(signal, name, float(value))
+                observed.add(name)
+
+        if signal.completion_rate:
+            signal.retention_curve = _curve_from(
+                signal.three_second_watch_rate or 0.9, signal.completion_rate
+            )
+        signal.observed = frozenset(observed)
+        signals.append(signal)
+    return signals
+
+
 def load(paths: Sequence[str | Path]) -> list[Signal]:
-    """Read one or more performance exports into a common shape."""
+    """Read one or more performance exports into a common shape.
+
+    CSV or JSONL, chosen by suffix — the workflow-outcome exports are one JSON
+    object per line and cannot be read as a table.
+    """
     signals: list[Signal] = []
     for path in paths:
         file = Path(path)
         if not file.exists():
             raise FileNotFoundError(f"no such export: {file}")
+        if file.suffix.lower() in (".jsonl", ".ndjson"):
+            signals.extend(load_jsonl(file))
+            continue
         with file.open(newline="", encoding="utf-8-sig") as handle:
             reader = csv.DictReader(handle)
             if not reader.fieldnames:

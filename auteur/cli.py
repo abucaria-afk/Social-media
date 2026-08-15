@@ -274,8 +274,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--data",
         action="append",
         default=None,
-        metavar="CSV",
-        help="a performance export to train the agents on (repeatable)",
+        metavar="FILE",
+        help="a performance export to train the agents on, .csv or .jsonl (repeatable)",
+    )
+    workflow.add_argument(
+        "--reference",
+        action="append",
+        default=None,
+        metavar="VIDEO",
+        help="footage to cut like — measured for pace, exposure and motion (repeatable)",
     )
 
     insight = sub.add_parser(
@@ -710,21 +717,45 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
             f"{spec.min_seconds:.0f}-{spec.max_seconds:.0f}s — cutting to {seconds:.0f}s instead"
         )
 
+    style = None
+    if args.reference:
+        from .insight import measure
+
+        say.step("Watching the footage you want it to look like")
+        style = measure(args.reference)
+        for line in style.describe().splitlines():
+            print(f"     {line}")
+        if not style.is_agreed:
+            say.warn("those references do not agree on pace — using the median of them")
+
     from .config import Settings
 
     settings = Settings(use_llm=not args.no_ai)
     if args.seed is not None:
         settings.seed = args.seed
+    if style is not None and not style.is_empty:
+        # Fold the measured style into the prompt the director reads before it
+        # is parsed. The brief only understands words, so a measured pace has
+        # to be said in them.
+        prompt = f"{prompt}, {style.prompt_fragment()}"
 
     crew = None
     agent_result: dict = {}
+    model = None
     if args.agents != "off":
-        from .agents import Crew, default_crew
+        from .agents import Crew, StyleAgent, default_crew
 
         say.step("Reading what your data says")
+        model = _model_for(args, say)
+        agents = list(default_crew())
+        if style is not None and not style.is_empty:
+            # First in the list, and deliberately: a reference outranks a
+            # correlation. The crew still scores every proposal, so a style
+            # change that wrecks the prediction is dropped like any other.
+            agents.insert(0, StyleAgent(style))
         crew = Crew(
-            default_crew(),
-            _model_for(args, say),
+            agents,
+            model,
             gate=_terminal_gate(args.agents),
             max_rounds=3,
         )
@@ -794,6 +825,28 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
 
         facts.append(f"queued for {describe_time(queued.when)}")
 
+    if model is not None:
+        from .agents import check_render, preflight, unknowable
+        from .insight import predict
+
+        findings = preflight(production.edl, predict(production.edl, model), model, spec=spec)
+        rendered = check_render(deliverable.video)
+        if rendered is not None:
+            findings.append(rendered)
+        for finding in findings:
+            say.warn(finding.describe().replace("\n", f"\n{' ' * 5}"))
+        if deliverable.folder:
+            (deliverable.folder / "preflight.json").write_text(
+                json.dumps(
+                    {
+                        "findings": [f.to_json() for f in findings],
+                        "cannot_be_checked_here": unknowable(),
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
     crewed = agent_result.get("result")
     if crewed is not None:
         facts.insert(
@@ -849,11 +902,26 @@ def _terminal_gate(mode_name: str):
 
 
 def _model_for(args: argparse.Namespace, say: Reporter):
-    """Fit the virality model from whatever data this run was given."""
-    from .insight import corpus, fit
+    """Fit the virality model from whatever data this run was given.
 
-    exports = list(getattr(args, "data", None) or [])
-    model = fit(corpus(exports, simulate_rows=2000))
+    Each export is loaded separately so one unrecognised file is a warning
+    rather than a dead render — a folder of exports grows over time and it
+    should not be possible for a new column layout to stop you making a film.
+    `auteur insight fit` still fails loudly, because there the export *is* the
+    subject.
+    """
+    from .insight import corpus, fit, load
+
+    usable: list[str] = []
+    for export in getattr(args, "data", None) or []:
+        try:
+            load([export])
+        except (FileNotFoundError, ValueError) as exc:
+            say.warn(f"skipping {Path(export).name}: {exc}")
+            continue
+        usable.append(export)
+
+    model = fit(corpus(usable, simulate_rows=0 if usable else 2000))
     say.detail(model.provenance)
     return model
 

@@ -117,6 +117,13 @@ class HookAgent:
             if edl.shots[best].source_duration > edl.shots[0].source_duration * 1.6:
 
                 def lead_with_best(target: EditDecisionList, best: int = best) -> None:
+                    # The index was chosen against the timeline as it was when
+                    # this proposal was written. An earlier proposal in the same
+                    # round may have removed shots since — the style agent
+                    # thins them — so it has to be re-checked rather than
+                    # trusted. It used to raise IndexError and lose the round.
+                    if best >= len(target.shots) or len(target.shots) < 2:
+                        return
                     shot = target.shots.pop(best)
                     shot.transition_in = Transition(kind="cut")
                     target.shots.insert(0, shot)

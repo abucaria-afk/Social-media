@@ -69,6 +69,12 @@ class Proposal:
     change: Change
     objective: str
     risk: Risk = Risk.LOW
+    #: A direct instruction rather than an optimisation. Binding proposals skip
+    #: the crew's "does this improve the prediction?" test, because the answer
+    #: is irrelevant: somebody pointed at footage and said make it like that.
+    #: They still go to the gate — binding means the *model* does not get a
+    #: veto, not that the person does not.
+    binding: bool = False
     #: Filled in by the crew once the change has been tried against the model.
     predicted_gain: float = 0.0
     applied: bool = False
@@ -82,6 +88,7 @@ class Proposal:
             "reason": self.reason,
             "objective": self.objective,
             "risk": self.risk.name.lower(),
+            "binding": self.binding,
             "predicted_gain": round(self.predicted_gain, 4),
             "applied": self.applied,
             "decided_by": self.decided_by,
@@ -316,6 +323,8 @@ class Crew:
                     )
 
             improved = False
+            # A binding change is applied even where it costs prediction, so
+            # the round must not be judged only on whether the score went up.
             for proposal in proposals:
                 candidate = copy.deepcopy(current)
                 try:
@@ -329,7 +338,13 @@ class Crew:
                 proposal.predicted_gain = scored - current_score
                 round_.proposals.append(proposal)
 
-                if proposal.predicted_gain < self.min_gain:
+                # A binding proposal is applied on the strength of the
+                # instruction behind it, not on the strength of the model's
+                # opinion of it. Gating these on predicted gain let a
+                # correlation across a population overrule a person pointing
+                # at their own reference footage — which is the exact thing
+                # the style agent exists to prevent.
+                if not proposal.binding and proposal.predicted_gain < self.min_gain:
                     proposal.decision_note = proposal.decision_note or "no predicted gain"
                     continue
                 if not self.gate.review(proposal):
@@ -337,7 +352,7 @@ class Crew:
 
                 current, current_score = candidate, scored
                 proposal.applied = True
-                improved = True
+                improved = improved or not proposal.binding
 
             round_.after = current_score
             rounds.append(round_)

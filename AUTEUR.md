@@ -414,6 +414,60 @@ auteur workflow run tiktok ./clips "crate day" --agents supervised --data ./expo
 | `supervised` | small changes apply themselves, structural ones ask |
 | `autonomous` | editing rounds run uninterrupted |
 
+### Cutting like footage you point at
+
+```bash
+auteur workflow run tiktok ./clips "some nights" \
+    --reference ./refs/*.mp4 --agents supervised
+```
+
+`--reference` measures footage you like — cuts per ten seconds, typical shot
+length, when the first cut lands, luma, contrast, motion — and a fourth agent
+pulls the edit toward it.
+
+**A reference outranks the corpus.** The performance data says nine or ten cuts
+per ten seconds; reference footage cutting at three says three. When they
+disagree the reference wins, and this is enforced rather than merely intended:
+style proposals are marked **binding**, which means they skip the crew's "does
+this improve the prediction?" test entirely.
+
+That distinction was a real bug before it was a feature. The style agent's
+proposal was being dropped for *no predicted gain* — so a correlation across a
+population was quietly overruling somebody pointing at their own footage, which
+is the exact thing the agent exists to prevent. Binding means the *model* gets
+no veto. The person still does: binding proposals are high-risk and go to the
+gate like anything else.
+
+### Preflight: the ways posts are known to fail
+
+With a labelled outcome export loaded (`--data ...jsonl`), every render is
+checked against the seven failure modes the data actually recorded:
+
+| mode | recommended fix | can this check it? |
+|---|---|---|
+| Hook Abandonment | `RE_EDIT_HOOK_REPLACE` | yes, before render |
+| Bad Aspect Ratio | `RE_CROP_9_16_ASPECT` | yes, before render |
+| Flop Schedule Window | `RESCHEDULE_OPTIMAL_PEAK` | yes, before render |
+| Muted Audio Copyright | `RE_AUDIO_SWAP_TRENDING` | partly — see below |
+| Corrupt File Upload | `RE_RENDER_AND_REUPLOAD` | yes, after render |
+| Low Organic Traction | `ARCHIVE_OR_REPURPOSE` | **no** — an outcome, not a cause |
+| Shadowban Boundary | `FLAG_COMMUNITY_GUIDELINES_REVIEW` | **no** — invisible from here |
+
+Naming the two it cannot see is the point. A preflight that claims to catch
+everything is one nobody should trust.
+
+The audio check cannot identify a song — nothing here can. It tells you whether
+the bed came from `demo/make_track.py`, which is safe by construction, or from
+somewhere else, which is a risk it names rather than quietly accepts. That is
+the whole argument for synthesising a bed: *Muted Audio Copyright* is 11% of
+recorded failures and it is the one failure mode you can design out entirely.
+
+Thresholds come from the labelled data rather than from folklore — the boundary
+between a post that worked and one that did not sits at 0.69 three-second watch,
+0.56 completion, 1.72 loop count. See **[docs/agent-briefs.md](docs/agent-briefs.md)**
+for one page per agent: what it owns, what the data says, and where it is known
+to be wrong.
+
 **The hook agent** shortens the opening to where the winners cut, lands a title
 before the first cut, and will argue for opening on the best shot rather than
 saving it. **The share agent** argues about runtime and pace, because a share

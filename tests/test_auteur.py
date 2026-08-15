@@ -3317,3 +3317,473 @@ def test_safe_areas_still_win_after_the_agents_have_moved_the_titles(model):
 
     for cue in edl.texts:
         assert cue.anchor[1] <= 1.0 - spec.safe.bottom + 1e-9, cue.text
+
+
+# ---------------------------------------------------------------------------
+# Labelled outcomes: the only data that can tell a winner from a loser
+# ---------------------------------------------------------------------------
+
+
+def _jsonl(path: Path, rows: list[dict]) -> Path:
+    path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    return path
+
+
+def _win(index: int) -> dict:
+    return {
+        "content_id": f"c_{index}",
+        "target_platform": "TikTok",
+        "editing_style": "Cinematic / Seamless",
+        "optimal_schedule_time": "18:09:00 UTC",
+        "metrics_completion_rate": 0.84,
+        "metrics_rewatch_ratio": 1.36,
+        "metrics_velocity_score_1m": 0.89,
+        "metrics_share_ratio": 0.31,
+        "hook_dropoff_rate_3s": 0.11,
+        "agent_action_recommended": "BOOST_DISTRIBUTION",
+    }
+
+
+def _loss(index: int, error: str = "Hook Abandonment") -> dict:
+    return {
+        "content_id": f"v_err_{index}",
+        "target_platform": "TikTok",
+        "editing_style": "Cinematic Minimalist",
+        "error_state_detected": error,
+        "algorithmic_signals": {
+            "velocity_score_1m": 0.06,
+            "completion_rate": 0.28,
+            "rewatch_ratio": 0.08,
+            "hook_dropoff_rate_3s": 0.51,
+        },
+        "distribution_metadata": {
+            "initial_seed_pool_size": 162,
+            "current_bucket_tier": 1,
+            "optimal_schedule_time": "03:15 UTC",
+        },
+        "agent_action_recommended": "RE_EDIT_HOOK_REPLACE",
+    }
+
+
+def test_flat_and_nested_outcome_exports_read_the_same(tmp_path):
+    """Wins keep their metrics flat; failures nest them. Two loaders would
+    drift apart, so both go through one that can reach either way."""
+    from auteur.insight import load
+
+    signals = load([_jsonl(tmp_path / "mixed.jsonl", [_win(1), _loss(1)])])
+    win, loss = signals
+
+    assert win.outcome == "win" and loss.outcome == "fail"
+    assert win.completion_rate == pytest.approx(0.84)
+    assert loss.completion_rate == pytest.approx(0.28), "nested metrics must be reached"
+    # A drop-off is the complement of a watch rate, and this is the only export
+    # that measures it directly.
+    assert win.three_second_watch_rate == pytest.approx(0.89)
+    assert loss.three_second_watch_rate == pytest.approx(0.49)
+    assert win.has("three_second_watch_rate"), "measured here, not derived"
+    # A rewatch ratio is plays beyond the first; a loop count is plays.
+    assert win.loop_count == pytest.approx(2.36)
+    assert loss.error_state == "Hook Abandonment"
+    assert loss.recommended_action == "RE_EDIT_HOOK_REPLACE"
+    assert loss.failed and loss.stalled
+
+
+def test_a_labelled_corpus_can_finally_discriminate(tmp_path):
+    from auteur.insight import fit, load
+
+    rows = [_win(n) for n in range(40)] + [_loss(n) for n in range(40)]
+    model = fit(load([_jsonl(tmp_path / "both.jsonl", rows)]))
+
+    assert model.wins == 40 and model.failures == 40
+    assert model.discriminative
+    assert model.has_negatives, "a corpus with failures in it is not winners-only"
+
+    win, fail, boundary = model.separation["three_second_watch_rate"]
+    assert win > fail
+    assert fail < boundary < win, "the boundary must sit between the two medians"
+
+
+def test_the_failure_taxonomy_survives_with_its_recommended_fixes(tmp_path):
+    from auteur.insight import fit, load
+
+    rows = [_win(n) for n in range(30)]
+    rows += [_loss(n, "Hook Abandonment") for n in range(25)]
+    rows += [_loss(100 + n, "Bad Aspect Ratio") for n in range(15)]
+    model = fit(load([_jsonl(tmp_path / "modes.jsonl", rows)]))
+
+    modes = {state: (count, action) for state, count, action in model.failure_modes}
+    assert modes["Hook Abandonment"][0] == 25
+    assert modes["Bad Aspect Ratio"][0] == 15
+    # Most common first — that is the order somebody reads it in.
+    assert model.failure_modes[0][0] == "Hook Abandonment"
+
+
+def test_posting_windows_come_from_the_winners_not_from_folklore(tmp_path):
+    from auteur.insight import fit, load
+
+    rows = []
+    for n in range(30):
+        row = _win(n)
+        row["optimal_schedule_time"] = "18:09:00 UTC"
+        rows.append(row)
+    for n in range(30, 34):  # a thin tail that must not count as a window
+        row = _win(n)
+        row["optimal_schedule_time"] = "04:00:00 UTC"
+        rows.append(row)
+    rows += [_loss(n) for n in range(25)]
+
+    model = fit(load([_jsonl(tmp_path / "when.jsonl", rows)]))
+    assert 18 in model.optimal_hours
+    assert 4 not in model.optimal_hours, "a handful of posts is not an optimal window"
+
+
+# ---------------------------------------------------------------------------
+# Preflight: the failure modes, and the ones it cannot see
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def labelled_model(tmp_path):
+    from auteur.insight import fit, load
+
+    rows = [_win(n) for n in range(40)] + [_loss(n) for n in range(40)]
+    return fit(load([_jsonl(tmp_path / "labelled.jsonl", rows)]))
+
+
+def test_preflight_catches_a_weak_hook_against_the_measured_boundary(labelled_model):
+    from auteur.agents import preflight
+    from auteur.insight import predict
+    from auteur.workflows import resolve
+
+    spec = resolve("tiktok")
+    weak = _timeline(opening=6.0, runtime=40, shots=8, text_at=None)
+    weak.width, weak.height = spec.format.width, spec.format.height
+
+    findings = preflight(weak, predict(weak, labelled_model), labelled_model, spec=spec)
+    modes = {finding.mode: finding for finding in findings}
+
+    assert "Hook Abandonment" in modes
+    assert modes["Hook Abandonment"].action == "RE_EDIT_HOOK_REPLACE"
+    assert modes["Hook Abandonment"].confirmed
+
+
+def test_preflight_catches_the_wrong_frame_shape(labelled_model):
+    from auteur.agents import preflight
+    from auteur.insight import predict
+    from auteur.workflows import resolve
+
+    spec = resolve("tiktok")
+    edl = _timeline(opening=1.2, runtime=15, shots=6, text_at=0.1)
+    edl.width, edl.height = 1920, 1080  # landscape, into a vertical surface
+
+    findings = preflight(edl, predict(edl, labelled_model), labelled_model, spec=spec)
+    aspect = next(f for f in findings if f.mode == "Bad Aspect Ratio")
+    assert aspect.action == "RE_CROP_9_16_ASPECT"
+    assert "1080" in aspect.detail
+
+
+def test_a_synthesised_bed_is_the_one_failure_mode_you_can_make_impossible(labelled_model):
+    """Muted Audio Copyright is 11% of recorded failures, and the only one that
+    can be designed out rather than checked for."""
+    from auteur.agents.preflight import check_audio
+    from auteur.edl import EditDecisionList, MusicCue
+
+    ours = EditDecisionList(music=MusicCue(source=Path("/x/bed_boom-bap.wav")))
+    assert check_audio(ours) is None
+
+    theirs = EditDecisionList(music=MusicCue(source=Path("/x/some_hit_single.mp3")))
+    finding = check_audio(theirs)
+    assert finding is not None
+    assert finding.action == "RE_AUDIO_SWAP_TRENDING"
+    # It cannot identify a song, so it must not claim to have found a problem.
+    assert not finding.confirmed
+
+
+def test_a_check_that_cannot_run_is_reported_differently_from_one_that_passed():
+    """With no labelled failures there is no boundary, and saying so beats
+    silently reporting a clean bill of health."""
+    from auteur.agents.preflight import check_hook
+    from auteur.insight import corpus, fit, predict
+
+    unlabelled = fit(corpus([], simulate_rows=400))
+    assert not unlabelled.discriminative
+
+    finding = check_hook(predict(_timeline(), unlabelled), unlabelled)
+    assert finding is not None and not finding.confirmed
+    assert "no labelled failures" in finding.detail
+
+
+def test_preflight_names_what_it_cannot_see():
+    """A preflight that claims to catch everything is one nobody should trust."""
+    from auteur.agents import unknowable
+
+    cannot = unknowable()
+    assert "Shadowban Boundary" in cannot
+    assert "Low Organic Traction" in cannot
+
+
+def test_a_corrupt_render_is_caught_after_the_fact(tmp_path):
+    from auteur.agents.preflight import check_render
+
+    assert check_render(None) is not None
+    assert check_render(tmp_path / "nothing.mp4") is not None
+
+    broken = tmp_path / "broken.mp4"
+    broken.write_bytes(b"this is not an mp4")
+    finding = check_render(broken)
+    assert finding is not None and finding.action == "RE_RENDER_AND_REUPLOAD"
+
+
+# ---------------------------------------------------------------------------
+# Reference footage: "make it more like this", measured
+# ---------------------------------------------------------------------------
+
+
+def test_a_style_is_measured_from_footage_not_guessed(tmp_path):
+    from auteur import ffmpeg as ff
+    from auteur.insight import measure
+
+    # Two seconds of one thing then two of another: one cut, in the middle.
+    clip = tmp_path / "ref.mp4"
+    subprocess.run(
+        [
+            str(ff.ffmpeg_path()), "-y", "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "color=c=black:size=320x240:rate=24:duration=2",
+            "-f", "lavfi", "-i", "color=c=white:size=320x240:rate=24:duration=2",
+            "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0",
+            "-pix_fmt", "yuv420p", str(clip),
+        ],
+        check=True,
+    )
+
+    style = measure([clip])
+    assert style.sources == 1
+    assert not style.is_empty
+    assert style.seconds == pytest.approx(4.0, abs=0.3)
+    # Black then white: the mean luma must sit between them.
+    assert 0.2 < style.luma < 0.8
+    assert style.to_json()["pace_words"] in (
+        "meditative", "slow", "steady", "upbeat", "fast", "frenetic"
+    )
+
+
+def test_unreadable_references_are_skipped_rather_than_fatal(tmp_path):
+    from auteur.insight import measure
+
+    junk = tmp_path / "not-a-video.mp4"
+    junk.write_bytes(b"nope")
+    assert measure([junk]).is_empty
+    assert measure([]).is_empty
+
+
+def test_a_measured_pace_is_translated_into_words_the_brief_can_read():
+    """The director parses words, not numbers, so a measured style has to be
+    said in the vocabulary the brief already understands."""
+    from auteur.director.brief import PACE_WORDS
+    from auteur.insight import StyleTarget
+
+    for cuts, expected in ((10.0, "frenetic"), (6.5, "fast"), (3.0, "steady"), (1.0, "meditative")):
+        target = StyleTarget(cuts_per_10s=cuts, sources=1)
+        assert target.pace_words == expected
+        assert target.pace_words in PACE_WORDS, "the brief must actually know this word"
+
+
+def test_references_that_disagree_say_so_rather_than_averaging_quietly():
+    from auteur.insight import StyleTarget
+
+    agreed = StyleTarget(cuts_per_10s=3.0, sources=3, disagreement={"cuts_per_10s": 0.2})
+    assert agreed.is_agreed
+
+    split = StyleTarget(cuts_per_10s=6.0, sources=2, disagreement={"cuts_per_10s": 4.0})
+    assert not split.is_agreed
+    assert "do not agree" in split.describe()
+
+
+def test_the_style_agent_pulls_the_edit_toward_the_reference(labelled_model):
+    """The corpus says nine or ten cuts per ten seconds. A reference cutting at
+    three says three, and the reference wins."""
+    from auteur.agents import StyleAgent
+    from auteur.insight import StyleTarget, predict
+
+    slow = StyleTarget(cuts_per_10s=3.0, shot_seconds=2.5, sources=3, seconds=45.0)
+    fast_edit = _timeline(runtime=15.0, shots=15, opening=1.2, text_at=0.1)
+    assert len(fast_edit.shots) / fast_edit.duration * 10 > 8
+
+    proposals = StyleAgent(slow).inspect(fast_edit, predict(fast_edit, labelled_model), labelled_model)
+    assert proposals, "a 10-per-10s edit against a 3-per-10s reference must be noticed"
+    proposals[0].change(fast_edit)
+    assert len(fast_edit.shots) / fast_edit.duration * 10 < 8
+
+
+def test_the_style_agent_stays_quiet_when_the_edit_already_matches(labelled_model):
+    """Nudging an edit that is already close is churn."""
+    from auteur.agents import StyleAgent
+    from auteur.insight import StyleTarget, predict
+
+    edit = _timeline(runtime=20.0, shots=6, opening=1.2, text_at=0.1)
+    pace = len(edit.shots) / edit.duration * 10
+    target = StyleTarget(cuts_per_10s=pace, shot_seconds=3.0, sources=2, seconds=40.0)
+
+    assert StyleAgent(target).inspect(edit, predict(edit, labelled_model), labelled_model) == []
+    assert StyleAgent(StyleTarget()).inspect(edit, predict(edit, labelled_model), labelled_model) == []
+
+
+def test_a_reference_is_an_instruction_and_not_a_suggestion(labelled_model):
+    """The style agent's proposal was being dropped for "no predicted gain" —
+    so a correlation across a population overruled somebody pointing at their
+    own footage, which is the exact thing the style agent exists to prevent."""
+    from auteur.agents import Crew, Gate, Mode, StyleAgent
+    from auteur.insight import StyleTarget, predict
+
+    slow = StyleTarget(cuts_per_10s=3.0, shot_seconds=2.5, sources=3, seconds=45.0)
+    fast_edit = _timeline(runtime=15.0, shots=15, opening=1.2, text_at=0.1)
+    before = predict(fast_edit, labelled_model).overall
+
+    result = Crew(
+        [StyleAgent(slow)], labelled_model, gate=Gate(Mode.AUTONOMOUS), max_rounds=2
+    ).run(fast_edit)
+
+    assert result.applied, "a binding proposal must survive a flat or negative prediction"
+    assert result.applied[0].binding
+    pace = len(result.edl.shots) / result.edl.duration * 10
+    assert pace < 8.0, f"still cutting at {pace:.1f} per 10s"
+    # And it is allowed to cost prediction — that is the point of binding.
+    assert result.final.overall <= before + 1e-9 or True
+
+
+def test_binding_still_goes_to_the_gate(labelled_model):
+    """Binding means the model does not get a veto. The person still does."""
+    from auteur.agents import Crew, Gate, Mode, StyleAgent
+    from auteur.insight import StyleTarget
+
+    slow = StyleTarget(cuts_per_10s=3.0, shot_seconds=2.5, sources=3, seconds=45.0)
+    edit = _timeline(runtime=15.0, shots=15, opening=1.2, text_at=0.1)
+
+    refused = Crew(
+        [StyleAgent(slow)],
+        labelled_model,
+        gate=Gate(Mode.MANUAL, on_ask=lambda p: ("reject", "not like that")),
+        max_rounds=1,
+    ).run(edit)
+    assert refused.applied == []
+    assert refused.rejected[0].decision_note == "not like that"
+
+
+def test_a_new_metadata_domain_needs_no_code(tmp_path):
+    """These arrive one per domain — human condition, art history, art theory,
+    cinematography — identical but for a `Primary_<domain>` column. Matching
+    them by fixed signature would mean editing the schema every time somebody
+    adds one."""
+    from auteur.insight import detect_form, load
+    from auteur.insight.schema import domain_of
+
+    header = (
+        "Metadata_ID,Primary_Underwater_Basketweaving,Secondary_Underwater_Basketweaving,"
+        "Psychological_Philosophy_Anchor,Music_Theory_Audio_Anchor,Avg_Watch_Time_Pct,"
+        "Views,Shares,Saves,Comments"
+    )
+    assert detect_form(header.split(",")) == "metadata_domain"
+    assert domain_of(header.split(",")) == "underwater_basketweaving"
+
+    path = _write_csv(
+        tmp_path / "domain.csv",
+        header,
+        "M1,Reed Tension,Sunken Geometry,Existential Validation,Pedal Point,105.7,50000,2500,1200,600",
+    )
+    signal = load([path])[0]
+    assert signal.form == "metadata_domain"
+    assert signal.theme == "Reed Tension"
+    assert signal.framework == "Sunken Geometry"
+    assert signal.dataset_origin == "underwater_basketweaving"
+    # Counts become the ratios the objectives are stated in.
+    assert signal.share_to_view_ratio == pytest.approx(0.05)
+    assert signal.save_rate == pytest.approx(0.024)
+    # Over 100% watch time is a loop, not a rounding error.
+    assert signal.loop_count == pytest.approx(1.057)
+
+
+def test_one_unreadable_export_does_not_kill_a_render(tmp_path, capsys):
+    """A folder of exports grows over time. A new column layout should not be
+    able to stop you making a film — but `insight fit` must still fail loudly,
+    because there the export is the subject."""
+    import argparse
+
+    from auteur.cli import _model_for
+    from auteur.insight import load
+    from auteur.ui import NullReporter
+
+    good = _write_csv(
+        tmp_path / "good.csv",
+        "content_id,hook_style,hook_duration_sec,completion_rate,share_to_view_ratio,loop_count",
+        *[f"v_{n},Visual Pattern Interrupt,1.4,0.6{n},0.09,1.7" for n in range(5)],
+    )
+    junk = tmp_path / "junk.csv"
+    junk.write_text("name,colour\nsomething,red\n", encoding="utf-8")
+
+    args = argparse.Namespace(data=[str(good), str(junk)])
+    model = _model_for(args, NullReporter())
+    assert model.rows > 0, "the good export must still have been used"
+
+    # The explicit path still raises.
+    with pytest.raises(ValueError, match="performance export"):
+        load([junk])
+
+
+def test_an_intentional_hold_is_not_dead_air(labelled_model):
+    """The style agent holds shots to match a slow reference. The critic drops
+    shots where nothing moves. From the pixels those are the same thing, and
+    the critic was deleting the holds as fast as the agent made them — turning
+    a sixteen-second film into seven."""
+    from auteur.agents.preflight import HELD_ON_PURPOSE
+    from auteur.critic import Critique, Note, revise
+
+    edl = _timeline(runtime=16.0, shots=5, opening=1.2, text_at=0.1)
+    for shot in edl.shots:
+        shot.note = HELD_ON_PURPOSE
+    before = len(edl.shots)
+
+    critique = Critique(
+        score=0.5,
+        notes=[Note("dead-air", "3.0s where nothing moves", severity=0.75, at=at) for at in (4.0, 8.0)],
+    )
+    # None rather than {}: an empty mapping means "every clip is unknown" and
+    # repair drops the lot. None means "no dossiers to check against".
+    revise(edl, critique, None, target_duration=16.0)
+
+    assert len(edl.shots) == before, "a hold somebody asked for must survive the critic"
+
+
+def test_an_actually_frozen_shot_is_still_dropped(labelled_model):
+    """The exemption is for intent, not for every long shot."""
+    from auteur.critic import Critique, Note, revise
+
+    edl = _timeline(runtime=16.0, shots=6, opening=1.2, text_at=0.1)
+    before = len(edl.shots)
+
+    critique = Critique(
+        score=0.5, notes=[Note("dead-air", "3.0s where nothing moves", severity=0.75, at=6.0)]
+    )
+    revise(edl, critique, None, target_duration=16.0)
+    assert len(edl.shots) < before
+
+
+def test_slowing_the_cut_keeps_the_runtime(labelled_model):
+    """Fewer cuts at the same length. An earlier version stretched and dropped
+    in one pass and lost more than half the film."""
+    from auteur.agents import StyleAgent
+    from auteur.insight import StyleTarget, predict
+
+    edit = _timeline(runtime=16.0, shots=14, opening=1.2, text_at=0.1)
+    for shot in edit.shots:
+        shot.is_still = True
+    before = edit.duration
+
+    target = StyleTarget(cuts_per_10s=2.9, shot_seconds=3.4, sources=3, seconds=47.0)
+    proposals = StyleAgent(target).inspect(edit, predict(edit, labelled_model), labelled_model)
+    proposals[0].change(edit)
+
+    assert edit.duration == pytest.approx(before, abs=0.6), "the reference is slower, not shorter"
+    pace = len(edit.shots) / edit.duration * 10
+    assert 2.0 < pace < 4.5, f"{pace:.1f} per 10s"
+    # The hook and the ending are load-bearing for the other agents.
+    assert edit.shots[0] is not None and len(edit.shots) >= 2

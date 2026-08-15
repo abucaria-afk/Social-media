@@ -29,6 +29,7 @@ from .base import (
     Round,
 )
 from .editors import HookAgent, LoopAgent, ShareAgent, default_crew
+from .preflight import CHECKABLE, Finding, StyleAgent, check_render, preflight, unknowable
 
 __all__ = [
     "Agent",
@@ -44,5 +45,11 @@ __all__ = [
     "Risk",
     "Round",
     "ShareAgent",
+    "CHECKABLE",
+    "Finding",
+    "StyleAgent",
+    "check_render",
     "default_crew",
+    "preflight",
+    "unknowable",
 ]

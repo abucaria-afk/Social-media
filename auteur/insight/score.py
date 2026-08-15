@@ -112,10 +112,26 @@ class FitReport:
     best_hooks: tuple[tuple[str, float], ...] = ()
     #: Exports whose numbers are the right shape but the wrong size.
     implausible: tuple[str, ...] = ()
+    #: How many labelled wins and failures the corpus contains.
+    wins: int = 0
+    failures: int = 0
+    #: objective -> (win median, fail median, the value between them). The only
+    #: numbers here earned by comparison rather than by describing winners.
+    separation: dict[str, tuple[float, float, float]] = field(default_factory=dict)
+    #: error state -> (how often, what the export says to do about it).
+    failure_modes: tuple[tuple[str, int, str], ...] = ()
+    #: UTC hours the labelled wins were scheduled into. Derived from the data
+    #: rather than from folklore about the best time to post.
+    optimal_hours: tuple[int, ...] = ()
 
     @property
     def has_negatives(self) -> bool:
-        return self.stalled_rows > 0
+        return self.stalled_rows > 0 or self.failures > 0
+
+    @property
+    def discriminative(self) -> bool:
+        """Can this corpus tell a winner from a loser, or only describe winners?"""
+        return self.wins >= 20 and self.failures >= 20
 
     @property
     def provenance(self) -> str:
@@ -173,6 +189,23 @@ class FitReport:
             lines += ["", "your exports disagree about these — trust the observed one:"]
             for conflict in self.conflicts:
                 lines.append(f"    ! {conflict}")
+        if self.separation:
+            lines += [
+                "",
+                f"winners vs failures ({self.wins} / {self.failures} labelled):",
+            ]
+            for name, (win, fail, cut) in sorted(self.separation.items()):
+                lines.append(
+                    f"    {name.replace('_', ' '):<24} {win:.2f} vs {fail:.2f}"
+                    f"   → aim above {cut:.2f}"
+                )
+        if self.optimal_hours:
+            windows = ", ".join(f"{h:02d}:00" for h in self.optimal_hours)
+            lines += ["", f"the winners went out at (UTC): {windows}"]
+        if self.failure_modes:
+            lines += ["", "how they failed, and what the data says to do:"]
+            for state, count, action in self.failure_modes:
+                lines.append(f"    {count:>5}  {state:<26} → {action}")
         if self.best_hooks:
             lines += ["", "the hooks that actually travelled:"]
             for hook, amplification in self.best_hooks[:4]:
@@ -358,6 +391,51 @@ def fit(signals: Sequence[Signal]) -> FitReport:
                 "drop-off anywhere in it to learn pacing from"
             )
 
+    # Wins and failures, and the gap between them. This is the only part of the
+    # report earned by comparison: everything above describes winners, and a
+    # description of winners cannot tell you what a loser looks like.
+    labelled = [s for s in signals if s.outcome]
+    wins = [s for s in labelled if s.outcome == "win"]
+    failures = [s for s in labelled if s.outcome == "fail"]
+    separation: dict[str, tuple[float, float, float]] = {}
+    if len(wins) >= 20 and len(failures) >= 20:
+        for objective in (
+            "three_second_watch_rate",
+            "completion_rate",
+            "loop_count",
+            "velocity_score_10m",
+        ):
+            good = sorted(getattr(s, objective) for s in wins if s.has(objective))
+            bad = sorted(getattr(s, objective) for s in failures if s.has(objective))
+            if len(good) < 20 or len(bad) < 20:
+                continue
+            win_median = good[len(good) // 2]
+            fail_median = bad[len(bad) // 2]
+            # Midpoint between the medians. Crude on purpose: a fitted decision
+            # boundary would imply a confidence two medians do not support.
+            separation[objective] = (win_median, fail_median, (win_median + fail_median) / 2)
+
+    # When the winners went out. Only hours carrying a real share of the wins
+    # count — with 10,000 rows almost every hour appears at least once, and an
+    # "optimal window" that spans the whole day is not a window.
+    hour_counts: dict[int, int] = {}
+    for signal in wins:
+        text = (signal.schedule_time or "").strip()
+        if len(text) >= 2 and text[:2].isdigit():
+            hour = int(text[:2]) % 24
+            hour_counts[hour] = hour_counts.get(hour, 0) + 1
+    busiest = max(hour_counts.values(), default=0)
+    optimal_hours = tuple(
+        sorted(hour for hour, count in hour_counts.items() if count >= busiest * 0.5)
+    )
+
+    modes: dict[str, tuple[int, str]] = {}
+    for signal in failures:
+        if not signal.error_state:
+            continue
+        count, action = modes.get(signal.error_state, (0, signal.recommended_action))
+        modes[signal.error_state] = (count + 1, action or signal.recommended_action)
+
     return FitReport(
         rows=len(craft),
         simulated_rows=simulated,
@@ -374,6 +452,16 @@ def fit(signals: Sequence[Signal]) -> FitReport:
         conflicts=tuple(conflicts),
         generated_forms=tuple(sorted(generated)),
         implausible=tuple(implausible),
+        wins=len(wins),
+        failures=len(failures),
+        optimal_hours=optimal_hours,
+        separation=separation,
+        failure_modes=tuple(
+            sorted(
+                ((state, count, action) for state, (count, action) in modes.items()),
+                key=lambda item: -item[1],
+            )
+        ),
         best_hooks=tuple(
             (signal.hook, signal.amplification)
             for signal in sorted(
