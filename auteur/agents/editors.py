@@ -1,4 +1,4 @@
-"""The three agents, one per objective.
+"""The editing agents, one objective each.
 
 Each one owns a single number and is deliberately not allowed to care about the
 others. That is what makes the crew work: the hook agent will happily propose a
@@ -347,11 +347,22 @@ class LoopAgent:
         return proposals
 
 
-def default_crew() -> tuple[HookAgent, ShareAgent, LoopAgent]:
-    """The three, in the order they should argue.
+def default_crew():
+    """The five, in the order they should argue.
 
     Hook first because it is cheapest and everything else depends on somebody
     still being there; share second because it decides the runtime the loop has
-    to work with; loop last because it only needs the two ends.
+    to work with; loop third because it only needs the two ends; gaze fourth
+    so the visual curator can read the assembled cut; final_check last because
+    it is the QC gate before export.
+
+    The crew runs multiple rounds. That means gaze naturally re-inspects
+    whatever final_check changed in the previous round — final_check applies
+    its fixes, and the next pass lets gaze confirm the visual coherence still
+    holds. If it does not, gaze proposes corrections and the hill-climber
+    keeps only what improves the overall prediction.
     """
-    return (HookAgent(), ShareAgent(), LoopAgent())
+    from .finalcheck import FinalCheckAgent
+    from .gaze import GazeAgent
+
+    return (HookAgent(), ShareAgent(), LoopAgent(), GazeAgent(), FinalCheckAgent())

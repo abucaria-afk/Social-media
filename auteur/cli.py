@@ -760,7 +760,7 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
             max_rounds=3,
         )
         say.detail(
-            f"hook, share and loop agents running {args.agents}"
+            f"hook, share, loop, gaze and final-check agents running {args.agents}"
             + (
                 " — you will be asked about anything structural"
                 if args.agents != "autonomous"
