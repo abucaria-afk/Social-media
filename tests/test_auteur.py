@@ -13,6 +13,8 @@ needs no fixtures on disk.
 
 from __future__ import annotations
 
+import math
+import re
 import subprocess
 import sys
 import time
@@ -1451,29 +1453,35 @@ def test_a_film_of_stills_lands_on_its_runtime_at_every_quality(rushes, tmp_path
 # Accounts
 # ---------------------------------------------------------------------------
 
+#: The password these tests sign in with. It is deliberately a throwaway that
+#: has never been anybody's real password and never will be: the accounts file
+#: it ends up in lives under `tmp_path` and is deleted with the test run. A
+#: real password in a test file is a real password in the repository.
+TEST_PASSWORD = "harbour-kestrel-slate-7412"
+
 
 @pytest.fixture
 def accounts(tmp_path):
     from auteur.web.auth import Accounts
 
     store = Accounts(tmp_path / "accounts.json")
-    store.add("streetlightseason", "streetlightseason@gmail.com", "Tacit25#")
+    store.add("streetlightseason", "streetlightseason@gmail.com", TEST_PASSWORD)
     return store
 
 
 def test_a_password_is_never_stored(accounts, tmp_path):
     raw = (tmp_path / "accounts.json").read_text()
-    assert "Tacit25#" not in raw
+    assert TEST_PASSWORD not in raw
     account = accounts.get("streetlightseason")
-    assert account.password_hash != "Tacit25#"
+    assert account.password_hash != TEST_PASSWORD
     assert len(account.salt) == 32 and len(account.password_hash) == 64
 
 
 def test_the_right_password_is_accepted_and_others_are_not(accounts):
     account = accounts.get("streetlightseason")
-    assert account.check("Tacit25#")
+    assert account.check(TEST_PASSWORD)
     assert not account.check("tacit25#")
-    assert not account.check("Tacit25")
+    assert not account.check(TEST_PASSWORD[:-1])
     assert not account.check("")
 
 
@@ -1484,7 +1492,7 @@ def test_you_can_sign_in_with_either_the_username_or_the_email(accounts):
         "streetlightseason@gmail.com",
         "  Streetlightseason@Gmail.com  ",
     ):
-        token, _ = accounts.sign_in(who, "Tacit25#")
+        token, _ = accounts.sign_in(who, TEST_PASSWORD)
         assert token, who
         assert accounts.session_user(token) == "streetlightseason"
 
@@ -1504,17 +1512,17 @@ def test_guessing_locks_the_account(accounts):
         assert token is None
 
     # Even the correct password is refused while the lock stands.
-    token, message = accounts.sign_in("streetlightseason", "Tacit25#")
+    token, message = accounts.sign_in("streetlightseason", TEST_PASSWORD)
     assert token is None
     assert "Too many" in message
 
     accounts.get("streetlightseason").locked_until = 0.0
-    token, _ = accounts.sign_in("streetlightseason", "Tacit25#")
+    token, _ = accounts.sign_in("streetlightseason", TEST_PASSWORD)
     assert token
 
 
 def test_a_session_can_be_ended(accounts):
-    token, _ = accounts.sign_in("streetlightseason", "Tacit25#")
+    token, _ = accounts.sign_in("streetlightseason", TEST_PASSWORD)
     assert accounts.session_user(token) == "streetlightseason"
     accounts.sign_out(token)
     assert accounts.session_user(token) is None
@@ -1524,7 +1532,7 @@ def test_a_session_can_be_ended(accounts):
 
 def test_session_tokens_are_stored_hashed(accounts, tmp_path):
     """The account file must not hold anything replayable."""
-    token, _ = accounts.sign_in("streetlightseason", "Tacit25#")
+    token, _ = accounts.sign_in("streetlightseason", TEST_PASSWORD)
     assert token not in (tmp_path / "accounts.json").read_text()
 
 
@@ -1535,7 +1543,7 @@ def test_a_reset_link_works_once(accounts):
 
     assert accounts.finish_reset(token, "a-much-longer-one")
     assert accounts.get("streetlightseason").check("a-much-longer-one")
-    assert not accounts.get("streetlightseason").check("Tacit25#")
+    assert not accounts.get("streetlightseason").check(TEST_PASSWORD)
     assert not accounts.finish_reset(token, "third-attempt-here")
 
 
@@ -1551,8 +1559,8 @@ def test_resetting_for_an_unknown_account_gives_nothing_away(accounts):
 
 
 def test_changing_the_password_signs_every_device_out(accounts):
-    first, _ = accounts.sign_in("streetlightseason", "Tacit25#")
-    second, _ = accounts.sign_in("streetlightseason", "Tacit25#")
+    first, _ = accounts.sign_in("streetlightseason", TEST_PASSWORD)
+    second, _ = accounts.sign_in("streetlightseason", TEST_PASSWORD)
     accounts.set_password(accounts.get("streetlightseason"), "a-much-longer-one")
     assert accounts.session_user(first) is None
     assert accounts.session_user(second) is None
@@ -1561,39 +1569,79 @@ def test_changing_the_password_signs_every_device_out(accounts):
 def test_accounts_survive_a_restart(accounts, tmp_path):
     from auteur.web.auth import Accounts
 
-    token, _ = accounts.sign_in("streetlightseason", "Tacit25#")
+    token, _ = accounts.sign_in("streetlightseason", TEST_PASSWORD)
     reopened = Accounts(tmp_path / "accounts.json")
-    assert reopened.get("streetlightseason").check("Tacit25#")
+    assert reopened.get("streetlightseason").check(TEST_PASSWORD)
     assert (
         reopened.session_user(token) == "streetlightseason"
     ), "a restart must not sign the phone out"
 
 
 def test_weak_passwords_are_explained_not_just_refused():
-    from auteur.web.auth import password_problem
+    from auteur.web.auth import MIN_PASSWORD, password_problem
 
-    assert password_problem("short") == "Use at least 8 characters."
-    assert "space" in password_problem(" has-spaces-around ")
-    assert password_problem("password") != ""
+    problem = password_problem("short")
+    assert str(MIN_PASSWORD) in problem, "say the number, do not make them guess it"
+    assert "space" in password_problem(" has-spaces-around-it ")
     assert password_problem("a-perfectly-fine-one") == ""
 
 
-def test_the_seed_account_carries_a_hash_and_not_a_password():
-    """The repository must never contain the password itself."""
+def test_the_guessing_lists_are_refused_however_they_are_dressed_up():
+    """The passwords that get broken are the ones on a list, not the short ones."""
+    from auteur.web.auth import password_problem
+
+    # Long enough to pass the length rule, and still the first thing anybody tries.
+    for guessable in ("password123456", "MyPassword2024!", "letmein-please", "qwerty-qwerty"):
+        assert password_problem(guessable) != "", guessable
+
+    # Length is not variety.
+    assert password_problem("aaaaaaaaaaaaaaaa") != ""
+    assert password_problem("abababababababab") != ""
+
+
+def test_a_password_may_not_be_made_of_the_account_it_protects():
+    """Anyone guessing starts from the username, so it cannot be the answer."""
+    from auteur.web.auth import password_problem
+
+    assert password_problem("streetlightseason1", username="streetlightseason") != ""
+    assert password_problem("STREETLIGHTSEASON-x", username="streetlightseason") != ""
+    assert password_problem("streetlightseason1", email="streetlightseason@gmail.com") != ""
+
+    # Someone else's username is not a reason to refuse it.
+    assert password_problem("streetlightseason1", username="someone-else") == ""
+
+
+def test_the_seed_carries_no_credential_material_at_all():
+    """The repository is public. Not the password, and not a hash of it either."""
     from auteur.web import seed
-    from auteur.web.auth import Account
 
     source = Path(seed.__file__).read_text()
-    assert "Tacit25#" not in source
+    assert not hasattr(seed, "SEED_HASH")
+    assert not hasattr(seed, "SEED_SALT")
+    # Nothing that looks like a stored credential: scrypt output is long hex.
+    assert not re.search(r"[0-9a-f]{32,}", source), "that looks like a salt or a hash"
 
-    account = Account(
-        username=seed.SEED_USERNAME,
-        email=seed.SEED_EMAIL,
-        salt=seed.SEED_SALT,
-        password_hash=seed.SEED_HASH,
-    )
-    assert account.check("Tacit25#"), "the seeded account must actually sign in"
-    assert not account.check("wrong")
+
+def test_a_generated_password_is_worth_having():
+    """Different every time, long enough, and acceptable to our own rules."""
+    from auteur.web import seed
+    from auteur.web.auth import password_problem
+
+    minted = {seed.generate_password() for _ in range(200)}
+    assert len(minted) == 200, "two identical passwords in 200 is not randomness"
+    for password in minted:
+        assert password_problem(password, username=seed.SEED_USERNAME) == "", password
+
+    # Every word must be distinct and the list a power of two, or the entropy
+    # claimed in the module comment is not the entropy actually delivered.
+    assert len(seed._WORDS) == 64
+    assert len(set(seed._WORDS)) == 64, "a repeated word biases the draw"
+    assert all(word.isalpha() and word.islower() for word in seed._WORDS)
+
+    # 5 words x 6 bits + ~13 from the digits. Refuse a silent downgrade.
+    assert seed._WORD_COUNT >= 5
+    bits = seed._WORD_COUNT * 6 + math.log2(9000)
+    assert bits >= 43, f"only {bits:.1f} bits"
 
 
 def test_the_first_run_creates_exactly_one_account(tmp_path, monkeypatch):
@@ -1602,14 +1650,21 @@ def test_the_first_run_creates_exactly_one_account(tmp_path, monkeypatch):
 
     monkeypatch.delenv("AUTEUR_PASSWORD", raising=False)
     store = Accounts(tmp_path / "accounts.json")
-    assert seed.bootstrap(store) == "streetlightseason"
+
+    first = seed.bootstrap(store)
+    assert first is not None
+    username, password = first
+    assert username == "streetlightseason"
+    assert password, "with nothing in the environment there must be a password to show"
+    assert store.get(username).check(password), "the printed password must be the real one"
     assert len(store.accounts) == 1
-    # Running again must not add a second.
+
+    # Running again must not add a second, nor mint anything.
     assert seed.bootstrap(store) is None
     assert len(store.accounts) == 1
 
 
-def test_the_environment_beats_the_committed_seed(tmp_path, monkeypatch):
+def test_the_environment_beats_the_generated_password(tmp_path, monkeypatch):
     from auteur.web import seed
     from auteur.web.auth import Accounts
 
@@ -1618,9 +1673,22 @@ def test_the_environment_beats_the_committed_seed(tmp_path, monkeypatch):
     monkeypatch.setenv("AUTEUR_PASSWORD", "a-much-longer-one")
     store = Accounts(tmp_path / "accounts.json")
 
-    assert seed.bootstrap(store) == "someone"
+    assert seed.bootstrap(store) == ("someone", None), "nothing to announce; they chose it"
     assert store.get("someone").check("a-much-longer-one")
     assert store.get("streetlightseason") is None
+
+
+def test_the_environment_is_not_a_way_around_the_password_rules(tmp_path, monkeypatch):
+    """A convenience must not be a hole. `x` is `x` however it arrives."""
+    from auteur.web import seed
+    from auteur.web.auth import Accounts
+
+    monkeypatch.setenv("AUTEUR_PASSWORD", "x")
+    store = Accounts(tmp_path / "accounts.json")
+
+    with pytest.raises(ValueError, match="AUTEUR_PASSWORD"):
+        seed.bootstrap(store)
+    assert store.empty, "a refused password must not leave half an account behind"
 
 
 # ---------------------------------------------------------------------------
@@ -1639,7 +1707,7 @@ def guarded_server(tmp_path):
     assets.ensure(web.STATIC)
     web.Handler.studio = web.Studio(tmp_path / "web")
     web.Handler.accounts = Accounts(tmp_path / "web" / "accounts.json")
-    web.Handler.accounts.add("streetlightseason", "streetlightseason@gmail.com", "Tacit25#")
+    web.Handler.accounts.add("streetlightseason", "streetlightseason@gmail.com", TEST_PASSWORD)
 
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -1717,7 +1785,7 @@ def test_signing_in_sets_a_cookie_a_script_cannot_read(guarded_server):
     assert status == 401 and "error" in payload
 
     status, payload, headers = _post(
-        base, "/api/login", {"username": "streetlightseason", "password": "Tacit25#"}
+        base, "/api/login", {"username": "streetlightseason", "password": TEST_PASSWORD}
     )
     assert status == 200 and payload["user"] == "streetlightseason"
 
@@ -1733,7 +1801,7 @@ def test_a_signed_in_request_gets_through(guarded_server):
 
     base, _ = guarded_server
     _, _, headers = _post(
-        base, "/api/login", {"username": "streetlightseason", "password": "Tacit25#"}
+        base, "/api/login", {"username": "streetlightseason", "password": TEST_PASSWORD}
     )
     token = headers["Set-Cookie"].split(";")[0]
 
@@ -1752,7 +1820,7 @@ def test_signing_out_invalidates_the_cookie(guarded_server):
 
     base, _ = guarded_server
     _, _, headers = _post(
-        base, "/api/login", {"username": "streetlightseason", "password": "Tacit25#"}
+        base, "/api/login", {"username": "streetlightseason", "password": TEST_PASSWORD}
     )
     token = headers["Set-Cookie"].split(";")[0]
 
@@ -1790,7 +1858,13 @@ def test_a_reset_over_http_replaces_the_password(guarded_server):
     _, token = started
 
     status, payload, _ = _post(base, "/api/reset", {"token": token, "password": "short"})
-    assert status == 400 and "8 characters" in payload["error"]
+    assert status == 400 and "12 characters" in payload["error"]
+
+    # And a reset may not be used to set the password to the username either.
+    status, payload, _ = _post(
+        base, "/api/reset", {"token": token, "password": "streetlightseason-x"}
+    )
+    assert status == 400 and "username" in payload["error"]
 
     status, payload, _ = _post(
         base, "/api/reset", {"token": "not-a-real-token", "password": "a-much-longer-one"}
@@ -1803,7 +1877,7 @@ def test_a_reset_over_http_replaces_the_password(guarded_server):
     assert status == 200
 
     status, _, _ = _post(
-        base, "/api/login", {"username": "streetlightseason", "password": "Tacit25#"}
+        base, "/api/login", {"username": "streetlightseason", "password": TEST_PASSWORD}
     )
     assert status == 401, "the old password must stop working"
     status, _, _ = _post(
@@ -2011,7 +2085,7 @@ def test_the_server_notices_accounts_changed_on_disk(tmp_path):
 
     path = tmp_path / "accounts.json"
     server = Accounts(path)
-    server.add("streetlightseason", "s@example.com", "Tacit25#")
+    server.add("streetlightseason", "s@example.com", TEST_PASSWORD)
 
     # A second process — the CLI — adds someone and changes a password.
     cli = Accounts(path)
@@ -2022,7 +2096,7 @@ def test_the_server_notices_accounts_changed_on_disk(tmp_path):
     token, _ = server.sign_in("someone", "a-long-enough-one")
     assert token, "an account added elsewhere should be able to sign in"
     assert server.get("streetlightseason").check("a-brand-new-secret")
-    assert not server.get("streetlightseason").check("Tacit25#")
+    assert not server.get("streetlightseason").check(TEST_PASSWORD)
 
 
 def test_a_reload_does_not_sign_the_phone_out(tmp_path):
@@ -2032,10 +2106,10 @@ def test_a_reload_does_not_sign_the_phone_out(tmp_path):
 
     path = tmp_path / "accounts.json"
     cli = Accounts(path)
-    cli.add("streetlightseason", "s@example.com", "Tacit25#")
+    cli.add("streetlightseason", "s@example.com", TEST_PASSWORD)
 
     server = Accounts(path)
-    token, _ = server.sign_in("streetlightseason", "Tacit25#")
+    token, _ = server.sign_in("streetlightseason", TEST_PASSWORD)
     assert server.session_user(token) == "streetlightseason"
 
     cli.add("someone", "someone@example.com", "a-long-enough-one")  # stale sessions written
@@ -2050,7 +2124,7 @@ def test_an_untouched_file_is_not_reread(tmp_path):
     from auteur.web.auth import Accounts
 
     store = Accounts(tmp_path / "accounts.json")
-    store.add("streetlightseason", "s@example.com", "Tacit25#")
+    store.add("streetlightseason", "s@example.com", TEST_PASSWORD)
 
     reads = []
     original = Accounts._load

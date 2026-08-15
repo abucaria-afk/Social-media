@@ -43,9 +43,21 @@ The phone app (`auteur serve`)
   `<serve folder>/accounts.json`, outside the repository and gitignored.
   Session and reset tokens are stored hashed, so a copy of that file cannot be
   replayed.
-- The repository contains a scrypt hash for the seeded first account — a hash,
-  never a password. `python -m auteur account password` replaces it for good,
-  and `AUTEUR_PASSWORD=...` on the first run means it is never used at all.
+- **The repository contains no credential material** — not a password, and not
+  a hash of one either. The first run against an empty folder mints a random
+  password, creates the one account with it, and prints it once; nothing is
+  written down anywhere a stranger can read. Set `AUTEUR_USERNAME`,
+  `AUTEUR_EMAIL` and `AUTEUR_PASSWORD` to choose your own instead, and nothing
+  is ever generated.
+- A password must be at least 12 characters, must not appear on the usual
+  guessing lists, must use more than a handful of distinct characters, and must
+  not be built out of the username or email it protects. The same rules apply
+  to the CLI, the reset form and the API — there is one function, and all three
+  call it.
+- Earlier releases shipped a scrypt hash for the seeded account. It has been
+  removed, but removing something from a file does not remove it from git
+  history: **any password that was ever the seeded one must be treated as
+  compromised** and must not be reused here or anywhere else.
 - Finished films and production notes are the user's own footage and sit behind
   the sign-in. Jobs are owned: being signed in is not permission to read
   somebody else's.

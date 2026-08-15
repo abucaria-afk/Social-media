@@ -359,6 +359,10 @@ def _run_serve(args: argparse.Namespace, say: Reporter) -> int:
             f"{exc}\n{' ' * 5}something else may be using it — try --port 8080",
         )
         return 1
+    except ValueError as exc:
+        # A refused AUTEUR_PASSWORD. Say what is wrong with it, not a traceback.
+        say.failure("that password will not do", str(exc))
+        return 1
     return 0
 
 
@@ -405,7 +409,7 @@ def _run_account(args: argparse.Namespace, say: Reporter) -> int:
     if password != getpass.getpass("again: "):
         say.failure("those did not match")
         return 1
-    problem = password_problem(password)
+    problem = password_problem(password, username=username, email=email)
     if problem:
         say.failure("that password will not do", problem)
         return 1

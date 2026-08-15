@@ -165,8 +165,12 @@
     problem.hidden = true;
 
     var password = $("new-password").value;
-    if (password.length < 8) {
-      say(problem, "Use at least 8 characters.", true);
+    if (password.length < 12) {
+      say(
+        problem,
+        "Use at least 12 characters. Several ordinary words in a row beat one clever word.",
+        true
+      );
       return;
     }
 

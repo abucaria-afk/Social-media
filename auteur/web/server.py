@@ -637,7 +637,12 @@ class Handler(BaseHTTPRequestHandler):
         token = str(payload.get("token", ""))
         password = str(payload.get("password", ""))
 
-        problem = password_problem(password)
+        account = self.accounts.account_for_reset(token)
+        problem = password_problem(
+            password,
+            username=account.username if account else "",
+            email=account.email if account else "",
+        )
         if problem:
             self._json({"error": problem}, 400)
             return
@@ -826,7 +831,7 @@ def serve(
     root = Path(workspace or Path.cwd() / "auteur-web")
     Handler.studio = Studio(root, quality=quality)
     Handler.accounts = Accounts(Accounts.default_path(root))
-    created = seed.bootstrap(Handler.accounts)
+    first = seed.bootstrap(Handler.accounts)
 
     server = Server((host, port), Handler)
 
@@ -840,12 +845,26 @@ def serve(
         print()
         print("     Open that on your iPhone, then Share -> Add to Home Screen")
         print("     to keep it as an app. Both devices need the same wifi.")
-        if created:
+        if first:
+            username, password = first
             print()
-            print(f"     Sign in as        {created}")
+            print(f"     Sign in as        {username}")
+            if password:
+                # Shown once, on the console of the machine doing the renders.
+                # It is not stored anywhere in readable form and cannot be
+                # printed again — `auteur account password` sets a new one.
+                print(f"     Password          {password}")
+                print()
+                print("     That password was generated just now and is shown once.")
+                print("     Change it when you are in:  python -m auteur account password")
         print()
         print("     Press Ctrl-C to close it.")
         print()
+    elif first and first[1]:
+        # Quiet mode still has to say this once. The generated password exists
+        # nowhere but here and in a hash; swallowing it locks the owner out of
+        # their own instance.
+        print(f"auteur: created account {first[0]} with password {first[1]} (shown once)")
 
     try:
         server.serve_forever()

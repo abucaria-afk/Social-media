@@ -151,11 +151,35 @@ Passwords are stored as salted scrypt hashes (n=2¹⁵, ~0.1s and 32MB a guess) 
 `<serve folder>/accounts.json` — outside the repository, and gitignored. Session
 tokens are stored hashed too, so a copy of that file cannot be replayed.
 
-To start from your own credentials and inherit nothing from version control:
+#### The first password
+
+There isn't one in the repository. The first `serve` against an empty folder
+mints a random password, creates the account with it, and prints it once:
+
+```
+     Sign in as        streetlightseason
+     Password          cobalt-swallow-amber-kestrel-marram-5567
+
+     That password was generated just now and is shown once.
+     Change it when you are in:  python -m auteur account password
+```
+
+Five words drawn from a 64-word list plus four digits — about 43 bits, which is
+past reach online (five wrong answers locks the account for fifteen minutes) and
+thousands of years of work offline against scrypt. Copy it, sign in, change it.
+It exists only in that console and in the hash, so if it scrolls away before you
+read it, delete `accounts.json` and start the server again.
+
+To choose your own and have nothing generated at all:
 
 ```bash
 AUTEUR_USERNAME=me AUTEUR_EMAIL=me@example.com AUTEUR_PASSWORD=... python -m auteur serve
 ```
+
+A password has to be at least 12 characters, off the usual guessing lists, made
+of more than a handful of distinct characters, and not built out of your own
+username or email. Four unrelated words in a row satisfies all four and is
+easier to type on a phone than anything clever.
 
 ### Light, dark, or whatever the phone is doing
 
@@ -408,7 +432,7 @@ static path that resolved one folder up.
   the session cookie cross the wifi in the clear. That is fine for your own
   network and not fine for a public one. `--host 127.0.0.1` keeps it to the one
   machine; anything wider should sit behind a reverse proxy with a certificate.
-- **The seeded account's hash is in the repository.** It is scrypt, not a
-  password, but a hash is still worth guessing at if the repository ever stops
-  being private. `python -m auteur account password` replaces it for good, and
-  `AUTEUR_PASSWORD=...` on the first run means it is never used at all.
+- **A password that was once in git history stays in git history.** Nothing in
+  the working tree carries credential material any more, but earlier commits
+  shipped a scrypt hash for the seeded account. Anything that was ever that
+  password should be considered burnt and never reused.

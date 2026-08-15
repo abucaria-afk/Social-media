@@ -316,17 +316,57 @@ class Accounts:
 # Password rules
 # ---------------------------------------------------------------------------
 
-MIN_PASSWORD = 8
+#: Length is the only property that reliably buys anything. Modern guidance
+#: (NIST 800-63B) is to require length and screen against known-bad choices,
+#: and to drop composition rules — forcing a symbol mostly produces
+#: "Password1!", which is on every list there is.
+MIN_PASSWORD = 12
+
+#: The shapes people actually reach for. Checked as substrings, because
+#: "mypassword2024" is no better than "password".
+_WEAK_PATTERNS = (
+    "password",
+    "qwerty",
+    "letmein",
+    "welcome",
+    "admin",
+    "iloveyou",
+    "monkey",
+    "dragon",
+    "abc123",
+    "123456",
+    "111111",
+    "changeme",
+    "auteur",
+)
 
 
-def password_problem(password: str) -> str:
-    """Why this password will not do, in words a person can act on."""
-    if len(password or "") < MIN_PASSWORD:
-        return f"Use at least {MIN_PASSWORD} characters."
+def password_problem(password: str, *, username: str = "", email: str = "") -> str:
+    """Why this password will not do, in words a person can act on.
+
+    Returns "" when it is fine. The wording matters as much as the rule: a
+    refusal that does not say what would work sends people to `Password1!`.
+    """
+    password = password or ""
+    if len(password) < MIN_PASSWORD:
+        return (
+            f"Use at least {MIN_PASSWORD} characters. "
+            "Several ordinary words in a row beat one clever word."
+        )
     if password.strip() != password:
         return "Do not start or end with a space — it is too easy to mistype."
-    if password.lower() in ("password", "12345678", "qwertyui", "letmein1"):
-        return "That is one of the first passwords anybody tries."
+
+    lowered = password.lower()
+    if any(pattern in lowered for pattern in _WEAK_PATTERNS):
+        return "That contains something on every guessing list. Try unrelated words."
+    if len(set(lowered)) < 5:
+        return "That repeats too few different characters to be worth much."
+
+    # A password built from the account's own name is the second thing tried.
+    for own in (username or "", (email or "").split("@")[0]):
+        if len(own) >= 4 and own.lower() in lowered:
+            return "Do not build it out of your own username or email."
+    return ""
     return ""
 
 
