@@ -641,21 +641,23 @@ def generate_domain(
         # Simulated view counts with lognormal distribution
         views = int(rng.lognormvariate(math.log(8000), 0.9))
 
-        results.append({
-            "metadata_id": f"{domain_key}_{i:04d}",
-            f"primary_{domain_key}": primary,
-            f"secondary_{domain_key}": secondary,
-            "hook_text": hook,
-            "cognitive_bias_exploited": bias,
-            "color_theory_palette": palette,
-            "music_theory_audio_anchor": audio,
-            "avg_watch_time_pct": round(watch_pct, 1),
-            "simulated_views": views,
-            "simulated_shares": int(views * share),
-            "simulated_saves": int(views * save),
-            "simulated_comments": int(views * comment),
-            "click_through_rate_pct": round(ctr, 2),
-        })
+        results.append(
+            {
+                "metadata_id": f"{domain_key}_{i:04d}",
+                f"primary_{domain_key}": primary,
+                f"secondary_{domain_key}": secondary,
+                "hook_text": hook,
+                "cognitive_bias_exploited": bias,
+                "color_theory_palette": palette,
+                "music_theory_audio_anchor": audio,
+                "avg_watch_time_pct": round(watch_pct, 1),
+                "simulated_views": views,
+                "simulated_shares": int(views * share),
+                "simulated_saves": int(views * save),
+                "simulated_comments": int(views * comment),
+                "click_through_rate_pct": round(ctr, 2),
+            }
+        )
 
     return results
 

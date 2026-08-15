@@ -194,7 +194,8 @@ class YouTubeAccess:
                     "yt-dlp",
                     "--skip-download",
                     "--write-auto-sub",
-                    "--sub-lang", "en",
+                    "--sub-lang",
+                    "en",
                     "--dump-json",
                     f"https://www.youtube.com/watch?v={video_id}",
                 ],
@@ -203,7 +204,9 @@ class YouTubeAccess:
                 timeout=60,
             )
             if result.returncode != 0:
-                log.warning("yt-dlp metadata fetch failed for %s: %s", video_id, result.stderr[:200])
+                log.warning(
+                    "yt-dlp metadata fetch failed for %s: %s", video_id, result.stderr[:200]
+                )
                 return None
 
             data = json.loads(result.stdout)
@@ -224,9 +227,7 @@ class YouTubeAccess:
 
         for sub in self.most_watched_creators:
             try:
-                results = self._search_via_ytdlp(
-                    f"channel:{sub.channel_id}", max_results=3
-                )
+                results = self._search_via_ytdlp(f"channel:{sub.channel_id}", max_results=3)
                 for video in results:
                     if video.video_id != sub.last_seen_video_id:
                         new_uploads.append((sub, video))
@@ -266,13 +267,15 @@ class YouTubeAccess:
         import urllib.request
         import urllib.parse
 
-        params = urllib.parse.urlencode({
-            "part": "snippet",
-            "q": query,
-            "type": "video",
-            "maxResults": max_results,
-            "key": self._api_key,
-        })
+        params = urllib.parse.urlencode(
+            {
+                "part": "snippet",
+                "q": query,
+                "type": "video",
+                "maxResults": max_results,
+                "key": self._api_key,
+            }
+        )
         url = f"https://www.googleapis.com/youtube/v3/search?{params}"
 
         with urllib.request.urlopen(url, timeout=15) as resp:
@@ -281,26 +284,30 @@ class YouTubeAccess:
         videos: list[VideoMeta] = []
         for item in data.get("items", []):
             snippet = item.get("snippet", {})
-            videos.append(VideoMeta(
-                video_id=item["id"]["videoId"],
-                title=snippet.get("title", ""),
-                channel=snippet.get("channelTitle", ""),
-                channel_id=snippet.get("channelId", ""),
-                duration_sec=0,  # snippet search doesn't include duration
-                description=snippet.get("description", ""),
-                upload_date=snippet.get("publishedAt", ""),
-            ))
+            videos.append(
+                VideoMeta(
+                    video_id=item["id"]["videoId"],
+                    title=snippet.get("title", ""),
+                    channel=snippet.get("channelTitle", ""),
+                    channel_id=snippet.get("channelId", ""),
+                    duration_sec=0,  # snippet search doesn't include duration
+                    description=snippet.get("description", ""),
+                    upload_date=snippet.get("publishedAt", ""),
+                )
+            )
         return videos
 
     def _meta_from_dict(self, data: dict) -> VideoMeta:
         """Convert a yt-dlp info dict into a VideoMeta."""
         chapters = []
         for ch in data.get("chapters") or []:
-            chapters.append({
-                "title": ch.get("title", ""),
-                "start_time": ch.get("start_time", 0),
-                "end_time": ch.get("end_time", 0),
-            })
+            chapters.append(
+                {
+                    "title": ch.get("title", ""),
+                    "start_time": ch.get("start_time", 0),
+                    "end_time": ch.get("end_time", 0),
+                }
+            )
 
         # Extract transcript segments if available
         transcript: list[dict] = []

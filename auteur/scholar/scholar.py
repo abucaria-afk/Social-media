@@ -312,7 +312,9 @@ class Scholar:
         - New uploads → SUBSCRIPTION_CHECK
         - Otherwise → GAP_FILL
         """
-        session = StudySession(strategy=strategy or SearchStrategy.CURRICULUM, discipline=discipline)
+        session = StudySession(
+            strategy=strategy or SearchStrategy.CURRICULUM, discipline=discipline
+        )
 
         if strategy is None:
             strategy, session.strategy = self._choose_strategy()
@@ -390,9 +392,7 @@ class Scholar:
 
         return []
 
-    def _extract_learnings(
-        self, video: VideoMeta, discipline: Discipline | None
-    ) -> list[Learning]:
+    def _extract_learnings(self, video: VideoMeta, discipline: Discipline | None) -> list[Learning]:
         """Extract structured learnings from a video's metadata and transcript.
 
         This is where the Scholar does its actual learning. It reads the video's
@@ -424,36 +424,40 @@ class Scholar:
                     f"{video.video_id}:{chapter_title}".encode()
                 ).hexdigest()[:16]
 
-                learnings.append(Learning(
-                    learning_id=learning_id,
-                    disciplines=[d for d in disciplines if d is not None],
-                    insight=f"From '{video.title}': {chapter_title}",
-                    technique=chapter_title,
-                    application=self._infer_application(chapter_title, disciplines),
-                    source_video_id=video.video_id,
-                    source_channel=video.channel,
-                    source_title=video.title,
-                    source_start_sec=chapter.get("start_time", 0),
-                    source_end_sec=chapter.get("end_time", 0),
-                    tool=tool,
-                    confidence=Confidence.TENTATIVE,
-                ))
+                learnings.append(
+                    Learning(
+                        learning_id=learning_id,
+                        disciplines=[d for d in disciplines if d is not None],
+                        insight=f"From '{video.title}': {chapter_title}",
+                        technique=chapter_title,
+                        application=self._infer_application(chapter_title, disciplines),
+                        source_video_id=video.video_id,
+                        source_channel=video.channel,
+                        source_title=video.title,
+                        source_start_sec=chapter.get("start_time", 0),
+                        source_end_sec=chapter.get("end_time", 0),
+                        tool=tool,
+                        confidence=Confidence.TENTATIVE,
+                    )
+                )
 
         # If no chapters, extract from the video as a whole
         if not learnings:
             learning_id = hashlib.sha256(video.video_id.encode()).hexdigest()[:16]
-            learnings.append(Learning(
-                learning_id=learning_id,
-                disciplines=[d for d in disciplines if d is not None],
-                insight=f"Main focus of '{video.title}': {self._summarise_focus(video)}",
-                technique=self._extract_technique(video),
-                application=self._infer_application(video.title, disciplines),
-                source_video_id=video.video_id,
-                source_channel=video.channel,
-                source_title=video.title,
-                tool=tool,
-                confidence=Confidence.TENTATIVE,
-            ))
+            learnings.append(
+                Learning(
+                    learning_id=learning_id,
+                    disciplines=[d for d in disciplines if d is not None],
+                    insight=f"Main focus of '{video.title}': {self._summarise_focus(video)}",
+                    technique=self._extract_technique(video),
+                    application=self._infer_application(video.title, disciplines),
+                    source_video_id=video.video_id,
+                    source_channel=video.channel,
+                    source_title=video.title,
+                    tool=tool,
+                    confidence=Confidence.TENTATIVE,
+                )
+            )
 
         return learnings
 
@@ -606,12 +610,16 @@ class Scholar:
     def chat(self, user_text: str, *, conversation_id: str = "") -> SpeechResponse:
         """Respond to a text message via chatbot."""
         context = f"Scholar status: {self.describe()}"
-        return self._speech.respond_text(user_text, conversation_id=conversation_id, context=context)
+        return self._speech.respond_text(
+            user_text, conversation_id=conversation_id, context=context
+        )
 
     def speak(self, user_text: str, *, conversation_id: str = "") -> SpeechResponse:
         """Respond with synthesised voice via voicebot."""
         context = f"Scholar status: {self.describe()}"
-        return self._speech.respond_voice(user_text, conversation_id=conversation_id, context=context)
+        return self._speech.respond_voice(
+            user_text, conversation_id=conversation_id, context=context
+        )
 
     def converse(self, user_text: str, *, conversation_id: str = "") -> SpeechResponse:
         """Respond using the current communication mode (chatbot, voicebot, or both)."""
@@ -650,9 +658,7 @@ class Scholar:
             "total_learnings": self._store.total_learnings,
             "knowledge_gaps": [d.value for d in self._store.gaps()],
             "subscriptions": len(self._youtube.subscriptions),
-            "most_watched_creators": [
-                s.channel_name for s in self._youtube.most_watched_creators
-            ],
+            "most_watched_creators": [s.channel_name for s in self._youtube.most_watched_creators],
             "sessions_completed": len(self._sessions),
             "disciplines_studied": len(Discipline) - len(self._store.gaps()),
         }

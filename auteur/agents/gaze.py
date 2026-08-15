@@ -68,7 +68,7 @@ def _composition_score(edl: EditDecisionList) -> float:
     avg = sum(weights) / len(weights) if weights else 0.5
     exposure = 1.0 - _exposure_balance(edl)
     palette = 1.0 - _palette_drift(edl)
-    return (avg * 0.4 + exposure * 0.35 + palette * 0.25)
+    return avg * 0.4 + exposure * 0.35 + palette * 0.25
 
 
 class GazeAgent:
@@ -97,9 +97,7 @@ class GazeAgent:
         if drift > 0.25:
             target_exposure = sum(s.look.exposure for s in edl.shots) / len(edl.shots)
 
-            def match_exposure(
-                target: EditDecisionList, mid: float = target_exposure
-            ) -> None:
+            def match_exposure(target: EditDecisionList, mid: float = target_exposure) -> None:
                 for shot in target.shots:
                     shot.look.exposure = shot.look.exposure * 0.4 + mid * 0.6
 
@@ -123,9 +121,7 @@ class GazeAgent:
         if temp_drift > 0.30:
             target_temp = sum(s.look.temperature for s in edl.shots) / len(edl.shots)
 
-            def unify_temperature(
-                target: EditDecisionList, mid: float = target_temp
-            ) -> None:
+            def unify_temperature(target: EditDecisionList, mid: float = target_temp) -> None:
                 for shot in target.shots:
                     shot.look.temperature = shot.look.temperature * 0.35 + mid * 0.65
 
@@ -154,8 +150,10 @@ class GazeAgent:
                     cx, cy = shot.motion.anchor
                     # Pull toward the nearest rule-of-thirds intersection.
                     thirds = [
-                        (1 / 3, 1 / 3), (2 / 3, 1 / 3),
-                        (1 / 3, 2 / 3), (2 / 3, 2 / 3),
+                        (1 / 3, 1 / 3),
+                        (2 / 3, 1 / 3),
+                        (1 / 3, 2 / 3),
+                        (2 / 3, 2 / 3),
                     ]
                     best_pt = min(thirds, key=lambda p: math.hypot(cx - p[0], cy - p[1]))
                     # Gentle pull, not a snap — the footage still has to be in frame.
@@ -189,9 +187,7 @@ class GazeAgent:
         if contrast_range > 0.35:
             target_contrast = sum(contrasts) / len(contrasts)
 
-            def match_contrast(
-                target: EditDecisionList, mid: float = target_contrast
-            ) -> None:
+            def match_contrast(target: EditDecisionList, mid: float = target_contrast) -> None:
                 for shot in target.shots:
                     shot.look.contrast = shot.look.contrast * 0.4 + mid * 0.6
 
@@ -223,9 +219,7 @@ class GazeAgent:
 
                 def soften(target: EditDecisionList, idx: int = i) -> None:
                     if idx < len(target.shots):
-                        target.shots[idx].transition_in = Transition(
-                            kind="dissolve", duration=0.35
-                        )
+                        target.shots[idx].transition_in = Transition(kind="dissolve", duration=0.35)
 
                 proposals.append(
                     Proposal(

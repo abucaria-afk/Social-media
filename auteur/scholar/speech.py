@@ -239,7 +239,9 @@ class SpeechSystem:
         intent = self._classify_intent(text, language)
         confidence = 1.0  # Savant-level comprehension
 
-        log.debug("understood [%s] intent=%s conf=%.2f: %s", language, intent.value, confidence, text[:80])
+        log.debug(
+            "understood [%s] intent=%s conf=%.2f: %s", language, intent.value, confidence, text[:80]
+        )
         return language, intent, confidence
 
     # ------------------------------------------------------------------
@@ -275,7 +277,9 @@ class SpeechSystem:
         scholar_msg = Message(role="scholar", text=response_text, language=language)
         conv.messages.append(scholar_msg)
 
-        log.info("chatbot response [%s] (%d turns): %s", language, conv.turn_count, response_text[:80])
+        log.info(
+            "chatbot response [%s] (%d turns): %s", language, conv.turn_count, response_text[:80]
+        )
         return SpeechResponse(text=response_text, language=language, confidence=1.0)
 
     # ------------------------------------------------------------------
@@ -318,7 +322,9 @@ class SpeechSystem:
         )
         conv.messages.append(scholar_msg)
 
-        log.info("voicebot response [%s] style=%s (%d turns)", language, style.value, conv.turn_count)
+        log.info(
+            "voicebot response [%s] style=%s (%d turns)", language, style.value, conv.turn_count
+        )
         return SpeechResponse(
             text=response_text,
             language=language,
@@ -345,7 +351,9 @@ class SpeechSystem:
         if self._mode == CommunicationMode.VOICEBOT:
             return self.respond_voice(user_text, conversation_id=conversation_id, context=context)
         if self._mode == CommunicationMode.BOTH:
-            response = self.respond_voice(user_text, conversation_id=conversation_id, context=context)
+            response = self.respond_voice(
+                user_text, conversation_id=conversation_id, context=context
+            )
             return response  # Already has both text and audio
         return self.respond_text(user_text, conversation_id=conversation_id, context=context)
 
@@ -425,7 +433,9 @@ class SpeechSystem:
         and fluent speaking level.
         """
         # Structural placeholder — real implementation calls LLM
-        lang_name = self._language_profiles.get(language, LanguageProfile(code=language, name=language)).name
+        lang_name = self._language_profiles.get(
+            language, LanguageProfile(code=language, name=language)
+        ).name
         return (
             f"[Scholar response in {lang_name}] "
             f"Intent: {intent.value}. "
@@ -450,9 +460,7 @@ class SpeechSystem:
     ) -> Conversation:
         """Get existing conversation or create a new one."""
         if not conversation_id:
-            conversation_id = hashlib.sha256(
-                f"{time.time()}".encode()
-            ).hexdigest()[:12]
+            conversation_id = hashlib.sha256(f"{time.time()}".encode()).hexdigest()[:12]
 
         if conversation_id not in self._conversations:
             self._conversations[conversation_id] = Conversation(
@@ -466,31 +474,68 @@ class SpeechSystem:
         The Scholar operates at native/savant level in all human languages.
         """
         languages = [
-            ("en", "English"), ("es", "Spanish"), ("fr", "French"),
-            ("de", "German"), ("it", "Italian"), ("pt", "Portuguese"),
-            ("ru", "Russian"), ("zh", "Chinese"), ("ja", "Japanese"),
-            ("ko", "Korean"), ("ar", "Arabic"), ("hi", "Hindi"),
-            ("bn", "Bengali"), ("ur", "Urdu"), ("tr", "Turkish"),
-            ("vi", "Vietnamese"), ("th", "Thai"), ("pl", "Polish"),
-            ("nl", "Dutch"), ("sv", "Swedish"), ("da", "Danish"),
-            ("no", "Norwegian"), ("fi", "Finnish"), ("el", "Greek"),
-            ("he", "Hebrew"), ("id", "Indonesian"), ("ms", "Malay"),
-            ("tl", "Filipino"), ("sw", "Swahili"), ("am", "Amharic"),
-            ("yo", "Yoruba"), ("ig", "Igbo"), ("zu", "Zulu"),
-            ("cs", "Czech"), ("sk", "Slovak"), ("hu", "Hungarian"),
-            ("ro", "Romanian"), ("bg", "Bulgarian"), ("uk", "Ukrainian"),
-            ("fa", "Persian"), ("ta", "Tamil"), ("te", "Telugu"),
-            ("ml", "Malayalam"), ("kn", "Kannada"), ("mr", "Marathi"),
-            ("gu", "Gujarati"), ("pa", "Punjabi"), ("ne", "Nepali"),
-            ("si", "Sinhala"), ("my", "Burmese"), ("km", "Khmer"),
-            ("lo", "Lao"), ("ka", "Georgian"), ("hy", "Armenian"),
-            ("az", "Azerbaijani"), ("uz", "Uzbek"), ("kk", "Kazakh"),
-            ("mn", "Mongolian"), ("la", "Latin"), ("sa", "Sanskrit"),
+            ("en", "English"),
+            ("es", "Spanish"),
+            ("fr", "French"),
+            ("de", "German"),
+            ("it", "Italian"),
+            ("pt", "Portuguese"),
+            ("ru", "Russian"),
+            ("zh", "Chinese"),
+            ("ja", "Japanese"),
+            ("ko", "Korean"),
+            ("ar", "Arabic"),
+            ("hi", "Hindi"),
+            ("bn", "Bengali"),
+            ("ur", "Urdu"),
+            ("tr", "Turkish"),
+            ("vi", "Vietnamese"),
+            ("th", "Thai"),
+            ("pl", "Polish"),
+            ("nl", "Dutch"),
+            ("sv", "Swedish"),
+            ("da", "Danish"),
+            ("no", "Norwegian"),
+            ("fi", "Finnish"),
+            ("el", "Greek"),
+            ("he", "Hebrew"),
+            ("id", "Indonesian"),
+            ("ms", "Malay"),
+            ("tl", "Filipino"),
+            ("sw", "Swahili"),
+            ("am", "Amharic"),
+            ("yo", "Yoruba"),
+            ("ig", "Igbo"),
+            ("zu", "Zulu"),
+            ("cs", "Czech"),
+            ("sk", "Slovak"),
+            ("hu", "Hungarian"),
+            ("ro", "Romanian"),
+            ("bg", "Bulgarian"),
+            ("uk", "Ukrainian"),
+            ("fa", "Persian"),
+            ("ta", "Tamil"),
+            ("te", "Telugu"),
+            ("ml", "Malayalam"),
+            ("kn", "Kannada"),
+            ("mr", "Marathi"),
+            ("gu", "Gujarati"),
+            ("pa", "Punjabi"),
+            ("ne", "Nepali"),
+            ("si", "Sinhala"),
+            ("my", "Burmese"),
+            ("km", "Khmer"),
+            ("lo", "Lao"),
+            ("ka", "Georgian"),
+            ("hy", "Armenian"),
+            ("az", "Azerbaijani"),
+            ("uz", "Uzbek"),
+            ("kk", "Kazakh"),
+            ("mn", "Mongolian"),
+            ("la", "Latin"),
+            ("sa", "Sanskrit"),
         ]
-        return {
-            code: LanguageProfile(code=code, name=name)
-            for code, name in languages
-        }
+        return {code: LanguageProfile(code=code, name=name) for code, name in languages}
 
     # ------------------------------------------------------------------
     # Status

@@ -144,25 +144,36 @@ class Teacher:
         # Map agent names to relevant disciplines
         agent_disciplines: dict[str, list[Discipline]] = {
             "hook": [
-                Discipline.PSYCHOLOGY, Discipline.PATTERN_RECOGNITION,
-                Discipline.HUMAN_BEHAVIOR, Discipline.CINEMATOGRAPHY,
+                Discipline.PSYCHOLOGY,
+                Discipline.PATTERN_RECOGNITION,
+                Discipline.HUMAN_BEHAVIOR,
+                Discipline.CINEMATOGRAPHY,
             ],
             "share": [
-                Discipline.HUMAN_CONDITION, Discipline.PSYCHOLOGY,
-                Discipline.CONTENT_CREATION, Discipline.PHILOSOPHY,
+                Discipline.HUMAN_CONDITION,
+                Discipline.PSYCHOLOGY,
+                Discipline.CONTENT_CREATION,
+                Discipline.PHILOSOPHY,
             ],
             "loop": [
-                Discipline.MUSIC_THEORY, Discipline.PATTERN_RECOGNITION,
-                Discipline.ANIMATION, Discipline.CINEMATOGRAPHY,
+                Discipline.MUSIC_THEORY,
+                Discipline.PATTERN_RECOGNITION,
+                Discipline.ANIMATION,
+                Discipline.CINEMATOGRAPHY,
             ],
             "gaze": [
-                Discipline.COLOR_THEORY, Discipline.ART_BASICS,
-                Discipline.ART_THEORY, Discipline.PHOTOGRAPHY,
-                Discipline.CINEMATOGRAPHY, Discipline.ART_HISTORY,
+                Discipline.COLOR_THEORY,
+                Discipline.ART_BASICS,
+                Discipline.ART_THEORY,
+                Discipline.PHOTOGRAPHY,
+                Discipline.CINEMATOGRAPHY,
+                Discipline.ART_HISTORY,
             ],
             "style": [
-                Discipline.DIRECTING, Discipline.MOVIE_MAKING,
-                Discipline.CINEMATOGRAPHY, Discipline.ART_THEORY,
+                Discipline.DIRECTING,
+                Discipline.MOVIE_MAKING,
+                Discipline.CINEMATOGRAPHY,
+                Discipline.ART_THEORY,
             ],
         }
 
@@ -180,7 +191,11 @@ class Teacher:
                 unique.append(l)
 
         # Prefer validated > supported > tentative, then most recent
-        confidence_order = {Confidence.VALIDATED: 0, Confidence.SUPPORTED: 1, Confidence.TENTATIVE: 2}
+        confidence_order = {
+            Confidence.VALIDATED: 0,
+            Confidence.SUPPORTED: 1,
+            Confidence.TENTATIVE: 2,
+        }
         unique.sort(key=lambda l: (confidence_order.get(l.confidence, 3), -l.learned_at))
 
         selected = unique[:max_learnings]
@@ -228,18 +243,20 @@ class Teacher:
 
             # Build a patch proposal from the consensus
             representative = learnings[0]
-            patches.append(WorkflowPatch(
-                target_workflow="editing",
-                title=f"Apply {representative.technique} consistently",
-                reason=(
-                    f"{len(learnings)} sources agree on this technique, "
-                    f"and it has been validated against output scoring."
-                ),
-                parameter=representative.technique,
-                current_value="not applied",
-                proposed_value=representative.application,
-                supporting_learnings=[l.learning_id for l in learnings],
-                confidence=Confidence.VALIDATED if has_validated else Confidence.SUPPORTED,
-            ))
+            patches.append(
+                WorkflowPatch(
+                    target_workflow="editing",
+                    title=f"Apply {representative.technique} consistently",
+                    reason=(
+                        f"{len(learnings)} sources agree on this technique, "
+                        f"and it has been validated against output scoring."
+                    ),
+                    parameter=representative.technique,
+                    current_value="not applied",
+                    proposed_value=representative.application,
+                    supporting_learnings=[l.learning_id for l in learnings],
+                    confidence=Confidence.VALIDATED if has_validated else Confidence.SUPPORTED,
+                )
+            )
 
         return patches

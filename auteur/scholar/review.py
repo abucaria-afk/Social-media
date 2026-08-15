@@ -146,15 +146,17 @@ class OutputReview:
                 "opportunity": Risk.LOW,
             }.get(finding.severity, Risk.LOW)
 
-            proposals.append(Proposal(
-                agent="scholar",
-                title=f"[Review] {finding.description}",
-                reason=f"{finding.suggestion} (backed by {len(finding.supporting_learnings)} learnings)",
-                change=lambda edl: None,  # Review findings are advisory
-                objective="knowledge_application",
-                risk=risk,
-                binding=False,
-            ))
+            proposals.append(
+                Proposal(
+                    agent="scholar",
+                    title=f"[Review] {finding.description}",
+                    reason=f"{finding.suggestion} (backed by {len(finding.supporting_learnings)} learnings)",
+                    change=lambda edl: None,  # Review findings are advisory
+                    objective="knowledge_application",
+                    risk=risk,
+                    binding=False,
+                )
+            )
 
         return proposals
 
@@ -172,23 +174,28 @@ class OutputReview:
         if weak_shots:
             art_learnings = self._store.by_discipline(Discipline.ART_BASICS)
             composition_learnings = [
-                l for l in art_learnings
-                if any(kw in l.technique.lower() for kw in ("composition", "focal", "eye", "attention"))
+                l
+                for l in art_learnings
+                if any(
+                    kw in l.technique.lower() for kw in ("composition", "focal", "eye", "attention")
+                )
             ]
 
             if composition_learnings:
-                findings.append(ReviewFinding(
-                    category="composition",
-                    description=f"{len(weak_shots)} shots lack a clear focal anchor",
-                    suggestion=(
-                        f"Art basics principle: {composition_learnings[0].technique}. "
-                        f"{composition_learnings[0].application}"
-                    ),
-                    severity="important",
-                    supporting_learnings=composition_learnings[:3],
-                    shot_indices=weak_shots,
-                    discipline=Discipline.ART_BASICS,
-                ))
+                findings.append(
+                    ReviewFinding(
+                        category="composition",
+                        description=f"{len(weak_shots)} shots lack a clear focal anchor",
+                        suggestion=(
+                            f"Art basics principle: {composition_learnings[0].technique}. "
+                            f"{composition_learnings[0].application}"
+                        ),
+                        severity="important",
+                        supporting_learnings=composition_learnings[:3],
+                        shot_indices=weak_shots,
+                        discipline=Discipline.ART_BASICS,
+                    )
+                )
 
         return findings
 
@@ -203,22 +210,28 @@ class OutputReview:
         if drift > 0.4:
             colour_learnings = self._store.by_discipline(Discipline.COLOR_THEORY)
             palette_learnings = [
-                l for l in colour_learnings
-                if any(kw in l.technique.lower() for kw in ("palette", "harmony", "continuity", "temperature"))
+                l
+                for l in colour_learnings
+                if any(
+                    kw in l.technique.lower()
+                    for kw in ("palette", "harmony", "continuity", "temperature")
+                )
             ]
 
             if palette_learnings:
-                findings.append(ReviewFinding(
-                    category="colour",
-                    description=f"Colour temperature drifts {drift:.0%} — breaks palette unity",
-                    suggestion=(
-                        f"Colour theory: {palette_learnings[0].technique}. "
-                        f"{palette_learnings[0].application}"
-                    ),
-                    severity="important",
-                    supporting_learnings=palette_learnings[:3],
-                    discipline=Discipline.COLOR_THEORY,
-                ))
+                findings.append(
+                    ReviewFinding(
+                        category="colour",
+                        description=f"Colour temperature drifts {drift:.0%} — breaks palette unity",
+                        suggestion=(
+                            f"Colour theory: {palette_learnings[0].technique}. "
+                            f"{palette_learnings[0].application}"
+                        ),
+                        severity="important",
+                        supporting_learnings=palette_learnings[:3],
+                        discipline=Discipline.COLOR_THEORY,
+                    )
+                )
 
         return findings
 
@@ -238,21 +251,27 @@ class OutputReview:
         if variance < 0.01 and len(durations) > 4:
             music_learnings = self._store.by_discipline(Discipline.MUSIC_THEORY)
             rhythm_learnings = [
-                l for l in music_learnings
-                if any(kw in l.technique.lower() for kw in ("rhythm", "variation", "syncopation", "dynamic"))
+                l
+                for l in music_learnings
+                if any(
+                    kw in l.technique.lower()
+                    for kw in ("rhythm", "variation", "syncopation", "dynamic")
+                )
             ]
             if rhythm_learnings:
-                findings.append(ReviewFinding(
-                    category="rhythm",
-                    description="Cut rhythm is too uniform — risks monotony",
-                    suggestion=(
-                        f"Music theory: {rhythm_learnings[0].technique}. "
-                        "Vary shot duration to create rhythmic interest."
-                    ),
-                    severity="opportunity",
-                    supporting_learnings=rhythm_learnings[:3],
-                    discipline=Discipline.MUSIC_THEORY,
-                ))
+                findings.append(
+                    ReviewFinding(
+                        category="rhythm",
+                        description="Cut rhythm is too uniform — risks monotony",
+                        suggestion=(
+                            f"Music theory: {rhythm_learnings[0].technique}. "
+                            "Vary shot duration to create rhythmic interest."
+                        ),
+                        severity="opportunity",
+                        supporting_learnings=rhythm_learnings[:3],
+                        discipline=Discipline.MUSIC_THEORY,
+                    )
+                )
 
         return findings
 
@@ -265,7 +284,8 @@ class OutputReview:
 
         # Check for held shots without motivation (directing knowledge)
         long_static = [
-            i for i, shot in enumerate(edl.shots)
+            i
+            for i, shot in enumerate(edl.shots)
             if shot.duration > 3.0 and shot.motion.kind == "none"
         ]
 
@@ -273,22 +293,28 @@ class OutputReview:
             cinema_learnings = self._store.by_discipline(Discipline.CINEMATOGRAPHY)
             directing_learnings = self._store.by_discipline(Discipline.DIRECTING)
             relevant = [
-                l for l in cinema_learnings + directing_learnings
-                if any(kw in l.technique.lower() for kw in ("movement", "pace", "rhythm", "hold", "static"))
+                l
+                for l in cinema_learnings + directing_learnings
+                if any(
+                    kw in l.technique.lower()
+                    for kw in ("movement", "pace", "rhythm", "hold", "static")
+                )
             ]
             if relevant:
-                findings.append(ReviewFinding(
-                    category="cinematography",
-                    description=f"{len(long_static)} shots hold static for 3+ seconds without camera motivation",
-                    suggestion=(
-                        f"Cinematography: {relevant[0].technique}. "
-                        "Consider subtle movement or justify the stillness with content."
-                    ),
-                    severity="opportunity",
-                    supporting_learnings=relevant[:3],
-                    shot_indices=long_static,
-                    discipline=Discipline.CINEMATOGRAPHY,
-                ))
+                findings.append(
+                    ReviewFinding(
+                        category="cinematography",
+                        description=f"{len(long_static)} shots hold static for 3+ seconds without camera motivation",
+                        suggestion=(
+                            f"Cinematography: {relevant[0].technique}. "
+                            "Consider subtle movement or justify the stillness with content."
+                        ),
+                        severity="opportunity",
+                        supporting_learnings=relevant[:3],
+                        shot_indices=long_static,
+                        discipline=Discipline.CINEMATOGRAPHY,
+                    )
+                )
 
         return findings
 
@@ -310,19 +336,25 @@ class OutputReview:
         ):
             tool_learnings = self._store.by_discipline(tool_discipline)
             issue_learnings = [
-                l for l in tool_learnings
+                l
+                for l in tool_learnings
                 if l.confidence in (Confidence.VALIDATED, Confidence.SUPPORTED)
-                and any(kw in l.insight.lower() for kw in ("avoid", "issue", "bug", "artefact", "problem"))
+                and any(
+                    kw in l.insight.lower()
+                    for kw in ("avoid", "issue", "bug", "artefact", "problem")
+                )
             ]
             for learning in issue_learnings[:2]:
-                findings.append(ReviewFinding(
-                    category="tool_knowledge",
-                    description=f"[{tool_discipline.value}] {learning.insight}",
-                    suggestion=learning.application,
-                    severity="opportunity",
-                    supporting_learnings=[learning],
-                    discipline=tool_discipline,
-                ))
+                findings.append(
+                    ReviewFinding(
+                        category="tool_knowledge",
+                        description=f"[{tool_discipline.value}] {learning.insight}",
+                        suggestion=learning.application,
+                        severity="opportunity",
+                        supporting_learnings=[learning],
+                        discipline=tool_discipline,
+                    )
+                )
 
         return findings
 
@@ -338,7 +370,8 @@ class OutputReview:
         # Peak-end rule: is the ending strong?
         psych_learnings = self._store.by_discipline(Discipline.PSYCHOLOGY)
         peak_end = [
-            l for l in psych_learnings
+            l
+            for l in psych_learnings
             if "peak" in l.technique.lower() or "end" in l.technique.lower()
         ]
 
@@ -346,17 +379,19 @@ class OutputReview:
             last_shot = edl.shots[-1]
             # A very short final shot may waste the ending
             if last_shot.duration < 0.8:
-                findings.append(ReviewFinding(
-                    category="psychology",
-                    description="Final shot is under 0.8s — may not register as an ending",
-                    suggestion=(
-                        f"Psychology (peak-end rule): {peak_end[0].technique}. "
-                        "The ending needs enough time to land."
-                    ),
-                    severity="important",
-                    supporting_learnings=peak_end[:2],
-                    shot_indices=[len(edl.shots) - 1],
-                    discipline=Discipline.PSYCHOLOGY,
-                ))
+                findings.append(
+                    ReviewFinding(
+                        category="psychology",
+                        description="Final shot is under 0.8s — may not register as an ending",
+                        suggestion=(
+                            f"Psychology (peak-end rule): {peak_end[0].technique}. "
+                            "The ending needs enough time to land."
+                        ),
+                        severity="important",
+                        supporting_learnings=peak_end[:2],
+                        shot_indices=[len(edl.shots) - 1],
+                        discipline=Discipline.PSYCHOLOGY,
+                    )
+                )
 
         return findings

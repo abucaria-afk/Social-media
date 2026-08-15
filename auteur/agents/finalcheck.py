@@ -37,7 +37,12 @@ def _texts_outside_safe(edl: EditDecisionList) -> list[tuple[int, TextCue]]:
     unsafe: list[tuple[int, TextCue]] = []
     for i, cue in enumerate(edl.texts):
         ax, ay = cue.anchor
-        if ay < _SAFE_TOP or ay > (1.0 - _SAFE_BOTTOM) or ax < _SAFE_SIDE or ax > (1.0 - _SAFE_SIDE):
+        if (
+            ay < _SAFE_TOP
+            or ay > (1.0 - _SAFE_BOTTOM)
+            or ax < _SAFE_SIDE
+            or ax > (1.0 - _SAFE_SIDE)
+        ):
             unsafe.append((i, cue))
     return unsafe
 
@@ -75,8 +80,13 @@ def _music_gain_low(edl: EditDecisionList) -> bool:
 def _resolution_matches(edl: EditDecisionList) -> bool:
     """True when width and height are standard delivery dimensions."""
     standard = {
-        (1080, 1920), (1080, 1080), (1920, 1080), (1080, 1350),
-        (1920, 816), (720, 1280), (640, 480),
+        (1080, 1920),
+        (1080, 1080),
+        (1920, 1080),
+        (1080, 1350),
+        (1920, 816),
+        (720, 1280),
+        (640, 480),
     }
     return (edl.width, edl.height) in standard
 
@@ -109,9 +119,7 @@ class FinalCheckAgent:
         if unsafe:
             indices = [i for i, _ in unsafe]
 
-            def fix_safe_zones(
-                target: EditDecisionList, bad: list[int] = indices
-            ) -> None:
+            def fix_safe_zones(target: EditDecisionList, bad: list[int] = indices) -> None:
                 for i in bad:
                     if i >= len(target.texts):
                         continue
@@ -207,8 +215,11 @@ class FinalCheckAgent:
             def snap_resolution(target: EditDecisionList) -> None:
                 # Pick the nearest standard resolution.
                 standards = [
-                    (1080, 1920), (1080, 1080), (1920, 1080),
-                    (1080, 1350), (1920, 816),
+                    (1080, 1920),
+                    (1080, 1080),
+                    (1920, 1080),
+                    (1080, 1350),
+                    (1920, 816),
                 ]
                 current_aspect = target.width / max(target.height, 1)
                 best = min(

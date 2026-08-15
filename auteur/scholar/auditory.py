@@ -222,7 +222,12 @@ class AuditorySystem:
         )
         segments.append(segment)
 
-        log.debug("heard %d bytes → %s (energy=%.2f)", len(audio_data), segment.channel.value, segment.energy)
+        log.debug(
+            "heard %d bytes → %s (energy=%.2f)",
+            len(audio_data),
+            segment.channel.value,
+            segment.energy,
+        )
         return segments
 
     # ------------------------------------------------------------------
