@@ -1,16 +1,23 @@
 {
-  "name": "Social-media Dev Container",
+  "name": "auteur",
   "build": {
     "dockerfile": "Dockerfile"
   },
-  "settings": {
-    "terminal.integrated.shell.linux": "/bin/bash"
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "ms-python.black-formatter"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.testing.pytestEnabled": true
+      }
+    }
   },
-  "extensions": [
-    "ms-vscode.cpptools",
-    "ms-vscode.cmake-tools"
-  ],
   "remoteUser": "vscode",
   "workspaceFolder": "/workspace",
-  "postCreateCommand": "if [ -f Makefile ]; then make linux || true; fi"
+  "postCreateCommand": "pip install --user -r requirements.txt && python -m auteur --version"
 }

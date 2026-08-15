@@ -1,29 +1,17 @@
-FROM ubuntu:22.04
+# A container that can actually run this project.
+#
+# The previous one was built for a C++ program that is not in this repository:
+# build-essential, libcurl, libsecret, and no Python at all. Opening the repo in
+# a Codespace produced an environment that could not run a single test.
 
-ENV DEBIAN_FRONTEND=noninteractive
+FROM mcr.microsoft.com/devcontainers/python:3.12
 
-# Install build deps and utilities
+# ffmpeg and ffprobe. `requirements.txt` also brings the ffmpeg-binaries wheel,
+# which the package prefers because distro builds sometimes ship without
+# libx264, xfade or loudnorm — but a system ffmpeg is a useful fallback and
+# makes the container usable for looking at the output by hand.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        build-essential \
-        libcurl4-openssl-dev \
-        libsecret-1-dev \
-        make \
-        git \
-        ca-certificates \
-        curl \
-        pkg-config \
-        sudo \
+    && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user (matches common Codespaces/devcontainers defaults)
-ARG USERNAME=vscode
-ARG USER_UID=1000
-ARG USER_GID=1000
-RUN groupadd --gid ${USER_GID} ${USERNAME} \
-    && useradd -s /bin/bash --uid ${USER_UID} --gid ${USER_GID} -m ${USERNAME} \
-    && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
-    && chmod 0440 /etc/sudoers.d/${USERNAME}
-
-USER ${USERNAME}
 WORKDIR /workspace
