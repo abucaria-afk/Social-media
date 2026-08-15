@@ -455,6 +455,10 @@ class EditDecisionList:
                 "audio_gain": round(shot.audio_gain, 3),
                 "audio_offset": round(shot.audio_offset, 3),
                 "note": shot.note,
+                # Without this, a saved EDL read back renders every still down
+                # the moving-footage path: `-ss` into a single-frame image,
+                # which yields almost nothing.
+                "is_still": shot.is_still,
             }
 
         return {

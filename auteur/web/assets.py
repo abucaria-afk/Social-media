@@ -14,15 +14,18 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from .. import theme
+
 log = logging.getLogger("auteur.web.assets")
 
-#: Sizes Safari and Android actually ask for.
-#: 180 is the iPhone home-screen touch icon; 192 and 512 are the manifest.
+#: Sizes Safari and Chrome actually ask for. 180 is the iPhone home-screen
+#: touch icon; 192 and 512 are the manifest, and Chrome uses 512 for the
+#: install dialog and the splash screen.
 SIZES = (180, 192, 512)
 
-INK = (14, 14, 18)
-AMBER = (255, 176, 74)
-PAPER = (247, 244, 238)
+INK = theme.rgb_of("ground")
+AMBER = theme.rgb_of("ember")
+PAPER = theme.rgb_of("paper")
 
 
 def _mix(over: tuple[int, int, int], under: tuple[int, int, int], amount: float) -> tuple[int, ...]:
@@ -81,9 +84,16 @@ def _draw(size: int):
 
 
 def ensure(static: Path) -> None:
-    """Draw any icon the static folder is missing. Safe to call every start."""
+    """Write the generated assets. Safe to call on every start."""
     static = Path(static)
     static.mkdir(parents=True, exist_ok=True)
+
+    # The palette, written out as CSS. Always rewritten: it is cheap, and a
+    # stale copy would silently pin the interface to an old theme.
+    stylesheet = static / "theme.css"
+    generated = theme.css_variables()
+    if not stylesheet.is_file() or stylesheet.read_text(encoding="utf-8") != generated:
+        stylesheet.write_text(generated, encoding="utf-8")
 
     wanted = {static / f"icon-{size}.png": size for size in SIZES}
     wanted[static / "icon.png"] = 512

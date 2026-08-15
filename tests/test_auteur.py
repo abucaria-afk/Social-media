@@ -996,3 +996,252 @@ def test_a_failed_job_says_something_a_person_can_read(tmp_path):
     assert len(job.error) < 200
     assert "settb" not in job.error and "[0:v]" not in job.error
     assert job.snapshot()["error"].startswith("Something went wrong making the film.")
+
+
+# ---------------------------------------------------------------------------
+# The theme
+# ---------------------------------------------------------------------------
+
+def test_the_stylesheet_hard_codes_no_colour():
+    """One palette, in theme.py. A hex typed into the CSS is a second copy that
+    will drift away from the icons and the terminal."""
+    import re
+    from auteur.web import server
+
+    style = (server.STATIC / "style.css").read_text()
+    stray = [line.strip() for line in style.splitlines()
+             if re.search(r"#[0-9a-fA-F]{3,8}\b", line) or "rgba(" in line or "rgb(" in line]
+    assert stray == [], f"colours hard-coded in style.css: {stray}"
+
+
+def test_every_token_the_stylesheet_uses_actually_exists():
+    """A typo in a var() name fails silently — the property is just dropped."""
+    import re
+    from auteur import theme
+    from auteur.web import assets, server
+
+    assets.ensure(server.STATIC)
+    style = (server.STATIC / "style.css").read_text()
+    generated = (server.STATIC / "theme.css").read_text()
+
+    defined = set(re.findall(r"(--[a-z-]+):", generated))
+    local = set(re.findall(r"(--[a-z-]+):", style))  # radius, safe areas
+    used = set(re.findall(r"var\((--[a-z-]+)", style))
+
+    missing = used - defined - local
+    assert missing == set(), f"style.css uses undefined tokens: {sorted(missing)}"
+
+    # And every palette role really is generated from the module.
+    for role in theme.PALETTE:
+        assert f"--{role.replace('_', '-')}:" in generated
+
+
+def test_the_theme_stylesheet_is_regenerated_when_the_palette_moves(tmp_path):
+    from auteur import theme
+    from auteur.web import assets
+
+    stale = tmp_path / "static"
+    stale.mkdir()
+    (stale / "theme.css").write_text(":root { --ground: #ff00ff; }")
+    assets.ensure(stale)
+    assert (stale / "theme.css").read_text() == theme.css_variables()
+    assert "#ff00ff" not in (stale / "theme.css").read_text()
+
+
+def test_the_icon_and_the_page_use_the_same_palette():
+    from auteur import theme
+    from auteur.web import assets, server
+
+    assert assets.INK == theme.rgb_of("ground")
+    assert assets.AMBER == theme.rgb_of("ember")
+
+    page = (server.STATIC / "index.html").read_text()
+    assert f'content="{theme.THEME_COLOR}"' in page
+
+    import json as _json
+    manifest = _json.loads((server.STATIC / "manifest.webmanifest").read_text())
+    assert manifest["theme_color"] == theme.THEME_COLOR
+    assert manifest["background_color"] == theme.THEME_COLOR
+
+
+def test_text_on_the_accent_stays_readable():
+    """The primary button is dark text on ember. If that pair ever falls below
+    the WCAG AA ratio the main action becomes unreadable in daylight."""
+    from auteur import theme
+
+    def luminance(rgb):
+        channels = []
+        for value in rgb:
+            v = value / 255
+            channels.append(v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4)
+        return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+    def ratio(a, b):
+        first, second = sorted((luminance(a), luminance(b)), reverse=True)
+        return (first + 0.05) / (second + 0.05)
+
+    ground = theme.rgb_of("ground")
+    assert ratio(theme.rgb_of("on_ember"), theme.rgb_of("ember")) >= 4.5
+    for role in ("paper", "muted", "ember", "moss", "rust"):
+        assert ratio(theme.rgb_of(role), ground) >= 4.5, f"{role} on ground"
+
+
+def test_the_terminal_reads_the_same_palette():
+    from auteur import theme, ui
+
+    assert ui.INK["accent"] == theme.ansi("ember")
+    red, green, blue = theme.rgb_of("ember")
+    assert ui.INK["accent"] == f"38;2;{red};{green};{blue}"
+
+
+# ---------------------------------------------------------------------------
+# Chrome
+# ---------------------------------------------------------------------------
+
+def test_the_manifest_meets_chromes_install_requirements():
+    """Chrome will not offer to install without all of these."""
+    import json as _json
+    from auteur.web import assets, server
+
+    assets.ensure(server.STATIC)
+    manifest = _json.loads((server.STATIC / "manifest.webmanifest").read_text())
+
+    for key in ("name", "start_url", "icons", "display"):
+        assert manifest.get(key), f"manifest is missing {key}"
+    assert manifest["display"] in ("standalone", "fullscreen", "minimal-ui")
+
+    sizes = {icon["sizes"] for icon in manifest["icons"]}
+    assert "192x192" in sizes and "512x512" in sizes
+    assert any(icon.get("purpose") == "maskable" for icon in manifest["icons"])
+
+    # A service worker with a fetch handler is the other half of the bar.
+    worker = (server.STATIC / "sw.js").read_text()
+    assert 'addEventListener("fetch"' in worker
+
+
+def test_the_page_offers_installation_on_both_browsers():
+    from auteur.web import server
+
+    script = (server.STATIC / "app.js").read_text()
+    # Chrome's route: hold the event and put it behind our own button.
+    assert "beforeinstallprompt" in script
+    assert "deferredPrompt.prompt()" in script
+    # Safari never fires it, so the instructions must be there too.
+    assert "Add to Home Screen" in script
+
+
+# ---------------------------------------------------------------------------
+# Optimisation
+# ---------------------------------------------------------------------------
+
+def test_shots_render_in_parallel_but_not_past_the_cores(monkeypatch):
+    from auteur import render
+
+    settings = Settings(quality=QUALITIES["draft"])
+    monkeypatch.setattr(render.os, "cpu_count", lambda: 4)
+    assert render.segment_workers(settings, 20) == 4     # one per core
+    assert render.segment_workers(settings, 3) == 3      # never more than the shots
+    assert render.segment_workers(settings, 1) == 1      # nothing to overlap
+
+    monkeypatch.setattr(render.os, "cpu_count", lambda: 64)
+    assert render.segment_workers(settings, 100) == 8    # capped
+
+    # Optical flow is memory-hungry; several at once can push a machine to swap.
+    assert render.segment_workers(Settings(quality=QUALITIES["master"]), 20) == 1
+
+
+@pytest.mark.slow
+def test_parallel_and_sequential_renders_agree(rushes, tmp_path, monkeypatch):
+    """Concurrency must not reorder the film."""
+    from auteur import render
+    from auteur.agent import direct
+
+    def run(folder: str, workers: int) -> list[str]:
+        monkeypatch.setattr(render, "segment_workers", lambda settings, count: workers)
+        production = direct(
+            [rushes], "punchy montage, 5 seconds",
+            settings=Settings(quality=QUALITIES["draft"], primary_format=FORMATS["square"],
+                              target_duration=5.0, use_llm=False, revision_rounds=0, seed=11),
+            workspace=tmp_path / folder, duration=5.0,
+        )
+        return [shot.clip_id for shot in production.edl.shots]
+
+    assert run("one", 1) == run("many", 4)
+
+
+def test_text_is_compressed_and_pictures_are_not(web_server):
+    from urllib.request import Request, urlopen
+
+    base, _ = web_server
+    request = Request(base + "/static/style.css", headers={"Accept-Encoding": "gzip"})
+    with urlopen(request) as response:
+        assert response.headers["Content-Encoding"] == "gzip"
+        assert response.headers["Vary"] == "Accept-Encoding"
+
+    request = Request(base + "/icon-512.png", headers={"Accept-Encoding": "gzip"})
+    with urlopen(request) as response:
+        assert response.headers.get("Content-Encoding") is None
+
+
+def test_an_unchanged_asset_comes_back_as_a_304(web_server):
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    base, _ = web_server
+    with urlopen(base + "/static/app.js") as response:
+        etag = response.headers["ETag"]
+        assert etag
+
+    request = Request(base + "/static/app.js", headers={"If-None-Match": etag})
+    try:
+        with urlopen(request) as response:
+            assert response.status == 304
+    except HTTPError as exc:            # urllib raises on 304 in some versions
+        assert exc.code == 304
+
+
+@pytest.mark.slow
+def test_a_ramped_shot_lands_on_its_intended_screen_time(rushes, tmp_path):
+    """concat gives a segment's last frame no duration of its own, so every
+    slice of a speed ramp used to lose a frame's worth of screen time. Eleven
+    slices at 30fps is a third of a second, once per ramped shot — a 15-second
+    cut of ramped stills came out at 10.5."""
+    from auteur import render
+
+    space = Workspace(tmp_path / "work")
+    shot = Shot(
+        clip_id="C01", source=rushes / "a_wide.mp4", start=0.4, end=1.5,
+        ramp=Ramp(points=((0.0, 1.14), (0.45, 1.14), (1.0, 2.16))),
+    )
+    path = render.render_shot(shot, 0, space, FORMATS["square"], QUALITIES["draft"],
+                              want_audio=False)
+    measured = float(ffmpeg.probe(path)["format"]["duration"])
+    assert measured == pytest.approx(shot.duration, abs=0.06), (
+        f"wanted {shot.duration:.3f}s of screen time, got {measured:.3f}s"
+    )
+
+
+def test_ramp_windows_overlap_by_exactly_one_frame():
+    fps, source = 30.0, 1.125
+    windows = motion.slice_windows(source, fps, 11)
+
+    assert len(windows) == 11
+    assert windows[0][0] == 0.0
+    for index in range(len(windows) - 1):
+        overlap = windows[index][1] - windows[index + 1][0]
+        assert overlap == pytest.approx(1.0 / fps, abs=1e-6)
+
+    # Boundaries sit on the frame grid, offset by the half-frame that keeps each
+    # frame inside exactly one window.
+    for start, _ in windows[1:]:
+        assert ((start + 0.5 / fps) * fps) == pytest.approx(
+            round((start + 0.5 / fps) * fps), abs=1e-6)
+
+
+def test_a_still_survives_being_written_out_and_read_back():
+    """`is_still` decides whether a shot is looped or seeked into. A saved EDL
+    that omits it renders every photo as almost nothing."""
+    edl = EditDecisionList(title="t")
+    edl.shots.append(Shot(clip_id="C01", source=Path("/tmp/photo.jpg"), start=0.0, end=2.0,
+                          is_still=True))
+    assert edl.to_json()["shots"][0]["is_still"] is True

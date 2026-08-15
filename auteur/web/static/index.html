@@ -6,7 +6,8 @@
      the controls back inside the safe area. Without it the page is letterboxed
      by white bars on every modern iPhone. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0e0e12">
+<meta name="theme-color" content="#0c0b0a">
+<meta name="color-scheme" content="dark">
 <meta name="description" content="Turn clips from your camera roll into a finished film.">
 
 <!-- Home-screen app on iOS: full screen, no browser chrome. -->
@@ -17,6 +18,9 @@
 <link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="icon" href="/icon-192.png">
 <link rel="manifest" href="/manifest.webmanifest">
+<!-- theme.css is generated from auteur/theme.py; style.css only uses its tokens,
+     so it must load first. -->
+<link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/style.css">
 <title>Auteur — the edit room</title>
 </head>
@@ -86,6 +90,13 @@
       <button type="submit" class="go" id="go">Make my film</button>
       <p class="fineprint">It takes a couple of minutes. Keep this page open.</p>
     </form>
+
+    <!-- Install. Chrome fires beforeinstallprompt and gets a real button;
+         every other browser gets the instructions for that browser. -->
+    <div class="install" id="install" hidden>
+      <button type="button" class="ghost" id="install-go" hidden>Install this as an app</button>
+      <p class="fineprint" id="install-hint"></p>
+    </div>
   </section>
 
   <!-- 2. Wait --------------------------------------------------------- -->

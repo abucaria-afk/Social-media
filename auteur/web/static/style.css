@@ -7,16 +7,12 @@
  * underneath them.
  */
 
+/* The colours live in theme.css, generated from auteur/theme.py — the same
+ * palette the icons and the terminal read. Nothing here hard-codes a hex. */
+
 :root {
-  --ink: #0e0e12;
-  --ink-soft: #17171d;
-  --line: #2a2a33;
-  --paper: #f4f2ee;
-  --muted: #9a9aa6;
-  --amber: #ffb04a;
-  --green: #6ee7a0;
-  --red: #ff7a7a;
   --radius: 18px;
+  --radius-sm: 14px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
@@ -28,7 +24,7 @@
 html, body {
   margin: 0;
   padding: 0;
-  background: var(--ink);
+  background: var(--ground);
   color: var(--paper);
   font: 17px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-text-size-adjust: 100%;
@@ -70,7 +66,7 @@ body {
   display: flex;
   gap: 14px;
   align-items: flex-start;
-  background: var(--ink-soft);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 16px;
@@ -86,7 +82,7 @@ body {
   opacity: 0;
   pointer-events: none;
 }
-.card.picker.has-files { border-color: var(--amber); }
+.card.picker.has-files { border-color: var(--ember); }
 
 .step-number {
   flex: 0 0 26px;
@@ -111,7 +107,7 @@ textarea {
   padding: 12px;
   min-height: 56px;
   color: var(--paper);
-  background: #101015;
+  background: var(--ground);
   border: 1px solid var(--line);
   border-radius: 12px;
   /* Spelled out rather than the `font:` shorthand: `inherit` is not a valid
@@ -123,7 +119,7 @@ textarea {
   line-height: 1.4;
   resize: vertical;
 }
-textarea:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
+textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
 
 /* -- chips and choices --------------------------------------------------- */
 
@@ -157,8 +153,14 @@ textarea:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
   gap: 2px;
 }
 .choice small { font-weight: 400; font-size: 11px; color: var(--muted); }
-.choice.is-on { border-color: var(--amber); background: rgba(255, 176, 74, 0.14); }
-.choice.is-on small { color: var(--amber); }
+.choice.is-on {
+  border-color: var(--ember);
+  /* Flat fill first for anything older than Chrome 111 / Safari 16.2, which
+     drop the color-mix line and keep this one. */
+  background: var(--raised);
+  background: color-mix(in srgb, var(--ember) 14%, transparent);
+}
+.choice.is-on small { color: var(--ember); }
 
 /* -- buttons ------------------------------------------------------------- */
 
@@ -169,8 +171,8 @@ textarea:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
   margin-top: 18px;
   border: 0;
   border-radius: var(--radius);
-  background: var(--amber);
-  color: #1a1204;
+  background: var(--ember);
+  color: var(--on-ember);
   font-size: 18px;
   font-weight: 700;
   text-align: center;
@@ -196,7 +198,7 @@ textarea:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
 }
 
 .fineprint { margin: 12px 0 0; text-align: center; color: var(--muted); font-size: 13px; }
-.error { color: var(--red); font-size: 15px; margin: 12px 0 0; }
+.error { color: var(--rust); font-size: 15px; margin: 12px 0 0; }
 
 /* -- working ------------------------------------------------------------- */
 
@@ -214,12 +216,12 @@ textarea:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
   inset: -3px;
   border-radius: 50%;
   border: 3px solid transparent;
-  border-top-color: var(--amber);
+  border-top-color: var(--ember);
   animation: spin 1.1s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .ring-fill { animation: none; border-color: var(--amber); opacity: 0.5; }
+  .ring-fill { animation: none; border-color: var(--ember); opacity: 0.5; }
 }
 
 #stage { margin: 0; font-size: 22px; font-weight: 700; }
@@ -235,7 +237,7 @@ textarea:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
   display: block;
   height: 100%;
   width: 0;
-  background: var(--amber);
+  background: var(--ember);
   transition: width 0.4s ease;
 }
 
@@ -247,19 +249,19 @@ textarea:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
   font-size: 14px;
   color: var(--muted);
 }
-.log li { padding: 5px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
+.log li { padding: 5px 0; border-bottom: 1px solid var(--line); }
 .log li.step { color: var(--paper); font-weight: 600; }
-.log li.warn { color: var(--amber); }
+.log li.warn { color: var(--ember); }
 
 /* -- done ---------------------------------------------------------------- */
 
-.done-title { font-size: 26px; margin: 10px 0 16px; color: var(--green); }
-.done-title.bad { color: var(--red); }
+.done-title { font-size: 26px; margin: 10px 0 16px; color: var(--moss); }
+.done-title.bad { color: var(--rust); }
 
 video {
   width: 100%;
   max-height: 62vh;
-  background: #000;
+  background: var(--ground);
   border-radius: var(--radius);
   display: block;
 }
@@ -272,4 +274,9 @@ video {
   font-size: 15px;
 }
 .facts li { padding: 4px 0; }
-.facts li::before { content: "·  "; color: var(--amber); }
+.facts li::before { content: "·  "; color: var(--ember); }
+
+/* -- install ------------------------------------------------------------- */
+
+.install { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.install .fineprint { margin-top: 8px; }

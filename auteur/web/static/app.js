@@ -15,7 +15,8 @@
     error: $("screen-error")
   };
 
-  var state = { jobId: null, timer: null, shape: "reel", seconds: "20", videoUrl: null };
+  var state = { jobId: null, timer: null, shape: "reel", seconds: "20", videoUrl: null,
+               lastStage: "", lastPercent: -1 };
 
   function show(name) {
     Object.keys(screens).forEach(function (key) {
@@ -129,22 +130,45 @@
 
   // -- watching it work -----------------------------------------------------
 
+  // A render is minutes long, so polling at a fixed second costs hundreds of
+  // requests and keeps a phone's radio awake for no benefit. Start responsive,
+  // then ease off — and stop entirely while the page is hidden, resuming the
+  // moment it comes back.
+  var POLL_MIN = 1000, POLL_MAX = 5000;
+  var pollGap = POLL_MIN;
+
+  function schedulePoll(gap) {
+    clearTimeout(state.timer);
+    if (document.hidden) { return; }
+    state.timer = setTimeout(poll, gap);
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && state.jobId) { pollGap = POLL_MIN; poll(); }
+  });
+
   function poll() {
     clearTimeout(state.timer);
     fetch("/api/jobs/" + state.jobId, { cache: "no-store" })
       .then(function (response) { return response.json(); })
       .then(function (job) {
         if (job.error && job.status === "error") { fail(job.error); return; }
+        // Something moved? Poll keenly again. Nothing changed? Ease off.
+        var moved = job.stage !== state.lastStage || job.percent !== state.lastPercent;
+        state.lastStage = job.stage;
+        state.lastPercent = job.percent;
+        pollGap = moved ? POLL_MIN : Math.min(POLL_MAX, pollGap * 1.4);
+
         setStage(job.stage, job.detail);
         setPercent(job.percent);
         setLog(job.lines || []);
         if (job.status === "done") { finish(job); return; }
-        state.timer = setTimeout(poll, 1200);
+        schedulePoll(pollGap);
       })
       .catch(function () {
         // A phone that locked its screen drops the request; keep trying rather
         // than declaring failure over one missed poll.
-        state.timer = setTimeout(poll, 2500);
+        schedulePoll(2500);
       });
   }
 
@@ -223,6 +247,9 @@
   function reset() {
     clearTimeout(state.timer);
     state.jobId = null;
+    state.lastStage = "";
+    state.lastPercent = -1;
+    pollGap = POLL_MIN;
     lastLogLength = 0;
     $("player").pause();
     $("player").removeAttribute("src");
@@ -240,5 +267,56 @@
     window.addEventListener("load", function () {
       navigator.serviceWorker.register("/sw.js").catch(function () { /* fine without it */ });
     });
+  }
+
+  // Already installed? Then there is nothing to advertise.
+  var standalone = window.matchMedia("(display-mode: standalone)").matches ||
+                   window.navigator.standalone === true;
+
+  var deferredPrompt = null;
+  window.addEventListener("beforeinstallprompt", function (event) {
+    // Chrome only. Holding the event lets us put installation behind our own
+    // button instead of whatever the browser decides to show, or not show.
+    event.preventDefault();
+    deferredPrompt = event;
+    if (standalone) { return; }
+    $("install").hidden = false;
+    $("install-go").hidden = false;
+    $("install-hint").textContent = "Keeps it one tap away, and it opens full screen.";
+  });
+
+  $("install-go").addEventListener("click", function () {
+    if (!deferredPrompt) { return; }
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(function () {
+      deferredPrompt = null;
+      $("install").hidden = true;
+    });
+  });
+
+  window.addEventListener("appinstalled", function () {
+    deferredPrompt = null;
+    $("install").hidden = true;
+  });
+
+  // Safari never fires beforeinstallprompt, and Chrome withholds it unless the
+  // page is on a secure origin — which a plain http:// LAN address is not. In
+  // both cases say what to do instead of leaving a dead corner of the screen.
+  if (!standalone) {
+    setTimeout(function () {
+      if (deferredPrompt || !$("install").hidden) { return; }
+      var ua = navigator.userAgent;
+      var iOS = /iPhone|iPad|iPod/.test(ua);
+      var hint = "";
+      if (iOS) {
+        hint = "Add it to your home screen: tap Share, then Add to Home Screen.";
+      } else if (!window.isSecureContext) {
+        hint = "Open this on the computer itself (localhost) to install it as an app.";
+      }
+      if (hint) {
+        $("install").hidden = false;
+        $("install-hint").textContent = hint;
+      }
+    }, 1200);
   }
 })();

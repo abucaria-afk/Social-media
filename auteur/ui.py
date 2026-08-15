@@ -17,8 +17,25 @@ import sys
 import time
 from typing import TextIO
 
+from . import theme
+
 #: Left margin for everything under a step heading.
 INDENT = "     "
+
+#: The terminal's share of the palette in `theme.py`, so a run in a shell and a
+#: run in the phone app are recognisably the same program. Terminals that do not
+#: do 24-bit colour fall back to the plain bold/dim codes below.
+INK = {
+    "heading": "1;" + theme.ansi("paper"),
+    "accent": theme.ansi("ember"),
+    "muted": theme.ansi("muted"),
+    "good": "1;" + theme.ansi("moss"),
+    "bad": "1;" + theme.ansi("rust"),
+}
+
+
+def _truecolor() -> bool:
+    return os.environ.get("COLORTERM", "") in ("truecolor", "24bit")
 
 
 def _supports_colour(stream: TextIO) -> bool:
@@ -36,6 +53,7 @@ class Reporter:
         self.stream = stream or sys.stdout
         self.enabled = enabled
         self.colour = enabled and _supports_colour(self.stream)
+        self.rich = self.colour and _truecolor()
         self.interactive = self.colour  # a bar only makes sense on a live terminal
         self._bar_open = False
         self._any_step = False
@@ -44,7 +62,19 @@ class Reporter:
     # -- plumbing ---------------------------------------------------------
 
     def _paint(self, text: str, code: str) -> str:
-        return f"\033[{code}m{text}\033[0m" if self.colour else text
+        """Colour some text.
+
+        `code` is a plain SGR code; a role name from INK is used instead when the
+        terminal can do 24-bit colour, so the palette matches the web app exactly
+        where that is possible and degrades to bold/dim where it is not.
+        """
+        if not self.colour:
+            return text
+        return f"\033[{code}m{text}\033[0m"
+
+    def _tint(self, text: str, role: str, plain: str) -> str:
+        """Palette colour where the terminal supports it, `plain` SGR otherwise."""
+        return self._paint(text, INK[role] if self.rich else plain)
 
     def _write(self, text: str = "") -> None:
         if not self.enabled:
@@ -63,7 +93,7 @@ class Reporter:
 
     def banner(self, prompt: str) -> None:
         self._write()
-        self._write("  " + self._paint("auteur", "1") + self._paint("  ·  the edit room", "2"))
+        self._write("  " + self._tint("auteur", "accent", "1") + self._paint("  ·  the edit room", "2"))
         self._write("  " + self._paint(f'"{prompt}"', "2"))
         self._write()
 
@@ -72,18 +102,18 @@ class Reporter:
         if self._any_step:
             self._write()
         self._any_step = True
-        self._write("  " + self._paint(title, "1"))
+        self._write("  " + self._tint(title, "heading", "1"))
 
     def detail(self, text: str) -> None:
         """A plain fact under the current step."""
-        self._write(INDENT + self._paint(text, "2"))
+        self._write(INDENT + self._tint(text, "muted", "2"))
 
     def found(self, label: str, text: str) -> None:
         """A labelled finding, e.g. what the critic saw and what it changed."""
-        self._write(INDENT + self._paint(f"{label:<6}", "2") + text)
+        self._write(INDENT + self._tint(f"{label:<6}", "muted", "2") + text)
 
     def warn(self, text: str) -> None:
-        self._write(INDENT + self._paint("note   ", "33") + text)
+        self._write(INDENT + self._tint("note   ", "accent", "33") + text)
 
     def progress(self, done: int, total: int, label: str = "") -> None:
         """A live bar. Falls back to nothing at all when output is not a terminal."""
@@ -93,7 +123,7 @@ class Reporter:
         filled = int(width * done / total)
         bar = "█" * filled + "░" * (width - filled)
         percent = f"{100 * done / total:3.0f}%"
-        line = f"{INDENT}{self._paint(bar, '36')} {percent}  {self._paint(label, '2')}"
+        line = f"{INDENT}{self._tint(bar, 'accent', '36')} {percent}  {self._tint(label, 'muted', '2')}"
         self.stream.write("\r\033[K" + line)
         self.stream.flush()
         self._bar_open = True
@@ -103,7 +133,7 @@ class Reporter:
             return
         if self.interactive and self._bar_open:
             width = max(10, min(28, shutil.get_terminal_size((80, 24)).columns - 40))
-            line = f"{INDENT}{self._paint('█' * width, '36')} 100%  {self._paint(label, '2')}"
+            line = f"{INDENT}{self._tint('█' * width, 'accent', '36')} 100%  {self._tint(label, 'muted', '2')}"
             self.stream.write("\r\033[K" + line + "\n")
             self.stream.flush()
             self._bar_open = False
@@ -117,7 +147,7 @@ class Reporter:
 
     def result(self, *, headline: str, facts: list[str], files: list[tuple[str, str]]) -> None:
         self._write()
-        self._write("  " + self._paint("✓  " + headline, "1;32"))
+        self._write("  " + self._tint("✓  " + headline, "good", "1;32"))
         self._write()
         for fact in facts:
             self._write(INDENT + fact)
@@ -125,14 +155,14 @@ class Reporter:
             self._write()
             width = max(len(label) for label, _ in files)
             for label, path in files:
-                self._write(INDENT + self._paint(f"{label:<{width}}  ", "2") + path)
+                self._write(INDENT + self._tint(f"{label:<{width}}  ", "muted", "2") + path)
         self._write()
 
     def failure(self, headline: str, hint: str = "") -> None:
         self._write()
-        self._write("  " + self._paint("✗  " + headline, "1;31"))
+        self._write("  " + self._tint("✗  " + headline, "bad", "1;31"))
         if hint:
-            self._write(INDENT + self._paint(hint, "2"))
+            self._write(INDENT + self._tint(hint, "muted", "2"))
         self._write()
 
     @property

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import email.parser
 import email.policy
+import gzip
 import json
 import logging
 import mimetypes
@@ -36,6 +37,13 @@ STATIC = Path(__file__).resolve().parent / "static"
 MAX_UPLOAD = 2 * 1024 * 1024 * 1024  # 2 GB
 #: How much of a file to put on the wire at a time.
 CHUNK = 512 * 1024
+#: Types worth gzipping. PNG and MP4 are already compressed; running them
+#: through gzip spends CPU to make them very slightly bigger.
+COMPRESSIBLE = ("text/", "javascript", "json", "manifest", "xml", "svg")
+
+
+def _compressible(content_type: str) -> bool:
+    return any(token in content_type for token in COMPRESSIBLE)
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +273,9 @@ def _parse_multipart(body: bytes, content_type: str) -> tuple[dict[str, str], li
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "auteur"
+    #: HTTP/1.1 so connections are kept alive. The page polls every second or
+    #: so; a fresh TCP handshake per poll is pure latency.
+    protocol_version = "HTTP/1.1"
     studio: Studio
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quieter than the default
@@ -273,10 +284,19 @@ class Handler(BaseHTTPRequestHandler):
     # -- helpers ---------------------------------------------------------
 
     def _send(self, code: int, body: bytes, content_type: str, *, extra: dict | None = None) -> None:
+        headers = dict(extra or {})
+        # Text compresses by ~4x, and the shell is fetched over wifi from a
+        # phone. Skip it for anything already compressed (png, mp4).
+        if (len(body) > 512 and "gzip" in self.headers.get("Accept-Encoding", "")
+                and _compressible(content_type)):
+            body = gzip.compress(body, 6)
+            headers["Content-Encoding"] = "gzip"
+            headers["Vary"] = "Accept-Encoding"
+
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        for key, value in (extra or {}).items():
+        for key, value in headers.items():
             self.send_header(key, value)
         self.end_headers()
         if self.command != "HEAD":
@@ -285,6 +305,34 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, payload: dict, code: int = 200) -> None:
         self._send(code, json.dumps(payload).encode(), "application/json; charset=utf-8",
                    extra={"Cache-Control": "no-store"})
+
+    def _static(self, path: Path, content_type: str | None = None) -> None:
+        """Serve a shell file, revalidated by ETag.
+
+        The page's own assets never change while the server is up, so answering
+        the reload with a 304 costs one small round trip instead of resending
+        the stylesheet and the script every time.
+        """
+        if not path.is_file():
+            self._json({"error": "not found"}, 404)
+            return
+
+        stat = path.stat()
+        etag = f'"{stat.st_mtime_ns:x}-{stat.st_size:x}"'
+        if self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
+        guessed = content_type or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        self._send(200, path.read_bytes(), guessed, extra={
+            "ETag": etag,
+            # Revalidate rather than trust: a restarted server may have a new
+            # palette or a new script, and a stale shell is a confusing bug.
+            "Cache-Control": "no-cache",
+        })
 
     def _file(self, path: Path, content_type: str | None = None) -> None:
         """Serve a file, honouring Range.
@@ -354,11 +402,10 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
 
         if path in ("/", "/index.html"):
-            self._file(STATIC / "index.html", "text/html; charset=utf-8")
+            self._static(STATIC / "index.html", "text/html; charset=utf-8")
             return
         if path.startswith("/static/"):
-            name = Path(path).name
-            self._file(STATIC / name)
+            self._static(STATIC / Path(path).name)
             return
         # The manifest and the <link> tags ask for these from the root, not from
         # /static/. Match the icons by shape rather than listing them: the
@@ -367,7 +414,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/manifest.webmanifest", "/sw.js") or (
             name.startswith("icon") and name.endswith(".png") and path == "/" + name
         ):
-            self._file(STATIC / name)
+            self._static(STATIC / name)
             return
 
         if path.startswith("/api/jobs/"):

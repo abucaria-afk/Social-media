@@ -3,8 +3,10 @@ auteur-work/
 auteur-web/
 demo/rushes/
 
-# The phone app's icons are drawn at startup, not checked in.
+# The phone app's icons and its palette stylesheet are generated at startup
+# from auteur/theme.py, not checked in.
 auteur/web/static/icon*.png
+auteur/web/static/theme.css
 *.mp4
 *.mov
 *.wav

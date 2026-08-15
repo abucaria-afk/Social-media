@@ -235,12 +235,10 @@ def ramp_video_graph(
         if optical_flow and speed < 0.55:
             links.append(f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1")
         return f"[{in_label}]{chain(*links)}[{out_label}]"
-    step = source_duration / slices
+    windows = slice_windows(source_duration, source_fps, slices)
 
     parts = [f"[{in_label}]split={slices}" + "".join(f"[rs{i}]" for i in range(slices))]
-    for index in range(slices):
-        start = index * step
-        end = source_duration if index == slices - 1 else (index + 1) * step
+    for index, (start, end) in enumerate(windows):
         speed = max(ramp.speed_at((index + 0.5) / slices), 1e-6)
         links = [
             f"trim=start={start:.6f}:end={end:.6f}",
@@ -254,6 +252,44 @@ def ramp_video_graph(
     inputs = "".join(f"[rv{i}]" for i in range(slices))
     parts.append(f"{inputs}concat=n={slices}:v=1:a=0[{out_label}]")
     return ";".join(parts)
+
+
+def slice_windows(source_duration: float, source_fps: float, slices: int) -> list[tuple[float, float]]:
+    """Trim windows for a ramp, aligned to the source's own frames.
+
+    Two things go wrong if you simply cut at `index * source_duration / slices`.
+
+    The boundaries land between frames, so `trim` rounds each end on its own and
+    the frame straddling a boundary belongs to neither side. Dividing the
+    *frames* evenly instead, and placing each boundary half a frame early, puts
+    every frame unambiguously in exactly one window.
+
+    The larger error is at the join: `concat` gives a segment's last frame no
+    duration of its own, so each slice loses one frame's worth of screen time.
+    Eleven slices at 30fps is a third of a second — and it compounds, once per
+    ramped shot. A 15-second cut of ramped stills came out at 10.5. So each
+    window is extended by one frame into the next: the frame `concat` discards
+    is then a duplicate rather than time the film never gets back.
+    """
+    rate = max(source_fps, 1.0)
+    frames = max(slices, int(round(source_duration * rate)))
+    edges = [round(index * frames / slices) for index in range(slices + 1)]
+
+    # Rounding can repeat an edge when frames barely exceeds slices; nudge them
+    # apart so no window is empty.
+    for index in range(1, len(edges)):
+        edges[index] = max(edges[index], edges[index - 1] + 1)
+    edges[-1] = max(edges[-1], frames)
+
+    half = 0.5 / rate
+    windows: list[tuple[float, float]] = []
+    for index in range(slices):
+        start = max(0.0, edges[index] / rate - half)
+        # +1 frame: the overlap that concat then eats. The last slice needs it
+        # too — its own final frame is dropped the same way.
+        end = (edges[index + 1] + 1) / rate - half
+        windows.append((start, end))
+    return windows
 
 
 def ramp_audio_graph(ramp: Ramp, *, source_duration: float, in_label: str, out_label: str,
@@ -279,12 +315,10 @@ def ramp_audio_graph(ramp: Ramp, *, source_duration: float, in_label: str, out_l
     if slices < 2:
         speed = max(source_duration / screen_time, 1e-6) if screen_time > 0 else 1.0
         return f"[{in_label}]{_atempo(speed)}[{out_label}]"
-    step = source_duration / slices
+    windows = slice_windows(source_duration, source_fps, slices)
 
     parts = [f"[{in_label}]asplit={slices}" + "".join(f"[as{i}]" for i in range(slices))]
-    for index in range(slices):
-        start = index * step
-        end = source_duration if index == slices - 1 else (index + 1) * step
+    for index, (start, end) in enumerate(windows):
         speed = max(ramp.speed_at((index + 0.5) / slices), 1e-6)
         parts.append(
             f"[as{index}]atrim=start={start:.6f}:end={end:.6f},asetpts=PTS-STARTPTS,"

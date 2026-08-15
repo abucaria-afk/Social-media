@@ -97,6 +97,15 @@ camera roll, type what you want, and it renders on the computer and hands the
 film back to the phone, where **Save to my phone** puts it in Photos through the
 normal share sheet.
 
+**In Chrome** — desktop or Android — the same page offers an **Install this as
+an app** button, and installs as a normal PWA: own window, own icon, no tab
+strip. One caveat that is Chrome's rule rather than this program's: Chrome only
+offers installation on a *secure* origin. `http://localhost:8000` counts as
+secure; a plain `http://192.168.…` LAN address does not. So the phone can always
+*use* the page, but installing from Chrome means either opening it on the
+computer itself or putting it behind HTTPS. The page detects which case it is in
+and says so rather than showing a button that would do nothing.
+
 | Option | |
 |---|---|
 | `--port` | Default 8000. Try another if something already holds that one. |
@@ -255,6 +264,37 @@ and nothing else: no Flask, no build step, no bundler, no CDN. The page is three
 static files, the icons are drawn at startup rather than checked in, and the
 front end is the same `Reporter` interface the terminal uses, pointed at a JSON
 endpoint instead of stdout.
+
+**One palette, in `auteur/theme.py`.** It is sampled from the material this was
+built for — torchlit night photography, where a warm subject sits in a
+near-black frame. The dominant clusters in that footage are a near-neutral black
+ground, a cream-amber subject around hue 30–36, low-saturation forest green, and
+a silver highlight; those are the roles. The stylesheet is generated from the
+module at startup and contains no hex values of its own, the icons read the same
+constants, and the terminal uses 24-bit escapes from them where it can. A test
+asserts every text/background pair clears WCAG AA, so a palette change cannot
+quietly make the primary button unreadable.
+
+---
+
+## Where the time goes
+
+**Shots render in parallel.** Each is its own ffmpeg process writing its own
+file, so they are independent by construction. The pool is sized at one process
+per core, from measurement rather than assumption: on a 4-core box a 21-shot
+reel took 74s sequentially, 58s with two workers, 54s with four, and 77s with
+six. Past the core count every segment slows down and the batch finishes later
+than it would have with fewer. Optical flow is excluded — `minterpolate` is
+memory-hungry enough that several at once can push a laptop into swap.
+
+**The page is cheap to hold open.** Text is gzipped (the stylesheet goes 7.5 KB →
+2.5 KB), shell assets revalidate by ETag so a reload costs a 304, connections
+are kept alive, and polling backs off from 1s to 5s while nothing is changing and
+stops entirely when the page is hidden.
+
+**Video is served by range.** Not an optimisation but a requirement: iOS Safari
+opens a video with `Range: bytes=0-1` and will not play anything answered with a
+plain 200 and the whole file.
 
 ---
 
