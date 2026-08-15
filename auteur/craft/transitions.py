@@ -175,11 +175,6 @@ def xfade_spec(kind: str, duration: float, offset: float) -> str:
     return f"xfade=transition={builtin}:duration={duration:.4f}:offset={offset:.4f}"
 
 
-def audio_join(duration: float) -> str:
-    """The matching sound join. A picture dissolve with a hard audio cut is a tell."""
-    return f"acrossfade=d={max(duration, 0.02):.4f}:c1=tri:c2=tri"
-
-
 def describe() -> str:
     lines = []
     for name in sorted(set(BUILTIN) | set(CUSTOM_EXPRESSIONS)):

@@ -55,9 +55,6 @@ class VideoAnalysis:
     #: Detected cut points inside the source, in seconds.
     shot_boundaries: list[float] = field(default_factory=list)
 
-    def time_of(self, index: int) -> float:
-        return float(index) / self.fps if self.fps else 0.0
-
     def index_of(self, seconds: float) -> int:
         if not len(self.luma):
             return 0

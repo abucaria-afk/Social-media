@@ -49,9 +49,12 @@ def _svf_bandpass(
     return out
 
 
-def _envelope(
-    length: int, attack: float, decay: float, sample_rate: int, curve: float = 2.0
-) -> np.ndarray:
+def _envelope(length: int, attack: float, sample_rate: int, curve: float = 2.0) -> np.ndarray:
+    """Rise over `attack` seconds, then fall away across whatever is left.
+
+    There is no decay parameter: the tail always runs to the end of the buffer,
+    and taking one made it look as though the caller could shape it.
+    """
     attack_samples = max(1, int(attack * sample_rate))
     decay_samples = max(1, length - attack_samples)
     rise = np.linspace(0.0, 1.0, attack_samples) ** 0.6
@@ -71,7 +74,7 @@ def _whoosh(duration: float, sample_rate: int) -> np.ndarray:
     sweep = np.clip(np.sin(t * math.pi), 0.0, None)
     cutoff = 320.0 + 4200.0 * sweep**1.4
     body = _svf_bandpass(noise, cutoff, resonance=1.9, sample_rate=sample_rate)
-    return body * _envelope(length, 0.12 * duration, duration, sample_rate, curve=1.4) * 0.9
+    return body * _envelope(length, 0.12 * duration, sample_rate, curve=1.4) * 0.9
 
 
 def _impact(duration: float, sample_rate: int) -> np.ndarray:

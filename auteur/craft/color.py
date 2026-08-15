@@ -315,7 +315,3 @@ def letterbox_chain(fraction: float, width: int, height: int) -> str:
         f"drawbox=x=0:y=0:w={width}:h={bar}:color=black@1.0:t=fill,"
         f"drawbox=x=0:y={height - bar}:w={width}:h={bar}:color=black@1.0:t=fill"
     )
-
-
-def describe_looks() -> str:
-    return "\n".join(f"  {name:<15} {spec.description}" for name, spec in LOOKS.items())

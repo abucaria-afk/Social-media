@@ -13,7 +13,6 @@ Three problems, all solved by moving pixels around in time:
 
 from __future__ import annotations
 
-import math
 
 from ..edl import Motion, Ramp
 from ..ffmpeg import chain
@@ -28,18 +27,6 @@ RAMP_MAX_SLICES = 48
 #: timestamps fall inside its window, so a slice thinner than a frame selects
 #: nothing — and a concat of empty links yields an empty file, silently.
 RAMP_FRAMES_PER_SLICE = 2
-
-
-def cover_scale(
-    source_w: int, source_h: int, target_w: int, target_h: int, *, factor: float = 1.0
-) -> tuple[int, int]:
-    """Smallest even frame size that fully covers the target, times `factor`."""
-    if source_w <= 0 or source_h <= 0:
-        return int(target_w * factor) // 2 * 2, int(target_h * factor) // 2 * 2
-    scale = max((target_w * factor) / source_w, (target_h * factor) / source_h)
-    width = max(2, int(round(source_w * scale)) // 2 * 2)
-    height = max(2, int(round(source_h * scale)) // 2 * 2)
-    return width, height
 
 
 def reframe_chain(
@@ -363,22 +350,3 @@ def frame_of(anchor: tuple[float, float]) -> tuple[float, float]:
         min(max(anchor[0], 0.08), 0.92),
         min(max(anchor[1], 0.08), 0.92),
     )
-
-
-def shake_intensity_for(energy: float) -> float:
-    """Impact shake that scales with how hard the moment is meant to hit."""
-    return float(min(max((energy - 0.6) * 1.6, 0.0), 0.6))
-
-
-def ease(t: float, kind: str = "in-out") -> float:
-    """Easing curves, for anything that interpolates over a shot."""
-    t = min(max(t, 0.0), 1.0)
-    if kind == "in":
-        return t * t
-    if kind == "out":
-        return 1.0 - (1.0 - t) ** 2
-    if kind == "expo":
-        return 0.0 if t == 0 else 2 ** (10 * (t - 1))
-    if kind == "sine":
-        return 0.5 - 0.5 * math.cos(math.pi * t)
-    return t * t * (3.0 - 2.0 * t)

@@ -289,7 +289,7 @@ def ingest(inputs: Sequence[str | Path], *, recursive: bool = True) -> Bin:
         if asset is None:
             bin_.rejected.append(path)
             continue
-        (bin_.audio if asset.kind == "audio" else bin_.visuals).append(asset)
+        (bin_.visuals if asset.is_visual else bin_.audio).append(asset)
 
     if not bin_.visuals:
         raise FileNotFoundError("found audio but no picture — an edit needs something to look at")

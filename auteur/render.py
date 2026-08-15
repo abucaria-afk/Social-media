@@ -213,7 +213,7 @@ def render_shot(
             args,
             0,
             # The caller names the shot; this says only why.
-            f"no frames in {shot.source.name} " f"between {shot.start:.2f}s and {shot.end:.2f}s",
+            f"no frames in {shot.source.name} between " f"{shot.start:.2f}s and {shot.end:.2f}s",
         )
     return destination
 
@@ -606,7 +606,7 @@ def render(
             except ffmpeg.FFmpegError as exc:
                 reason = (exc.stderr or str(exc)).strip().splitlines()
                 message = (
-                    f"dropped shot {index + 1} ({shot.clip_id}): "
+                    f"dropped shot {index + 1}: "
                     f"{reason[-1][:160] if reason else 'it would not render'}"
                 )
                 log.info("%s", message)

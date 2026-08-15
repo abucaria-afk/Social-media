@@ -14,7 +14,6 @@ from __future__ import annotations
 import os
 import shutil
 import sys
-import time
 from typing import TextIO
 
 from . import theme
@@ -57,7 +56,6 @@ class Reporter:
         self.interactive = self.colour  # a bar only makes sense on a live terminal
         self._bar_open = False
         self._any_step = False
-        self._started = time.perf_counter()
 
     # -- plumbing ---------------------------------------------------------
 
@@ -166,10 +164,6 @@ class Reporter:
         if hint:
             self._write(INDENT + self._tint(hint, "muted", "2"))
         self._write()
-
-    @property
-    def elapsed(self) -> float:
-        return time.perf_counter() - self._started
 
 
 class NullReporter(Reporter):

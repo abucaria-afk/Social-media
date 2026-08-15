@@ -74,9 +74,9 @@ LIGHT: dict[str, str] = {
 
 SCHEMES: dict[str, dict[str, str]] = {"dark": DARK, "light": LIGHT}
 
-#: The browser tab / status bar colour for each scheme.
+#: The browser tab / status bar colour. Only the dark one is needed here: the
+#: page carries both in media-scoped <meta theme-color> tags.
 THEME_COLOR = DARK["ground"]
-THEME_COLOR_LIGHT = LIGHT["ground"]
 
 #: What the appearance switch offers. "system" is the default: follow the phone.
 MODES = ("system", "light", "dark")
