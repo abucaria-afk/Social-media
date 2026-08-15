@@ -126,7 +126,9 @@ class PlatformSpec:
         if seconds < self.min_seconds:
             return f"{seconds:.1f}s is under {self.service}'s {self.min_seconds:.0f}s minimum"
         if seconds > self.max_seconds:
-            return f"{seconds:.1f}s is over {self.service}'s {self.max_seconds:.0f}s limit"
+            return (
+                f"{seconds:.1f}s is over {self.service}'s {self.max_seconds:.0f}s limit"
+            )
         return ""
 
     def describe(self) -> str:
@@ -277,4 +279,6 @@ def resolve(name: str) -> PlatformSpec:
         return PLATFORMS[key]
     if key in _ALIASES:
         return PLATFORMS[_ALIASES[key]]
-    raise ValueError(f"unknown platform: {name!r} (choose from {', '.join(sorted(PLATFORMS))})")
+    raise ValueError(
+        f"unknown platform: {name!r} (choose from {', '.join(sorted(PLATFORMS))})"
+    )

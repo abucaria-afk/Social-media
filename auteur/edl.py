@@ -127,7 +127,12 @@ class Ramp:
     def hit(slow: float = 0.35, fast: float = 1.8, at: float = 0.35) -> Ramp:
         """Snap to a crawl on the beat, then whip out of it."""
         return Ramp(
-            [(0.0, fast), (max(at - 0.08, 0.01), slow), (min(at + 0.18, 0.99), slow), (1.0, fast)]
+            [
+                (0.0, fast),
+                (max(at - 0.08, 0.01), slow),
+                (min(at + 0.18, 0.99), slow),
+                (1.0, fast),
+            ]
         )
 
     @property
@@ -288,7 +293,10 @@ class TextCue:
             self.style = "title"
         self.start = max(0.0, self.start)
         self.duration = _clamp(self.duration, 0.3, 20.0)
-        self.anchor = (_clamp(self.anchor[0], 0.02, 0.98), _clamp(self.anchor[1], 0.02, 0.98))
+        self.anchor = (
+            _clamp(self.anchor[0], 0.02, 0.98),
+            _clamp(self.anchor[1], 0.02, 0.98),
+        )
         self.size = _clamp(self.size, 0.35, 3.0)
         return self
 
@@ -371,7 +379,10 @@ class EditDecisionList:
     # ------------------------------------------------------------ validation
 
     def repair(
-        self, sources: dict[str, Any] | None = None, *, target_duration: float | None = None
+        self,
+        sources: dict[str, Any] | None = None,
+        *,
+        target_duration: float | None = None,
     ) -> list[str]:
         """Force the EDL to be renderable. Returns the list of repairs made.
 
@@ -388,7 +399,9 @@ class EditDecisionList:
             if sources is not None:
                 dossier = sources.get(shot.clip_id)
                 if dossier is None:
-                    notes.append(f"dropped shot referencing unknown clip {shot.clip_id!r}")
+                    notes.append(
+                        f"dropped shot referencing unknown clip {shot.clip_id!r}"
+                    )
                     continue
                 shot.source = Path(dossier.asset.path)
                 shot.is_still = dossier.asset.kind == "image"
@@ -454,7 +467,9 @@ class EditDecisionList:
             if not cue.text:
                 continue
             if cue.start >= runtime - 0.15:
-                notes.append(f"dropped text {cue.text[:24]!r}: starts after the film ends")
+                notes.append(
+                    f"dropped text {cue.text[:24]!r}: starts after the film ends"
+                )
                 continue
             cue.duration = min(cue.duration, runtime - cue.start)
             kept.append(cue)
@@ -466,7 +481,9 @@ class EditDecisionList:
         self.letterbox = _clamp(self.letterbox, 0.0, 0.25)
 
         if target_duration and runtime > target_duration * 3:
-            notes.append(f"runtime {runtime:.1f}s is far over the {target_duration:.1f}s target")
+            notes.append(
+                f"runtime {runtime:.1f}s is far over the {target_duration:.1f}s target"
+            )
         return notes
 
     # ------------------------------------------------------------ (de)serialise
@@ -506,7 +523,10 @@ class EditDecisionList:
                 "motion": {
                     "kind": shot.motion.kind,
                     "intensity": round(shot.motion.intensity, 3),
-                    "anchor": [round(shot.motion.anchor[0], 3), round(shot.motion.anchor[1], 3)],
+                    "anchor": [
+                        round(shot.motion.anchor[0], 3),
+                        round(shot.motion.anchor[1], 3),
+                    ],
                 },
                 "reframe": shot.reframe,
                 "look": asdict(shot.look),
@@ -558,7 +578,12 @@ class EditDecisionList:
                 "fade_out": self.music.fade_out,
             },
             "sfx": [
-                {"kind": c.kind, "at": round(c.at, 3), "gain": c.gain, "duration": c.duration}
+                {
+                    "kind": c.kind,
+                    "at": round(c.at, 3),
+                    "gain": c.gain,
+                    "duration": c.duration,
+                }
                 for c in self.sfx
             ],
         }
@@ -599,7 +624,9 @@ class EditDecisionList:
         for cue in self.texts:
             lines.append(f'  text @{cue.start:6.2f} ({cue.style}): "{cue.text}"')
         if self.music.source:
-            lines.append(f"  music: {Path(self.music.source).name} @{self.music.gain:.2f}")
+            lines.append(
+                f"  music: {Path(self.music.source).name} @{self.music.gain:.2f}"
+            )
         if self.sfx:
             kinds = ", ".join(f"{c.kind}@{c.at:.1f}" for c in self.sfx[:10])
             lines.append(f"  sfx: {kinds}{' …' if len(self.sfx) > 10 else ''}")
@@ -634,21 +661,30 @@ def shots_from_json(payload: Iterable[dict], sources: dict[str, Any]) -> list[Sh
                         points.append((float(item[0]), float(item[1])))
                     except (TypeError, ValueError):
                         continue
-            ramp = Ramp(points) if points else Ramp.constant(float(raw.get("speed", 1.0) or 1.0))
+            ramp = (
+                Ramp(points)
+                if points
+                else Ramp.constant(float(raw.get("speed", 1.0) or 1.0))
+            )
         else:
             ramp = Ramp.constant(float(raw.get("speed", 1.0) or 1.0))
 
         motion_raw = raw.get("motion")
         if isinstance(motion_raw, str):
             motion = Motion(
-                kind=motion_raw, intensity=float(raw.get("motion_intensity", 0.35) or 0.35)
+                kind=motion_raw,
+                intensity=float(raw.get("motion_intensity", 0.35) or 0.35),
             )
         elif isinstance(motion_raw, dict):
             anchor = motion_raw.get("anchor") or [0.5, 0.5]
             motion = Motion(
                 kind=str(motion_raw.get("kind", "none")),
                 intensity=float(motion_raw.get("intensity", 0.35) or 0.35),
-                anchor=(float(anchor[0]), float(anchor[1])) if len(anchor) >= 2 else (0.5, 0.5),
+                anchor=(
+                    (float(anchor[0]), float(anchor[1]))
+                    if len(anchor) >= 2
+                    else (0.5, 0.5)
+                ),
             )
         else:
             motion = Motion()
@@ -730,7 +766,11 @@ def texts_from_json(payload: Iterable[dict]) -> list[TextCue]:
                     start=float(raw.get("start", 0.0) or 0.0),
                     duration=float(raw.get("duration", 2.0) or 2.0),
                     style=str(raw.get("style", "title")),
-                    anchor=(float(anchor[0]), float(anchor[1])) if len(anchor) >= 2 else (0.5, 0.5),
+                    anchor=(
+                        (float(anchor[0]), float(anchor[1]))
+                        if len(anchor) >= 2
+                        else (0.5, 0.5)
+                    ),
                     size=float(raw.get("size", 1.0) or 1.0),
                     color=str(raw.get("color", "#FFFFFF")),
                     accent=str(raw.get("accent", raw.get("color", "#FFFFFF"))),

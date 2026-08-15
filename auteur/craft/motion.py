@@ -189,8 +189,12 @@ def ramp_slice_count(ramp: Ramp, source_duration: float, source_fps: float) -> i
     by the frames actually available.
     """
     screen_time = ramp.output_duration(source_duration)
-    wanted = int(min(max(screen_time * RAMP_SLICES_PER_SECOND, RAMP_MIN_SLICES), RAMP_MAX_SLICES))
-    affordable = int(max(1.0, source_duration * max(source_fps, 1.0)) // RAMP_FRAMES_PER_SLICE)
+    wanted = int(
+        min(max(screen_time * RAMP_SLICES_PER_SECOND, RAMP_MIN_SLICES), RAMP_MAX_SLICES)
+    )
+    affordable = int(
+        max(1.0, source_duration * max(source_fps, 1.0)) // RAMP_FRAMES_PER_SLICE
+    )
     return max(1, min(wanted, affordable))
 
 
@@ -218,7 +222,9 @@ def ramp_video_graph(
         links = [f"setpts=PTS/{speed:.6f}"]
         if optical_flow and speed < 0.55:
             # Synthesise the frames slow motion is missing instead of repeating them.
-            links.append(f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1")
+            links.append(
+                f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+            )
         return f"[{in_label}]{chain(*links)}[{out_label}]"
 
     screen_time = ramp.output_duration(source_duration)
@@ -229,7 +235,9 @@ def ramp_video_graph(
         speed = max(source_duration / screen_time, 1e-6) if screen_time > 0 else 1.0
         links = [f"setpts=PTS/{speed:.6f}"]
         if optical_flow and speed < 0.55:
-            links.append(f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1")
+            links.append(
+                f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+            )
         return f"[{in_label}]{chain(*links)}[{out_label}]"
     windows = slice_windows(source_duration, source_fps, slices)
 
@@ -242,7 +250,9 @@ def ramp_video_graph(
             f"setpts=PTS/{speed:.6f}",
         ]
         if optical_flow and speed < 0.55:
-            links.append(f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1")
+            links.append(
+                f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+            )
         parts.append(f"[rs{index}]{chain(*links)}[rv{index}]")
 
     inputs = "".join(f"[rv{i}]" for i in range(slices))
@@ -291,7 +301,12 @@ def slice_windows(
 
 
 def ramp_audio_graph(
-    ramp: Ramp, *, source_duration: float, in_label: str, out_label: str, source_fps: float = 30.0
+    ramp: Ramp,
+    *,
+    source_duration: float,
+    in_label: str,
+    out_label: str,
+    source_fps: float = 30.0,
 ) -> str:
     """The same speed curve, applied to sound.
 
@@ -316,7 +331,9 @@ def ramp_audio_graph(
         return f"[{in_label}]{_atempo(speed)}[{out_label}]"
     windows = slice_windows(source_duration, source_fps, slices)
 
-    parts = [f"[{in_label}]asplit={slices}" + "".join(f"[as{i}]" for i in range(slices))]
+    parts = [
+        f"[{in_label}]asplit={slices}" + "".join(f"[as{i}]" for i in range(slices))
+    ]
     for index, (start, end) in enumerate(windows):
         speed = max(ramp.speed_at((index + 0.5) / slices), 1e-6)
         parts.append(

@@ -223,7 +223,9 @@ class Library:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             # A half-written index is not worth a crash; it is worth a rescan.
-            log.warning("could not read the media index at %s — starting a new one", self.path)
+            log.warning(
+                "could not read the media index at %s — starting a new one", self.path
+            )
             return
         self.roots = [str(item) for item in raw.get("roots", [])]
         self.scanned = float(raw.get("scanned", 0.0))
@@ -367,7 +369,11 @@ class Library:
 
     @property
     def total_footage(self) -> float:
-        return sum(e.duration for e in self.entries.values() if e.kind == "video" and e.readable)
+        return sum(
+            e.duration
+            for e in self.entries.values()
+            if e.kind == "video" and e.readable
+        )
 
     @property
     def total_bytes(self) -> int:
@@ -395,7 +401,11 @@ class Library:
                 continue
             if kind and entry.kind != kind:
                 continue
-            if vertical is not None and entry.kind == "video" and entry.is_vertical != vertical:
+            if (
+                vertical is not None
+                and entry.kind == "video"
+                and entry.is_vertical != vertical
+            ):
                 continue
             if min_duration and entry.duration < min_duration:
                 continue
@@ -424,7 +434,9 @@ class Library:
                 continue
             first = candidates[0]
             confirmed = [first] + [
-                other for other in candidates[1:] if self._really_identical(first, other)
+                other
+                for other in candidates[1:]
+                if self._really_identical(first, other)
             ]
             if len(confirmed) > 1:
                 # Oldest first, so the head of each group is the one to keep.

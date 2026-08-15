@@ -76,7 +76,10 @@ def _row_to_signal(row: dict, form: str, index: int) -> Signal:
             observed.add(field)
         return value
 
-    post_id = take_text("post_id", "content_id", "carousel_id", "thread_id") or f"{form}_{index}"
+    post_id = (
+        take_text("post_id", "content_id", "carousel_id", "thread_id")
+        or f"{form}_{index}"
+    )
     signal = Signal(
         post_id=post_id,
         form=form,
@@ -89,12 +92,16 @@ def _row_to_signal(row: dict, form: str, index: int) -> Signal:
         share_to_view_ratio=take_number("share_to_view_ratio", "share_to_view_ratio"),
         save_rate=take_number("save_rate", "save_rate"),
         bookmark_rate=take_number("bookmark_rate", "bookmark_rate"),
-        repost_to_view_ratio=take_number("repost_to_view_ratio", "repost_to_view_ratio"),
+        repost_to_view_ratio=take_number(
+            "repost_to_view_ratio", "repost_to_view_ratio"
+        ),
         swipe_through_rate=take_number("swipe_through_rate", "swipe_through_rate"),
         profile_visit_rate=take_number("profile_visit_rate", "profile_visit_rate"),
         loop_count=take_number("loop_count", "loop_count", "loop_count_per_user"),
         views_10m=int(take_number("views_10m", "views_10m")),
-        three_second_watch_rate=take_number("three_second_watch_rate", "three_second_watch_rate"),
+        three_second_watch_rate=take_number(
+            "three_second_watch_rate", "three_second_watch_rate"
+        ),
         like_rate=take_number("like_rate", "like_rate"),
         audio_reuse_count=int(take_number("audio_reuse_count", "audio_reuse_count")),
         tier=take_text("tier", "virality_tier"),
@@ -120,25 +127,39 @@ def _row_to_signal(row: dict, form: str, index: int) -> Signal:
         progression_type=take_text("progression_type", "progression_type"),
         audio_retention_sec=take_number("audio_retention_sec", "audio_retention_sec"),
         remix_velocity_24h=take_number("remix_velocity_24h", "remix_velocity_24h"),
-        haptic_volume_boosts=int(take_number("haptic_volume_boosts", "haptic_volume_boosts")),
-        loop_completion_rate=take_number("loop_completion_rate", "loop_completion_rate"),
+        haptic_volume_boosts=int(
+            take_number("haptic_volume_boosts", "haptic_volume_boosts")
+        ),
+        loop_completion_rate=take_number(
+            "loop_completion_rate", "loop_completion_rate"
+        ),
         # -- how the system treated it --
         seed_pool_size=int(take_number("seed_pool_size", "seed_pool_size")),
         velocity_score_10m=take_number("velocity_score_10m", "velocity_score_10m"),
         seo_keyword_density=take_number("seo_keyword_density", "seo_keyword_density"),
-        watch_time_multiplier=take_number("watch_time_multiplier", "watch_time_multiplier"),
-        shares_weight_impact=take_number("shares_weight_impact", "shares_weight_impact"),
+        watch_time_multiplier=take_number(
+            "watch_time_multiplier", "watch_time_multiplier"
+        ),
+        shares_weight_impact=take_number(
+            "shares_weight_impact", "shares_weight_impact"
+        ),
         bucket_status=take_text("bucket_status", "algorithmic_bucket_status"),
         kill_signal=bool(take_number("kill_signal", "system_kill_signal_triggered")),
         dataset_origin=take_text("dataset_origin", "dataset_origin"),
         # -- the emulated metadata levers --
         theme=take_text("theme", "human_condition_theme", "core_thematic_axis"),
         framework=take_text("framework", "philosophical_framework"),
-        trigger=take_text("trigger", "psychological_trigger", "psychological_philosophy_trigger"),
-        cognitive_bias=take_text(
-            "cognitive_bias", "cognitive_bias_exploited", "human_behavior_cognitive_bias"
+        trigger=take_text(
+            "trigger", "psychological_trigger", "psychological_philosophy_trigger"
         ),
-        audio_anchor=take_text("audio_anchor", "music_theory_anchor", "music_theory_audio_anchor"),
+        cognitive_bias=take_text(
+            "cognitive_bias",
+            "cognitive_bias_exploited",
+            "human_behavior_cognitive_bias",
+        ),
+        audio_anchor=take_text(
+            "audio_anchor", "music_theory_anchor", "music_theory_audio_anchor"
+        ),
     )
 
     # The domain exports name their lever after the domain — `Primary_Art_Theory`,
@@ -177,7 +198,9 @@ def _row_to_signal(row: dict, form: str, index: int) -> Signal:
     # The emulation exports carry counts, not ratios. Compute the ratios the
     # objectives are actually stated in — and treat them as measured, because
     # a division is not an inference.
-    views, has_views = _number(row, "simulated_views", "total_views", "views")  # noqa: E501
+    views, has_views = _number(
+        row, "simulated_views", "total_views", "views"
+    )  # noqa: E501
     if has_views and views > 0:
         signal.views_10m = int(views)
         for target, columns in (
@@ -264,7 +287,9 @@ def _row_to_signal(row: dict, form: str, index: int) -> Signal:
     return signal
 
 
-def _curve_from(start: float, end: float, points: int = CURVE_POINTS) -> tuple[float, ...]:
+def _curve_from(
+    start: float, end: float, points: int = CURVE_POINTS
+) -> tuple[float, ...]:
     """A plausible retention curve between two known ends.
 
     Real curves are not straight: they fall off a cliff in the first second and
@@ -278,7 +303,8 @@ def _curve_from(start: float, end: float, points: int = CURVE_POINTS) -> tuple[f
         return tuple(start * (1 - index / (points - 1)) for index in range(points))
     rate = math.log(max(end, 1e-4) / max(start, 1e-4))
     return tuple(
-        round(start * math.exp(rate * (index / (points - 1))), 4) for index in range(points)
+        round(start * math.exp(rate * (index / (points - 1))), 4)
+        for index in range(points)
     )
 
 
@@ -330,14 +356,26 @@ def load_jsonl(path: Path) -> list[Signal]:
         # what "optimal" means in the paired export.
         outcome = "fail" if error else "win"
 
-        dropoff = _first(row, "hook_dropoff_rate_3s", "algorithmic_signals.hook_dropoff_rate_3s")
-        completion = _first(row, "metrics_completion_rate", "algorithmic_signals.completion_rate")
-        rewatch = _first(row, "metrics_rewatch_ratio", "algorithmic_signals.rewatch_ratio")
-        velocity = _first(row, "metrics_velocity_score_1m", "algorithmic_signals.velocity_score_1m")
+        dropoff = _first(
+            row, "hook_dropoff_rate_3s", "algorithmic_signals.hook_dropoff_rate_3s"
+        )
+        completion = _first(
+            row, "metrics_completion_rate", "algorithmic_signals.completion_rate"
+        )
+        rewatch = _first(
+            row, "metrics_rewatch_ratio", "algorithmic_signals.rewatch_ratio"
+        )
+        velocity = _first(
+            row, "metrics_velocity_score_1m", "algorithmic_signals.velocity_score_1m"
+        )
         share = _first(row, "metrics_share_ratio")
-        seed = _first(row, "distribution_metadata.initial_seed_pool_size", "seed_pool_size")
+        seed = _first(
+            row, "distribution_metadata.initial_seed_pool_size", "seed_pool_size"
+        )
         tier = _first(row, "distribution_metadata.current_bucket_tier")
-        when = _first(row, "optimal_schedule_time", "distribution_metadata.optimal_schedule_time")
+        when = _first(
+            row, "optimal_schedule_time", "distribution_metadata.optimal_schedule_time"
+        )
 
         observed: set[str] = set()
         signal = Signal(
@@ -414,7 +452,9 @@ def load(paths: Sequence[str | Path]) -> list[Signal]:
                 # Headers arrive in whatever case the exporter felt like —
                 # `Content_ID` here, `content_id` there. Normalise once at the
                 # door so no lookup below has to care.
-                lowered = {(key or "").strip().lower(): value for key, value in row.items()}
+                lowered = {
+                    (key or "").strip().lower(): value for key, value in row.items()
+                }
                 signals.append(_row_to_signal(lowered, form, index))
     return signals
 
@@ -459,7 +499,11 @@ _MODEL = {
 
 def _tier_for(three_second: float, share: float, loop: float) -> str:
     """The qualitative label, from the three numbers that earn it."""
-    score = three_second * 0.35 + min(share / 0.10, 1.0) * 0.45 + min(loop / 2.2, 1.0) * 0.20
+    score = (
+        three_second * 0.35
+        + min(share / 0.10, 1.0) * 0.45
+        + min(loop / 2.2, 1.0) * 0.20
+    )
     if score >= 0.78:
         return TIER_WORDS[3]
     if score >= 0.62:
@@ -495,7 +539,9 @@ def simulate(
             baseline = 0.72 - _MODEL["hook_penalty_per_second"] * max(
                 0.0, signal.hook_duration - _MODEL["hook_sweet_spot"]
             )
-            observed_lift.setdefault(signal.hook_style, signal.three_second_watch_rate - baseline)
+            observed_lift.setdefault(
+                signal.hook_style, signal.three_second_watch_rate - baseline
+            )
 
     out: list[Signal] = []
     for index in range(count):

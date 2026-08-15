@@ -184,13 +184,17 @@ class Studio:
         #: the agents argue about a cut that already exists, not about a prompt.
         self.recent_edls: dict[str, Any] = {}
 
-    def create(self, prompt: str, shape: str, seconds: float | None, owner: str = "") -> Job:
+    def create(
+        self, prompt: str, shape: str, seconds: float | None, owner: str = ""
+    ) -> Job:
         self.sweep()
         job_id = uuid.uuid4().hex[:12]
         folder = self.workspace / job_id
         (folder / "clips").mkdir(parents=True, exist_ok=True)
         job = Job(id=job_id, prompt=prompt, folder=folder, owner=owner)
-        job.thread = threading.Thread(target=self._run, args=(job, shape, seconds), daemon=True)
+        job.thread = threading.Thread(
+            target=self._run, args=(job, shape, seconds), daemon=True
+        )
         with self.lock:
             self.jobs[job_id] = job
         return job
@@ -327,7 +331,9 @@ def _parse_multipart(
 ) -> tuple[dict[str, str], list[tuple[str, bytes]]]:
     """Pull fields and files out of a browser form post, using only stdlib."""
     parser = email.parser.BytesParser(policy=email.policy.default)
-    message = parser.parsebytes(b"Content-Type: " + content_type.encode() + b"\r\n\r\n" + body)
+    message = parser.parsebytes(
+        b"Content-Type: " + content_type.encode() + b"\r\n\r\n" + body
+    )
 
     fields: dict[str, str] = {}
     files: list[tuple[str, bytes]] = []
@@ -463,7 +469,11 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        guessed = content_type or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        guessed = (
+            content_type
+            or mimetypes.guess_type(path.name)[0]
+            or "application/octet-stream"
+        )
         self._send(
             200,
             path.read_bytes(),
@@ -489,7 +499,11 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         size = path.stat().st_size
-        guessed = content_type or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        guessed = (
+            content_type
+            or mimetypes.guess_type(path.name)[0]
+            or "application/octet-stream"
+        )
         start, end = 0, size - 1
         status = 200
 
@@ -587,7 +601,9 @@ class Handler(BaseHTTPRequestHandler):
             "elite_share": round(model.elite_share, 4),
             "elite_loop": round(model.elite_loop, 4),
             "best_hook_duration": round(model.best_hook_duration, 2),
-            "drivers": [[column, label, round(r, 3)] for column, label, r in model.drivers],
+            "drivers": [
+                [column, label, round(r, 3)] for column, label, r in model.drivers
+            ],
             "style_ranking": [[name, round(v, 4)] for name, v in model.style_ranking],
             "conflicts": list(model.conflicts),
             "generated_forms": list(model.generated_forms),
@@ -653,7 +669,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if path.startswith("/api/jobs/"):
             parts = path.strip("/").split("/")
-            job = self.studio.get(parts[2], owner=self.current_user()) if len(parts) > 2 else None
+            job = (
+                self.studio.get(parts[2], owner=self.current_user())
+                if len(parts) > 2
+                else None
+            )
             if job is None:
                 self._json({"error": "no such job"}, 404)
                 return
@@ -691,7 +711,10 @@ class Handler(BaseHTTPRequestHandler):
             200,
             json.dumps({"user": user}).encode(),
             "application/json; charset=utf-8",
-            extra={"Set-Cookie": self._set_session_cookie(token), "Cache-Control": "no-store"},
+            extra={
+                "Set-Cookie": self._set_session_cookie(token),
+                "Cache-Control": "no-store",
+            },
         )
 
     def _forgot(self) -> None:
@@ -707,7 +730,9 @@ class Handler(BaseHTTPRequestHandler):
         reply = {
             "ok": True,
             "message": "If that account exists, a reset link is on its way.",
-            "via": "email" if os.environ.get("AUTEUR_SMTP_HOST", "").strip() else "console",
+            "via": (
+                "email" if os.environ.get("AUTEUR_SMTP_HOST", "").strip() else "console"
+            ),
         }
 
         started = self.accounts.begin_reset(who) if who else None
@@ -811,7 +836,10 @@ class Handler(BaseHTTPRequestHandler):
         edl = self.studio.last_edl(self.current_user())
         if edl is None:
             self._json(
-                {"error": "Make a film first — the agents work on a cut, not on a prompt."}, 409
+                {
+                    "error": "Make a film first — the agents work on a cut, not on a prompt."
+                },
+                409,
             )
             return
 
@@ -824,7 +852,9 @@ class Handler(BaseHTTPRequestHandler):
             held.append(proposal)
             return "reject", "waiting for you"
 
-        crew = Crew(default_crew(), self._fitted(), gate=Gate(mode, on_ask=hold), max_rounds=3)
+        crew = Crew(
+            default_crew(), self._fitted(), gate=Gate(mode, on_ask=hold), max_rounds=3
+        )
         result = crew.run(edl)
 
         type(self)._pending = {
@@ -893,7 +923,10 @@ class Handler(BaseHTTPRequestHandler):
                 200,
                 b'{"ok":true}',
                 "application/json; charset=utf-8",
-                extra={"Set-Cookie": self._clear_session_cookie(), "Cache-Control": "no-store"},
+                extra={
+                    "Set-Cookie": self._clear_session_cookie(),
+                    "Cache-Control": "no-store",
+                },
             )
             return
         if path == "/api/forgot":
@@ -921,7 +954,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "Nothing was sent."}, 400)
             return
         if length > MAX_UPLOAD:
-            self._json({"error": "That is more footage than this can take at once."}, 413)
+            self._json(
+                {"error": "That is more footage than this can take at once."}, 413
+            )
             return
 
         # Read in blocks: a phone posting a minute of 4K over wifi is a long,
@@ -959,12 +994,17 @@ class Handler(BaseHTTPRequestHandler):
             seconds = None
 
         job = self.studio.create(
-            prompt, fields.get("shape", "reel"), seconds, owner=self.current_user() or ""
+            prompt,
+            fields.get("shape", "reel"),
+            seconds,
+            owner=self.current_user() or "",
         )
         clips = job.folder / "clips"
         for index, (filename, payload) in enumerate(files):
             safe = Path(filename).name or f"clip{index}"
-            safe = "".join(char for char in safe if char.isalnum() or char in "._- ")[-80:]
+            safe = "".join(char for char in safe if char.isalnum() or char in "._- ")[
+                -80:
+            ]
             (clips / f"{index:02d}-{safe or 'clip.mp4'}").write_bytes(payload)
 
         self.studio.start(job)
@@ -985,7 +1025,9 @@ class Server(ThreadingHTTPServer):
 
     def handle_error(self, request, client_address) -> None:
         kind = sys.exc_info()[0]
-        if kind is not None and issubclass(kind, (ConnectionError, TimeoutError, BrokenPipeError)):
+        if kind is not None and issubclass(
+            kind, (ConnectionError, TimeoutError, BrokenPipeError)
+        ):
             log.debug("client %s went away", client_address)
             return
         super().handle_error(request, client_address)
@@ -1050,7 +1092,9 @@ def serve(
                 print(f"     Password          {password}")
                 print()
                 print("     That password was generated just now and is shown once.")
-                print("     Change it when you are in:  python -m auteur account password")
+                print(
+                    "     Change it when you are in:  python -m auteur account password"
+                )
         print()
         print("     Press Ctrl-C to close it.")
         print()
@@ -1058,7 +1102,9 @@ def serve(
         # Quiet mode still has to say this once. The generated password exists
         # nowhere but here and in a hash; swallowing it locks the owner out of
         # their own instance.
-        print(f"auteur: created account {first[0]} with password {first[1]} (shown once)")
+        print(
+            f"auteur: created account {first[0]} with password {first[1]} (shown once)"
+        )
 
     try:
         server.serve_forever()

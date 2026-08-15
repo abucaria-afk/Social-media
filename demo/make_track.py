@@ -136,7 +136,9 @@ def make_track(
 ) -> Path:
     """Write a WAV in the requested style. Returns the path."""
     if style not in STYLES:
-        raise ValueError(f"unknown style {style!r} (choose from {', '.join(sorted(STYLES))})")
+        raise ValueError(
+            f"unknown style {style!r} (choose from {', '.join(sorted(STYLES))})"
+        )
     recipe = STYLES[style]
     tempo = float(bpm or recipe["bpm"])
     rng = np.random.default_rng(seed)
@@ -177,7 +179,9 @@ def make_track(
 
         chord, root = progression[bar % len(progression)]
         place(_rhodes(int(eighth * 7.0 * SAMPLE_RATE), chord), int(bar_start), 1.0)
-        place(_rhodes(int(eighth * 5.0 * SAMPLE_RATE), chord * 1.2), int(bar_start), 0.5)
+        place(
+            _rhodes(int(eighth * 5.0 * SAMPLE_RATE), chord * 1.2), int(bar_start), 0.5
+        )
         place(_upright(int(eighth * 6.5 * SAMPLE_RATE), root), int(bar_start), 0.9)
         # A pickup note into the next bar, so the loop pulls forward.
         place(
@@ -190,7 +194,9 @@ def make_track(
     track += _dust(total, rng) * float(recipe["dust"])
 
     # Gentle pumping against the kick, then tape-ish saturation.
-    pump = 0.86 + 0.14 * np.sin(np.linspace(0, np.pi * 2 * (seconds * tempo / 60.0), total))
+    pump = 0.86 + 0.14 * np.sin(
+        np.linspace(0, np.pi * 2 * (seconds * tempo / 60.0), total)
+    )
     track *= pump
     track = np.tanh(track * 1.25)
     peak = float(np.abs(track).max()) or 1.0

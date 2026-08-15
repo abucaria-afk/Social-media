@@ -143,7 +143,9 @@ def _plate(width: int, height: int) -> tuple[Image.Image, ImageDraw.ImageDraw]:
     return image, ImageDraw.Draw(image)
 
 
-def _with_shadow(image: Image.Image, blur: float = 12.0, opacity: int = 150) -> Image.Image:
+def _with_shadow(
+    image: Image.Image, blur: float = 12.0, opacity: int = 150
+) -> Image.Image:
     """Drop a soft dark shadow behind the type so it survives a bright frame."""
     alpha = image.getchannel("A")
     shadow = Image.new("RGBA", image.size, (0, 0, 0, 0))
@@ -182,7 +184,8 @@ def _render_title(cue: TextCue, width: int, height: int) -> Image.Image:
     # A hairline under the block, the width of the type. Reads as designed.
     if lines:
         rule_width = min(
-            int(_text_width(draw, max(lines, key=len), font, tracking) * 0.5), int(width * 0.4)
+            int(_text_width(draw, max(lines, key=len), font, tracking) * 0.5),
+            int(width * 0.4),
         )
         rule_y = int(top + block_height + size * 0.34)
         accent = (*_hex_to_rgb(cue.accent), 210)
@@ -199,7 +202,9 @@ def _render_title(cue: TextCue, width: int, height: int) -> Image.Image:
     return _with_shadow(image, blur=size * 0.18, opacity=165)
 
 
-def _render_kinetic(cue: TextCue, width: int, height: int, highlight: int | None) -> Image.Image:
+def _render_kinetic(
+    cue: TextCue, width: int, height: int, highlight: int | None
+) -> Image.Image:
     """Caption line with one word lit. `highlight` indexes the live word."""
     base = min(width, height)
     size = max(16, int(base * 0.062 * cue.size))
@@ -355,7 +360,12 @@ def _render_end_card(cue: TextCue, width: int, height: int) -> Image.Image:
     thickness = max(1, int(size * 0.02))
     for offset in (top - size * 0.62, top + block_height + size * 0.42):
         draw.rectangle(
-            [width / 2 - rule_width / 2, offset, width / 2 + rule_width / 2, offset + thickness],
+            [
+                width / 2 - rule_width / 2,
+                offset,
+                width / 2 + rule_width / 2,
+                offset + thickness,
+            ],
             fill=accent,
         )
 
@@ -392,7 +402,13 @@ def _render_chapter(cue: TextCue, width: int, height: int) -> Image.Image:
 
 
 def render_cue(
-    cue: TextCue, *, width: int, height: int, directory: Path, index: int, prefix: str = ""
+    cue: TextCue,
+    *,
+    width: int,
+    height: int,
+    directory: Path,
+    index: int,
+    prefix: str = "",
 ) -> list[TextOverlay]:
     """Render a cue to one or more plates, with their timings.
 
@@ -459,7 +475,12 @@ def render_all(
         try:
             overlays.extend(
                 render_cue(
-                    cue, width=width, height=height, directory=directory, index=index, prefix=prefix
+                    cue,
+                    width=width,
+                    height=height,
+                    directory=directory,
+                    index=index,
+                    prefix=prefix,
                 )
             )
         except Exception as exc:  # noqa: BLE001 - a bad title must not lose the film

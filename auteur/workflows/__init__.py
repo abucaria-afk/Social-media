@@ -75,7 +75,8 @@ def _summary(spec: PlatformSpec) -> str:
 #: One workflow per destination. The registry is derived from the platform
 #: table rather than written twice, so adding a platform adds a workflow.
 WORKFLOWS: dict[str, Workflow] = {
-    name: Workflow(name=name, spec=spec, summary=_summary(spec)) for name, spec in PLATFORMS.items()
+    name: Workflow(name=name, spec=spec, summary=_summary(spec))
+    for name, spec in PLATFORMS.items()
 }
 
 
@@ -127,7 +128,9 @@ def keep_text_readable(spec: PlatformSpec) -> callable:
     return adjust
 
 
-def wanted_duration(spec: PlatformSpec, prompt: str, length: float | None = None) -> float:
+def wanted_duration(
+    spec: PlatformSpec, prompt: str, length: float | None = None
+) -> float:
     """How long this film should be, in the order the request actually implies.
 
     A flag beats the prompt, the prompt beats the platform's house length, and
@@ -201,7 +204,11 @@ def run(
 
     spec = resolve(platform)
     say = reporter or NullReporter()
-    tier = QUALITIES[quality] if isinstance(quality, str) and quality in QUALITIES else quality
+    tier = (
+        QUALITIES[quality]
+        if isinstance(quality, str) and quality in QUALITIES
+        else quality
+    )
     if isinstance(tier, str):
         raise ValueError(f"unknown quality tier: {tier!r}")
 

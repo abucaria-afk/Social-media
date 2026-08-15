@@ -66,8 +66,14 @@ def _shot_schema() -> dict:
         "type": "object",
         "properties": {
             "clip": {"type": "string", "description": "Clip id, e.g. C03"},
-            "start": {"type": "number", "description": "In point in the source clip, seconds"},
-            "end": {"type": "number", "description": "Out point in the source clip, seconds"},
+            "start": {
+                "type": "number",
+                "description": "In point in the source clip, seconds",
+            },
+            "end": {
+                "type": "number",
+                "description": "Out point in the source clip, seconds",
+            },
             "speed": {
                 "type": "number",
                 "description": "Playback speed. 1.0 is real time, 0.5 is half speed, 2.0 is double.",
@@ -87,8 +93,14 @@ def _shot_schema() -> dict:
                 "enum": sorted(TRANSITIONS),
                 "description": "How this shot begins. Prefer 'cut'.",
             },
-            "transition_duration": {"type": "number", "description": "Seconds; ignored for cuts"},
-            "note": {"type": "string", "description": "One short line on why this shot is here"},
+            "transition_duration": {
+                "type": "number",
+                "description": "Seconds; ignored for cuts",
+            },
+            "note": {
+                "type": "string",
+                "description": "One short line on why this shot is here",
+            },
         },
         "required": [
             "clip",
@@ -110,11 +122,21 @@ def _text_schema() -> dict:
         "type": "object",
         "properties": {
             "text": {"type": "string"},
-            "start": {"type": "number", "description": "Seconds into the finished film"},
+            "start": {
+                "type": "number",
+                "description": "Seconds into the finished film",
+            },
             "duration": {"type": "number"},
             "style": {
                 "type": "string",
-                "enum": ["title", "kinetic", "lower-third", "caption", "end-card", "chapter"],
+                "enum": [
+                    "title",
+                    "kinetic",
+                    "lower-third",
+                    "caption",
+                    "end-card",
+                    "chapter",
+                ],
             },
             "per_word": {"type": "boolean", "description": "Reveal one word at a time"},
         },
@@ -128,7 +150,10 @@ def edl_schema() -> dict:
     return {
         "type": "object",
         "properties": {
-            "title": {"type": "string", "description": "Short title for the finished film"},
+            "title": {
+                "type": "string",
+                "description": "Short title for the finished film",
+            },
             "rationale": {
                 "type": "string",
                 "description": "Two or three sentences on the editorial idea behind this cut",
@@ -142,7 +167,15 @@ def edl_schema() -> dict:
             "shots": {"type": "array", "items": _shot_schema()},
             "texts": {"type": "array", "items": _text_schema()},
         },
-        "required": ["title", "rationale", "look", "texture", "letterbox", "shots", "texts"],
+        "required": [
+            "title",
+            "rationale",
+            "look",
+            "texture",
+            "letterbox",
+            "shots",
+            "texts",
+        ],
         "additionalProperties": False,
     }
 
@@ -185,7 +218,8 @@ never past the end of a clip."""
 def _keyframe(dossier: ClipDossier, at: float) -> str | None:
     """Grab one frame as a base64 JPEG, for the model to actually look at."""
     destination = (
-        Path(os.environ.get("TMPDIR", "/tmp")) / f"auteur-kf-{dossier.clip_id}-{at:.2f}.jpg"
+        Path(os.environ.get("TMPDIR", "/tmp"))
+        / f"auteur-kf-{dossier.clip_id}-{at:.2f}.jpg"
     )
     args: list[str] = []
     if dossier.asset.kind != "image":
@@ -239,7 +273,11 @@ def _vision_blocks(dossiers: list[ClipDossier]) -> list[dict]:
             blocks.append(
                 {
                     "type": "image",
-                    "source": {"type": "base64", "media_type": "image/jpeg", "data": frame},
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": frame,
+                    },
                 }
             )
             budget -= 1
@@ -303,7 +341,9 @@ def available(settings: Settings) -> bool:
     """True when a model director can plausibly be reached."""
     if not settings.use_llm:
         return False
-    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+    if not (
+        os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+    ):
         # The SDK also resolves `ant auth login` profiles, so absence of the
         # variables is not proof; let the call itself decide.
         pass
@@ -330,7 +370,9 @@ def _request(client, *, model: str, system: str, blocks: list[dict], max_tokens:
             betas=["server-side-fallback-2026-07-01"], fallbacks="default", **payload
         )
     except Exception as exc:  # noqa: BLE001 - older SDK or API without fallbacks
-        log.debug("server-side fallbacks unavailable (%s); using the stable endpoint", exc)
+        log.debug(
+            "server-side fallbacks unavailable (%s); using the stable endpoint", exc
+        )
         return client.messages.create(**payload)
 
 
@@ -370,12 +412,18 @@ def direct(
             blocks.extend(_vision_blocks(dossiers))
         except Exception as exc:  # noqa: BLE001 - never lose the edit over a thumbnail
             log.warning("could not extract keyframes: %s", exc)
-    blocks.append({"type": "text", "text": _briefing(brief, dossiers, settings, music_analysis)})
+    blocks.append(
+        {"type": "text", "text": _briefing(brief, dossiers, settings, music_analysis)}
+    )
 
     try:
         client = anthropic.Anthropic()
         response = _request(
-            client, model=settings.model, system=SYSTEM_PROMPT, blocks=blocks, max_tokens=16000
+            client,
+            model=settings.model,
+            system=SYSTEM_PROMPT,
+            blocks=blocks,
+            max_tokens=16000,
         )
     except Exception as exc:  # noqa: BLE001 - auth, network, rate limit, anything
         raise DirectorUnavailable(f"could not reach the model: {exc}") from exc
@@ -390,7 +438,9 @@ def direct(
         raise DirectorUnavailable(f"unparsable edit decision list: {exc}") from exc
 
     by_id = {dossier.clip_id: dossier for dossier in dossiers}
-    shots = shots_from_json((_normalise_shot(raw) for raw in payload.get("shots", [])), by_id)
+    shots = shots_from_json(
+        (_normalise_shot(raw) for raw in payload.get("shots", [])), by_id
+    )
     if not shots:
         raise DirectorUnavailable("the model returned no usable shots")
 
@@ -415,7 +465,9 @@ def direct(
             duck=brief.keep_source_audio,
         )
 
-    notes = edl.repair(by_id, target_duration=brief.duration or settings.target_duration)
+    notes = edl.repair(
+        by_id, target_duration=brief.duration or settings.target_duration
+    )
     for note in notes:
         log.info("repaired the model's edit: %s", note)
 

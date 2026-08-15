@@ -92,7 +92,9 @@ class Reporter:
     def banner(self, prompt: str) -> None:
         self._write()
         self._write(
-            "  " + self._tint("auteur", "accent", "1") + self._paint("  ·  the edit room", "2")
+            "  "
+            + self._tint("auteur", "accent", "1")
+            + self._paint("  ·  the edit room", "2")
         )
         self._write("  " + self._paint(f'"{prompt}"', "2"))
         self._write()
@@ -145,7 +147,9 @@ class Reporter:
 
     # -- the ending -------------------------------------------------------
 
-    def result(self, *, headline: str, facts: list[str], files: list[tuple[str, str]]) -> None:
+    def result(
+        self, *, headline: str, facts: list[str], files: list[tuple[str, str]]
+    ) -> None:
         self._write()
         self._write("  " + self._tint("✓  " + headline, "good", "1;32"))
         self._write()
@@ -155,7 +159,9 @@ class Reporter:
             self._write()
             width = max(len(label) for label, _ in files)
             for label, path in files:
-                self._write(INDENT + self._tint(f"{label:<{width}}  ", "muted", "2") + path)
+                self._write(
+                    INDENT + self._tint(f"{label:<{width}}  ", "muted", "2") + path
+                )
         self._write()
 
     def failure(self, headline: str, hint: str = "") -> None:
@@ -228,8 +234,17 @@ def plain_model_reason(reason: str) -> tuple[str, bool]:
     if not reason or "no model configured" in lowered:
         return "", False
     if "not installed" in lowered:
-        return "Claude is not installed here, so the built-in editor cut this one", False
-    if any(word in lowered for word in ("authentication", "api_key", "api key", "credential")):
+        return (
+            "Claude is not installed here, so the built-in editor cut this one",
+            False,
+        )
+    if any(
+        word in lowered
+        for word in ("authentication", "api_key", "api key", "credential")
+    ):
         return "no Claude API key set, so the built-in editor cut this one", False
     short = reason.split("\n")[0][:90]
-    return f"could not reach Claude ({short}), so the built-in editor cut this one", True
+    return (
+        f"could not reach Claude ({short}), so the built-in editor cut this one",
+        True,
+    )

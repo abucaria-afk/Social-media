@@ -74,7 +74,9 @@ def _locate(tool: str) -> Path:
             import imageio_ffmpeg
 
             return Path(imageio_ffmpeg.get_ffmpeg_exe())
-        except Exception:  # noqa: BLE001 - optional dependency, any failure is "not here"
+        except (
+            Exception
+        ):  # noqa: BLE001 - optional dependency, any failure is "not here"
             pass
 
     raise MissingBinary(
@@ -95,7 +97,9 @@ def run(args: Sequence[str], *, timeout: float = 3600.0, quiet: bool = True) -> 
     """Run ffmpeg. Returns stderr (where ffmpeg puts everything interesting)."""
     cmd = [str(ffmpeg_path()), "-hide_banner", "-nostdin", "-y", *map(str, args)]
     log.debug("ffmpeg %s", " ".join(cmd[3:]))
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, errors="replace")
+    proc = subprocess.run(
+        cmd, capture_output=True, text=True, timeout=timeout, errors="replace"
+    )
     if proc.returncode != 0:
         raise FFmpegError(cmd, proc.returncode, proc.stderr)
     if not quiet and proc.stderr:
@@ -218,7 +222,9 @@ def scaled_height(path: str | Path, width: int) -> int:
     except FFmpegError:
         return max(2, (width * 9 // 16) // 2 * 2)
 
-    stream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), None)
+    stream = next(
+        (s for s in info.get("streams", []) if s.get("codec_type") == "video"), None
+    )
     if not stream:
         return max(2, (width * 9 // 16) // 2 * 2)
 
@@ -260,7 +266,9 @@ def source_fps(path: str | Path) -> float:
     except FFmpegError:
         return 30.0
 
-    stream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), None)
+    stream = next(
+        (s for s in info.get("streams", []) if s.get("codec_type") == "video"), None
+    )
     if not stream:
         return 30.0
     for key in ("avg_frame_rate", "r_frame_rate"):
@@ -290,7 +298,18 @@ def read_audio(
     args += ["-i", str(path)]
     if duration is not None:
         args += ["-t", f"{max(0.01, duration):.3f}"]
-    args += ["-vn", "-ac", "1", "-ar", str(sample_rate), "-f", "s16le", "-acodec", "pcm_s16le", "-"]
+    args += [
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        str(sample_rate),
+        "-f",
+        "s16le",
+        "-acodec",
+        "pcm_s16le",
+        "-",
+    ]
 
     cmd = [str(ffmpeg_path()), "-hide_banner", "-nostdin", "-loglevel", "error", *args]
     proc = subprocess.run(cmd, capture_output=True)

@@ -90,7 +90,9 @@ def snap_cuts_to_beats(
     return snapped
 
 
-def vary_pacing(edl: EditDecisionList, *, run_length: int = 4, spread: float = 0.16) -> int:
+def vary_pacing(
+    edl: EditDecisionList, *, run_length: int = 4, spread: float = 0.16
+) -> int:
     """Break up metronomic cutting.
 
     A run of identically-timed shots reads as a slideshow no matter how good the
@@ -174,9 +176,18 @@ def enforce_variety(edl: EditDecisionList, *, lookback: int = 2) -> int:
             # A transition describes how a *position* on the timeline is
             # entered — it was chosen for the shots either side of it. Swapping
             # the shots must leave the joins where they were.
-            here, there = edl.shots[index].transition_in, edl.shots[candidate].transition_in
-            edl.shots[index], edl.shots[candidate] = edl.shots[candidate], edl.shots[index]
-            edl.shots[index].transition_in, edl.shots[candidate].transition_in = here, there
+            here, there = (
+                edl.shots[index].transition_in,
+                edl.shots[candidate].transition_in,
+            )
+            edl.shots[index], edl.shots[candidate] = (
+                edl.shots[candidate],
+                edl.shots[index],
+            )
+            edl.shots[index].transition_in, edl.shots[candidate].transition_in = (
+                here,
+                there,
+            )
             fixed += 1
             break
 
@@ -212,7 +223,9 @@ def apply_j_l_cuts(edl: EditDecisionList, *, amount: float = 0.24) -> int:
     sequence is what makes an edit stop feeling like a series of blocks. Only
     meaningful for shots carrying their own sound.
     """
-    speaking = [shot for shot in edl.shots if shot.use_source_audio and shot.audio_gain > 0.01]
+    speaking = [
+        shot for shot in edl.shots if shot.use_source_audio and shot.audio_gain > 0.01
+    ]
     if len(speaking) < 2:
         return 0
 
@@ -226,7 +239,9 @@ def apply_j_l_cuts(edl: EditDecisionList, *, amount: float = 0.24) -> int:
     return applied
 
 
-def limit_transition_density(edl: EditDecisionList, *, max_fraction: float = 0.2) -> int:
+def limit_transition_density(
+    edl: EditDecisionList, *, max_fraction: float = 0.2
+) -> int:
     """Turn surplus transitions back into cuts.
 
     An edit where everything dissolves has no punctuation left. The weakest
@@ -257,7 +272,9 @@ def limit_transition_density(edl: EditDecisionList, *, max_fraction: float = 0.2
     return demoted
 
 
-def trim_to_duration(edl: EditDecisionList, target: float, *, tolerance: float = 1.0) -> bool:
+def trim_to_duration(
+    edl: EditDecisionList, target: float, *, tolerance: float = 1.0
+) -> bool:
     """Bring the film to length.
 
     Over-length: drop the weakest shots (shortest first, from the middle, never
@@ -317,5 +334,7 @@ def polish(
         report["length"] = int(trim_to_duration(edl, target_duration))
     # Snap last: every rule above changes durations, and the beat grid is what
     # the audience actually hears.
-    report["beat_snap"] = snap_cuts_to_beats(edl, audio if beat_sync else None, offset=music_offset)
+    report["beat_snap"] = snap_cuts_to_beats(
+        edl, audio if beat_sync else None, offset=music_offset
+    )
     return report

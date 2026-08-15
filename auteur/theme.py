@@ -95,7 +95,8 @@ def rgb_of(role: str, scheme: str = "dark") -> tuple[int, int, int]:
 
 def _block(scheme: str, indent: str = "  ") -> str:
     return "\n".join(
-        f"{indent}--{role.replace('_', '-')}: {SCHEMES[scheme][role]};" for role in ROLES
+        f"{indent}--{role.replace('_', '-')}: {SCHEMES[scheme][role]};"
+        for role in ROLES
     )
 
 
@@ -151,7 +152,9 @@ def ansi(role: str) -> str:
     return f"38;2;{red};{green};{blue}"
 
 
-def contrast(foreground: tuple[int, int, int], background: tuple[int, int, int]) -> float:
+def contrast(
+    foreground: tuple[int, int, int], background: tuple[int, int, int]
+) -> float:
     """WCAG contrast ratio between two colours, 1.0 (identical) to 21.0."""
 
     def luminance(rgb: tuple[int, int, int]) -> float:
@@ -159,7 +162,9 @@ def contrast(foreground: tuple[int, int, int], background: tuple[int, int, int])
         for value in rgb:
             portion = value / 255
             channels.append(
-                portion / 12.92 if portion <= 0.03928 else ((portion + 0.055) / 1.055) ** 2.4
+                portion / 12.92
+                if portion <= 0.03928
+                else ((portion + 0.055) / 1.055) ** 2.4
             )
         return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
 

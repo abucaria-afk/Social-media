@@ -28,7 +28,13 @@ from collections.abc import Callable
 
 from . import ffmpeg
 from .config import IMAGE_SUFFIXES, DeliveryFormat, Quality, Settings, Workspace
-from .craft import color, motion as motion_craft, sound as sound_craft, titles, transitions
+from .craft import (
+    color,
+    motion as motion_craft,
+    sound as sound_craft,
+    titles,
+    transitions,
+)
 from .edl import EditDecisionList, Shot
 from .ffmpeg import chain, graph
 
@@ -119,7 +125,12 @@ def carries_audio(shot: Shot, *, want_audio: bool) -> bool:
     disagreed, the mixer asked for an audio stream the segment never got and the
     whole assembly failed — a still frame with source audio was enough to do it.
     """
-    return want_audio and shot.use_source_audio and shot.audio_gain > 0.001 and not shot.is_still
+    return (
+        want_audio
+        and shot.use_source_audio
+        and shot.audio_gain > 0.001
+        and not shot.is_still
+    )
 
 
 def _segment_audio_graph(shot: Shot, quality: Quality) -> str:
@@ -179,7 +190,11 @@ def render_shot(
 
     args += [
         "-filter_complex",
-        graph("[0:v]null[src]", *(["[0:a]anull[asrc]"] if has_source_audio else []), filtergraph),
+        graph(
+            "[0:v]null[src]",
+            *(["[0:a]anull[asrc]"] if has_source_audio else []),
+            filtergraph,
+        ),
         *maps,
         # The ramp decides the length; trim to it so the assembly maths holds.
         "-t",
@@ -198,7 +213,14 @@ def render_shot(
         "90000",
     ]
     if has_source_audio:
-        args += ["-c:a", "aac", "-b:a", quality.audio_bitrate, "-ar", str(sound_craft.SAMPLE_RATE)]
+        args += [
+            "-c:a",
+            "aac",
+            "-b:a",
+            quality.audio_bitrate,
+            "-ar",
+            str(sound_craft.SAMPLE_RATE),
+        ]
     else:
         args += ["-an"]
     args += [str(destination)]
@@ -213,7 +235,8 @@ def render_shot(
             args,
             0,
             # The caller names the shot; this says only why.
-            f"no frames in {shot.source.name} between " f"{shot.start:.2f}s and {shot.end:.2f}s",
+            f"no frames in {shot.source.name} between "
+            f"{shot.start:.2f}s and {shot.end:.2f}s",
         )
     return destination
 
@@ -226,7 +249,9 @@ def _has_video(path: Path) -> bool:
         info = ffmpeg.probe(path)
     except ffmpeg.FFmpegError:
         return False
-    return any(stream.get("codec_type") == "video" for stream in info.get("streams", []))
+    return any(
+        stream.get("codec_type") == "video" for stream in info.get("streams", [])
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +270,8 @@ def _assemble_video(edl: EditDecisionList, segment_count: int) -> tuple[str, str
     # segments' 1/90000), and xfade refuses to join links that disagree. Pinning
     # every link to AVTB up front makes the chain composable in any order.
     parts = [
-        f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS[vin{index}]" for index in range(segment_count)
+        f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS[vin{index}]"
+        for index in range(segment_count)
     ]
 
     if segment_count == 1:
@@ -258,7 +284,9 @@ def _assemble_video(edl: EditDecisionList, segment_count: int) -> tuple[str, str
         shot = edl.shots[index]
         label = f"vj{index}"
         if shot.transition_in.is_cut:
-            parts.append(f"[{current}][vin{index}]concat=n=2:v=1:a=0,settb=AVTB[{label}]")
+            parts.append(
+                f"[{current}][vin{index}]concat=n=2:v=1:a=0,settb=AVTB[{label}]"
+            )
             length += shot.duration
         else:
             overlap = shot.transition_in.duration
@@ -271,7 +299,9 @@ def _assemble_video(edl: EditDecisionList, segment_count: int) -> tuple[str, str
     return ";".join(parts), current
 
 
-def _overlay_chain(overlays: list[titles.TextOverlay], video_label: str) -> tuple[str, str]:
+def _overlay_chain(
+    overlays: list[titles.TextOverlay], video_label: str
+) -> tuple[str, str]:
     """Composite each plate over the picture, animating it into place."""
     if not overlays:
         return "", video_label
@@ -336,12 +366,16 @@ def _assemble_audio(
             voice_stem = "voicemix"
 
     if music_input is not None:
-        parts.append(f"[{music_input}:a]{sound_craft.music_chain(edl.music, duration)}[musicraw]")
+        parts.append(
+            f"[{music_input}:a]{sound_craft.music_chain(edl.music, duration)}[musicraw]"
+        )
         if edl.music.duck and voice_stem:
             # Split the voice: one copy drives the compressor, one goes to the mix.
             parts.append(f"[{voice_stem}]asplit=2[voicekey][voiceout]")
             parts.append(
-                sound_craft.duck_graph("musicraw", "voicekey", "music", edl.music.duck_amount)
+                sound_craft.duck_graph(
+                    "musicraw", "voicekey", "music", edl.music.duck_amount
+                )
             )
             stems += ["music", "voiceout"]
             voice_stem = None
@@ -528,7 +562,9 @@ def _assemble(
         "+faststart",
         str(destination),
     ]
-    (workspace.logs / f"filtergraph-{fmt.name}.txt").write_text(full_graph, encoding="utf-8")
+    (workspace.logs / f"filtergraph-{fmt.name}.txt").write_text(
+        full_graph, encoding="utf-8"
+    )
     ffmpeg.run(args)
     return destination
 
@@ -591,7 +627,9 @@ def render(
         # before the loop advances, so the closure is correct today, but a
         # closure over a loop variable is one refactor away from rendering
         # every format into the last format's frame.
-        def one(item: tuple[int, Shot], fmt: DeliveryFormat = fmt) -> tuple[int, Path | None]:
+        def one(
+            item: tuple[int, Shot], fmt: DeliveryFormat = fmt
+        ) -> tuple[int, Path | None]:
             """Render one shot, or report that it could not be rendered.
 
             A failure here returns None rather than raising. The module docstring
@@ -602,7 +640,9 @@ def render(
             """
             index, shot = item
             try:
-                path = render_shot(shot, index, workspace, fmt, quality, want_audio=want_audio)
+                path = render_shot(
+                    shot, index, workspace, fmt, quality, want_audio=want_audio
+                )
             except ffmpeg.FFmpegError as exc:
                 reason = (exc.stderr or str(exc)).strip().splitlines()
                 message = (
@@ -635,17 +675,23 @@ def render(
         # the assembly reads shots and segments positionally.
         kept = [index for index, path in enumerate(rendered) if path is not None]
         if not kept:
-            raise RuntimeError("no shot could be rendered; the footage may be unreadable")
+            raise RuntimeError(
+                "no shot could be rendered; the footage may be unreadable"
+            )
         segments = [rendered[index] for index in kept]  # type: ignore[misc]
         cut = (
             edl
             if len(kept) == len(shots)
-            else edl.without_shots([index for index in range(len(shots)) if index not in set(kept)])
+            else edl.without_shots(
+                [index for index in range(len(shots)) if index not in set(kept)]
+            )
         )
 
         report(f"putting it together{suffix}")
         destination = workspace.output / f"{stem}-{fmt.name}.mp4"
-        _assemble(cut, segments, workspace, fmt, quality, destination, want_audio=want_audio)
+        _assemble(
+            cut, segments, workspace, fmt, quality, destination, want_audio=want_audio
+        )
         done += 1
         report(f"putting it together{suffix}")
 
@@ -686,8 +732,12 @@ def _slug(text: str) -> str:
 def probe_output(path: Path) -> dict:
     """Read back what we actually wrote — the only honest way to report success."""
     info = ffmpeg.probe(path)
-    video = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
-    audio = next((s for s in info.get("streams", []) if s.get("codec_type") == "audio"), {})
+    video = next(
+        (s for s in info.get("streams", []) if s.get("codec_type") == "video"), {}
+    )
+    audio = next(
+        (s for s in info.get("streams", []) if s.get("codec_type") == "audio"), {}
+    )
     fmt = info.get("format", {})
     return {
         "path": str(path),

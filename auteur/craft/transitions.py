@@ -154,11 +154,16 @@ def supports_custom() -> bool:
     ]
     try:
         result = subprocess.run(command, capture_output=True, timeout=60)
-    except (OSError, subprocess.SubprocessError):  # pragma: no cover - environment dependent
+    except (
+        OSError,
+        subprocess.SubprocessError,
+    ):  # pragma: no cover - environment dependent
         return False
     ok = result.returncode == 0
     if not ok:
-        log.info("this ffmpeg build rejects xfade custom expressions; using built-in transitions")
+        log.info(
+            "this ffmpeg build rejects xfade custom expressions; using built-in transitions"
+        )
     return ok
 
 

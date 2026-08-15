@@ -28,14 +28,18 @@ AMBER = theme.rgb_of("ember")
 PAPER = theme.rgb_of("text")
 
 
-def _mix(over: tuple[int, int, int], under: tuple[int, int, int], amount: float) -> tuple[int, ...]:
+def _mix(
+    over: tuple[int, int, int], under: tuple[int, int, int], amount: float
+) -> tuple[int, ...]:
     """Blend two colours by hand.
 
     ImageDraw *replaces* pixels rather than compositing them, so passing a
     low alpha does not tint the shape underneath — it punches a translucent
     hole in the icon, which on a white home screen reads as solid white.
     """
-    return tuple(round(u + (o - u) * amount) for o, u in zip(over, under, strict=True)) + (255,)
+    return tuple(
+        round(u + (o - u) * amount) for o, u in zip(over, under, strict=True)
+    ) + (255,)
 
 
 def _draw(size: int):
@@ -47,7 +51,9 @@ def _draw(size: int):
 
     # The ground: a rounded square, because iOS masks square icons anyway and
     # Android does not — drawing the radius ourselves looks right on both.
-    draw.rounded_rectangle([0, 0, size - 1, size - 1], radius=int(22 * unit), fill=INK + (255,))
+    draw.rounded_rectangle(
+        [0, 0, size - 1, size - 1], radius=int(22 * unit), fill=INK + (255,)
+    )
 
     # A film frame: two perforated edges with an aperture between them.
     perforation = _mix(PAPER, INK, 0.34)
@@ -77,7 +83,12 @@ def _draw(size: int):
         width=int(7 * unit),
     )
     draw.ellipse(
-        [size / 2 - 6 * unit, size / 2 - 6 * unit, size / 2 + 6 * unit, size / 2 + 6 * unit],
+        [
+            size / 2 - 6 * unit,
+            size / 2 - 6 * unit,
+            size / 2 + 6 * unit,
+            size / 2 + 6 * unit,
+        ],
         fill=AMBER + (255,),
     )
     return image

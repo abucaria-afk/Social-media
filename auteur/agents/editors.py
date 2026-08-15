@@ -79,7 +79,11 @@ class HookAgent:
                 # longer sat at the end, the loop agent could not find it to
                 # remove it either.
                 movable = next(
-                    (cue for cue in target.texts if cue.style not in ("end-card", "chapter")),
+                    (
+                        cue
+                        for cue in target.texts
+                        if cue.style not in ("end-card", "chapter")
+                    ),
                     None,
                 )
                 if movable is not None:
@@ -91,7 +95,12 @@ class HookAgent:
                 else:
                     target.texts.insert(
                         0,
-                        TextCue(text=target.title.upper(), start=0.0, duration=1.6, style="title"),
+                        TextCue(
+                            text=target.title.upper(),
+                            start=0.0,
+                            duration=1.6,
+                            style="title",
+                        ),
                     )
 
             proposals.append(
@@ -113,7 +122,9 @@ class HookAgent:
         # landing. "Strongest" here is the longest held take the director chose,
         # which is the only quality signal available on the timeline itself.
         if len(edl.shots) > 3:
-            best = max(range(1, len(edl.shots)), key=lambda i: edl.shots[i].source_duration)
+            best = max(
+                range(1, len(edl.shots)), key=lambda i: edl.shots[i].source_duration
+            )
             if edl.shots[best].source_duration > edl.shots[0].source_duration * 1.6:
 
                 def lead_with_best(target: EditDecisionList, best: int = best) -> None:
@@ -252,7 +263,9 @@ class LoopAgent:
         first, last = edl.shots[0], edl.shots[-1]
 
         end_cards = [
-            cue for cue in edl.texts if cue.style == "end-card" and cue.end >= edl.duration - 0.35
+            cue
+            for cue in edl.texts
+            if cue.style == "end-card" and cue.end >= edl.duration - 0.35
         ]
         if end_cards:
 
@@ -260,7 +273,9 @@ class LoopAgent:
                 target.texts = [
                     cue
                     for cue in target.texts
-                    if not (cue.style == "end-card" and cue.end >= target.duration - 0.35)
+                    if not (
+                        cue.style == "end-card" and cue.end >= target.duration - 0.35
+                    )
                 ]
 
             proposals.append(

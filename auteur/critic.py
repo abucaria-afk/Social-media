@@ -96,7 +96,9 @@ def review(
 
     stream = ffmpeg.read_frames(output, width=128, fps=sample_fps)
     if len(stream) == 0:
-        critique.notes.append(Note("unreadable", "the rendered file has no decodable video", 1.0))
+        critique.notes.append(
+            Note("unreadable", "the rendered file has no decodable video", 1.0)
+        )
         critique.score = 0.0
         return critique
 
@@ -124,7 +126,12 @@ def review(
     # ---- dead air --------------------------------------------------------
     for start, end in _dead_air(motion, sample_fps):
         critique.notes.append(
-            Note("dead-air", f"{end - start:.1f}s where nothing moves", severity=0.75, at=start)
+            Note(
+                "dead-air",
+                f"{end - start:.1f}s where nothing moves",
+                severity=0.75,
+                at=start,
+            )
         )
 
     # ---- flash frames ----------------------------------------------------
@@ -191,7 +198,9 @@ def review(
 
     # ---- beat accuracy ---------------------------------------------------
     if audio is not None and audio.has_beat and cuts:
-        grid = np.asarray([b - music_offset for b in audio.beats if b - music_offset > 0])
+        grid = np.asarray(
+            [b - music_offset for b in audio.beats if b - music_offset > 0]
+        )
         if len(grid):
             errors = [float(np.min(np.abs(grid - cut))) for cut in cuts]
             on_beat = sum(1 for error in errors if error < 0.09) / len(errors)
@@ -225,7 +234,11 @@ def review(
     black = luma < 0.02
     if black.mean() > 0.05:
         critique.notes.append(
-            Note("black", f"{black.mean() * 100:.0f}% of the film is near black", severity=0.6)
+            Note(
+                "black",
+                f"{black.mean() * 100:.0f}% of the film is near black",
+                severity=0.6,
+            )
         )
 
     penalty = sum(note.severity for note in critique.notes)
@@ -264,18 +277,26 @@ def revise(
     for note in critique.notes:
         if note.rule != "flash-frame" or note.at is None:
             continue
-        shot = next((s for start, _, s in edl.timeline() if abs(start - note.at) < 0.02), None)
+        shot = next(
+            (s for start, _, s in edl.timeline() if abs(start - note.at) < 0.02), None
+        )
         if shot is not None and grammar._rescale_ramp(shot, MIN_SHOT * 2.0):
             changes.append(f"lengthened the flash frame at {note.at:.1f}s")
 
     # Dead air: lift the offending shot out entirely rather than trying to
     # rescue it. There is no filter that makes nothing happening interesting.
     timeline = edl.timeline()
-    dead = [note for note in critique.notes if note.rule == "dead-air" and note.at is not None]
+    dead = [
+        note
+        for note in critique.notes
+        if note.rule == "dead-air" and note.at is not None
+    ]
     for note in dead:
         if len(edl.shots) <= 3:
             break
-        victim = next((shot for start, end, shot in timeline if start <= note.at < end), None)
+        victim = next(
+            (shot for start, end, shot in timeline if start <= note.at < end), None
+        )
         if victim is not None and victim.note == HELD_ON_PURPOSE:
             # Somebody asked for this hold by pointing at footage that holds.
             # From the pixels it is indistinguishable from a frozen shot, and
@@ -283,7 +304,9 @@ def revise(
             continue
         if victim is not None and victim in edl.shots:
             edl.shots.remove(victim)
-            changes.append(f"dropped the frozen shot at {note.at:.1f}s ({victim.clip_id})")
+            changes.append(
+                f"dropped the frozen shot at {note.at:.1f}s ({victim.clip_id})"
+            )
             timeline = edl.timeline()
 
     if any(note.rule == "weak-hook" for note in critique.notes) and len(edl.shots) > 2:
@@ -310,7 +333,9 @@ def revise(
         else:
             grammar.vary_pacing(edl, run_length=3, spread=0.22)
         if _length_signature(edl, audio) != before:
-            changes.append("varied the shot lengths so it stops feeling like a metronome")
+            changes.append(
+                "varied the shot lengths so it stops feeling like a metronome"
+            )
 
     # Always, not only when the critic complained about runtime: holding shots
     # for two beats instead of one makes the film longer, so a fix for one fault
@@ -323,7 +348,9 @@ def revise(
     if changes:
         edl.shots[0].transition_in = Transition("cut", 0.0)
         grammar.enforce_variety(edl)
-        grammar.snap_cuts_to_beats(edl, audio if beat_sync else None, offset=music_offset)
+        grammar.snap_cuts_to_beats(
+            edl, audio if beat_sync else None, offset=music_offset
+        )
         edl.repair(dossiers, target_duration=target_duration)
 
     # Everything above ran before the beat snap and the repair, either of which

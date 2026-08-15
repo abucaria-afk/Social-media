@@ -30,8 +30,12 @@ class AudioAnalysis:
     duration: float
     #: True when the track is effectively silent — a clip with a dead mic.
     silent: bool = True
-    envelope: np.ndarray = field(repr=False, default_factory=lambda: np.zeros(0, np.float32))
-    onset: np.ndarray = field(repr=False, default_factory=lambda: np.zeros(0, np.float32))
+    envelope: np.ndarray = field(
+        repr=False, default_factory=lambda: np.zeros(0, np.float32)
+    )
+    onset: np.ndarray = field(
+        repr=False, default_factory=lambda: np.zeros(0, np.float32)
+    )
     envelope_fps: float = ENVELOPE_FPS
 
     rms: float = 0.0
@@ -68,7 +72,9 @@ class AudioAnalysis:
         i1 = int(np.clip(end * self.envelope_fps, i0 + 1, len(self.envelope)))
         return float(self.envelope[i0:i1].mean())
 
-    def snap(self, seconds: float, *, strong: bool = False, tolerance: float = 0.28) -> float:
+    def snap(
+        self, seconds: float, *, strong: bool = False, tolerance: float = 0.28
+    ) -> float:
         """Move a time to the nearest beat, if one is close enough to be felt."""
         grid = self.downbeats if (strong and self.downbeats) else self.beats
         if not grid:
@@ -121,7 +127,9 @@ def _estimate_tempo(onset: np.ndarray, fps: float) -> tuple[float, float, float]
 
     signal = onset - onset.mean()
     spectrum = np.fft.rfft(signal, n=2 * len(signal))
-    autocorr = np.fft.irfft(spectrum * np.conj(spectrum))[: len(signal)].astype(np.float32)
+    autocorr = np.fft.irfft(spectrum * np.conj(spectrum))[: len(signal)].astype(
+        np.float32
+    )
     if autocorr[0] <= 0:
         return 0.0, 0.0, 0.0
     autocorr /= autocorr[0]
@@ -197,7 +205,11 @@ def _find_accents(onset: np.ndarray, fps: float) -> list[float]:
     last = -1e9
     for index in range(1, len(onset) - 1):
         value = onset[index]
-        if value >= threshold and value >= onset[index - 1] and value >= onset[index + 1]:
+        if (
+            value >= threshold
+            and value >= onset[index - 1]
+            and value >= onset[index + 1]
+        ):
             time = index / fps
             if time - last > 0.2:
                 accents.append(round(time, 3))
@@ -268,7 +280,9 @@ def analyse_audio(asset: MediaAsset) -> AudioAnalysis:
     if not len(magnitude):
         return AudioAnalysis(duration=duration, silent=True, peak=peak, rms=rms)
 
-    frame_rms = np.sqrt((samples[: len(magnitude) * HOP].reshape(-1, HOP) ** 2).mean(axis=1))
+    frame_rms = np.sqrt(
+        (samples[: len(magnitude) * HOP].reshape(-1, HOP) ** 2).mean(axis=1)
+    )
     envelope = frame_rms.astype(np.float32)
     envelope = envelope / max(float(envelope.max()), 1e-6)
 
@@ -305,7 +319,9 @@ def analyse_audio(asset: MediaAsset) -> AudioAnalysis:
     )
 
 
-def find_music_bed(candidates: list[MediaAsset]) -> tuple[MediaAsset | None, AudioAnalysis | None]:
+def find_music_bed(
+    candidates: list[MediaAsset],
+) -> tuple[MediaAsset | None, AudioAnalysis | None]:
     """Choose the track to cut to: the longest, most rhythmic, least speechy one."""
     best: tuple[float, MediaAsset, AudioAnalysis] | None = None
     for asset in candidates:

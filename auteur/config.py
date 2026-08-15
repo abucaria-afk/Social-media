@@ -25,7 +25,17 @@ VIDEO_SUFFIXES = {
     ".mxf",
 }
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic"}
-AUDIO_SUFFIXES = {".mp3", ".wav", ".aac", ".m4a", ".flac", ".ogg", ".opus", ".aif", ".aiff"}
+AUDIO_SUFFIXES = {
+    ".mp3",
+    ".wav",
+    ".aac",
+    ".m4a",
+    ".flac",
+    ".ogg",
+    ".opus",
+    ".aif",
+    ".aiff",
+}
 
 
 @dataclass(frozen=True)
@@ -47,7 +57,9 @@ class DeliveryFormat:
 
 
 FORMATS: dict[str, DeliveryFormat] = {
-    "reel": DeliveryFormat("reel", 1080, 1920, "9:16 vertical (Reels / Shorts / TikTok)"),
+    "reel": DeliveryFormat(
+        "reel", 1080, 1920, "9:16 vertical (Reels / Shorts / TikTok)"
+    ),
     "square": DeliveryFormat("square", 1080, 1080, "1:1 square (feed)"),
     "wide": DeliveryFormat("wide", 1920, 1080, "16:9 landscape (YouTube)"),
     "cinema": DeliveryFormat("cinema", 1920, 816, "2.35:1 anamorphic"),
@@ -126,7 +138,14 @@ class Workspace:
         self.assets = self.root / "assets"
         self.output = self.root / "output"
         self.logs = self.root / "logs"
-        for path in (self.root, self.segments, self.cache, self.assets, self.output, self.logs):
+        for path in (
+            self.root,
+            self.segments,
+            self.cache,
+            self.assets,
+            self.output,
+            self.logs,
+        ):
             path.mkdir(parents=True, exist_ok=True)
 
     def clean_segments(self) -> None:
@@ -156,7 +175,9 @@ class Settings:
 
     @property
     def all_formats(self) -> tuple[DeliveryFormat, ...]:
-        seen: dict[str, DeliveryFormat] = {self.primary_format.name: self.primary_format}
+        seen: dict[str, DeliveryFormat] = {
+            self.primary_format.name: self.primary_format
+        }
         for fmt in self.extra_formats:
             seen.setdefault(fmt.name, fmt)
         return tuple(seen.values())
@@ -196,4 +217,6 @@ def resolve_quality(name: str) -> Quality:
     key = name.strip().lower()
     if key in QUALITIES:
         return QUALITIES[key]
-    raise ValueError(f"unknown quality tier: {name!r} (choose from {sorted(QUALITIES)})")
+    raise ValueError(
+        f"unknown quality tier: {name!r} (choose from {sorted(QUALITIES)})"
+    )

@@ -267,7 +267,9 @@ class Bin:
         return bool(self.visuals)
 
     def describe(self) -> str:
-        lines = [f"{len(self.visuals)} visual source(s), {self.total_footage:.1f}s of footage"]
+        lines = [
+            f"{len(self.visuals)} visual source(s), {self.total_footage:.1f}s of footage"
+        ]
         for asset in self.visuals:
             lines.append(f"  · {asset.summary()}")
         for asset in self.audio:
@@ -281,7 +283,9 @@ def ingest(inputs: Sequence[str | Path], *, recursive: bool = True) -> Bin:
     """Turn a pile of paths into a sorted bin of usable material."""
     paths = discover(inputs, recursive=recursive)
     if not paths:
-        raise FileNotFoundError(f"no readable media found in: {', '.join(map(str, inputs))}")
+        raise FileNotFoundError(
+            f"no readable media found in: {', '.join(map(str, inputs))}"
+        )
 
     bin_ = Bin()
     for path in paths:
@@ -292,6 +296,12 @@ def ingest(inputs: Sequence[str | Path], *, recursive: bool = True) -> Bin:
         (bin_.visuals if asset.is_visual else bin_.audio).append(asset)
 
     if not bin_.visuals:
-        raise FileNotFoundError("found audio but no picture — an edit needs something to look at")
-    log.info("ingested %d visual asset(s), %d audio asset(s)", len(bin_.visuals), len(bin_.audio))
+        raise FileNotFoundError(
+            "found audio but no picture — an edit needs something to look at"
+        )
+    log.info(
+        "ingested %d visual asset(s), %d audio asset(s)",
+        len(bin_.visuals),
+        len(bin_.audio),
+    )
     return bin_

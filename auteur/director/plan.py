@@ -69,7 +69,9 @@ def direct(
         reason = "no model configured"
 
     if edl is None:
-        edl = heuristic.cut(brief, dossiers, settings, music=music, music_analysis=music_analysis)
+        edl = heuristic.cut(
+            brief, dossiers, settings, music=music, music_analysis=music_analysis
+        )
 
     report = grammar.polish(
         edl,
@@ -78,7 +80,9 @@ def direct(
         target_duration=target,
         beat_sync=brief.beat_sync,
     )
-    edl.repair({dossier.clip_id: dossier for dossier in dossiers}, target_duration=target)
+    edl.repair(
+        {dossier.clip_id: dossier for dossier in dossiers}, target_duration=target
+    )
 
     log.info(
         "%s directed %d shots over %.2fs (grammar: %s)",

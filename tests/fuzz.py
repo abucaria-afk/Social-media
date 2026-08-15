@@ -48,7 +48,9 @@ def guard(area: str, seed: object, fn) -> None:
     try:
         fn()
     except Exception:
-        FAILURES.append((area, traceback.format_exc().strip().splitlines()[-1], repr(seed)))
+        FAILURES.append(
+            (area, traceback.format_exc().strip().splitlines()[-1], repr(seed))
+        )
         COUNTS[area] += 1
 
 
@@ -135,7 +137,9 @@ def fuzz_edl(rng):
 
     for index, shot in enumerate(edl.shots):
         limit = sources[shot.clip_id].duration
-        check("edl", shot.start >= -1e-6, f"shot {index} starts before zero: {shot.start}")
+        check(
+            "edl", shot.start >= -1e-6, f"shot {index} starts before zero: {shot.start}"
+        )
         check(
             "edl",
             shot.end <= limit + 1e-6 or shot.is_still,
@@ -150,9 +154,13 @@ def fuzz_edl(rng):
         check("edl", shot.motion.kind in MOTIONS, f"shot {index} kept a bogus motion")
         check("edl", shot.reframe in REFRAMES, f"shot {index} kept a bogus reframe")
         check(
-            "edl", shot.transition_in.kind in TRANSITIONS, f"shot {index} kept a bogus transition"
+            "edl",
+            shot.transition_in.kind in TRANSITIONS,
+            f"shot {index} kept a bogus transition",
         )
-        check("edl", 0.0 <= shot.audio_gain <= 4.0, f"shot {index} gain {shot.audio_gain}")
+        check(
+            "edl", 0.0 <= shot.audio_gain <= 4.0, f"shot {index} gain {shot.audio_gain}"
+        )
 
     check("edl", edl.shots[0].transition_in.is_cut, "the film does not open on a cut")
 
@@ -196,7 +204,9 @@ def fuzz_ramp(rng):
 
     slices = motion.ramp_slice_count(ramp, source, fps)
     check("ramp", slices >= 1, f"slice count {slices} for {source}s at {fps}fps")
-    check("ramp", slices <= motion.RAMP_MAX_SLICES, f"slice count {slices} above the cap")
+    check(
+        "ramp", slices <= motion.RAMP_MAX_SLICES, f"slice count {slices} above the cap"
+    )
 
     if slices >= 2:
         windows = motion.slice_windows(source, fps, slices)
@@ -211,7 +221,9 @@ def fuzz_ramp(rng):
                 f"window {i} holds {frames:.2f} frames at {fps}fps ({source}s / {slices})",
             )
         for i in range(len(windows) - 1):
-            check("ramp", windows[i + 1][0] > windows[i][0], "windows are not monotonic")
+            check(
+                "ramp", windows[i + 1][0] > windows[i][0], "windows are not monotonic"
+            )
             overlap = windows[i][1] - windows[i + 1][0]
             check(
                 "ramp",
@@ -237,7 +249,9 @@ def fuzz_ramp(rng):
 
     screen = ramp.output_duration(source)
     check("ramp", screen > 0, f"screen time {screen} for {source}s")
-    check("ramp", screen <= source / 0.149 + 1e-6, "screen time beyond the slowest speed")
+    check(
+        "ramp", screen <= source / 0.149 + 1e-6, "screen time beyond the slowest speed"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -286,9 +300,16 @@ def fuzz_brief(rng):
         f"duration {brief.duration} from {prompt!r} / {duration!r}",
         prompt,
     )
-    check("brief", isinstance(brief.describe(), str), "describe() is not a string", prompt)
+    check(
+        "brief", isinstance(brief.describe(), str), "describe() is not a string", prompt
+    )
     length = brief.shot_length_at(rng.uniform(-1, 2))
-    check("brief", MIN_SHOT / 2 <= length <= 30, f"shot length {length} from {prompt!r}", prompt)
+    check(
+        "brief",
+        MIN_SHOT / 2 <= length <= 30,
+        f"shot length {length} from {prompt!r}",
+        prompt,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -311,7 +332,11 @@ def fuzz_grammar(rng):
 
     beat = rng.uniform(0.2, 1.5)
     grammar.vary_beat_multiples(edl, beat)
-    check("grammar", len(edl.shots) == before, "vary_beat_multiples changed the shot count")
+    check(
+        "grammar",
+        len(edl.shots) == before,
+        "vary_beat_multiples changed the shot count",
+    )
     for i, shot in enumerate(edl.shots):
         check(
             "grammar",
@@ -319,7 +344,9 @@ def fuzz_grammar(rng):
             f"vary_beat_multiples made shot {i} a flash frame: {shot.duration:.4f}",
         )
 
-    grammar.vary_pacing(edl, run_length=rng.randint(2, 5), spread=rng.uniform(0.05, 0.5))
+    grammar.vary_pacing(
+        edl, run_length=rng.randint(2, 5), spread=rng.uniform(0.05, 0.5)
+    )
     for i, shot in enumerate(edl.shots):
         check(
             "grammar",
@@ -356,13 +383,23 @@ def fuzz_grammar(rng):
 # Uploads and routing
 # ---------------------------------------------------------------------------
 
-BYTES = [b"", b"--", b"\r\n", b"\x00" * 8, b"a" * 300, "🎬".encode(), b"--x\r\nContent-"]
+BYTES = [
+    b"",
+    b"--",
+    b"\r\n",
+    b"\x00" * 8,
+    b"a" * 300,
+    "🎬".encode(),
+    b"--x\r\nContent-",
+]
 
 
 def fuzz_multipart(rng):
     from auteur.web.server import _parse_multipart
 
-    boundary = "".join(rng.choice(string.ascii_letters) for _ in range(rng.randint(1, 12)))
+    boundary = "".join(
+        rng.choice(string.ascii_letters) for _ in range(rng.randint(1, 12))
+    )
     body = b"".join(rng.choice(BYTES) for _ in range(rng.randint(0, 8)))
     content_type = rng.choice(
         [
@@ -422,7 +459,12 @@ def fuzz_routes(rng):
         served = inside and candidate.is_file()
     except (OSError, ValueError):
         served = False
-    check("routing", inside or not served, f"path {path!r} would be served from {resolved}", path)
+    check(
+        "routing",
+        inside or not served,
+        f"path {path!r} would be served from {resolved}",
+        path,
+    )
     check(
         "routing",
         not (resolved == STATIC.resolve().parent and served),
@@ -440,9 +482,12 @@ def fuzz_auth(rng, store):
     from auteur.web import auth  # noqa: F401 - kept for the reduced-cost note
 
     who = "".join(
-        rng.choice(string.ascii_letters + string.digits) for _ in range(rng.randint(1, 12))
+        rng.choice(string.ascii_letters + string.digits)
+        for _ in range(rng.randint(1, 12))
     )
-    password = "".join(rng.choice(string.printable[:94]) for _ in range(rng.randint(8, 40)))
+    password = "".join(
+        rng.choice(string.printable[:94]) for _ in range(rng.randint(8, 40))
+    )
     email = f"{who}@example.com"
 
     if store.get(who) is not None:
@@ -451,13 +496,21 @@ def fuzz_auth(rng, store):
 
     check("auth", account.check(password), "the password it was given does not verify")
     check("auth", not account.check(password + "x"), "a longer password verified")
-    check("auth", password not in store.path.read_text(), "the password reached the file")
+    check(
+        "auth", password not in store.path.read_text(), "the password reached the file"
+    )
 
     token, _ = store.sign_in(rng.choice([who, who.upper(), email]), password)
     check("auth", token is not None, "a correct password was refused")
     if token:
-        check("auth", store.session_user(token) == account.username, "session resolves wrongly")
-        check("auth", token not in store.path.read_text(), "a live token reached the file")
+        check(
+            "auth",
+            store.session_user(token) == account.username,
+            "session resolves wrongly",
+        )
+        check(
+            "auth", token not in store.path.read_text(), "a live token reached the file"
+        )
 
     bad, message = store.sign_in(who, password + "!")
     check("auth", bad is None, "a wrong password was accepted")
@@ -468,8 +521,16 @@ def fuzz_auth(rng, store):
     if started:
         _, reset_token = started
         new = password[::-1] + "Z9"
-        check("auth", store.finish_reset(reset_token, new), "a fresh reset token was refused")
-        check("auth", not store.finish_reset(reset_token, new + "2"), "a reset token worked twice")
+        check(
+            "auth",
+            store.finish_reset(reset_token, new),
+            "a fresh reset token was refused",
+        )
+        check(
+            "auth",
+            not store.finish_reset(reset_token, new + "2"),
+            "a reset token worked twice",
+        )
         check("auth", store.get(who).check(new), "the new password does not verify")
         if token:
             check(
@@ -527,13 +588,23 @@ def fuzz_post(rng):
     # -- a clamped anchor is always inside, and never moves outward -------
     anchor = (rng.uniform(-1.0, 2.0), rng.uniform(-1.0, 2.0))
     x, y = spec.safe.clamp(anchor)
-    check("post", 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0, f"clamp left the frame: {(x, y)}", anchor)
+    check(
+        "post",
+        0.0 <= x <= 1.0 and 0.0 <= y <= 1.0,
+        f"clamp left the frame: {(x, y)}",
+        anchor,
+    )
     inside = (
         spec.safe.left <= anchor[0] <= 1 - spec.safe.right
         and spec.safe.top <= anchor[1] <= 1 - spec.safe.bottom
     )
     if inside:
-        check("post", (x, y) == anchor, f"a safe anchor was moved: {anchor} -> {(x, y)}", anchor)
+        check(
+            "post",
+            (x, y) == anchor,
+            f"a safe anchor was moved: {anchor} -> {(x, y)}",
+            anchor,
+        )
 
     # -- a runtime is always one the platform accepts ---------------------
     asked = rng.choice([None, rng.uniform(-100, 100000), rng.uniform(0.1, 60)])
@@ -549,20 +620,29 @@ def fuzz_post(rng):
     moment = parse_time(
         f"20{rng.randint(24, 40)}-0{rng.randint(1, 9)}-1{rng.randint(0, 9)} 0{rng.randint(0, 9)}:0{rng.randint(0, 5)}"
     )
-    check("post", parse_time(format_time(moment)) == moment, "a time did not round-trip", moment)
+    check(
+        "post",
+        parse_time(format_time(moment)) == moment,
+        "a time did not round-trip",
+        moment,
+    )
 
     # -- the queue never breaks its own spacing rule ----------------------
     import tempfile
 
     gap = rng.choice([0.5, 2.0, 4.0, 12.0])
-    queue = Schedule(Path(tempfile.mkdtemp()) / "q.json", gap_hours=gap, per_day=rng.randint(1, 6))
+    queue = Schedule(
+        Path(tempfile.mkdtemp()) / "q.json", gap_hours=gap, per_day=rng.randint(1, 6)
+    )
     start = parse_time("2030-01-01 09:00")
     accepted = []
     for _ in range(rng.randint(1, 8)):
         when = start + timedelta(hours=rng.uniform(0, 48))
         post, complaint = queue.add(_FakeDeliverable(spec), when)
         if post is not None:
-            check("post", complaint == "", f"accepted with a complaint: {complaint}", when)
+            check(
+                "post", complaint == "", f"accepted with a complaint: {complaint}", when
+            )
             accepted.append(post)
     times = sorted(post.when for post in accepted)
     for earlier, later in zip(times, times[1:], strict=False):

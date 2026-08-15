@@ -193,7 +193,9 @@ class Schedule:
         payload = {
             "version": 1,
             "settings": {"gap_hours": self.gap_hours, "per_day": self.per_day},
-            "posts": [post.to_json() for post in sorted(self.posts, key=lambda p: p.when)],
+            "posts": [
+                post.to_json() for post in sorted(self.posts, key=lambda p: p.when)
+            ],
         }
         temporary = self.path.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -207,7 +209,9 @@ class Schedule:
         same_service = [
             post
             for post in self.posts
-            if post.service == service and post.status != "skipped" and post.id != ignore
+            if post.service == service
+            and post.status != "skipped"
+            and post.id != ignore
         ]
         for post in same_service:
             gap = abs((post.when - when).total_seconds()) / 3600.0
@@ -216,7 +220,11 @@ class Schedule:
                     f"only {gap:.1f}h from the {service} post at "
                     f"{describe_time(post.when)} (minimum {self.gap_hours:.0f}h)"
                 )
-        day = sum(1 for post in same_service if abs((post.when - when).total_seconds()) < 86400)
+        day = sum(
+            1
+            for post in same_service
+            if abs((post.when - when).total_seconds()) < 86400
+        )
         if day >= self.per_day:
             return f"that would be {day + 1} {service} posts inside a day (limit {self.per_day})"
         return ""
@@ -297,7 +305,11 @@ class Schedule:
 
     def due(self, now: datetime | None = None) -> list[Post]:
         moment = now or datetime.now(timezone.utc)
-        return [post for post in self.posts if post.status == "queued" and post.when <= moment]
+        return [
+            post
+            for post in self.posts
+            if post.status == "queued" and post.when <= moment
+        ]
 
     def upcoming(self, limit: int = 0) -> list[Post]:
         queued = [post for post in self.posts if post.status == "queued"]
@@ -306,7 +318,9 @@ class Schedule:
 
     def mark(self, post_id: str, status: str) -> bool:
         if status not in STATUSES:
-            raise ValueError(f"unknown status {status!r} (choose from {', '.join(STATUSES)})")
+            raise ValueError(
+                f"unknown status {status!r} (choose from {', '.join(STATUSES)})"
+            )
         post = self.get(post_id)
         if post is None:
             return False
@@ -321,7 +335,9 @@ class Schedule:
     def forget_missing(self) -> list[Post]:
         """Drop queued posts whose video is no longer on disk."""
         gone = [
-            post for post in self.posts if post.status == "queued" and not Path(post.video).exists()
+            post
+            for post in self.posts
+            if post.status == "queued" and not Path(post.video).exists()
         ]
         for post in gone:
             self.posts.remove(post)
@@ -331,8 +347,12 @@ class Schedule:
         """The queue as CSV, for whatever actually does the posting."""
         buffer = io.StringIO()
         writer = csv.writer(buffer, lineterminator="\n")
-        writer.writerow(["when_utc", "platform", "service", "video", "cover", "status", "caption"])
-        for post in posts if posts is not None else sorted(self.posts, key=lambda p: p.when):
+        writer.writerow(
+            ["when_utc", "platform", "service", "video", "cover", "status", "caption"]
+        )
+        for post in (
+            posts if posts is not None else sorted(self.posts, key=lambda p: p.when)
+        ):
             writer.writerow(
                 [
                     format_time(post.when),

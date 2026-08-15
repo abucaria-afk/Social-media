@@ -184,7 +184,14 @@ class Brief:
     letterbox: float = 0.0
     duration: float | None = None
     #: Transition vocabulary this film is allowed to use, in preference order.
-    transitions: tuple[str, ...] = ("cut", "cut", "cut", "dissolve", "whip-left", "dip-to-black")
+    transitions: tuple[str, ...] = (
+        "cut",
+        "cut",
+        "cut",
+        "dissolve",
+        "whip-left",
+        "dip-to-black",
+    )
     #: Strings the director asked to appear on screen, in order.
     on_screen_text: list[str] = field(default_factory=list)
     #: Explicit instructions we recognised but did not consume.
@@ -346,7 +353,9 @@ def _arc_for(text: str, style: str) -> str:
             return name
     if any(word in lowered for word in ("build", "builds", "crescendo", "escalat")):
         return "crescendo"
-    if any(word in lowered for word in ("wind down", "settle", "ends quiet", "fades out")):
+    if any(
+        word in lowered for word in ("wind down", "settle", "ends quiet", "fades out")
+    ):
         return "decay"
     if style == "trailer":
         return "trailer"
@@ -387,7 +396,9 @@ def parse_brief(prompt: str, *, duration: float | None = None) -> Brief:
         arc=arc,
         base_shot_length=base,
         look=look,
-        duration=clamp_duration(duration if duration is not None else _extract_duration(prompt)),
+        duration=clamp_duration(
+            duration if duration is not None else _extract_duration(prompt)
+        ),
         on_screen_text=_extract_quoted(prompt),
     )
 
@@ -397,40 +408,81 @@ def parse_brief(prompt: str, *, duration: float | None = None) -> Brief:
         for word in ("grain", "film", "16mm", "35mm", "analog", "analogue", "vintage")
     ):
         brief.texture = 0.45
-    elif any(word in lowered for word in ("clean", "crisp", "digital", "sharp", "pristine")):
+    elif any(
+        word in lowered for word in ("clean", "crisp", "digital", "sharp", "pristine")
+    ):
         brief.texture = 0.0
 
     if any(
         word in lowered
-        for word in ("anamorphic", "widescreen", "2.35", "scope", "letterbox", "cinemascope")
+        for word in (
+            "anamorphic",
+            "widescreen",
+            "2.35",
+            "scope",
+            "letterbox",
+            "cinemascope",
+        )
     ):
         brief.letterbox = 0.11
 
     if any(
-        word in lowered for word in ("no transitions", "hard cuts", "straight cuts", "cuts only")
+        word in lowered
+        for word in ("no transitions", "hard cuts", "straight cuts", "cuts only")
     ):
         brief.transitions = ("cut",)
     elif style in ("music-video", "highlights") or base < 0.7:
-        brief.transitions = ("cut", "cut", "cut", "whip-left", "whip-right", "zoom-blur", "glitch")
+        brief.transitions = (
+            "cut",
+            "cut",
+            "cut",
+            "whip-left",
+            "whip-right",
+            "zoom-blur",
+            "glitch",
+        )
     elif style in ("documentary", "explainer", "travel") or base > 1.6:
         brief.transitions = ("cut", "cut", "dissolve", "dissolve", "dip-to-black")
     elif look in ("kodak", "bloom", "amber"):
         brief.transitions = ("cut", "cut", "dissolve", "light-leak", "film-burn")
 
-    if any(word in lowered for word in ("no music", "silent", "natural sound", "no soundtrack")):
+    if any(
+        word in lowered
+        for word in ("no music", "silent", "natural sound", "no soundtrack")
+    ):
         brief.beat_sync = False
     if any(
         word in lowered
-        for word in ("dialogue", "interview", "talking", "speech", "voice", "what they say")
+        for word in (
+            "dialogue",
+            "interview",
+            "talking",
+            "speech",
+            "voice",
+            "what they say",
+        )
     ):
         brief.keep_source_audio = True
     if any(
         word in lowered
-        for word in ("no speed", "real time", "realtime", "no slow motion", "constant speed")
+        for word in (
+            "no speed",
+            "real time",
+            "realtime",
+            "no slow motion",
+            "constant speed",
+        )
     ):
         brief.ramps = False
 
-    for phrase in ("ends on", "end on", "open on", "opens on", "start with", "finish on"):
+    for phrase in (
+        "ends on",
+        "end on",
+        "open on",
+        "opens on",
+        "start with",
+        "finish on",
+    ):
         if phrase in lowered:
             brief.notes.append(prompt[lowered.index(phrase) :][:90].strip())
 

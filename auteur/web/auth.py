@@ -149,7 +149,9 @@ class Accounts:
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
-            log.error("could not read %s (%s); starting with no accounts", self.path, exc)
+            log.error(
+                "could not read %s (%s); starting with no accounts", self.path, exc
+            )
             return
         for record in raw.get("accounts", []):
             try:
@@ -200,7 +202,10 @@ class Accounts:
     def add(self, username: str, email: str, password: str) -> Account:
         salt, digest = hash_password(password)
         account = Account(
-            username=username.strip(), email=email.strip().lower(), salt=salt, password_hash=digest
+            username=username.strip(),
+            email=email.strip().lower(),
+            salt=salt,
+            password_hash=digest,
         )
         with self.lock:
             self.accounts[account.username.lower()] = account
@@ -215,7 +220,9 @@ class Accounts:
             account.reset_hash, account.reset_expires = "", 0.0
             # Every other device is signed out. A password change is usually a
             # response to worrying that somebody else has it.
-            self.sessions = {k: v for k, v in self.sessions.items() if v[0] != account.username}
+            self.sessions = {
+                k: v for k, v in self.sessions.items() if v[0] != account.username
+            }
             self._save()
 
     @property
@@ -262,7 +269,10 @@ class Accounts:
         token = secrets.token_urlsafe(32)
         with self.lock:
             account.failures, account.locked_until = 0, 0.0
-            self.sessions[_token_hash(token)] = (account.username, time.time() + SESSION_LIFETIME)
+            self.sessions[_token_hash(token)] = (
+                account.username,
+                time.time() + SESSION_LIFETIME,
+            )
             self._save()
         return token, "Signed in."
 

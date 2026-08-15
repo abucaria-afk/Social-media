@@ -28,7 +28,15 @@ BPM = 120.0
 
 def _run(args: list[str]) -> None:
     subprocess.run(
-        [str(ffmpeg.ffmpeg_path()), "-hide_banner", "-nostdin", "-loglevel", "error", "-y", *args],
+        [
+            str(ffmpeg.ffmpeg_path()),
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-y",
+            *args,
+        ],
         check=True,
     )
 
@@ -136,7 +144,8 @@ def _hat(length: int) -> np.ndarray:
 def _bass(length: int, frequency: float) -> np.ndarray:
     t = np.arange(length) / SAMPLE_RATE
     tone = (
-        np.sign(np.sin(2 * np.pi * frequency * t)) * 0.22 + np.sin(2 * np.pi * frequency * t) * 0.3
+        np.sign(np.sin(2 * np.pi * frequency * t)) * 0.22
+        + np.sin(2 * np.pi * frequency * t) * 0.3
     )
     envelope = np.minimum(1.0, t * 60) * np.exp(-t * 3.0)
     return tone * envelope
@@ -177,7 +186,9 @@ def make_music(directory: Path, *, duration: float = 48.0) -> Path:
         if in_bar == 0:
             note = notes[(index // 4) % len(notes)]
             bass = _bass(min(int(beat * 3.6 * SAMPLE_RATE), total - position), note)
-            track[position : position + len(bass)] += bass[: len(track) - position] * 0.5
+            track[position : position + len(bass)] += (
+                bass[: len(track) - position] * 0.5
+            )
 
         position += beat_samples
         index += 1

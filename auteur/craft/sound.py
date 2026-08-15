@@ -49,7 +49,9 @@ def _svf_bandpass(
     return out
 
 
-def _envelope(length: int, attack: float, sample_rate: int, curve: float = 2.0) -> np.ndarray:
+def _envelope(
+    length: int, attack: float, sample_rate: int, curve: float = 2.0
+) -> np.ndarray:
     """Rise over `attack` seconds, then fall away across whatever is left.
 
     There is no decay parameter: the tail always runs to the end of the buffer,
@@ -89,7 +91,9 @@ def _impact(duration: float, sample_rate: int) -> np.ndarray:
     body = np.sin(phase) * np.exp(-t * 9.0)
 
     transient = rng.standard_normal(length).astype(np.float32) * np.exp(-t * 220.0)
-    transient = _svf_bandpass(transient, np.full(length, 2600.0, np.float32), 1.2, sample_rate)
+    transient = _svf_bandpass(
+        transient, np.full(length, 2600.0, np.float32), 1.2, sample_rate
+    )
 
     return (body * 0.85 + transient * 0.35).astype(np.float32)
 
@@ -138,7 +142,9 @@ _SYNTHS = {
 }
 
 
-def synthesise(kind: str, duration: float, *, sample_rate: int = SAMPLE_RATE) -> np.ndarray:
+def synthesise(
+    kind: str, duration: float, *, sample_rate: int = SAMPLE_RATE
+) -> np.ndarray:
     """Render one effect to mono float samples in [-1, 1]."""
     synth = _SYNTHS.get(kind, _whoosh)
     duration = float(min(max(duration, 0.05), 6.0))
@@ -157,7 +163,9 @@ def synthesise(kind: str, duration: float, *, sample_rate: int = SAMPLE_RATE) ->
     return samples.astype(np.float32)
 
 
-def write_wav(path: Path, samples: np.ndarray, *, sample_rate: int = SAMPLE_RATE) -> Path:
+def write_wav(
+    path: Path, samples: np.ndarray, *, sample_rate: int = SAMPLE_RATE
+) -> Path:
     """Write mono float samples as 16-bit PCM."""
     path.parent.mkdir(parents=True, exist_ok=True)
     pcm = np.clip(samples, -1.0, 1.0)
@@ -199,7 +207,9 @@ def effect_key(cue: SoundCue) -> str:
 # ---------------------------------------------------------------------------
 
 
-def music_chain(cue: MusicCue, duration: float, *, sample_rate: int = SAMPLE_RATE) -> str:
+def music_chain(
+    cue: MusicCue, duration: float, *, sample_rate: int = SAMPLE_RATE
+) -> str:
     """Trim, level and fade the bed to exactly the length of the film.
 
     Looping a short track is handled by ``-stream_loop`` on the input rather
@@ -218,7 +228,9 @@ def music_chain(cue: MusicCue, duration: float, *, sample_rate: int = SAMPLE_RAT
     )
 
 
-def duck_graph(music_label: str, voice_label: str, out_label: str, amount: float) -> str:
+def duck_graph(
+    music_label: str, voice_label: str, out_label: str, amount: float
+) -> str:
     """Sidechain the music off the dialogue.
 
     Ducking by level rather than by hand is the difference between a mix where
@@ -231,7 +243,9 @@ def duck_graph(music_label: str, voice_label: str, out_label: str, amount: float
     )
 
 
-def master_chain(*, sample_rate: int = SAMPLE_RATE, target_lufs: float = TARGET_LUFS) -> str:
+def master_chain(
+    *, sample_rate: int = SAMPLE_RATE, target_lufs: float = TARGET_LUFS
+) -> str:
     """Final bus: normalise loudness, then catch anything still over the ceiling."""
     return chain(
         f"loudnorm=I={target_lufs:.1f}:TP=-1.5:LRA=11",

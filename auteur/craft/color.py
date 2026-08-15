@@ -206,7 +206,10 @@ def _bloom_look(s: float) -> str:
     return chain(
         _bloom(radius=24.0, opacity=0.42 * s, threshold=0.45),
         _balance(
-            shadows=(0.04, 0.02, 0.06), mids=(0.02, 0.0, 0.02), highs=(0.04, 0.02, 0.04), strength=s
+            shadows=(0.04, 0.02, 0.06),
+            mids=(0.02, 0.0, 0.02),
+            highs=(0.04, 0.02, 0.04),
+            strength=s,
         ),
         _eq(contrast=0.94, saturation=1.06, gamma=1.08, strength=s),
     )
@@ -247,13 +250,17 @@ def _aqua(s: float) -> str:
 
 LOOKS: dict[str, LookSpec] = {
     "neutral": LookSpec("neutral", "clean, barely touched", _neutral),
-    "blockbuster": LookSpec("blockbuster", "teal shadows, orange highlights", _blockbuster),
+    "blockbuster": LookSpec(
+        "blockbuster", "teal shadows, orange highlights", _blockbuster
+    ),
     "steel": LookSpec("steel", "cold, hard, desaturated", _steel),
     "amber": LookSpec("amber", "warm, lifted, nostalgic", _amber),
     "noir": LookSpec("noir", "high-contrast monochrome", _noir),
     "neon": LookSpec("neon", "magenta and cyan, blown highlights", _neon),
     "kodak": LookSpec("kodak", "print film emulation", _kodak),
-    "bleach-bypass": LookSpec("bleach-bypass", "crushed and colourless", _bleach_bypass),
+    "bleach-bypass": LookSpec(
+        "bleach-bypass", "crushed and colourless", _bleach_bypass
+    ),
     "bloom": LookSpec("bloom", "soft diffusion, dreamlike", _bloom_look),
     "punch": LookSpec("punch", "vivid and sharp", _punch),
     "desert": LookSpec("desert", "sun-baked yellows", _desert),
@@ -277,7 +284,11 @@ def correction_chain(look: Look) -> str:
     """
     links: list[str] = []
 
-    if abs(look.exposure) > 0.005 or abs(look.contrast) > 0.005 or abs(look.saturation) > 0.005:
+    if (
+        abs(look.exposure) > 0.005
+        or abs(look.contrast) > 0.005
+        or abs(look.saturation) > 0.005
+    ):
         links.append(
             f"eq=brightness={look.exposure * 0.35:.4f}"
             f":contrast={1.0 + look.contrast * 0.3:.4f}"

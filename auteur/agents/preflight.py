@@ -194,7 +194,11 @@ def check_render(video: Path | None) -> Finding | None:
 
 
 def preflight(
-    edl: EditDecisionList, prediction: Prediction, model: FitReport, spec=None, when=None
+    edl: EditDecisionList,
+    prediction: Prediction,
+    model: FitReport,
+    spec=None,
+    when=None,
 ) -> list[Finding]:
     """Everything checkable, before the renderer spends three minutes."""
     findings = [
@@ -277,7 +281,9 @@ class StyleAgent:
                 # Keep the first and the last — the hook and the loop depend on
                 # them — and space the rest out across the middle.
                 step = (len(shots) - 1) / (keep - 1) if keep > 1 else len(shots)
-                indices = sorted({0, len(shots) - 1, *(round(i * step) for i in range(keep))})
+                indices = sorted(
+                    {0, len(shots) - 1, *(round(i * step) for i in range(keep))}
+                )
                 indices = [i for i in indices if 0 <= i < len(shots)][:keep]
                 target_edl.shots = [shots[i] for i in indices]
 

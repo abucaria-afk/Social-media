@@ -263,7 +263,9 @@ class CrewResult:
             "",
         ]
         for proposal in self.applied:
-            lines.append(f"  applied  {proposal.title}  ({proposal.predicted_gain:+.1%})")
+            lines.append(
+                f"  applied  {proposal.title}  ({proposal.predicted_gain:+.1%})"
+            )
         for proposal in self.rejected:
             why = proposal.decision_note or "no gain"
             lines.append(f"  skipped  {proposal.title}  — {why}")
@@ -311,7 +313,9 @@ class Crew:
             for agent in self.agents:
                 try:
                     proposals.extend(agent.inspect(current, prediction, self.model))
-                except Exception as exc:  # noqa: BLE001 - one bad agent must not stop the crew
+                except (
+                    Exception
+                ) as exc:  # noqa: BLE001 - one bad agent must not stop the crew
                     round_.proposals.append(
                         Proposal(
                             agent=getattr(agent, "name", "unknown"),
@@ -345,7 +349,9 @@ class Crew:
                 # at their own reference footage — which is the exact thing
                 # the style agent exists to prevent.
                 if not proposal.binding and proposal.predicted_gain < self.min_gain:
-                    proposal.decision_note = proposal.decision_note or "no predicted gain"
+                    proposal.decision_note = (
+                        proposal.decision_note or "no predicted gain"
+                    )
                     continue
                 if not self.gate.review(proposal):
                     continue

@@ -67,7 +67,11 @@ MUSICAL_MULTIPLES = (1, 2, 4, 8)
 
 
 def _build_slots(
-    brief: Brief, target: float, audio: AudioAnalysis | None, offset: float, rng: random.Random
+    brief: Brief,
+    target: float,
+    audio: AudioAnalysis | None,
+    offset: float,
+    rng: random.Random,
 ) -> list[_Slot]:
     """Lay out the rhythm of the film before choosing a single frame.
 
@@ -190,7 +194,9 @@ def _fit_score(
             score -= 0.22
         else:
             # Wide → close is a stronger progression than a sideways step.
-            score += 0.10 * min(abs(_scale_rank(take.scale) - _scale_rank(previous_take.scale)), 2)
+            score += 0.10 * min(
+                abs(_scale_rank(take.scale) - _scale_rank(previous_take.scale)), 2
+            )
 
         # Match cut: two shots moving the same way join invisibly.
         if take.camera == previous_take.camera and take.camera != "static":
@@ -272,7 +278,9 @@ def _choose_speed(take: Take, slot: _Slot, brief: Brief) -> tuple[float, Ramp]:
     return speed, Ramp.constant(speed)
 
 
-def _choose_motion(take: Take, slot: _Slot, is_still: bool, rng: random.Random) -> Motion:
+def _choose_motion(
+    take: Take, slot: _Slot, is_still: bool, rng: random.Random
+) -> Motion:
     """Give static frames a reason to be on screen."""
     anchor = (
         float(np.clip(take.subject[0], 0.12, 0.88)),
@@ -339,7 +347,9 @@ def _choose_transition(
     ceiling = min(slot.length * 0.4, 0.6)
     if ceiling < 0.1:
         return Transition("cut", 0.0)
-    duration = min(ceiling, 0.5 if kind in ("dissolve", "film-burn", "light-leak") else 0.25)
+    duration = min(
+        ceiling, 0.5 if kind in ("dissolve", "film-burn", "light-leak") else 0.25
+    )
     return Transition(kind, duration)
 
 
@@ -376,7 +386,9 @@ def _match_looks(
             preset=preset,
             exposure=float(np.clip((target_luma - luma) * 1.5, -0.5, 0.5)),
             temperature=float(np.clip((target_warmth - warmth) * 0.6, -0.4, 0.4)),
-            saturation=float(np.clip((target_saturation - saturation) * 0.5, -0.3, 0.3)),
+            saturation=float(
+                np.clip((target_saturation - saturation) * 0.5, -0.3, 0.3)
+            ),
             contrast=0.0,
             strength=strength,
         )
@@ -467,7 +479,9 @@ def _place_texts(brief: Brief, duration: float, look_accent: str) -> list[TextCu
     return cues
 
 
-def _design_sound(edl: EditDecisionList, slots: list[_Slot], brief: Brief) -> list[SoundCue]:
+def _design_sound(
+    edl: EditDecisionList, slots: list[_Slot], brief: Brief
+) -> list[SoundCue]:
     """Whooshes on the whips, impacts on the hard cuts, a riser into the climax."""
     cues: list[SoundCue] = []
     timeline = edl.timeline()
@@ -486,7 +500,12 @@ def _design_sound(edl: EditDecisionList, slots: list[_Slot], brief: Brief) -> li
             "slide-right",
         ):
             cues.append(
-                SoundCue("whoosh", at=round(max(0.0, start - 0.12), 3), gain=0.5, duration=0.45)
+                SoundCue(
+                    "whoosh",
+                    at=round(max(0.0, start - 0.12), 3),
+                    gain=0.5,
+                    duration=0.45,
+                )
             )
         elif kind == "glitch":
             cues.append(SoundCue("tick", at=round(start, 3), gain=0.4, duration=0.18))
@@ -496,7 +515,11 @@ def _design_sound(edl: EditDecisionList, slots: list[_Slot], brief: Brief) -> li
     duration = edl.duration
     if duration > 6 and brief.arc in ("hook-drop", "crescendo", "trailer"):
         climax = duration * (0.62 if brief.arc == "trailer" else 0.74)
-        cues.append(SoundCue("riser", at=round(max(0.0, climax - 1.6), 3), gain=0.34, duration=1.6))
+        cues.append(
+            SoundCue(
+                "riser", at=round(max(0.0, climax - 1.6), 3), gain=0.34, duration=1.6
+            )
+        )
         cues.append(SoundCue("sub-drop", at=round(climax, 3), gain=0.5, duration=1.1))
 
     # Two effects on top of each other is mud; keep the louder one.
@@ -543,7 +566,8 @@ def cut(
     act_breaks = {
         index
         for index in range(1, len(slots) - 1)
-        if energies[index] < energies[index - 1] and energies[index] <= energies[index + 1]
+        if energies[index] < energies[index - 1]
+        and energies[index] <= energies[index + 1]
     }
 
     shots: list[Shot] = []
@@ -596,7 +620,12 @@ def cut(
             motion=_choose_motion(chosen, slot, dossier.asset.kind == "image", rng),
             reframe="subject",
             transition_in=_choose_transition(
-                chosen, previous_take, slot, brief, rng, act_break=slot.index in act_breaks
+                chosen,
+                previous_take,
+                slot,
+                brief,
+                rng,
+                act_break=slot.index in act_breaks,
             ),
             use_source_audio=brief.keep_source_audio and not dossier.audio.silent,
             audio_gain=1.0 if brief.keep_source_audio else 0.0,
@@ -605,7 +634,9 @@ def cut(
         )
         shots.append(shot)
 
-        used_seconds[chosen.clip_id] = used_seconds.get(chosen.clip_id, 0.0) + chosen.duration
+        used_seconds[chosen.clip_id] = (
+            used_seconds.get(chosen.clip_id, 0.0) + chosen.duration
+        )
         used_ranges.setdefault(chosen.clip_id, []).append((chosen.start, chosen.end))
         recent_clips.append(chosen.clip_id)
         previous_take = chosen
@@ -624,7 +655,9 @@ def cut(
             f"{len(shots)} shots averaging {target / max(len(shots), 1):.2f}s"
             + (
                 f", cut to {music_analysis.tempo:.0f} BPM"
-                if music_analysis is not None and music_analysis.has_beat and brief.beat_sync
+                if music_analysis is not None
+                and music_analysis.has_beat
+                and brief.beat_sync
                 else ", cut to the arc (no beat grid available)"
             )
         ),

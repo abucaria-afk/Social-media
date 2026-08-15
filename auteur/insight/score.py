@@ -141,9 +141,7 @@ class FitReport:
                 "this predicts the simulator, not any platform"
             )
         if self.simulated_rows == 0:
-            return (
-                f"fitted on {self.measured_rows} measured rows across {len(self.forms)} export(s)"
-            )
+            return f"fitted on {self.measured_rows} measured rows across {len(self.forms)} export(s)"
         return (
             f"fitted on {self.measured_rows} measured rows and "
             f"{self.simulated_rows} simulated ones — treat the numbers as a rehearsal"
@@ -175,14 +173,19 @@ class FitReport:
         if self.best_of:
             lines += ["", "best of each choice, by amplification:"]
             for column, (value, score) in sorted(self.best_of.items()):
-                lines.append(f"    {column.replace('_', ' '):<20} {value}  ({score:.3f})")
+                lines.append(
+                    f"    {column.replace('_', ' '):<20} {value}  ({score:.3f})"
+                )
         if self.drivers:
             lines += ["", "what actually moves the numbers (Pearson r):"]
             for _, label, r in self.drivers:
                 direction = "↑" if r > 0 else "↓"
                 lines.append(f"    {direction} {abs(r):.2f}  {label}")
         if self.generated_forms:
-            lines += ["", "these look generated rather than observed (down-weighted to a tenth):"]
+            lines += [
+                "",
+                "these look generated rather than observed (down-weighted to a tenth):",
+            ]
             for form in self.generated_forms:
                 lines.append(f"    ~ {form} — its columns track each other too neatly")
         if self.conflicts:
@@ -236,7 +239,9 @@ def fit(signals: Sequence[Signal]) -> FitReport:
     by_style: dict[str, list[float]] = {}
     for signal in craft:
         if signal.hook_style:
-            by_style.setdefault(signal.hook_style, []).append(signal.three_second_watch_rate)
+            by_style.setdefault(signal.hook_style, []).append(
+                signal.three_second_watch_rate
+            )
     ranking = tuple(
         sorted(
             ((name, _mean(values)) for name, values in by_style.items()),
@@ -325,7 +330,11 @@ def fit(signals: Sequence[Signal]) -> FitReport:
             generated.append(form)
 
     for column, label in _DRIVERS:
-        for objective in ("three_second_watch_rate", "share_to_view_ratio", "loop_count"):
+        for objective in (
+            "three_second_watch_rate",
+            "share_to_view_ratio",
+            "loop_count",
+        ):
             per_form: list[tuple[str, float, int]] = []
             for form, rows in by_form.items():
                 pairs = [
@@ -341,7 +350,11 @@ def fit(signals: Sequence[Signal]) -> FitReport:
                 if len(pairs) < 5:
                     continue
                 per_form.append(
-                    (form, _correlation([p[0] for p in pairs], [p[1] for p in pairs]), len(pairs))
+                    (
+                        form,
+                        _correlation([p[0] for p in pairs], [p[1] for p in pairs]),
+                        len(pairs),
+                    )
                 )
             if not per_form:
                 continue
@@ -358,7 +371,9 @@ def fit(signals: Sequence[Signal]) -> FitReport:
                 return min(n, 50) * (0.1 if form in generated else 1.0)
 
             total_weight = sum(weight(form, n) for form, _, n in per_form)
-            combined = sum(r * weight(form, n) for form, r, n in per_form) / max(total_weight, 1e-9)
+            combined = sum(r * weight(form, n) for form, r, n in per_form) / max(
+                total_weight, 1e-9
+            )
             if abs(combined) >= 0.25:
                 # Down-weighting cannot help when the generated export is the
                 # *only* contributor: a tenth of the only vote is still the
@@ -366,7 +381,11 @@ def fit(signals: Sequence[Signal]) -> FitReport:
                 only_generated = all(form in generated for form, _, _ in per_form)
                 suffix = "  [generated data only]" if only_generated else ""
                 drivers.append(
-                    (column, f"{label} → {objective.replace('_', ' ')}{suffix}", combined)
+                    (
+                        column,
+                        f"{label} → {objective.replace('_', ' ')}{suffix}",
+                        combined,
+                    )
                 )
     drivers.sort(key=lambda item: ("[generated" in item[1], -abs(item[2])))
 
@@ -413,7 +432,11 @@ def fit(signals: Sequence[Signal]) -> FitReport:
             fail_median = bad[len(bad) // 2]
             # Midpoint between the medians. Crude on purpose: a fitted decision
             # boundary would imply a confidence two medians do not support.
-            separation[objective] = (win_median, fail_median, (win_median + fail_median) / 2)
+            separation[objective] = (
+                win_median,
+                fail_median,
+                (win_median + fail_median) / 2,
+            )
 
     # When the winners went out. Only hours carrying a real share of the wins
     # count — with 10,000 rows almost every hour appears at least once, and an
@@ -583,7 +606,9 @@ def _seam(edl: EditDecisionList) -> float:
     brevity = max(0.0, min(1.0, 1.6 / max(last.duration, 0.2)))
     # A fade to black at the end is the single most loop-hostile thing an edit
     # can do, and it is the default in most templates.
-    faded_out = any(cue.style == "end-card" and cue.end >= edl.duration - 0.35 for cue in edl.texts)
+    faded_out = any(
+        cue.style == "end-card" and cue.end >= edl.duration - 0.35 for cue in edl.texts
+    )
     penalty = 0.25 if faded_out else 0.0
 
     return max(0.0, same_source * 0.45 + hard_out * 0.25 + brevity * 0.30 - penalty)
@@ -621,12 +646,17 @@ def predict(edl: EditDecisionList, report: FitReport) -> Prediction:
     early_text = 1.0 if _text_lands_early(edl) else 0.0
     hook_score = 0.82 * timing + 0.18 * early_text
     if not early_text:
-        notes.append("nothing on screen before the first cut — the hook is carrying it alone")
+        notes.append(
+            "nothing on screen before the first cut — the hook is carrying it alone"
+        )
     if opening > 3.0:
-        notes.append(f"the first shot runs {opening:.1f}s; the winners cut by {ideal:.1f}s")
+        notes.append(
+            f"the first shot runs {opening:.1f}s; the winners cut by {ideal:.1f}s"
+        )
 
     predicted_three_second = max(
-        0.05, min(0.99, (report.elite_three_second or 0.85) * (0.55 + 0.45 * hook_score))
+        0.05,
+        min(0.99, (report.elite_three_second or 0.85) * (0.55 + 0.45 * hook_score)),
     )
     hook = Objective(
         name="hook",
@@ -638,7 +668,9 @@ def predict(edl: EditDecisionList, report: FitReport) -> Prediction:
 
     # -- loop ------------------------------------------------------------
     seam = _seam(edl)
-    predicted_loop = 1.0 + (report.elite_loop - 1.0 if report.elite_loop else 0.8) * seam
+    predicted_loop = (
+        1.0 + (report.elite_loop - 1.0 if report.elite_loop else 0.8) * seam
+    )
     loop = Objective(
         name="loop",
         score=seam,
@@ -657,14 +689,21 @@ def predict(edl: EditDecisionList, report: FitReport) -> Prediction:
     pace = len(edl.shots) / max(runtime, 1.0)
     length_penalty = max(0.0, min(0.6, (runtime - 18.0) / 45.0))
     predicted_completion = max(
-        0.05, min(0.98, predicted_three_second * (0.72 + 0.10 * min(pace, 2.5)) - length_penalty)
+        0.05,
+        min(
+            0.98,
+            predicted_three_second * (0.72 + 0.10 * min(pace, 2.5)) - length_penalty,
+        ),
     )
     predicted_share = max(
-        0.0, 0.004 + 0.085 * predicted_completion + 0.022 * max(0.0, predicted_loop - 1.0)
+        0.0,
+        0.004 + 0.085 * predicted_completion + 0.022 * max(0.0, predicted_loop - 1.0),
     )
     share_score = max(0.0, min(1.0, predicted_share / (TARGET_SHARE_TO_VIEW * 1.6)))
     if runtime > 30:
-        notes.append(f"{runtime:.0f}s is long for a share — completion is what people pass on")
+        notes.append(
+            f"{runtime:.0f}s is long for a share — completion is what people pass on"
+        )
     share = Objective(
         name="share",
         score=share_score,
@@ -677,7 +716,9 @@ def predict(edl: EditDecisionList, report: FitReport) -> Prediction:
         round(
             predicted_three_second
             * math.exp(
-                math.log(max(predicted_completion, 1e-4) / max(predicted_three_second, 1e-4))
+                math.log(
+                    max(predicted_completion, 1e-4) / max(predicted_three_second, 1e-4)
+                )
                 * (index / 9)
             ),
             4,
@@ -686,5 +727,10 @@ def predict(edl: EditDecisionList, report: FitReport) -> Prediction:
     )
 
     return Prediction(
-        hook=hook, share=share, loop=loop, retention_curve=curve, runtime=runtime, notes=notes
+        hook=hook,
+        share=share,
+        loop=loop,
+        retention_curve=curve,
+        runtime=runtime,
+        notes=notes,
     )

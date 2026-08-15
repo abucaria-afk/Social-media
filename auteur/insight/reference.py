@@ -171,7 +171,9 @@ def measure(paths: Sequence[str | Path], *, analysis_fps: float = 8.0) -> StyleT
         if asset is None or asset.kind != "video" or asset.duration <= 0:
             log.info("skipping %s as reference — not readable video", file.name)
             continue
-        dossier = build_dossier(file.stem[:8], asset, analysis_fps=analysis_fps, analysis_width=160)
+        dossier = build_dossier(
+            file.stem[:8], asset, analysis_fps=analysis_fps, analysis_width=160
+        )
         video = dossier.video
         cuts = [float(c) for c in video.shot_boundaries]
         duration = asset.duration
@@ -185,7 +187,9 @@ def measure(paths: Sequence[str | Path], *, analysis_fps: float = 8.0) -> StyleT
                 # No cut at all means the whole clip is the opening shot.
                 "first_cut": cuts[0] if cuts else duration,
                 "luma": float(np.mean(video.luma)) if len(video.luma) else 0.0,
-                "contrast": float(np.mean(video.contrast)) if len(video.contrast) else 0.0,
+                "contrast": (
+                    float(np.mean(video.contrast)) if len(video.contrast) else 0.0
+                ),
                 "motion": float(np.mean(video.motion)) if len(video.motion) else 0.0,
                 "seconds": duration,
             }

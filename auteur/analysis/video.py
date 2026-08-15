@@ -18,7 +18,9 @@ from ..ingest import MediaAsset
 
 log = logging.getLogger("auteur.analysis.video")
 
-_LAPLACIAN = np.array([[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]], dtype=np.float32)
+_LAPLACIAN = np.array(
+    [[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]], dtype=np.float32
+)
 
 
 @dataclass
@@ -31,20 +33,40 @@ class VideoAnalysis:
     height: int
 
     #: One value per sampled frame.
-    luma: np.ndarray = field(repr=False, default_factory=lambda: np.zeros(0, np.float32))
-    contrast: np.ndarray = field(repr=False, default_factory=lambda: np.zeros(0, np.float32))
-    sharpness: np.ndarray = field(repr=False, default_factory=lambda: np.zeros(0, np.float32))
-    edges: np.ndarray = field(repr=False, default_factory=lambda: np.zeros(0, np.float32))
-    motion: np.ndarray = field(repr=False, default_factory=lambda: np.zeros(0, np.float32))
+    luma: np.ndarray = field(
+        repr=False, default_factory=lambda: np.zeros(0, np.float32)
+    )
+    contrast: np.ndarray = field(
+        repr=False, default_factory=lambda: np.zeros(0, np.float32)
+    )
+    sharpness: np.ndarray = field(
+        repr=False, default_factory=lambda: np.zeros(0, np.float32)
+    )
+    edges: np.ndarray = field(
+        repr=False, default_factory=lambda: np.zeros(0, np.float32)
+    )
+    motion: np.ndarray = field(
+        repr=False, default_factory=lambda: np.zeros(0, np.float32)
+    )
     #: Global camera motion, normalised to frame widths per second.
     pan: np.ndarray = field(repr=False, default_factory=lambda: np.zeros(0, np.float32))
-    tilt: np.ndarray = field(repr=False, default_factory=lambda: np.zeros(0, np.float32))
-    zoom: np.ndarray = field(repr=False, default_factory=lambda: np.zeros(0, np.float32))
+    tilt: np.ndarray = field(
+        repr=False, default_factory=lambda: np.zeros(0, np.float32)
+    )
+    zoom: np.ndarray = field(
+        repr=False, default_factory=lambda: np.zeros(0, np.float32)
+    )
     #: Subject position in normalised frame coordinates, one row per frame.
-    subject: np.ndarray = field(repr=False, default_factory=lambda: np.zeros((0, 2), np.float32))
+    subject: np.ndarray = field(
+        repr=False, default_factory=lambda: np.zeros((0, 2), np.float32)
+    )
     #: Clipping, as a fraction of pixels crushed or blown.
-    shadows: np.ndarray = field(repr=False, default_factory=lambda: np.zeros(0, np.float32))
-    highlights: np.ndarray = field(repr=False, default_factory=lambda: np.zeros(0, np.float32))
+    shadows: np.ndarray = field(
+        repr=False, default_factory=lambda: np.zeros(0, np.float32)
+    )
+    highlights: np.ndarray = field(
+        repr=False, default_factory=lambda: np.zeros(0, np.float32)
+    )
 
     #: Colour, measured on a coarse RGB proxy.
     mean_rgb: tuple[float, float, float] = (0.5, 0.5, 0.5)
@@ -74,8 +96,12 @@ class VideoAnalysis:
             return float(chunk.max()) if chunk.size else default
 
         subject = self.subject[window]
-        anchor = subject.mean(axis=0) if subject.size else np.array([0.5, 0.5], np.float32)
-        drift = float(np.linalg.norm(subject[-1] - subject[0])) if len(subject) > 1 else 0.0
+        anchor = (
+            subject.mean(axis=0) if subject.size else np.array([0.5, 0.5], np.float32)
+        )
+        drift = (
+            float(np.linalg.norm(subject[-1] - subject[0])) if len(subject) > 1 else 0.0
+        )
 
         return {
             "luma": mean(self.luma, 0.5),
@@ -151,7 +177,9 @@ def _global_motion(prev: np.ndarray, curr: np.ndarray) -> tuple[float, float, fl
     ata = design.T @ design
     atb = design.T @ target
     # Ridge term keeps flat, textureless frames from producing wild fits.
-    ata += np.eye(3, dtype=np.float32) * (1e-3 * max(float(np.trace(ata)), 1e-6) / 3.0 + 1e-8)
+    ata += np.eye(3, dtype=np.float32) * (
+        1e-3 * max(float(np.trace(ata)), 1e-6) / 3.0 + 1e-8
+    )
     try:
         tx, ty, scale = np.linalg.solve(ata, atb)
     except np.linalg.LinAlgError:  # pragma: no cover - singular textureless frame
@@ -197,7 +225,10 @@ def _smooth_track(track: np.ndarray, window: int = 5) -> np.ndarray:
     kernel = np.ones(window, np.float32) / window
     padded = np.pad(track, ((window // 2, window // 2), (0, 0)), mode="edge")
     return np.stack(
-        [np.convolve(padded[:, axis], kernel, mode="valid")[: len(track)] for axis in range(2)],
+        [
+            np.convolve(padded[:, axis], kernel, mode="valid")[: len(track)]
+            for axis in range(2)
+        ],
         axis=1,
     ).astype(np.float32)
 
@@ -214,7 +245,10 @@ def _detect_shots(frames: np.ndarray, motion: np.ndarray, fps: float) -> list[fl
         return []
 
     hist = np.stack(
-        [np.bincount((f.ravel() // 8).astype(np.int64), minlength=32)[:32] for f in frames]
+        [
+            np.bincount((f.ravel() // 8).astype(np.int64), minlength=32)[:32]
+            for f in frames
+        ]
     )
     hist = hist.astype(np.float32)
     hist /= hist.sum(axis=1, keepdims=True).clip(1e-6)
@@ -300,7 +334,9 @@ def analyse_video(
     n = len(stream)
     if n == 0:
         log.warning("no frames decoded from %s", asset.name)
-        return VideoAnalysis(fps=analysis_fps, duration=asset.duration, width=0, height=0)
+        return VideoAnalysis(
+            fps=analysis_fps, duration=asset.duration, width=0, height=0
+        )
 
     frames = stream.frames.astype(np.float32) / 255.0
 
@@ -315,7 +351,9 @@ def analyse_video(
 
     if n > 1:
         difference = np.abs(np.diff(frames, axis=0))
-        motion = np.concatenate([[0.0], difference.mean(axis=(1, 2))]).astype(np.float32)
+        motion = np.concatenate([[0.0], difference.mean(axis=(1, 2))]).astype(
+            np.float32
+        )
         energy = np.concatenate([difference[:1], difference], axis=0)
     else:
         motion = np.zeros(1, np.float32)
@@ -331,7 +369,9 @@ def analyse_video(
     tilt *= analysis_fps
     zoom *= analysis_fps
 
-    subject = _subject_track(frames, energy * (np.abs(_pad_like(laplacian, frames)) + 0.05))
+    subject = _subject_track(
+        frames, energy * (np.abs(_pad_like(laplacian, frames)) + 0.05)
+    )
     mean_rgb, saturation, warmth, palette = _colour_profile(asset, analysis_fps)
 
     return VideoAnalysis(
@@ -367,7 +407,9 @@ def _pad_like(small: np.ndarray, reference: np.ndarray) -> np.ndarray:
 
 def _analyse_still(asset: MediaAsset, analysis_fps: float, width: int) -> VideoAnalysis:
     """A still has no motion, but it still has exposure, detail and a subject."""
-    stream = ffmpeg.read_frames(asset.path, width=width, fps=1.0, max_frames=1, still=True)
+    stream = ffmpeg.read_frames(
+        asset.path, width=width, fps=1.0, max_frames=1, still=True
+    )
     duration = asset.duration
     frame_count = max(1, int(duration * analysis_fps))
 
@@ -377,7 +419,11 @@ def _analyse_still(asset: MediaAsset, analysis_fps: float, width: int) -> VideoA
     frame = stream.frames[:1].astype(np.float32) / 255.0
     laplacian = _convolve3(frame, _LAPLACIAN)
     energy = np.abs(_pad_like(laplacian, frame)) + 0.05
-    anchor = _subject_track(frame, energy)[0] if len(frame) else np.array([0.5, 0.5], np.float32)
+    anchor = (
+        _subject_track(frame, energy)[0]
+        if len(frame)
+        else np.array([0.5, 0.5], np.float32)
+    )
 
     def constant(value: float) -> np.ndarray:
         return np.full(frame_count, value, np.float32)

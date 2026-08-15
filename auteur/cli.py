@@ -18,7 +18,13 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .ui import NullReporter, Reporter, describe_count, describe_duration, describe_shape
+from .ui import (
+    NullReporter,
+    Reporter,
+    describe_count,
+    describe_duration,
+    describe_shape,
+)
 
 EXAMPLES = """examples:
   auteur edit ./clips "fast neon montage, 20 seconds"
@@ -83,9 +89,15 @@ Nothing here posts for you -- it says what to post and when.
 
 
 def _configure_logging(verbosity: int) -> None:
-    level = logging.WARNING if verbosity <= 0 else logging.INFO if verbosity == 1 else logging.DEBUG
+    level = (
+        logging.WARNING
+        if verbosity <= 0
+        else logging.INFO if verbosity == 1 else logging.DEBUG
+    )
     logging.basicConfig(level=level, format="  %(message)s", stream=sys.stderr)
-    logging.getLogger("auteur.ffmpeg").setLevel(logging.WARNING if verbosity < 2 else logging.DEBUG)
+    logging.getLogger("auteur.ffmpeg").setLevel(
+        logging.WARNING if verbosity < 2 else logging.DEBUG
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -126,7 +138,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="folder or files to edit; the last one may be the prompt instead",
     )
     edit.add_argument(
-        "-p", "--prompt", default=None, help="what kind of film you want, in your own words"
+        "-p",
+        "--prompt",
+        default=None,
+        help="what kind of film you want, in your own words",
     )
     edit.add_argument(
         "-l",
@@ -141,7 +156,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--shape",
         default="vertical",
         metavar="SHAPE",
-        help="vertical (default), square, widescreen, cinematic — " "comma-separate to get several",
+        help="vertical (default), square, widescreen, cinematic — "
+        "comma-separate to get several",
     )
     edit.add_argument(
         "--quality",
@@ -156,7 +172,9 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="FOLDER",
         help="where to put everything (default ./auteur-work)",
     )
-    edit.add_argument("--details", action="store_true", help="also print the full shot list")
+    edit.add_argument(
+        "--details", action="store_true", help="also print the full shot list"
+    )
     edit.add_argument(
         "--revisions",
         type=int,
@@ -164,19 +182,30 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="N",
         help="how many times to watch it back and improve it (default 1)",
     )
-    edit.add_argument("--seed", type=int, default=None, help="change this for a different cut")
     edit.add_argument(
-        "--no-ai", action="store_true", help="never call Claude; use the built-in editor"
+        "--seed", type=int, default=None, help="change this for a different cut"
+    )
+    edit.add_argument(
+        "--no-ai",
+        action="store_true",
+        help="never call Claude; use the built-in editor",
     )
     edit.add_argument("--model", default=None, help=argparse.SUPPRESS)
-    edit.add_argument("--rounds", type=int, default=None, help=argparse.SUPPRESS)  # old name
+    edit.add_argument(
+        "--rounds", type=int, default=None, help=argparse.SUPPRESS
+    )  # old name
 
-    demo = sub.add_parser("demo", help="make practice footage and edit it, to see how this works")
+    demo = sub.add_parser(
+        "demo", help="make practice footage and edit it, to see how this works"
+    )
     demo.add_argument("-o", "--out", default="auteur-demo", metavar="FOLDER")
-    demo.add_argument("-p", "--prompt", default='fast neon montage, 12 seconds, "AFTER DARK"')
+    demo.add_argument(
+        "-p", "--prompt", default='fast neon montage, 12 seconds, "AFTER DARK"'
+    )
 
     serve = sub.add_parser(
-        "serve", help="open the edit room in a browser, so you can use it from your phone"
+        "serve",
+        help="open the edit room in a browser, so you can use it from your phone",
     )
     serve.add_argument("--port", type=int, default=8000, help="default 8000")
     serve.add_argument(
@@ -214,7 +243,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="the serve folder the accounts live in (default ./auteur-web)",
     )
     account.add_argument("-u", "--user", default=None, help="username")
-    account.add_argument("-e", "--email", default=None, help="email, for password resets")
+    account.add_argument(
+        "-e", "--email", default=None, help="email, for password resets"
+    )
 
     analyse = sub.add_parser("analyse", help="show what the agent sees in your footage")
     analyse.add_argument("paths", nargs="+", metavar="FOOTAGE")
@@ -231,7 +262,11 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     workflow.add_argument(
-        "action", nargs="?", default="list", choices=["list", "run"], help="list (default) or run"
+        "action",
+        nargs="?",
+        default="list",
+        choices=["list", "run"],
+        help="list (default) or run",
     )
     workflow.add_argument(
         "platform",
@@ -243,9 +278,16 @@ def _build_parser() -> argparse.ArgumentParser:
     workflow.add_argument("paths", nargs="*", metavar="FOOTAGE")
     workflow.add_argument("-p", "--prompt", default=None, help="what the post is about")
     workflow.add_argument(
-        "-l", "--length", type=float, default=None, metavar="SECONDS", help="override the runtime"
+        "-l",
+        "--length",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="override the runtime",
     )
-    workflow.add_argument("--quality", default="standard", choices=["draft", "standard", "best"])
+    workflow.add_argument(
+        "--quality", default="standard", choices=["draft", "standard", "best"]
+    )
     workflow.add_argument(
         "-o",
         "--out",
@@ -260,9 +302,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help='queue it — "friday 18:00", "2026-08-20 09:00", or "next" for the first free slot',
     )
     workflow.add_argument(
-        "--no-ai", action="store_true", help="never call Claude; use the built-in editor"
+        "--no-ai",
+        action="store_true",
+        help="never call Claude; use the built-in editor",
     )
-    workflow.add_argument("--seed", type=int, default=None, help="change this for a different cut")
+    workflow.add_argument(
+        "--seed", type=int, default=None, help="change this for a different cut"
+    )
     workflow.add_argument(
         "--agents",
         default="off",
@@ -300,9 +346,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     insight.add_argument("paths", nargs="*", metavar="CSV", help="performance exports")
     insight.add_argument(
-        "--rows", type=int, default=2000, help="simulated rows to add (0 for measured only)"
+        "--rows",
+        type=int,
+        default=2000,
+        help="simulated rows to add (0 for measured only)",
     )
-    insight.add_argument("-o", "--out", default=None, metavar="FILE", help="where to write")
+    insight.add_argument(
+        "-o", "--out", default=None, metavar="FILE", help="where to write"
+    )
     insight.add_argument("--json", action="store_true", help="machine-readable output")
 
     media = sub.add_parser(
@@ -320,10 +371,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     media.add_argument("paths", nargs="*", metavar="FOLDER")
     media.add_argument(
-        "-i", "--index", default=None, metavar="FILE", help="the index file (default in the folder)"
+        "-i",
+        "--index",
+        default=None,
+        metavar="FILE",
+        help="the index file (default in the folder)",
     )
     media.add_argument("--kind", default=None, choices=["video", "image", "audio"])
-    media.add_argument("--label", default=None, help="the tag to apply, for `media tag`")
+    media.add_argument(
+        "--label", default=None, help="the tag to apply, for `media tag`"
+    )
     media.add_argument("--json", action="store_true", help="machine-readable output")
 
     schedule = sub.add_parser(
@@ -374,7 +431,9 @@ SHAPES = {
 QUALITIES = {"draft": "draft", "standard": "standard", "best": "master"}
 
 
-def _split_paths_and_prompt(paths: list[str], prompt: str | None) -> tuple[list[str], str | None]:
+def _split_paths_and_prompt(
+    paths: list[str], prompt: str | None
+) -> tuple[list[str], str | None]:
     """Let the prompt be the last argument, so quoting a sentence just works.
 
     `auteur edit ./clips "fast montage"` is what people type first. Only treat
@@ -469,7 +528,9 @@ def _run_edit(args: argparse.Namespace, say: Reporter) -> int:
     facts.append(f"took {describe_duration(production.seconds)}")
 
     files = [(name, str(path)) for name, path in production.outputs.items()]
-    files.append(("what it did and why", str(production.workspace.root / "production-notes.md")))
+    files.append(
+        ("what it did and why", str(production.workspace.root / "production-notes.md"))
+    )
 
     say.result(headline="Your film is ready", facts=facts, files=files)
 
@@ -574,7 +635,9 @@ def _run_account(args: argparse.Namespace, say: Reporter) -> int:
 
     if args.action == "add":
         if accounts.get(username) is not None:
-            say.failure(f"{username} already exists", "use `auteur account password` instead")
+            say.failure(
+                f"{username} already exists", "use `auteur account password` instead"
+            )
             return 1
         email = args.email or input("email (for password resets): ").strip()
     else:
@@ -701,7 +764,10 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
 
     paths, prompt = _split_paths_and_prompt(list(args.paths), args.prompt)
     if not paths:
-        say.failure("I need some footage", f'try:  auteur workflow run {spec.name} ./clips "..."')
+        say.failure(
+            "I need some footage",
+            f'try:  auteur workflow run {spec.name} ./clips "..."',
+        )
         return 2
     if not prompt:
         say.failure(
@@ -795,7 +861,11 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
 
         root = Path(args.out) if args.out else Path.cwd() / "auteur-posts"
         queue = Schedule(Schedule.default_path(root))
-        when = None if args.schedule.strip().lower() in ("next", "auto", "") else args.schedule
+        when = (
+            None
+            if args.schedule.strip().lower() in ("next", "auto", "")
+            else args.schedule
+        )
         try:
             queued, complaint = queue.add(deliverable, when)
         except ValueError as exc:
@@ -829,7 +899,9 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
         from .agents import check_render, preflight, unknowable
         from .insight import predict
 
-        findings = preflight(production.edl, predict(production.edl, model), model, spec=spec)
+        findings = preflight(
+            production.edl, predict(production.edl, model), model, spec=spec
+        )
         rendered = check_render(deliverable.video)
         if rendered is not None:
             findings.append(rendered)
@@ -932,7 +1004,9 @@ def _run_insight(args: argparse.Namespace, say: Reporter) -> int:
 
     if args.action == "simulate":
         rows = simulate(max(1, args.rows))
-        destination = Path(args.out) if args.out else Path.cwd() / "auteur-practice-data.csv"
+        destination = (
+            Path(args.out) if args.out else Path.cwd() / "auteur-practice-data.csv"
+        )
         write_csv(rows, destination)
         say.result(
             headline="Practice data written",
@@ -986,7 +1060,9 @@ def _run_insight(args: argparse.Namespace, say: Reporter) -> int:
                 f"amp {signal.amplification:.3f}   {signal.hook[:36]}"
             )
         print()
-    print("  targets:   hook 0.80 at three seconds  ·  share 0.05 of views  ·  loop 1.5 plays")
+    print(
+        "  targets:   hook 0.80 at three seconds  ·  share 0.05 of views  ·  loop 1.5 plays"
+    )
     print()
     return 0
 
@@ -1033,7 +1109,9 @@ def _run_media(args: argparse.Namespace, say: Reporter) -> int:
         facts = [library.describe()]
         if report.seconds >= 1.0:
             facts.append(f"took {describe_duration(report.seconds)}")
-        say.result(headline="Indexed", facts=facts, files=[("the index", str(library.path))])
+        say.result(
+            headline="Indexed", facts=facts, files=[("the index", str(library.path))]
+        )
         return 0
 
     if not library.entries:
@@ -1066,7 +1144,10 @@ def _run_media(args: argparse.Namespace, say: Reporter) -> int:
 
     if args.action == "tag":
         if not paths or not args.label:
-            say.failure("what, and what with?", "try:  auteur media tag ./clip.mp4 --label keepers")
+            say.failure(
+                "what, and what with?",
+                "try:  auteur media tag ./clip.mp4 --label keepers",
+            )
             return 2
         touched = library.tag(paths, args.label)
         library.save()
@@ -1111,7 +1192,9 @@ def _run_schedule(args: argparse.Namespace, say: Reporter) -> int:
         if args.action == "remove":
             changed = queue.remove(args.post_id)
         else:
-            changed = queue.mark(args.post_id, "posted" if args.action == "done" else "skipped")
+            changed = queue.mark(
+                args.post_id, "posted" if args.action == "done" else "skipped"
+            )
         if not changed:
             say.failure(f"no post with id {args.post_id!r}")
             return 1
@@ -1122,10 +1205,16 @@ def _run_schedule(args: argparse.Namespace, say: Reporter) -> int:
     if args.action == "tidy":
         gone = queue.forget_missing()
         queue.save()
-        print(f"\n  dropped {describe_count(len(gone), 'post')} whose film is no longer there\n")
+        print(
+            f"\n  dropped {describe_count(len(gone), 'post')} whose film is no longer there\n"
+        )
         return 0
 
-    posts = queue.due() if args.action == "due" else sorted(queue.posts, key=lambda p: p.when)
+    posts = (
+        queue.due()
+        if args.action == "due"
+        else sorted(queue.posts, key=lambda p: p.when)
+    )
     print()
     print(f"  {queue.describe()}")
     print(f"  queue: {queue.path}")
@@ -1179,7 +1268,10 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     except Exception as exc:  # noqa: BLE001 - the CLI is the last line of defence
         logging.getLogger("auteur").debug("unhandled failure", exc_info=True)
-        say.failure("something went wrong", f"{exc}\n{' ' * 5}run again with -vv to see the detail")
+        say.failure(
+            "something went wrong",
+            f"{exc}\n{' ' * 5}run again with -vv to see the detail",
+        )
         return 1
 
     parser.print_help()

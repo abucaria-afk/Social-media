@@ -71,13 +71,15 @@ _SERVICE_TAGS: dict[str, tuple[str, ...]] = {
 
 #: Words long enough to look like nouns and empty enough to be worthless as
 #: tags. `#after` finds nothing anybody wanted to find.
-_NOT_WORTH_TAGGING = frozenset("""
+_NOT_WORTH_TAGGING = frozenset(
+    """
     after also away back been before being both come does down each else even
     ever from have here into just like made make many more most much must
     near next once only over said same show some such than that them then
     there these they this those through very want well were what when where
     which while will with within would your
-    """.split())
+    """.split()
+)
 
 
 def _sentence(text: str) -> str:
@@ -134,7 +136,11 @@ class Caption:
         return " ".join(tags)[: spec.caption_limit]
 
     def to_json(self) -> dict:
-        return {"body": self.body, "hashtags": list(self.hashtags), "alt_text": self.alt_text}
+        return {
+            "body": self.body,
+            "hashtags": list(self.hashtags),
+            "alt_text": self.alt_text,
+        }
 
 
 def draft_caption(brief: Brief, edl: EditDecisionList, spec: PlatformSpec) -> Caption:
@@ -191,11 +197,15 @@ def draft_caption(brief: Brief, edl: EditDecisionList, spec: PlatformSpec) -> Ca
         f"{edl.look.preset} grade."
     )
     return Caption(
-        body="\n".join(lines), hashtags=tuple(tags[: spec.hashtag_limit]), alt_text=alt_text
+        body="\n".join(lines),
+        hashtags=tuple(tags[: spec.hashtag_limit]),
+        alt_text=alt_text,
     )
 
 
-def cover_frame(video: Path, destination: Path, *, at: float | None = None) -> Path | None:
+def cover_frame(
+    video: Path, destination: Path, *, at: float | None = None
+) -> Path | None:
     """Pull one frame out to use as the cover.
 
     Not the first frame. The first frame of a cut is the least representative
@@ -268,7 +278,9 @@ class Deliverable:
             "width": self.width,
             "height": self.height,
             "caption": self.caption.to_json(),
-            "caption_to_paste": self.caption.render(spec) if spec else self.caption.body,
+            "caption_to_paste": (
+                self.caption.render(spec) if spec else self.caption.body
+            ),
             "warnings": list(self.warnings),
             "created": self.created,
         }
@@ -308,7 +320,9 @@ def package(
     try:
         info = ff.probe(video)
         duration = float(info["format"]["duration"])
-        stream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
+        stream = next(
+            (s for s in info.get("streams", []) if s.get("codec_type") == "video"), {}
+        )
         width, height = int(stream.get("width", 0)), int(stream.get("height", 0))
     except (KeyError, ValueError, StopIteration, ff.FFmpegError, OSError) as exc:
         log.warning("could not probe the finished film: %s", exc)

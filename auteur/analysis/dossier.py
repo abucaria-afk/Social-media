@@ -43,7 +43,9 @@ class Take:
     energy: float = 0.0  # audio energy under this range
     subject: tuple[float, float] = (0.5, 0.5)
     subject_drift: float = 0.0
-    camera: str = "static"  # static | pan-left | pan-right | tilt | push-in | pull-out | handheld
+    camera: str = (
+        "static"  # static | pan-left | pan-right | tilt | push-in | pull-out | handheld
+    )
     scale: str = "medium"  # wide | medium | close  (estimated, see _estimate_scale)
     stability: float = 1.0
 
@@ -111,11 +113,18 @@ class ClipDossier:
                     float(np.mean(self.video.luma)) if len(self.video.luma) else 0.5, 3
                 ),
                 "contrast": round(
-                    float(np.mean(self.video.contrast)) if len(self.video.contrast) else 0.0, 3
+                    (
+                        float(np.mean(self.video.contrast))
+                        if len(self.video.contrast)
+                        else 0.0
+                    ),
+                    3,
                 ),
                 "saturation": round(self.video.saturation, 3),
                 "warmth": round(self.video.warmth, 3),
-                "palette": [f"#{r:02x}{g:02x}{b:02x}" for r, g, b in self.video.palette[:4]],
+                "palette": [
+                    f"#{r:02x}{g:02x}{b:02x}" for r, g, b in self.video.palette[:4]
+                ],
             },
             "sound": {
                 "present": not self.audio.silent,
@@ -147,7 +156,9 @@ def _estimate_scale(edges: float, motion: float, subject_drift: float) -> str:
     return "medium"
 
 
-def _describe_camera(pan: float, tilt: float, zoom: float, motion_variance: float) -> str:
+def _describe_camera(
+    pan: float, tilt: float, zoom: float, motion_variance: float
+) -> str:
     if motion_variance > 0.035 and abs(pan) < 0.25 and abs(tilt) < 0.25:
         return "handheld"
     if abs(zoom) > 0.10 and abs(zoom) > max(abs(pan), abs(tilt)):
@@ -189,9 +200,15 @@ def _score_window(stats: dict, audio_energy: float) -> float:
     return float(np.clip(score, 0.0, 1.0))
 
 
-def _segments(dossier_video: VideoAnalysis, duration: float) -> list[tuple[float, float]]:
+def _segments(
+    dossier_video: VideoAnalysis, duration: float
+) -> list[tuple[float, float]]:
     """Split a clip at the cuts it already contains, so we never cut across one."""
-    marks = [0.0, *[b for b in dossier_video.shot_boundaries if 0.2 < b < duration - 0.2], duration]
+    marks = [
+        0.0,
+        *[b for b in dossier_video.shot_boundaries if 0.2 < b < duration - 0.2],
+        duration,
+    ]
     return [
         (marks[i], marks[i + 1])
         for i in range(len(marks) - 1)
@@ -229,7 +246,9 @@ def _find_takes(
             stats = video.slice_stats(start, end)
             energy = audio.energy_over(start, end) if not audio.silent else 0.0
 
-            i0, i1 = video.index_of(start), max(video.index_of(end), video.index_of(start) + 1)
+            i0, i1 = video.index_of(start), max(
+                video.index_of(end), video.index_of(start) + 1
+            )
             motion_slice = video.motion[i0:i1]
             variance = float(motion_slice.var()) if motion_slice.size else 0.0
             stability = float(np.clip(1.0 - variance * 12.0, 0.0, 1.0))
@@ -248,8 +267,12 @@ def _find_takes(
                     energy=energy,
                     subject=(stats["subject_x"], stats["subject_y"]),
                     subject_drift=stats["subject_drift"],
-                    camera=_describe_camera(stats["pan"], stats["tilt"], stats["zoom"], variance),
-                    scale=_estimate_scale(stats["edges"], stats["motion"], stats["subject_drift"]),
+                    camera=_describe_camera(
+                        stats["pan"], stats["tilt"], stats["zoom"], variance
+                    ),
+                    scale=_estimate_scale(
+                        stats["edges"], stats["motion"], stats["subject_drift"]
+                    ),
                     stability=stability,
                 )
             )
@@ -289,11 +312,19 @@ def _pick_peaks(scored: list[Take], seg_start: float, seg_end: float) -> list[Ta
 
 
 def build_dossier(
-    clip_id: str, asset: MediaAsset, *, analysis_fps: float = 6.0, analysis_width: int = 128
+    clip_id: str,
+    asset: MediaAsset,
+    *,
+    analysis_fps: float = 6.0,
+    analysis_width: int = 128,
 ) -> ClipDossier:
     """Watch and listen to one clip, then work out which parts of it are usable."""
     video = analyse_video(asset, analysis_fps=analysis_fps, width=analysis_width)
-    audio = analyse_audio(asset) if asset.has_audio else AudioAnalysis(duration=asset.duration)
+    audio = (
+        analyse_audio(asset)
+        if asset.has_audio
+        else AudioAnalysis(duration=asset.duration)
+    )
     takes = _find_takes(clip_id, video, audio, asset.duration)
 
     if not takes:
@@ -301,10 +332,17 @@ def build_dossier(
         span = min(asset.duration, 3.0)
         start = max(0.0, (asset.duration - span) / 2)
         takes = [
-            Take(clip_id=clip_id, start=round(start, 3), end=round(start + span, 3), score=0.2)
+            Take(
+                clip_id=clip_id,
+                start=round(start, 3),
+                end=round(start + span, 3),
+                score=0.2,
+            )
         ]
 
-    return ClipDossier(clip_id=clip_id, asset=asset, video=video, audio=audio, takes=takes)
+    return ClipDossier(
+        clip_id=clip_id, asset=asset, video=video, audio=audio, takes=takes
+    )
 
 
 def build_dossiers(
@@ -326,7 +364,9 @@ def build_dossiers(
         )
 
     if workers > 1 and len(numbered) > 1:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(workers, len(numbered))) as pool:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(workers, len(numbered))
+        ) as pool:
             for dossier in pool.map(work, numbered):
                 results[dossier.clip_id] = dossier
     else:

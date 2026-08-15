@@ -98,9 +98,9 @@ def rushes(tmp_path_factory) -> Path:
     for start in range(0, len(track) - step, step):
         t = np.arange(min(int(rate * 0.25), len(track) - start)) / rate
         pitch = 50.0 + 90.0 * np.exp(-t * 30.0)
-        track[start : start + len(t)] += np.sin(2 * np.pi * np.cumsum(pitch) / rate) * np.exp(
-            -t * 12.0
-        )
+        track[start : start + len(t)] += np.sin(
+            2 * np.pi * np.cumsum(pitch) / rate
+        ) * np.exp(-t * 12.0)
     track /= max(float(np.abs(track).max()), 1e-6)
     with wave.open(str(directory / "beat.wav"), "wb") as handle:
         handle.setnchannels(1)
@@ -183,7 +183,10 @@ def test_dossier_finds_usable_takes(rushes):
     dossier = build_dossier("C01", probe_asset(rushes / "a_wide.mp4"))
     assert dossier.takes
     assert all(take.duration > 0 for take in dossier.takes)
-    assert all(0.0 <= take.start < take.end <= dossier.duration + 0.01 for take in dossier.takes)
+    assert all(
+        0.0 <= take.start < take.end <= dossier.duration + 0.01
+        for take in dossier.takes
+    )
     assert 0.0 <= dossier.quality <= 1.0
 
 
@@ -208,7 +211,9 @@ def test_a_ramp_integrates_rather_than_averaging_speed():
     duration = ramp.output_duration(2.0)
     naive = 2.0 / ((0.5 + 2.0) / 2)
     assert duration > naive
-    assert duration == pytest.approx(2.0 * np.mean(1.0 / np.linspace(0.5, 2.0, 64)), rel=0.02)
+    assert duration == pytest.approx(
+        2.0 * np.mean(1.0 / np.linspace(0.5, 2.0, 64)), rel=0.02
+    )
 
 
 def test_transitions_shorten_the_timeline_by_their_overlap():
@@ -298,7 +303,8 @@ def test_variety_pass_breaks_up_a_repeated_clip():
 def test_transition_density_is_capped():
     edl = EditDecisionList(
         shots=[
-            _shot(clip=f"C{i:02d}", transition_in=Transition("dissolve", 0.3)) for i in range(10)
+            _shot(clip=f"C{i:02d}", transition_in=Transition("dissolve", 0.3))
+            for i in range(10)
         ]
     )
     demoted = grammar.limit_transition_density(edl, max_fraction=0.2)
@@ -356,7 +362,9 @@ def test_ramp_graph_slices_a_curve_and_leaves_flat_speeds_alone():
     assert "split" not in flat
     assert "setpts=PTS/2.0" in flat
 
-    curved = motion.ramp_video_graph(Ramp.hit(), source_duration=2.0, in_label="v", out_label="o")
+    curved = motion.ramp_video_graph(
+        Ramp.hit(), source_duration=2.0, in_label="v", out_label="o"
+    )
     assert "split=" in curved and "concat=" in curved
 
 
@@ -454,7 +462,9 @@ def test_cuts_only_brief_disables_transitions():
 
 def test_heuristic_director_produces_a_legal_edit(rushes):
     bin_ = ingest([rushes])
-    dossiers = [build_dossier(f"C{i + 1:02d}", asset) for i, asset in enumerate(bin_.visuals)]
+    dossiers = [
+        build_dossier(f"C{i + 1:02d}", asset) for i, asset in enumerate(bin_.visuals)
+    ]
     settings = Settings(quality=QUALITIES["draft"], target_duration=8.0)
 
     edl = cut(parse_brief("fast montage, 8 seconds"), dossiers, settings)
@@ -462,14 +472,18 @@ def test_heuristic_director_produces_a_legal_edit(rushes):
     assert edl.shots
     assert edl.duration == pytest.approx(8.0, abs=2.0)
     ids = [shot.clip_id for shot in edl.shots]
-    assert all(a != b for a, b in zip(ids, ids[1:], strict=False)), "no clip cuts back to itself"
+    assert all(
+        a != b for a, b in zip(ids, ids[1:], strict=False)
+    ), "no clip cuts back to itself"
     for shot in edl.shots:
         assert shot.duration >= 0.2
 
 
 def test_the_same_seed_gives_the_same_cut(rushes):
     bin_ = ingest([rushes])
-    dossiers = [build_dossier(f"C{i + 1:02d}", asset) for i, asset in enumerate(bin_.visuals)]
+    dossiers = [
+        build_dossier(f"C{i + 1:02d}", asset) for i, asset in enumerate(bin_.visuals)
+    ]
     brief = parse_brief("fast montage, 8 seconds")
 
     def edit(seed: int) -> list[tuple]:
@@ -499,7 +513,9 @@ def test_a_still_with_source_audio_is_never_mixed():
     assert not carries_audio(still, want_audio=True), "a still has no sound to carry"
     assert carries_audio(moving, want_audio=True)
     assert not carries_audio(moving, want_audio=False)
-    assert not carries_audio(_shot(use_source_audio=True, audio_gain=0.0), want_audio=True)
+    assert not carries_audio(
+        _shot(use_source_audio=True, audio_gain=0.0), want_audio=True
+    )
 
 
 @pytest.mark.slow
@@ -542,7 +558,12 @@ def test_a_single_frame_video_can_be_held(rushes, tmp_path):
 
     shot = Shot(clip_id="C01", source=clip, start=0.0, end=1.5, is_still=True)
     segment = render_shot(
-        shot, 0, Workspace(tmp_path / "w"), FORMATS["square"], QUALITIES["draft"], want_audio=False
+        shot,
+        0,
+        Workspace(tmp_path / "w"),
+        FORMATS["square"],
+        QUALITIES["draft"],
+        want_audio=False,
     )
     assert segment.exists() and segment.stat().st_size > 1000
 
@@ -557,19 +578,27 @@ def test_swapping_shots_leaves_the_transitions_where_they_were():
             _shot(clip="C03", transition_in=Transition("cut", 0.0)),
         ]
     )
-    before = [(shot.transition_in.kind, shot.transition_in.duration) for shot in edl.shots]
+    before = [
+        (shot.transition_in.kind, shot.transition_in.duration) for shot in edl.shots
+    ]
 
     grammar.enforce_variety(edl)
 
-    after = [(shot.transition_in.kind, shot.transition_in.duration) for shot in edl.shots]
+    after = [
+        (shot.transition_in.kind, shot.transition_in.duration) for shot in edl.shots
+    ]
     assert after[1:] == before[1:], "joins must stay put when shots are reordered"
 
 
 def test_varying_the_pacing_never_creates_a_flash_frame():
-    edl = EditDecisionList(shots=[_shot(clip=f"C{i:02d}", end=MIN_SHOT * 1.7) for i in range(6)])
+    edl = EditDecisionList(
+        shots=[_shot(clip=f"C{i:02d}", end=MIN_SHOT * 1.7) for i in range(6)]
+    )
     grammar.vary_pacing(edl, run_length=3, spread=0.5)
     for shot in edl.shots:
-        assert shot.duration >= MIN_SHOT, "a fix must not trade one fault for a worse one"
+        assert (
+            shot.duration >= MIN_SHOT
+        ), "a fix must not trade one fault for a worse one"
 
 
 def test_beat_multiples_vary_without_leaving_the_grid():
@@ -591,9 +620,13 @@ def test_text_plates_are_named_per_format(tmp_path):
 
     cue = TextCue(text="HELLO", start=0.0, duration=1.0, style="title")
     reel = render_all([cue], width=200, height=356, directory=tmp_path, prefix="reel")
-    square = render_all([cue], width=300, height=300, directory=tmp_path, prefix="square")
+    square = render_all(
+        [cue], width=300, height=300, directory=tmp_path, prefix="square"
+    )
 
-    assert reel[0].path != square[0].path, "one format would overwrite the other's plate"
+    assert (
+        reel[0].path != square[0].path
+    ), "one format would overwrite the other's plate"
     assert reel[0].path.exists() and square[0].path.exists()
 
 
@@ -635,9 +668,9 @@ def test_plain_english_helpers():
     assert ui.describe_duration(45) == "45 seconds"
     assert ui.describe_duration(95) == "1m 35s"
 
-    assert "metronome" in ui.plain_finding("metronomic", "x") or "same length" in ui.plain_finding(
+    assert "metronome" in ui.plain_finding(
         "metronomic", "x"
-    )
+    ) or "same length" in ui.plain_finding("metronomic", "x")
     assert ui.plain_finding("unknown-rule", "the fallback") == "the fallback"
 
 
@@ -740,7 +773,9 @@ def test_a_ramp_never_slices_finer_than_the_source_frames():
     second of 30fps footage stretched to 1.2s once asked for 16 slices of 31ms —
     shorter than the 33ms between frames — and every one of them came out empty.
     """
-    ramp = Ramp(points=((0.0, 1.04), (0.27, 0.245), (0.53, 0.245), (1.0, 1.04))).normalise()
+    ramp = Ramp(
+        points=((0.0, 1.04), (0.27, 0.245), (0.53, 0.245), (1.0, 1.04))
+    ).normalise()
     source_duration, source_fps = 0.499, 30.0
 
     slices = motion.ramp_slice_count(ramp, source_duration, source_fps)
@@ -850,7 +885,9 @@ def test_every_icon_the_manifest_names_is_actually_served(tmp_path):
 
     for icon in manifest["icons"]:
         name = icon["src"].lstrip("/")
-        assert (server.STATIC / name).is_file(), f"manifest names {icon['src']}, which is missing"
+        assert (
+            server.STATIC / name
+        ).is_file(), f"manifest names {icon['src']}, which is missing"
 
     page = (server.STATIC / "index.html").read_text()
     for referenced in ("/icon-180.png", "/icon-192.png"):
@@ -958,7 +995,9 @@ def web_server(tmp_path):
 
     request = Request(
         base + "/api/login",
-        data=_json.dumps({"username": "tester", "password": "a-long-enough-one"}).encode(),
+        data=_json.dumps(
+            {"username": "tester", "password": "a-long-enough-one"}
+        ).encode(),
         headers={"Content-Type": "application/json"},
     )
     with urlopen(request) as response:
@@ -1035,7 +1074,9 @@ def test_video_is_served_in_ranges(web_server, tmp_path):
         assert response.status == 206
         assert response.read() == film.read_bytes()[100:200]
 
-    with urlopen(Request(url, headers={"Cookie": cookie})) as response:  # no Range still works
+    with urlopen(
+        Request(url, headers={"Cookie": cookie})
+    ) as response:  # no Range still works
         assert response.status == 200
         assert response.read() == film.read_bytes()
 
@@ -1056,7 +1097,10 @@ def test_a_post_without_clips_says_so_in_plain_words(web_server):
     request = Request(
         base + "/api/jobs",
         data=body,
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "Cookie": cookie},
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Cookie": cookie,
+        },
     )
     with pytest.raises(HTTPError) as caught:
         urlopen(request)
@@ -1099,7 +1143,11 @@ def test_the_demo_hands_edit_a_complete_namespace(monkeypatch, tmp_path):
     )
 
     args = argparse.Namespace(
-        command="demo", quiet=True, verbose=0, out=str(tmp_path / "demo"), prompt="a film"
+        command="demo",
+        quiet=True,
+        verbose=0,
+        out=str(tmp_path / "demo"),
+        prompt="a film",
     )
     assert cli._run_demo(args, cli.NullReporter()) == 0
     assert captured["missing"] == []
@@ -1112,9 +1160,12 @@ def test_a_failure_reaches_the_phone_as_one_readable_line():
     on screen where an explanation belonged."""
     from auteur.web.server import _plain_cause
 
-    graph_dump = "Stream specifier ':v' in filtergraph description " + "[0:v]settb=AVTB;" * 400
+    graph_dump = (
+        "Stream specifier ':v' in filtergraph description " + "[0:v]settb=AVTB;" * 400
+    )
     assert (
-        _plain_cause(ffmpeg.FFmpegError([], 1, graph_dump)) == "One of the clips could not be used."
+        _plain_cause(ffmpeg.FFmpegError([], 1, graph_dump))
+        == "One of the clips could not be used."
     )
 
     assert len(_plain_cause(RuntimeError("x" * 900))) <= 160
@@ -1130,7 +1181,9 @@ def test_a_failed_job_says_something_a_person_can_read(tmp_path):
     studio._fail(
         job,
         "Something went wrong making the film.",
-        RuntimeError("Stream specifier ':v' in filtergraph description " + "[0:v]x;" * 500),
+        RuntimeError(
+            "Stream specifier ':v' in filtergraph description " + "[0:v]x;" * 500
+        ),
     )
 
     assert job.status == "error"
@@ -1382,7 +1435,13 @@ def test_a_still_survives_being_written_out_and_read_back():
     that omits it renders every photo as almost nothing."""
     edl = EditDecisionList(title="t")
     edl.shots.append(
-        Shot(clip_id="C01", source=Path("/tmp/photo.jpg"), start=0.0, end=2.0, is_still=True)
+        Shot(
+            clip_id="C01",
+            source=Path("/tmp/photo.jpg"),
+            start=0.0,
+            end=2.0,
+            is_still=True,
+        )
     )
     assert edl.to_json()["shots"][0]["is_still"] is True
 
@@ -1398,7 +1457,9 @@ def test_a_still_is_clocked_at_the_delivery_rate():
     10-second cut of photographs delivered 7.9."""
     from auteur import render
 
-    still = Shot(clip_id="C01", source=Path("/tmp/photo.jpg"), start=0.0, end=2.0, is_still=True)
+    still = Shot(
+        clip_id="C01", source=Path("/tmp/photo.jpg"), start=0.0, end=2.0, is_still=True
+    )
     assert render._source_fps(still, QUALITIES["draft"]) == 24.0
     assert render._source_fps(still, QUALITIES["standard"]) == 30.0
 
@@ -1411,7 +1472,9 @@ def test_a_film_of_stills_lands_on_its_runtime_at_every_quality(rushes, tmp_path
     photos = tmp_path / "photos"
     photos.mkdir()
     binary = str(ff.ffmpeg_path())
-    for index, source in enumerate(("testsrc2=size=800x600", "mandelbrot=size=600x800")):
+    for index, source in enumerate(
+        ("testsrc2=size=800x600", "mandelbrot=size=600x800")
+    ):
         subprocess.run(
             [
                 binary,
@@ -1612,7 +1675,12 @@ def test_the_guessing_lists_are_refused_however_they_are_dressed_up():
     from auteur.web.auth import password_problem
 
     # Long enough to pass the length rule, and still the first thing anybody tries.
-    for guessable in ("password123456", "MyPassword2024!", "letmein-please", "qwerty-qwerty"):
+    for guessable in (
+        "password123456",
+        "MyPassword2024!",
+        "letmein-please",
+        "qwerty-qwerty",
+    ):
         assert password_problem(guessable) != "", guessable
 
     # Length is not variety.
@@ -1626,7 +1694,10 @@ def test_a_password_may_not_be_made_of_the_account_it_protects():
 
     assert password_problem("streetlightseason1", username="streetlightseason") != ""
     assert password_problem("STREETLIGHTSEASON-x", username="streetlightseason") != ""
-    assert password_problem("streetlightseason1", email="streetlightseason@gmail.com") != ""
+    assert (
+        password_problem("streetlightseason1", email="streetlightseason@gmail.com")
+        != ""
+    )
 
     # Someone else's username is not a reason to refuse it.
     assert password_problem("streetlightseason1", username="someone-else") == ""
@@ -1677,7 +1748,9 @@ def test_the_first_run_creates_exactly_one_account(tmp_path, monkeypatch):
     username, password = first
     assert username == "streetlightseason"
     assert password, "with nothing in the environment there must be a password to show"
-    assert store.get(username).check(password), "the printed password must be the real one"
+    assert store.get(username).check(
+        password
+    ), "the printed password must be the real one"
     assert len(store.accounts) == 1
 
     # Running again must not add a second, nor mint anything.
@@ -1694,7 +1767,10 @@ def test_the_environment_beats_the_generated_password(tmp_path, monkeypatch):
     monkeypatch.setenv("AUTEUR_PASSWORD", "a-much-longer-one")
     store = Accounts(tmp_path / "accounts.json")
 
-    assert seed.bootstrap(store) == ("someone", None), "nothing to announce; they chose it"
+    assert seed.bootstrap(store) == (
+        "someone",
+        None,
+    ), "nothing to announce; they chose it"
     assert store.get("someone").check("a-much-longer-one")
     assert store.get("streetlightseason") is None
 
@@ -1728,7 +1804,9 @@ def guarded_server(tmp_path):
     assets.ensure(web.STATIC)
     web.Handler.studio = web.Studio(tmp_path / "web")
     web.Handler.accounts = Accounts(tmp_path / "web" / "accounts.json")
-    web.Handler.accounts.add("streetlightseason", "streetlightseason@gmail.com", TEST_PASSWORD)
+    web.Handler.accounts.add(
+        "streetlightseason", "streetlightseason@gmail.com", TEST_PASSWORD
+    )
 
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -1752,7 +1830,11 @@ def _post(base, path, payload, cookie=None):
     request = Request(base + path, data=_json.dumps(payload).encode(), headers=headers)
     try:
         with urlopen(request) as response:
-            return response.status, _json.loads(response.read() or b"{}"), response.headers
+            return (
+                response.status,
+                _json.loads(response.read() or b"{}"),
+                response.headers,
+            )
     except HTTPError as exc:
         return exc.code, _json.loads(exc.read() or b"{}"), exc.headers
 
@@ -1773,7 +1855,11 @@ def test_the_app_is_closed_until_you_sign_in(guarded_server):
         assert exc.code == 303
 
     # ...and an API call gets something a script can act on.
-    for path in ("/api/jobs/anything", "/api/jobs/anything/video", "/api/jobs/anything/notes"):
+    for path in (
+        "/api/jobs/anything",
+        "/api/jobs/anything/video",
+        "/api/jobs/anything/notes",
+    ):
         try:
             with urlopen(base + path):
                 raise AssertionError(f"{path} answered without a session")
@@ -1859,8 +1945,12 @@ def test_forgot_answers_identically_for_real_and_invented_accounts(guarded_serve
     have accounts — including which keys the JSON happens to carry."""
     base, _ = guarded_server
 
-    real_status, real, _ = _post(base, "/api/forgot", {"username": "streetlightseason@gmail.com"})
-    fake_status, fake, _ = _post(base, "/api/forgot", {"username": "nobody@example.com"})
+    real_status, real, _ = _post(
+        base, "/api/forgot", {"username": "streetlightseason@gmail.com"}
+    )
+    fake_status, fake, _ = _post(
+        base, "/api/forgot", {"username": "nobody@example.com"}
+    )
 
     assert real_status == fake_status == 200
     assert real == fake
@@ -1878,7 +1968,9 @@ def test_a_reset_over_http_replaces_the_password(guarded_server):
     assert started is not None
     _, token = started
 
-    status, payload, _ = _post(base, "/api/reset", {"token": token, "password": "short"})
+    status, payload, _ = _post(
+        base, "/api/reset", {"token": token, "password": "short"}
+    )
     assert status == 400 and "12 characters" in payload["error"]
 
     # And a reset may not be used to set the password to the username either.
@@ -1888,7 +1980,9 @@ def test_a_reset_over_http_replaces_the_password(guarded_server):
     assert status == 400 and "username" in payload["error"]
 
     status, payload, _ = _post(
-        base, "/api/reset", {"token": "not-a-real-token", "password": "a-much-longer-one"}
+        base,
+        "/api/reset",
+        {"token": "not-a-real-token", "password": "a-much-longer-one"},
     )
     assert status == 400
 
@@ -1902,7 +1996,9 @@ def test_a_reset_over_http_replaces_the_password(guarded_server):
     )
     assert status == 401, "the old password must stop working"
     status, _, _ = _post(
-        base, "/api/login", {"username": "streetlightseason", "password": "a-much-longer-one"}
+        base,
+        "/api/login",
+        {"username": "streetlightseason", "password": "a-much-longer-one"},
     )
     assert status == 200
 
@@ -1929,7 +2025,9 @@ def test_both_palettes_are_readable():
             ratio = theme.contrast(theme.rgb_of(role, scheme), ground)
             assert ratio >= 4.5, f"{role} on {scheme} ground is only {ratio:.2f}:1"
 
-        button = theme.contrast(theme.rgb_of("on_ember", scheme), theme.rgb_of("ember", scheme))
+        button = theme.contrast(
+            theme.rgb_of("on_ember", scheme), theme.rgb_of("ember", scheme)
+        )
         assert button >= 4.5, f"the main button on {scheme} is only {button:.2f}:1"
 
 
@@ -2085,13 +2183,19 @@ def test_one_signed_in_user_cannot_read_anothers_film(guarded_server, tmp_path):
 
     request = Request(
         base + "/api/login",
-        data=_json.dumps({"username": "someone-else", "password": "a-long-enough-one"}).encode(),
+        data=_json.dumps(
+            {"username": "someone-else", "password": "a-long-enough-one"}
+        ).encode(),
         headers={"Content-Type": "application/json"},
     )
     with urlopen(request) as response:
         intruder = response.headers["Set-Cookie"].split(";")[0]
 
-    for path in (f"/api/jobs/{job.id}", f"/api/jobs/{job.id}/video", f"/api/jobs/{job.id}/notes"):
+    for path in (
+        f"/api/jobs/{job.id}",
+        f"/api/jobs/{job.id}/video",
+        f"/api/jobs/{job.id}/notes",
+    ):
         with pytest.raises(HTTPError) as caught:
             urlopen(Request(base + path, headers={"Cookie": intruder}))
         assert caught.value.code == 404, path
@@ -2133,7 +2237,9 @@ def test_a_reload_does_not_sign_the_phone_out(tmp_path):
     token, _ = server.sign_in("streetlightseason", TEST_PASSWORD)
     assert server.session_user(token) == "streetlightseason"
 
-    cli.add("someone", "someone@example.com", "a-long-enough-one")  # stale sessions written
+    cli.add(
+        "someone", "someone@example.com", "a-long-enough-one"
+    )  # stale sessions written
     server.refresh()
     assert server.session_user(token) == "streetlightseason"
     assert server.get("someone") is not None
@@ -2173,7 +2279,12 @@ def test_a_runtime_is_checked_however_it_arrives():
     explicit `duration=` went straight through, so `--length -5` reached the
     planner and the critic then reported that the film "came out the wrong
     length" against a target of minus five seconds."""
-    from auteur.director.brief import MAX_RUNTIME, MIN_RUNTIME, clamp_duration, parse_brief
+    from auteur.director.brief import (
+        MAX_RUNTIME,
+        MIN_RUNTIME,
+        clamp_duration,
+        parse_brief,
+    )
 
     assert clamp_duration(None) is None
     assert clamp_duration(0) is None
@@ -2295,7 +2406,11 @@ def test_removing_a_shot_leaves_a_legal_film():
                 source=Path("/tmp/a.mp4"),
                 start=0.0,
                 end=1.0,
-                transition_in=Transition("cut", 0.0) if index == 0 else Transition("dissolve", 0.3),
+                transition_in=(
+                    Transition("cut", 0.0)
+                    if index == 0
+                    else Transition("dissolve", 0.3)
+                ),
             )
         )
     edl.texts.append(TextCue(text="late", start=4.5, duration=0.5))
@@ -2337,7 +2452,9 @@ def test_one_unrenderable_shot_does_not_lose_the_film(rushes, tmp_path):
             )
         )
     # A window past the end of the clip: nothing to decode.
-    edl.shots.insert(2, Shot(clip_id="C99", source=rushes / "a_wide.mp4", start=3.999, end=4.0))
+    edl.shots.insert(
+        2, Shot(clip_id="C99", source=rushes / "a_wide.mp4", start=3.999, end=4.0)
+    )
 
     result = render.render(
         edl,
@@ -2418,7 +2535,10 @@ def test_the_safe_area_only_ever_pulls_text_inward():
     # A frame with no chrome leaves everything where it was.
     assert SafeArea().clamp((0.02, 0.98)) == (0.02, 0.98)
     # And a nonsensical spec centres rather than inverting the range.
-    assert SafeArea(top=0.9, bottom=0.9, left=0.9, right=0.9).clamp((0.1, 0.1)) == (0.5, 0.5)
+    assert SafeArea(top=0.9, bottom=0.9, left=0.9, right=0.9).clamp((0.1, 0.1)) == (
+        0.5,
+        0.5,
+    )
 
 
 def test_the_plan_hook_moves_titles_out_from_under_the_buttons():
@@ -2434,7 +2554,9 @@ def test_the_plan_hook_moves_titles_out_from_under_the_buttons():
     )
     keep_text_readable(spec)(edl)
 
-    assert edl.texts[0].anchor[1] <= 1.0 - spec.safe.bottom, "still under the caption block"
+    assert (
+        edl.texts[0].anchor[1] <= 1.0 - spec.safe.bottom
+    ), "still under the caption block"
     assert edl.texts[1].anchor == (0.5, 0.5), "an untouched title must stay untouched"
 
 
@@ -2648,7 +2770,10 @@ def test_a_surface_with_no_caption_field_gets_no_caption():
     from auteur.workflows.publish import Caption
     from auteur.workflows import resolve
 
-    assert Caption(body="anything", hashtags=("a",)).render(resolve("instagram-story")) == ""
+    assert (
+        Caption(body="anything", hashtags=("a",)).render(resolve("instagram-story"))
+        == ""
+    )
 
 
 def test_a_caption_keeps_its_tags_when_the_prose_has_to_go():
@@ -2736,7 +2861,9 @@ def test_packaging_checks_the_render_against_the_platform(tmp_path):
     assert not deliverable.ok
     assert any("minimum" in warning for warning in deliverable.warnings)
     assert (deliverable.width, deliverable.height) == (1080, 1920)
-    assert deliverable.cover is not None and deliverable.cover.exists(), "cover frame failed"
+    assert (
+        deliverable.cover is not None and deliverable.cover.exists()
+    ), "cover frame failed"
     assert (tmp_path / "post" / "post.json").exists()
     assert (tmp_path / "post" / "caption.txt").exists()
     manifest = json.loads((tmp_path / "post" / "post.json").read_text())
@@ -2825,15 +2952,21 @@ def test_the_queue_refuses_to_stack_two_posts_on_top_of_each_other(tmp_path):
     from auteur.workflows.schedule import Schedule
 
     queue = Schedule(tmp_path / "queue.json", gap_hours=4.0, per_day=3)
-    first, complaint = queue.add(_deliverable("instagram-reel", tmp_path), "2026-08-20 10:00")
+    first, complaint = queue.add(
+        _deliverable("instagram-reel", tmp_path), "2026-08-20 10:00"
+    )
     assert first is not None and complaint == ""
 
-    clash, why = queue.add(_deliverable("instagram-post", tmp_path, "b.mp4"), "2026-08-20 11:00")
+    clash, why = queue.add(
+        _deliverable("instagram-post", tmp_path, "b.mp4"), "2026-08-20 11:00"
+    )
     assert clash is None, "two Instagram posts an hour apart must be refused"
     assert "minimum" in why
 
     # Far enough away is fine.
-    ok, _ = queue.add(_deliverable("instagram-post", tmp_path, "c.mp4"), "2026-08-20 16:00")
+    ok, _ = queue.add(
+        _deliverable("instagram-post", tmp_path, "c.mp4"), "2026-08-20 16:00"
+    )
     assert ok is not None
 
     # A different service is not competing for the same audience slot.
@@ -2851,7 +2984,9 @@ def test_the_daily_ceiling_is_enforced(tmp_path):
         )
         assert post is not None
 
-    blocked, why = queue.add(_deliverable("tiktok", tmp_path, "x.mp4"), "2026-08-20 13:00")
+    blocked, why = queue.add(
+        _deliverable("tiktok", tmp_path, "x.mp4"), "2026-08-20 13:00"
+    )
     assert blocked is None and "limit" in why
 
 
@@ -2876,7 +3011,9 @@ def test_a_batch_is_spread_out_rather_than_dumped(tmp_path):
 
     assert len(posts) == 4
     times = sorted(post.when for post in posts)
-    gaps = [(b - a).total_seconds() / 3600.0 for a, b in zip(times, times[1:], strict=False)]
+    gaps = [
+        (b - a).total_seconds() / 3600.0 for a, b in zip(times, times[1:], strict=False)
+    ]
     assert all(gap >= 4.0 - 1e-6 for gap in gaps), gaps
 
 
@@ -3102,8 +3239,12 @@ def test_the_simulator_and_the_loader_agree_on_every_column(tmp_path):
     for original, restored in zip(made, read_back, strict=True):
         assert restored.post_id == original.post_id
         assert restored.hook_style == original.hook_style
-        assert restored.completion_rate == pytest.approx(original.completion_rate, abs=1e-3)
-        assert restored.share_to_view_ratio == pytest.approx(original.share_to_view_ratio, abs=1e-3)
+        assert restored.completion_rate == pytest.approx(
+            original.completion_rate, abs=1e-3
+        )
+        assert restored.share_to_view_ratio == pytest.approx(
+            original.share_to_view_ratio, abs=1e-3
+        )
         assert restored.loop_count == pytest.approx(original.loop_count, abs=1e-3)
 
 
@@ -3113,7 +3254,13 @@ def test_the_simulator_and_the_loader_agree_on_every_column(tmp_path):
 
 
 def _timeline(
-    *, opening=1.6, shots=12, runtime=15.0, loop_back=False, text_at=None, end_card=False
+    *,
+    opening=1.6,
+    shots=12,
+    runtime=15.0,
+    loop_back=False,
+    text_at=None,
+    end_card=False,
 ):
     from auteur.edl import EditDecisionList, Shot, TextCue
 
@@ -3134,7 +3281,9 @@ def _timeline(
     if text_at is not None:
         texts.append(TextCue(text="HOOK", start=text_at, duration=1.4))
     if end_card:
-        texts.append(TextCue(text="END", start=runtime - 2.0, duration=2.0, style="end-card"))
+        texts.append(
+            TextCue(text="END", start=runtime - 2.0, duration=2.0, style="end-card")
+        )
     return EditDecisionList(title="t", shots=out, texts=texts)
 
 
@@ -3150,8 +3299,12 @@ def test_the_three_objectives_genuinely_trade_off(model):
     would be theatre."""
     from auteur.insight import predict
 
-    long_looping = predict(_timeline(runtime=45, shots=22, loop_back=True, text_at=0.1), model)
-    tight_no_loop = predict(_timeline(runtime=15, shots=12, loop_back=False, text_at=0.1), model)
+    long_looping = predict(
+        _timeline(runtime=45, shots=22, loop_back=True, text_at=0.1), model
+    )
+    tight_no_loop = predict(
+        _timeline(runtime=15, shots=12, loop_back=False, text_at=0.1), model
+    )
 
     assert long_looping.loop.score > tight_no_loop.loop.score
     assert tight_no_loop.share.predicted > long_looping.share.predicted
@@ -3240,7 +3393,9 @@ def test_an_agent_that_raises_does_not_stop_the_crew(model):
         def inspect(self, edl, prediction, model):
             raise RuntimeError("no")
 
-    crew = Crew([Broken(), *default_crew()], model, gate=Gate(Mode.AUTONOMOUS), max_rounds=2)
+    crew = Crew(
+        [Broken(), *default_crew()], model, gate=Gate(Mode.AUTONOMOUS), max_rounds=2
+    )
     result = crew.run(_timeline(opening=5.0, runtime=40, shots=9))
     assert result.gain > 0, "the working agents should still have improved it"
 
@@ -3254,12 +3409,16 @@ def test_supervised_mode_applies_the_small_things_and_asks_about_the_rest(model)
         asked.append(proposal)
         return "approve", ""
 
-    crew = Crew(default_crew(), model, gate=Gate(Mode.SUPERVISED, on_ask=ask), max_rounds=3)
+    crew = Crew(
+        default_crew(), model, gate=Gate(Mode.SUPERVISED, on_ask=ask), max_rounds=3
+    )
     result = crew.run(_timeline(opening=5.0, runtime=40, shots=9, end_card=True))
 
     assert result.gain > 0
     assert asked, "structural changes must reach a person"
-    assert all(p.risk >= Risk.MEDIUM for p in asked), "low-risk changes should not interrupt"
+    assert all(
+        p.risk >= Risk.MEDIUM for p in asked
+    ), "low-risk changes should not interrupt"
     assert any(p.risk == Risk.LOW and p.applied for p in result.applied)
 
 
@@ -3282,7 +3441,9 @@ def test_publishing_always_needs_a_person_in_every_mode():
         assert Gate(mode).may_publish("a reel") is False, mode
 
     answered = []
-    gate = Gate(Mode.AUTONOMOUS, on_ask=lambda p: (answered.append(p) or ("approve", "")))
+    gate = Gate(
+        Mode.AUTONOMOUS, on_ask=lambda p: (answered.append(p) or ("approve", ""))
+    )
     assert gate.may_publish("a reel") is True
     assert answered[0].risk.name == "HIGH"
 
@@ -3291,11 +3452,17 @@ def test_the_agents_actually_close_a_loop_and_shorten_a_hook(model):
     from auteur.agents import Crew, Gate, Mode, default_crew
 
     edl = _timeline(opening=5.0, runtime=40, shots=9, end_card=True)
-    result = Crew(default_crew(), model, gate=Gate(Mode.AUTONOMOUS), max_rounds=4).run(edl)
+    result = Crew(default_crew(), model, gate=Gate(Mode.AUTONOMOUS), max_rounds=4).run(
+        edl
+    )
 
     assert result.edl.shots[0].duration < 3.0, "the hook should have been cut down"
-    assert result.edl.shots[-1].clip_id == result.edl.shots[0].clip_id, "the loop should close"
-    assert not [c for c in result.edl.texts if c.style == "end-card"], "end card should have gone"
+    assert (
+        result.edl.shots[-1].clip_id == result.edl.shots[0].clip_id
+    ), "the loop should close"
+    assert not [
+        c for c in result.edl.texts if c.style == "end-card"
+    ], "end card should have gone"
     assert result.edl.duration < edl.duration
 
 
@@ -3310,7 +3477,9 @@ def test_safe_areas_still_win_after_the_agents_have_moved_the_titles(model):
     edl.texts[:] = []
     from auteur.edl import TextCue
 
-    edl.texts.append(TextCue(text="UNDER THE BUTTONS", start=2.0, duration=2.0, anchor=(0.5, 0.97)))
+    edl.texts.append(
+        TextCue(text="UNDER THE BUTTONS", start=2.0, duration=2.0, anchor=(0.5, 0.97))
+    )
 
     crew = Crew(default_crew(), model, gate=Gate(Mode.AUTONOMOUS), max_rounds=3)
     with_agents(spec, crew)(edl)
@@ -3482,7 +3651,9 @@ def test_preflight_catches_the_wrong_frame_shape(labelled_model):
     assert "1080" in aspect.detail
 
 
-def test_a_synthesised_bed_is_the_one_failure_mode_you_can_make_impossible(labelled_model):
+def test_a_synthesised_bed_is_the_one_failure_mode_you_can_make_impossible(
+    labelled_model,
+):
     """Muted Audio Copyright is 11% of recorded failures, and the only one that
     can be designed out rather than checked for."""
     from auteur.agents.preflight import check_audio
@@ -3600,7 +3771,12 @@ def test_a_measured_pace_is_translated_into_words_the_brief_can_read():
     from auteur.director.brief import PACE_WORDS
     from auteur.insight import StyleTarget
 
-    for cuts, expected in ((10.0, "frenetic"), (6.5, "fast"), (3.0, "steady"), (1.0, "meditative")):
+    for cuts, expected in (
+        (10.0, "frenetic"),
+        (6.5, "fast"),
+        (3.0, "steady"),
+        (1.0, "meditative"),
+    ):
         target = StyleTarget(cuts_per_10s=cuts, sources=1)
         assert target.pace_words == expected
         assert target.pace_words in PACE_WORDS, "the brief must actually know this word"
@@ -3609,7 +3785,9 @@ def test_a_measured_pace_is_translated_into_words_the_brief_can_read():
 def test_references_that_disagree_say_so_rather_than_averaging_quietly():
     from auteur.insight import StyleTarget
 
-    agreed = StyleTarget(cuts_per_10s=3.0, sources=3, disagreement={"cuts_per_10s": 0.2})
+    agreed = StyleTarget(
+        cuts_per_10s=3.0, sources=3, disagreement={"cuts_per_10s": 0.2}
+    )
     assert agreed.is_agreed
 
     split = StyleTarget(cuts_per_10s=6.0, sources=2, disagreement={"cuts_per_10s": 4.0})
@@ -3644,9 +3822,15 @@ def test_the_style_agent_stays_quiet_when_the_edit_already_matches(labelled_mode
     pace = len(edit.shots) / edit.duration * 10
     target = StyleTarget(cuts_per_10s=pace, shot_seconds=3.0, sources=2, seconds=40.0)
 
-    assert StyleAgent(target).inspect(edit, predict(edit, labelled_model), labelled_model) == []
     assert (
-        StyleAgent(StyleTarget()).inspect(edit, predict(edit, labelled_model), labelled_model) == []
+        StyleAgent(target).inspect(edit, predict(edit, labelled_model), labelled_model)
+        == []
+    )
+    assert (
+        StyleAgent(StyleTarget()).inspect(
+            edit, predict(edit, labelled_model), labelled_model
+        )
+        == []
     )
 
 
@@ -3661,11 +3845,13 @@ def test_a_reference_is_an_instruction_and_not_a_suggestion(labelled_model):
     fast_edit = _timeline(runtime=15.0, shots=15, opening=1.2, text_at=0.1)
     before = predict(fast_edit, labelled_model).overall
 
-    result = Crew([StyleAgent(slow)], labelled_model, gate=Gate(Mode.AUTONOMOUS), max_rounds=2).run(
-        fast_edit
-    )
+    result = Crew(
+        [StyleAgent(slow)], labelled_model, gate=Gate(Mode.AUTONOMOUS), max_rounds=2
+    ).run(fast_edit)
 
-    assert result.applied, "a binding proposal must survive a flat or negative prediction"
+    assert (
+        result.applied
+    ), "a binding proposal must survive a flat or negative prediction"
     assert result.applied[0].binding
     pace = len(result.edl.shots) / result.edl.duration * 10
     assert pace < 8.0, f"still cutting at {pace:.1f} per 10s"
@@ -3767,7 +3953,8 @@ def test_an_intentional_hold_is_not_dead_air(labelled_model):
     critique = Critique(
         score=0.5,
         notes=[
-            Note("dead-air", "3.0s where nothing moves", severity=0.75, at=at) for at in (4.0, 8.0)
+            Note("dead-air", "3.0s where nothing moves", severity=0.75, at=at)
+            for at in (4.0, 8.0)
         ],
     )
     # None rather than {}: an empty mapping means "every clip is unknown" and
@@ -3785,7 +3972,8 @@ def test_an_actually_frozen_shot_is_still_dropped(labelled_model):
     before = len(edl.shots)
 
     critique = Critique(
-        score=0.5, notes=[Note("dead-air", "3.0s where nothing moves", severity=0.75, at=6.0)]
+        score=0.5,
+        notes=[Note("dead-air", "3.0s where nothing moves", severity=0.75, at=6.0)],
     )
     revise(edl, critique, None, target_duration=16.0)
     assert len(edl.shots) < before
@@ -3803,10 +3991,14 @@ def test_slowing_the_cut_keeps_the_runtime(labelled_model):
     before = edit.duration
 
     target = StyleTarget(cuts_per_10s=2.9, shot_seconds=3.4, sources=3, seconds=47.0)
-    proposals = StyleAgent(target).inspect(edit, predict(edit, labelled_model), labelled_model)
+    proposals = StyleAgent(target).inspect(
+        edit, predict(edit, labelled_model), labelled_model
+    )
     proposals[0].change(edit)
 
-    assert edit.duration == pytest.approx(before, abs=0.6), "the reference is slower, not shorter"
+    assert edit.duration == pytest.approx(
+        before, abs=0.6
+    ), "the reference is slower, not shorter"
     pace = len(edit.shots) / edit.duration * 10
     assert 2.0 < pace < 4.5, f"{pace:.1f} per 10s"
     # The hook and the ending are load-bearing for the other agents.

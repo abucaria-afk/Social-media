@@ -105,7 +105,9 @@ class Production:
         if self.rounds:
             lines += ["## Watching it back", ""]
             for round_ in self.rounds:
-                lines.append(f"### Pass {round_.index} — score {round_.critique.score:.2f}")
+                lines.append(
+                    f"### Pass {round_.index} — score {round_.critique.score:.2f}"
+                )
                 lines.append("")
                 for note in sorted(round_.critique.notes, key=lambda n: -n.severity):
                     lines.append(f"- {note}")
@@ -164,7 +166,9 @@ def direct(
         )
     )
     if bin_.rejected:
-        say.warn(f"skipped {ui.describe_count(len(bin_.rejected), 'file')} it could not read")
+        say.warn(
+            f"skipped {ui.describe_count(len(bin_.rejected), 'file')} it could not read"
+        )
 
     # ---- 2. watch and listen to all of it --------------------------------
     say.step("Watching every clip")
@@ -179,13 +183,19 @@ def direct(
     internal = sum(len(dossier.video.shot_boundaries) for dossier in dossiers)
     say.detail(
         f"found {ui.describe_count(usable, 'moment')} worth using"
-        + (f"; {ui.describe_count(internal, 'cut')} already in the footage" if internal else "")
+        + (
+            f"; {ui.describe_count(internal, 'cut')} already in the footage"
+            if internal
+            else ""
+        )
     )
 
     music, music_analysis = find_music_bed(bin_.audio)
     if music_analysis is not None and music_analysis.has_beat:
         say.step("Listening to the music")
-        say.detail(f"{music_analysis.tempo:.0f} beats per minute — the cuts will land on the beat")
+        say.detail(
+            f"{music_analysis.tempo:.0f} beats per minute — the cuts will land on the beat"
+        )
 
     # ---- 3. read the brief and cut the film -------------------------------
     brief = parse_brief(prompt, duration=duration)
@@ -197,7 +207,9 @@ def direct(
     log.info("brief: %s", brief.describe())
 
     say.step("Planning the edit")
-    direction = plan.direct(brief, dossiers, settings, music=music, music_analysis=music_analysis)
+    direction = plan.direct(
+        brief, dossiers, settings, music=music, music_analysis=music_analysis
+    )
     edl = direction.edl
     if on_plan is not None:
         on_plan(edl)
@@ -302,9 +314,12 @@ def direct(
     production.seconds = time.perf_counter() - started
 
     edl.save(space.root / "edl.json")
-    (space.root / "production-notes.md").write_text(production.report(), encoding="utf-8")
+    (space.root / "production-notes.md").write_text(
+        production.report(), encoding="utf-8"
+    )
     (space.root / "analysis.json").write_text(
-        json.dumps([dossier.to_json() for dossier in dossiers], indent=2), encoding="utf-8"
+        json.dumps([dossier.to_json() for dossier in dossiers], indent=2),
+        encoding="utf-8",
     )
     log.info("done in %.1fs — %s", production.seconds, production.primary)
     return production
