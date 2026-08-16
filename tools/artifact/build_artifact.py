@@ -29,12 +29,14 @@ def strip_scripts(html):
     """Take the app's own scripts out; this page brings its own.
 
     Case-insensitive because `<SCRIPT>` is the same tag to a browser and was
-    not the same tag to this regex — CodeQL caught that, and it is the kind of
-    thing that would sit here silently until somebody typed a capital letter.
+    not the same tag to this regex. The closing tag takes anything up to the
+    `>` because HTML lets an end tag carry junk a parser then ignores, so
+    `</script foo>` closes a script and `</script\\s*>` did not see it.
+
     A regex is only good enough because the input is markup from this repo,
     which is why the result is checked below rather than trusted.
     """
-    return re.sub(r"<script\b[^>]*>.*?</script\s*>", "", html, flags=re.S | re.I)
+    return re.sub(r"<script\b[^>]*>.*?</script\b[^>]*>", "", html, flags=re.S | re.I)
 
 
 home = strip_scripts(body_of(read("index.html")))
