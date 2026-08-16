@@ -406,6 +406,34 @@ def _music_offset(audio: AudioAnalysis | None, duration: float) -> float:
     return best_offset
 
 
+def beat_grid(
+    audio: AudioAnalysis | None,
+    offset: float,
+    *,
+    enabled: bool = True,
+    runtime: float | None = None,
+) -> tuple[list[float], list[float], float]:
+    """Where the beats fall on the *finished timeline*, in timeline seconds.
+
+    The grid is `b - offset`, and three separate places used to work that out
+    for themselves — the slot builder here, the grammar pass, the critic — and
+    not one of them wrote the answer down. So everything downstream of the
+    director was working blind: an agent holds an EDL and never sees the audio
+    analysis, which meant nothing it added could land on a beat even in
+    principle. Computed once, here, and put on the EDL where anything that
+    wants to move in time with the music can read it.
+
+    Honours `beat_sync`: a brief that asked not to be cut to the music should
+    not have stickers popping on the snare either.
+    """
+    if audio is None or not enabled or not audio.has_beat:
+        return [], [], 0.0
+    limit = float("inf") if runtime is None else runtime
+    beats = [round(b - offset, 4) for b in audio.beats if 0.0 < b - offset <= limit]
+    downbeats = [round(b - offset, 4) for b in audio.downbeats if 0.0 < b - offset <= limit]
+    return beats, downbeats, float(audio.tempo)
+
+
 def _place_texts(brief: Brief, duration: float, look_accent: str) -> list[TextCue]:
     """Title, mid-cards and end card, spaced so they never collide with each other."""
     lines = brief.on_screen_text
@@ -633,11 +661,17 @@ def cut(
     _match_looks(edl.shots, by_id, brief.look, brief.look_strength)
 
     if music is not None:
+        beats, downbeats, tempo = beat_grid(
+            music_analysis, offset, enabled=brief.beat_sync, runtime=edl.duration
+        )
         edl.music = MusicCue(
             source=music.path,
             offset=offset,
             gain=0.55 if brief.keep_source_audio else 0.85,
             duck=brief.keep_source_audio,
+            beats=beats,
+            downbeats=downbeats,
+            tempo=tempo,
         )
 
     edl.texts = _place_texts(brief, edl.duration, look_accent="#FFFFFF")

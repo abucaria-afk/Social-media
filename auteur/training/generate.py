@@ -10,6 +10,7 @@ that `auteur.insight.dataset.load` already recognises as `metadata_domain`.
 from __future__ import annotations
 
 import csv
+import hashlib
 import math
 import random
 from pathlib import Path
@@ -572,11 +573,33 @@ def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, value))
 
 
-def _natural_watch_time(rng: random.Random, hook_quality: float) -> float:
-    """Average watch time percentage with natural variance.
+#: How far a single creative choice may move the underlying quality, on a 0..1
+#: scale where the run-to-run noise is 0.18. Small on purpose: a lever that
+#: explained most of the outcome would make the dataset a lookup table, and a
+#: lever that explained none of it — which is what this generator used to
+#: produce — makes it useless for its stated job.
+LEVER_EFFECT = 0.16
 
-    Calibrated so the median sits around 75% (matching Tier-1 winners) with a
-    long left tail representing natural underperformance.
+
+def _effect(option: str, salt: str) -> float:
+    """This option's effect on quality, in -1..1. Stable for a given name.
+
+    Derived from a hash of the name rather than stored in a table, so the
+    vocabularies above can grow without anybody hand-assigning an effect to
+    every new entry. Uses blake2b rather than `hash()` because `hash()` on a
+    string is salted per process, which is the bug that made this generator
+    produce different data on every run while documenting a fixed seed.
+    """
+    digest = hashlib.blake2b(f"{salt}:{option}".encode(), digest_size=8).digest()
+    return (int.from_bytes(digest, "big") / 2**63) - 1.0
+
+
+def _natural_watch_time(rng: random.Random, hook_quality: float) -> float:
+    """Average watch time as a percentage of the video's length.
+
+    Above 100% is not an error: on looping platforms a viewer who watches twice
+    is counted twice, and that is exactly the behaviour the loop objective
+    exists to chase. The median lands near 86% with a long left tail.
     """
     base = 55.0 + hook_quality * 45.0
     noise = rng.gauss(0.0, 12.0)
@@ -615,7 +638,12 @@ def generate_domain(
 ) -> list[dict]:
     """Generate rows for a single domain."""
     domain = DOMAINS[domain_key]
-    rng = random.Random(seed if seed is not None else hash(domain_key) & 0xFFFFFFFF)
+    # `hash()` on a string is salted per process, so a default seed derived from
+    # it made this function return different data on every run while its
+    # signature promised determinism.
+    if seed is None:
+        seed = int.from_bytes(hashlib.blake2b(domain_key.encode(), digest_size=4).digest(), "big")
+    rng = random.Random(seed)
 
     results: list[dict] = []
     for i in range(rows):
@@ -626,13 +654,36 @@ def generate_domain(
         palette = rng.choice(PALETTES)
         audio = rng.choice(AUDIO_ANCHORS)
 
-        # Quality scores that drive downstream metrics
-        hook_quality = _clamp(rng.gauss(0.65, 0.18))
-        domain_depth = _clamp(rng.gauss(0.55, 0.20))
-        visual_strength = _clamp(rng.gauss(0.60, 0.20))
-        controversy = _clamp(rng.gauss(0.35, 0.20))
+        # The creative choices have to *do* something, or this dataset cannot
+        # do the job it exists for. Every one of these was previously drawn by
+        # `rng.choice` and then never referred to again, so palette, bias,
+        # audio anchor and primary lever were noise columns bolted onto
+        # unrelated performance numbers. A crew trained on that learns the one
+        # lesson the data actually contained: nothing you choose matters.
+        #
+        # Each lever now shifts the underlying quality by a fixed amount that
+        # depends on the option, and different levers feed different qualities
+        # — the palette moves how the frame looks, the audio anchor moves how
+        # long people stay, the bias moves whether they argue about it.
+        hook_quality = _clamp(
+            rng.gauss(0.65, 0.18)
+            + _effect(hook, "hook") * LEVER_EFFECT
+            + _effect(bias, "bias") * LEVER_EFFECT * 0.6
+        )
+        domain_depth = _clamp(
+            rng.gauss(0.55, 0.20)
+            + _effect(primary, "primary") * LEVER_EFFECT
+            + _effect(secondary, "secondary") * LEVER_EFFECT * 0.5
+        )
+        visual_strength = _clamp(
+            rng.gauss(0.60, 0.20)
+            + _effect(palette, "palette") * LEVER_EFFECT
+            + _effect(primary, "primary") * LEVER_EFFECT * 0.4
+        )
+        controversy = _clamp(rng.gauss(0.35, 0.20) + _effect(bias, "bias") * LEVER_EFFECT)
+        retention = _clamp(rng.gauss(0.0, 0.10) + _effect(audio, "audio") * LEVER_EFFECT)
 
-        watch_pct = _natural_watch_time(rng, hook_quality)
+        watch_pct = _natural_watch_time(rng, hook_quality + retention * 0.5)
         share = _natural_share_rate(rng, watch_pct)
         save = _natural_save_rate(rng, share, domain_depth)
         comment = _natural_comment_rate(rng, controversy)
@@ -656,6 +707,16 @@ def generate_domain(
                 "simulated_saves": int(views * save),
                 "simulated_comments": int(views * comment),
                 "click_through_rate_pct": round(ctr, 2),
+                # The rates as well as the counts. Every count here is
+                # `views × rate`, and views is lognormal with a 2.5x spread, so
+                # correlating the counts measures the view multiplier and
+                # nothing else — the generator's own "shares follow completion"
+                # relationship came out at r = 0.10 in the counts while being
+                # true by construction. The ratios are what the insight layer
+                # actually wants, and what a real export reports.
+                "share_to_view_ratio": round(share, 4),
+                "save_to_view_ratio": round(save, 4),
+                "three_second_watch_rate": round(_clamp(0.45 + hook_quality * 0.5), 3),
             }
         )
 

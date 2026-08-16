@@ -46,6 +46,56 @@ what a workflow does that `edit` does not:
 it does not post anything. it makes a folder you can post from.
 """
 
+SCHOLAR_EXAMPLES = """examples:
+  auteur scholar                            what it knows and what it wants next
+  auteur scholar study colour grading       watch and learn about one thing
+  auteur scholar teach --agent hook         what it would tell the hook agent
+  auteur scholar subscribe UC... Chan name  follow a channel for new uploads
+  auteur scholar ask "how do I pace a montage?"
+  auteur scholar watch --every 30           keep studying, in the foreground
+
+`auteur serve` starts the same background study loop on its own, so the
+Scholar learns whenever the app is up. Turn that off with --no-scholar.
+
+Studying needs yt-dlp (`pip install auteur[scholar]`). It reads titles,
+chapters and captions — it never downloads video. Asking needs ANTHROPIC_API_KEY.
+Without either it tells you so rather than reporting an empty success.
+"""
+
+REHEARSE_EXAMPLES = """examples:
+  auteur rehearse ./footage -n 30
+  auteur rehearse ./footage --forever
+  auteur rehearse ./footage --against pulkitxx -l 6
+
+The crew argues about one edit for three rounds and stops, which is right for
+someone waiting on a render and wrong for getting better at this. This runs the
+other loop: build a candidate, measure it on both yardsticks, change something,
+build again — far more times than anybody would sit through.
+
+It does not stop when it passes the target. It raises the bar to what it just
+achieved and carries on, because a goal stops being useful the moment it is met.
+
+What it cannot do is make the footage better. If the source has no depth in it,
+no amount of rehearsal invents any, and the loop says so rather than grinding.
+"""
+
+BENCHMARK_EXAMPLES = """examples:
+  auteur benchmark add ./thegoal.mp4 --name pulkitxx
+  auteur benchmark add a=./one.mp4 b=./two.mp4 --name the-goal
+  auteur benchmark                          what is being chased, hardest first
+  auteur benchmark remove pulkitxx
+
+Two scores, and both have to be beaten.
+
+  structure   the same hook/share/loop model that scores your own edits
+  craft       measured off the frames: subject separation, how clear the
+              subject is, palette discipline, exposure headroom
+
+Craft exists because the first film added here scored 0.42 on structure while
+being plainly better than anything this program had made. A yardstick that
+cannot see that can be beaten by a worse-looking film, which is backwards.
+"""
+
 MEDIA_EXAMPLES = """examples:
   auteur media scan ./footage         index everything, once
   auteur media list --kind video      what is in the index
@@ -110,7 +160,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{edit,workflow,insight,media,schedule,demo,serve,account,analyse,looks}",
+        metavar="{edit,workflow,rehearse,benchmark,agents,scholar,insight,media,schedule,demo,serve,account,analyse,looks}",
     )
 
     edit = sub.add_parser(
@@ -196,6 +246,18 @@ def _build_parser() -> argparse.ArgumentParser:
         default="draft",
         choices=["draft", "standard", "best"],
         help="draft keeps phone renders quick (default)",
+    )
+    serve.add_argument(
+        "--no-scholar",
+        action="store_true",
+        help="do not let the study agent learn in the background while serving",
+    )
+    serve.add_argument(
+        "--scholar-every",
+        type=float,
+        default=60.0,
+        metavar="MINUTES",
+        help="how often the background study agent looks for something new (default 60)",
     )
 
     account = sub.add_parser("account", help="who can sign in to the phone app")
@@ -284,6 +346,17 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="VIDEO",
         help="footage to cut like — measured for pace, exposure and motion (repeatable)",
     )
+    workflow.add_argument(
+        "--look",
+        action="store_true",
+        help="let the agents render and look at what they propose, not just score it",
+    )
+    workflow.add_argument(
+        "--stickers",
+        default=None,
+        metavar="DIR",
+        help="a folder of your own transparent PNGs, placed clear of the subject",
+    )
 
     insight = sub.add_parser(
         "insight",
@@ -304,6 +377,99 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     insight.add_argument("-o", "--out", default=None, metavar="FILE", help="where to write")
     insight.add_argument("--json", action="store_true", help="machine-readable output")
+
+    rehearse = sub.add_parser(
+        "rehearse",
+        help="build, measure, change, rebuild — until the target is passed, then again",
+        epilog=REHEARSE_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    rehearse.add_argument("paths", nargs="+", metavar="FOOTAGE")
+    rehearse.add_argument(
+        "-n",
+        "--generations",
+        type=int,
+        default=20,
+        help="how many candidates to build and measure (default 20)",
+    )
+    rehearse.add_argument(
+        "--forever",
+        action="store_true",
+        help="never stop — the loop is the point, not any one film it makes",
+    )
+    rehearse.add_argument(
+        "--against", default=None, metavar="NAME", help="which benchmark to chase"
+    )
+    rehearse.add_argument(
+        "-l",
+        "--length",
+        type=float,
+        default=8.0,
+        metavar="SECONDS",
+        help="how long each candidate is (short is faster and enough to measure)",
+    )
+    rehearse.add_argument("--seed", type=int, default=None)
+
+    bench = sub.add_parser(
+        "benchmark",
+        help="films to reach and surpass — measured on structure and on craft",
+        epilog=BENCHMARK_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    bench.add_argument(
+        "action",
+        nargs="?",
+        default="show",
+        choices=["show", "add", "remove"],
+        help="show (default) what is being chased, add a film, or drop one",
+    )
+    bench.add_argument("paths", nargs="*", metavar="VIDEO")
+    bench.add_argument("--name", default=None, help="what to call it (default: the filename)")
+    bench.add_argument("--json", action="store_true", help="machine-readable output")
+
+    agents_cmd = sub.add_parser(
+        "agents", help="what the crew has learned about which changes are worth making"
+    )
+    agents_cmd.add_argument(
+        "action",
+        nargs="?",
+        default="show",
+        choices=["show", "forget"],
+        help="show (default) what has earned its place, or forget it all and start over",
+    )
+    agents_cmd.add_argument("--json", action="store_true", help="machine-readable output")
+
+    scholar = sub.add_parser(
+        "scholar",
+        help="the study agent — what it has learned, and what it wants to watch next",
+        epilog=SCHOLAR_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    scholar.add_argument(
+        "action",
+        nargs="?",
+        default="status",
+        choices=["status", "study", "watch", "teach", "subscribe", "ask"],
+        help="status (default), study once, watch (keep studying), teach, subscribe, ask",
+    )
+    scholar.add_argument(
+        "--every",
+        type=float,
+        default=60.0,
+        metavar="MINUTES",
+        help="for `watch`: how often to look for something new (default 60)",
+    )
+    scholar.add_argument("words", nargs="*", metavar="TEXT", help="the topic, channel or question")
+    scholar.add_argument(
+        "--agent",
+        default=None,
+        metavar="NAME",
+        help="teach one agent rather than the whole crew (hook, share, loop, gaze, overlay)",
+    )
+    scholar.add_argument(
+        "--videos", type=int, default=5, metavar="N", help="how many videos one session watches"
+    )
+    scholar.add_argument("--json", action="store_true", help="machine-readable output")
 
     media = sub.add_parser(
         "media",
@@ -523,8 +689,49 @@ def _run_demo(args: argparse.Namespace, say: Reporter) -> int:
     return _run_edit(namespace, say)
 
 
+def _start_scholar_in_background(say: Reporter, *, minutes: float = 60.0):
+    """Let the Scholar study while the app is up.
+
+    A study agent that only runs when somebody types a command is a study agent
+    that never runs. Serving is the natural moment: the machine is already on
+    and already going to sit there.
+
+    A daemon thread, so quitting the server does not hang waiting for it, and
+    the loop swallows its own failures — the Scholar not being able to reach
+    YouTube must never be a reason the app will not serve.
+    """
+    import threading
+
+    from .scholar.youtube import reachable
+
+    can_study, how = reachable()
+    if not can_study:
+        say.detail(f"the Scholar is idle — {how}")
+        return None
+
+    from .scholar import Scholar
+
+    scholar = Scholar()
+
+    def study() -> None:
+        try:
+            scholar.run_forever(every_seconds=minutes * 60.0)
+        except Exception:  # noqa: BLE001 - a background learner never takes the app down
+            logging.getLogger("auteur.scholar").debug("the Scholar stopped", exc_info=True)
+
+    thread = threading.Thread(target=study, name="auteur-scholar", daemon=True)
+    thread.start()
+    say.detail(
+        f"the Scholar is studying in the background ({scholar.knowledge.total_learnings} learnings so far)"
+    )
+    return scholar
+
+
 def _run_serve(args: argparse.Namespace, say: Reporter) -> int:
     from .web.server import serve
+
+    if not args.no_scholar:
+        _start_scholar_in_background(say, minutes=args.scholar_every)
 
     try:
         serve(
@@ -743,24 +950,37 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
     agent_result: dict = {}
     model = None
     if args.agents != "off":
-        from .agents import Crew, StyleAgent, default_crew
+        from .agents.assemble import build_crew, crew_summary
 
         say.step("Reading what your data says")
         model = _model_for(args, say)
-        agents = list(default_crew())
-        if style is not None and not style.is_empty:
-            # First in the list, and deliberately: a reference outranks a
-            # correlation. The crew still scores every proposal, so a style
-            # change that wrecks the prediction is dropped like any other.
-            agents.insert(0, StyleAgent(style))
-        crew = Crew(
-            agents,
+        # The eye goes first. Reframing, overlay placement, joins and sound all
+        # depend on knowing where the subject is, and nothing else in the crew
+        # looks at a pixel.
+        readings = _read_the_footage(paths, say)
+        from .craft.graphics import find_stickers
+
+        stickers = find_stickers(args.stickers)
+        if stickers:
+            say.detail(f"{len(stickers)} of your stickers are available to place")
+        previewer = None
+        if getattr(args, "look", False):
+            from .agents.preview import Previewer
+
+            previewer = Previewer()
+            say.detail("the agents will render what they propose and look at it")
+        crew = build_crew(
             model,
             gate=_terminal_gate(args.agents),
-            max_rounds=3,
+            readings=readings,
+            spec=spec,
+            style=style,
+            stickers=stickers,
+            previewer=previewer,
+            sources=list(paths),
         )
         say.detail(
-            f"hook, share, loop, gaze and final-check agents running {args.agents}"
+            f"{crew_summary(crew)} agents running {args.agents}"
             + (
                 " — you will be asked about anything structural"
                 if args.agents != "autonomous"
@@ -869,9 +1089,73 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
         files.append(("caption and manifest", str(deliverable.folder)))
 
     say.result(headline=f"Ready for {spec.service}", facts=facts, files=files)
+    _report_standing(deliverable.video, model, say)
     if args.quiet:
         print(deliverable.video)
     return 0
+
+
+def _report_standing(video, model, say: Reporter) -> None:
+    """Where the finished film stands against the ones it is chasing.
+
+    Measured off the rendered file rather than the timeline, so it is judged on
+    what actually came out — the grade, the letterbox, the overlays and all —
+    and on the same two yardsticks the benchmark itself was measured on.
+    """
+    from .insight.benchmark import Benchmarks
+
+    marks = Benchmarks()
+    if not marks.entries or video is None:
+        return
+    try:
+        from .insight import corpus, fit
+        from .insight.score import predict, timeline_of
+        from .vision import read_asset
+
+        reading = read_asset(video, samples=9)
+        scored = predict(timeline_of(video), model or fit(corpus([], simulate_rows=800))).overall
+        standing = marks.standing(reading, scored)
+    except Exception as exc:  # noqa: BLE001 - never lose a finished film to a scoreboard
+        logging.getLogger("auteur").debug("could not score against the benchmark", exc_info=True)
+        say.detail(f"could not measure against the benchmark: {exc}")
+        return
+    if standing is None:
+        return
+    print()
+    for line in standing.describe().splitlines():
+        print(f"     {line}")
+
+
+def _read_the_footage(paths: list[str], say: Reporter) -> dict:
+    """Read every clip the way a picture is read, keyed by clip id.
+
+    Clip ids are assigned by `ingest` in discovery order, so this walks the same
+    order to agree with the edit. A clip that will not read is skipped rather
+    than guessed at — the finishing agent proposes nothing for what it has not
+    seen, which is the right answer.
+    """
+    from .ingest import ingest
+    from .vision import read_asset
+
+    try:
+        bin_ = ingest(paths)
+    except FileNotFoundError:
+        return {}
+
+    readings: dict = {}
+    say.step("Looking at the frames")
+    for index, asset in enumerate(bin_.visuals):
+        try:
+            readings[f"C{index:02d}"] = read_asset(asset.path)
+        except (ValueError, OSError) as exc:
+            say.warn(f"could not read {asset.name}: {exc}")
+    if readings:
+        from collections import Counter
+
+        common = Counter(r.composition for r in readings.values()).most_common(1)[0]
+        lit = Counter(r.lighting for r in readings.values()).most_common(1)[0]
+        say.detail(f"{len(readings)} frame(s) read — mostly {common[0]}, {lit[0]}")
+    return readings
 
 
 def _terminal_gate(mode_name: str):
@@ -926,6 +1210,337 @@ def _model_for(args: argparse.Namespace, say: Reporter):
     return model
 
 
+def _run_score(args: argparse.Namespace, say: Reporter) -> int:
+    """Score a finished video against the model.
+
+    The first path is the video; anything else is training data. Scoring a file
+    somebody else cut is the fastest way to find out whether the model agrees
+    with your own eye — and where it does not, the model is the one to doubt.
+    """
+    from .insight import corpus, fit, predict, timeline_of
+
+    videos = [p for p in args.paths if Path(p).suffix.lower() in (".mp4", ".mov", ".m4v", ".webm")]
+    exports = [p for p in args.paths if p not in videos]
+    if not videos:
+        say.failure(
+            "I need a video to score", "try:  auteur insight score reel.mp4 ./exports/*.csv"
+        )
+        return 2
+
+    model = fit(corpus(exports, simulate_rows=0 if exports else 2000))
+    say.detail(model.provenance)
+
+    for video in videos:
+        try:
+            edl = timeline_of(video)
+        except (ValueError, OSError) as exc:
+            say.failure(f"could not read {Path(video).name}", str(exc))
+            continue
+        prediction = predict(edl, model)
+        pace = len(edl.shots) / max(edl.duration, 1e-6) * 10
+
+        print()
+        print(f"  {Path(video).name}")
+        print(
+            f"     {edl.duration:.1f}s · {edl.width}x{edl.height} · "
+            f"{len(edl.shots)} scenes · {pace:.1f} cuts / 10s"
+        )
+        print()
+        print("     " + prediction.describe().replace("\n", "\n     "))
+        if model.separation:
+            print()
+            print("     against the labelled boundary between winners and failures:")
+            for name, (win, fail, cut) in sorted(model.separation.items()):
+                got = {
+                    "three_second_watch_rate": prediction.hook.predicted,
+                    "loop_count": prediction.loop.predicted,
+                }.get(name)
+                if got is None:
+                    continue
+                verdict = "over" if got >= cut else "under"
+                print(
+                    f"       {name.replace('_', ' '):<24} {got:.2f} — {verdict} {cut:.2f}"
+                    f"   (winners {win:.2f}, failures {fail:.2f})"
+                )
+        print()
+        print("     read from the cut alone: no words on screen were read, and nothing")
+        print("     here knows what the footage is of.")
+        print()
+    return 0
+
+
+def _run_rehearse(args: argparse.Namespace, say: Reporter) -> int:
+    """Build, measure, change, rebuild. The other loop."""
+    from .insight.benchmark import Benchmarks
+    from .training.rehearse import Rehearsal
+
+    footage: list[Path] = []
+    for entry in args.paths:
+        path = Path(entry)
+        if path.is_dir():
+            footage.extend(sorted(p for p in path.iterdir() if p.is_file()))
+        elif path.exists():
+            footage.append(path)
+    if not footage:
+        say.failure("nothing to rehearse with", "point at a folder or some files")
+        return 2
+
+    marks = Benchmarks()
+    target = marks.entries.get(args.against) if args.against else marks.hardest
+    if target is None:
+        say.warn("no benchmark to chase — add one with `auteur benchmark add <video>`")
+    else:
+        say.detail(
+            f"chasing {target.name}: craft {target.craft.overall:.2f}, "
+            f"structure {target.structure:.2f}"
+        )
+
+    loop = Rehearsal(
+        footage,
+        benchmark=target,
+        seconds=max(3.0, args.length),
+        seed=args.seed if args.seed is not None else 0xB0A7,
+    )
+
+    def report(attempt, progress) -> None:
+        best = progress.best is attempt
+        flag = "  ← best" if best else ""
+        if attempt.beat_target:
+            flag = "  ← PASSED THE TARGET, bar raised"
+        print(
+            f"     gen {attempt.generation:3}  {attempt.recipe.preset:13} "
+            f"craft {attempt.craft:.3f}  structure {attempt.structure:.3f}"
+            f"  combined {attempt.combined:.3f}{flag}",
+            flush=True,
+        )
+
+    say.banner(
+        f"rehearsing on {len(footage)} file(s)"
+        + (
+            "  ·  forever, ctrl-c to stop"
+            if args.forever
+            else f"  ·  {args.generations} generations"
+        )
+    )
+    try:
+        if args.forever:
+            loop.forever(on_generation=lambda a, p: None)
+        else:
+            loop.run(generations=args.generations, on_generation=report)
+    except KeyboardInterrupt:
+        say.detail("stopped")
+
+    print()
+    for line in loop.progress.describe().splitlines():
+        print(f"     {line}")
+    ceiling = loop.ceiling()
+    if ceiling:
+        say.warn(ceiling)
+    say.detail(f"the winning settings are saved to {loop.recipe_path}")
+    return 0
+
+
+def _run_benchmark(args: argparse.Namespace, say: Reporter) -> int:
+    """The films the work is chasing, and what it would take to pass them."""
+    import json as _json
+
+    from .insight.benchmark import Benchmarks, measure_benchmark
+
+    marks = Benchmarks()
+
+    if args.action == "add":
+        if not args.paths:
+            say.failure("point at a video", "auteur benchmark add ./thegoal.mp4")
+            return 2
+        from .insight.benchmark import combine
+
+        measured = []
+        for entry in args.paths:
+            # `handle=./file.mp4` names a reel. Without it a composite goal
+            # reports its parts as upload UUIDs, which makes "separation set by
+            # 3a41839d" useless as an instruction to go and look at one.
+            label, _, raw = entry.rpartition("=")
+            target = Path(raw or entry)
+            if not target.exists():
+                say.warn(f"{target.name} is not there")
+                continue
+            say.step(f"Watching {label or target.name}")
+            measured.append(measure_benchmark(target, name=label))
+
+        if not measured:
+            say.failure("nothing could be measured", "check the paths")
+            return 1
+
+        # Several reels named together are one goal, not several. The bar each
+        # dimension is set at is the best any of them managed, so the target is
+        # harder than every reel in it — which is what "reach and then surpass"
+        # has to mean once there is more than one thing to reach.
+        if len(measured) > 1 and args.name:
+            benchmark = marks.add(combine(measured, name=args.name))
+            for line in benchmark.describe().splitlines():
+                print(f"     {line}")
+            if benchmark.led_by:
+                print()
+                for dimension, who in sorted(benchmark.led_by.items()):
+                    print(f"     {dimension:12} bar set by {who}")
+            return 0
+
+        for index, benchmark in enumerate(measured):
+            if args.name and len(measured) == 1:
+                benchmark.name = args.name
+            marks.add(benchmark)
+            for line in benchmark.describe().splitlines():
+                print(f"     {line}")
+            if index < len(measured) - 1:
+                print()
+        return 0
+
+    if args.action == "remove":
+        for name in args.paths:
+            say.result(f"dropped {name}" if marks.remove(name) else f"no benchmark called {name}")
+        return 0
+
+    if args.json:
+        print(_json.dumps([b.to_json() for b in marks.entries.values()], indent=2))
+        return 0
+
+    for line in marks.describe().splitlines():
+        print(line)
+    if marks.entries:
+        say.detail(
+            "structure is the same model that scores your edits; craft is measured "
+            "off the frames. Both have to be beaten for it to count."
+        )
+    return 0
+
+
+def _run_agents(args: argparse.Namespace, say: Reporter) -> int:
+    """What the crew has found to be worth doing, across every film so far."""
+    import json as _json
+
+    from .agents.ledger import Ledger
+
+    ledger = Ledger()
+    if args.action == "forget":
+        if ledger.path.exists():
+            ledger.path.unlink()
+        say.result("the crew has forgotten everything it learned")
+        return 0
+
+    if args.json:
+        print(
+            _json.dumps(
+                {
+                    "proven": [t.__dict__ for t in ledger.proven()],
+                    "wasted": [t.__dict__ for t in ledger.wasted()],
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    for line in ledger.describe().splitlines():
+        print(line)
+    say.detail(
+        "these are the scoring model's own verdicts, not view counts — "
+        "load real exports with `auteur insight fit` to check them against reality"
+    )
+    return 0
+
+
+def _run_scholar(args: argparse.Namespace, say: Reporter) -> int:
+    """The study agent: what it knows, what it wants to watch, what it teaches."""
+    import json as _json
+
+    from .scholar import Scholar
+    from .scholar.youtube import YouTubeUnavailable, reachable
+
+    scholar = Scholar()
+    text = " ".join(args.words).strip()
+
+    if args.action == "status":
+        if args.json:
+            print(_json.dumps(scholar.status(), indent=2))
+            return 0
+        for line in scholar.describe().splitlines():
+            print(line)
+        can_study, how = reachable()
+        say.detail(f"YouTube: {how}" if can_study else f"cannot study — {how}")
+        return 0
+
+    if args.action == "subscribe":
+        if len(args.words) < 1:
+            say.failure("give me a channel id", "auteur scholar subscribe UC123... Channel Name")
+            return 2
+        channel_id, *name = args.words
+        scholar.youtube.subscribe(channel_id, " ".join(name) or channel_id, ["content_creation"])
+        scholar.youtube.save_subscriptions()
+        say.result(f"following {' '.join(name) or channel_id}")
+        return 0
+
+    if args.action == "ask":
+        if not text:
+            say.failure("ask me something", 'auteur scholar ask "how do I pace a montage?"')
+            return 2
+        reply = scholar.chat(text)
+        print(reply.text)
+        return 0
+
+    if args.action == "teach":
+        brief = scholar.teach(args.agent) if args.agent else scholar.teach_all()
+        if args.json:
+            print(_json.dumps(brief.to_json(), indent=2))
+            return 0
+        print(brief.summary)
+        for learning in brief.learnings[:12]:
+            print(f"  · {learning.insight}")
+        if not brief.learnings:
+            say.detail("nothing studied yet — run `auteur scholar study <topic>`")
+        return 0
+
+    if args.action == "watch":
+        can_study, how = reachable()
+        if not can_study:
+            say.failure("the Scholar cannot reach YouTube", how)
+            return 1
+        minutes = max(1.0, args.every)
+        say.banner(f"the Scholar is studying · checking every {minutes:.0f} min · ctrl-c to stop")
+
+        def report(session) -> None:
+            say.result(
+                f"{session.videos_watched} video(s), "
+                f"{session.learnings_extracted} learning(s) — "
+                f"{scholar.knowledge.total_learnings} known"
+            )
+
+        try:
+            scholar.run_forever(
+                every_seconds=minutes * 60.0, max_videos=args.videos, on_session=report
+            )
+        except KeyboardInterrupt:
+            say.detail(f"stopped — {scholar.knowledge.total_learnings} learnings kept")
+        return 0
+
+    # study
+    can_study, how = reachable()
+    if not can_study:
+        say.failure("the Scholar cannot reach YouTube", how)
+        return 1
+    say.step(f"Studying{f' {text}' if text else ''}")
+    try:
+        session = scholar.study(max_videos=max(1, args.videos))
+    except YouTubeUnavailable as exc:
+        say.failure("the Scholar could not study", str(exc))
+        return 1
+    say.result(
+        f"{session.videos_watched} video(s) watched, "
+        f"{session.learnings_extracted} learning(s) kept"
+    )
+    if session.videos_watched == 0:
+        say.detail("nothing new — everything it found had already been watched")
+    return 0
+
+
 def _run_insight(args: argparse.Namespace, say: Reporter) -> int:
     """What the performance data says about hooks, shares and loops."""
     from .insight import corpus, fit, load, simulate, write_csv
@@ -943,6 +1558,9 @@ def _run_insight(args: argparse.Namespace, say: Reporter) -> int:
             files=[("the corpus", str(destination))],
         )
         return 0
+
+    if args.action == "score":
+        return _run_score(args, say)
 
     try:
         measured = load(args.paths) if args.paths else []
@@ -1174,6 +1792,14 @@ def main(argv: list[str] | None = None) -> int:
             return _run_schedule(args, say)
         if args.command == "insight":
             return _run_insight(args, say)
+        if args.command == "scholar":
+            return _run_scholar(args, say)
+        if args.command == "agents":
+            return _run_agents(args, say)
+        if args.command == "benchmark":
+            return _run_benchmark(args, say)
+        if args.command == "rehearse":
+            return _run_rehearse(args, say)
     except KeyboardInterrupt:
         say.failure("stopped")
         return 130

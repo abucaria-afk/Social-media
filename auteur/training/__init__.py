@@ -16,13 +16,20 @@ how a piece of content should be built, presented, and refined:
 
 Each domain CSV contains rows that vary a `Primary_<domain>` lever (the main
 concept being applied), a `Secondary_<domain>` lever (the supporting framework),
-and a performance envelope — watch time, shares, saves, click-through — drawn
-from distributions calibrated to the Tier-1 labelled corpus described in
-`docs/agent-briefs.md`.
+and a performance envelope — watch time, shares, saves, click-through.
 
-The distributions are *natural* in the sense that they exhibit realistic
-variance, realistic correlation structure, and realistic failure rates. A
-generated row can underperform; the dataset is not all winners. This is what
-makes it useful for training agents that need to distinguish a good decision
-from a plausible-sounding bad one.
+**What this data is, exactly.** It is invented. The distributions are shaped to
+look like a platform export — long right tail on views, a left tail of
+underperformance, rates in plausible ranges — but no row corresponds to
+anything that was ever posted, and the numbers are not calibrated against any
+measured corpus. Fit a model on this alone and you have modelled this file.
+`auteur insight fit` says so in its provenance line every time.
+
+**What it is for.** Each creative lever — the primary concept, the palette, the
+cognitive bias, the audio anchor — carries a fixed, hidden effect on the
+outcome. That makes the ground truth *knowable*, which is the whole point: you
+can check whether the crew recovers the levers that actually matter, and
+whether it correctly ignores the ones that do not. A dataset where the choices
+were drawn independently of the results could not test that, because the only
+lesson available in it is that nothing you choose matters.
 """

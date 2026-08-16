@@ -17,8 +17,11 @@ import json
 import math
 import os
 import re
+import copy
 import subprocess
 import sys
+import tempfile
+import types
 import time
 import wave
 from pathlib import Path
@@ -3811,3 +3814,1886 @@ def test_slowing_the_cut_keeps_the_runtime(labelled_model):
     assert 2.0 < pace < 4.5, f"{pace:.1f} per 10s"
     # The hook and the ending are load-bearing for the other agents.
     assert edit.shots[0] is not None and len(edit.shots) >= 2
+
+
+# ---------------------------------------------------------------------------
+# Vision: reading a frame rather than measuring one
+# ---------------------------------------------------------------------------
+
+
+def _spot(cy: float, cx: float, *, size: int = 18, bg: float = 0.06, fg: float = 0.95):
+    """A bright square on a dark field, at a known place."""
+    frame = np.full((240, 320, 3), bg, dtype=np.float32)
+    y, x = int(cy * 240), int(cx * 320)
+    frame[max(0, y - size) : y + size, max(0, x - size) : x + size] = fg
+    return frame
+
+
+def test_the_eye_lands_where_the_subject_actually_is():
+    """The centroid of a whole salience field is the middle of the frame for
+    anything symmetric — five photographs with subjects in five places all read
+    'dead centre'. And a zero-padded blur dims the frame edge, pulling any peak
+    inward: a subject a fifth across was reported three tenths across."""
+    from auteur.vision import read_frame
+
+    for cy, cx in ((0.20, 0.20), (0.80, 0.75), (0.50, 0.50), (0.35, 0.66), (0.15, 0.85)):
+        reading = read_frame(_spot(cy, cx))
+        error = math.hypot(reading.focus[0] - cx, reading.focus[1] - cy)
+        assert error < 0.05, f"want ({cx}, {cy}), got {reading.focus}, off by {error:.3f}"
+
+
+def test_a_subject_at_the_frame_edge_is_not_dragged_inward():
+    """The case that matters most for deciding where a title can go."""
+    from auteur.vision import read_frame
+
+    reading = read_frame(_spot(0.5, 0.12))
+    assert reading.focus[0] < 0.25, reading.focus
+
+
+def test_not_every_frame_is_a_dutch_angle():
+    """Averaging sin(2θ) over edge angles gives about 2/π for any even spread —
+    comfortably over any threshold — so every frame came back tilted. A
+    classifier that always returns the same answer is reporting its own bias."""
+    from auteur.vision import read_frame
+
+    # Axis-aligned bars: emphatically not a Dutch angle.
+    square = np.full((240, 320, 3), 0.1, dtype=np.float32)
+    square[60:180, 80:240] = 0.9
+    assert read_frame(square).composition != "Dutch Angle"
+
+    # A frame built from diagonals should be.
+    diagonal = np.full((240, 320, 3), 0.1, dtype=np.float32)
+    ys, xs = np.mgrid[0:240, 0:320]
+    diagonal[((xs + ys) % 40) < 20] = 0.9
+    assert read_frame(diagonal).composition == "Dutch Angle"
+
+
+def test_an_almost_empty_frame_does_not_read_as_busy():
+    """`busy` was measured against a percentile. On a flat frame the 90th
+    percentile sits near zero, so nearly every empty pixel cleared it."""
+    from auteur.vision import read_frame
+
+    assert read_frame(_spot(0.5, 0.5)).busy < 0.15
+
+    noisy = np.random.default_rng(4).random((240, 320, 3)).astype(np.float32)
+    assert read_frame(noisy).busy > read_frame(_spot(0.5, 0.5)).busy
+
+
+def test_the_light_is_named_from_the_histogram_not_the_mean():
+    """Chiaroscuro, high-key and low-key can share a mean and are three
+    different pictures."""
+    from auteur.vision import read_frame
+
+    # Bright and dark, nothing in between.
+    chiaroscuro = np.full((240, 320, 3), 0.04, dtype=np.float32)
+    chiaroscuro[:, :100] = 0.92
+    assert read_frame(chiaroscuro).lighting == "Chiaroscuro/Moody"
+
+    flat = np.full((240, 320, 3), 0.5, dtype=np.float32)
+    flat[100:140, 140:180] = 0.55
+    assert read_frame(flat).lighting == "Natural Flat"
+
+
+def test_hue_is_averaged_the_way_a_circle_works():
+    """Averaging 350 and 10 arithmetically gives 180 — the opposite colour."""
+    from auteur.vision import read_frame
+
+    frame = np.zeros((240, 320, 3), dtype=np.float32)
+    frame[:, :160] = (0.9, 0.1, 0.05)  # red, hue near 0
+    frame[:, 160:] = (0.9, 0.25, 0.05)  # orange-red, hue near 15
+    hue = read_frame(frame).hue
+    assert hue < 60 or hue > 300, f"hue {hue} is nowhere near red"
+
+
+def test_palette_names_a_relationship_not_a_colour():
+    from auteur.vision import read_frame
+
+    mono = np.zeros((240, 320, 3), dtype=np.float32)
+    mono[:, :] = (0.8, 0.2, 0.2)
+    mono[80:160, 80:240] = (0.4, 0.1, 0.1)
+    assert read_frame(mono).palette == "Monochromatic"
+
+    opposed = np.zeros((240, 320, 3), dtype=np.float32)
+    opposed[:, :160] = (0.9, 0.15, 0.15)
+    opposed[:, 160:] = (0.15, 0.75, 0.9)
+    assert read_frame(opposed).palette in ("Split-Complementary", "Triadic")
+
+
+def test_a_reading_survives_a_real_photograph(tmp_path):
+    """Including the EXIF rotation — a phone photo read sideways gives a
+    confident answer about a composition nobody will ever see."""
+    from auteur import ffmpeg as ff
+    from auteur.vision import read_asset
+
+    photo = tmp_path / "shot.png"
+    subprocess.run(
+        [
+            str(ff.ffmpeg_path()),
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=640x360",
+            "-frames:v",
+            "1",
+            str(photo),
+        ],
+        check=True,
+    )
+    reading = read_asset(photo)
+    assert reading.composition in __import__("auteur.vision", fromlist=["x"]).COMPOSITIONS
+    assert reading.lighting in __import__("auteur.vision", fromlist=["x"]).LIGHTING
+    assert reading.palette in __import__("auteur.vision", fromlist=["x"]).PALETTES
+    assert 0.0 <= reading.focus[0] <= 1.0 and 0.0 <= reading.focus[1] <= 1.0
+    assert reading.to_json()["composition"] == reading.composition
+
+
+# ---------------------------------------------------------------------------
+# Finishing: reframe, overlays, transitions, sound
+# ---------------------------------------------------------------------------
+
+
+def _readings_for(*focuses, luma=0.3, hue=30.0, strength=0.4):
+    from auteur.vision import Reading
+
+    return {
+        f"C{index:02d}": Reading(
+            focus=focus, focus_strength=strength, luma=luma, hue=hue, depth_separation=0.5
+        )
+        for index, focus in enumerate(focuses)
+    }
+
+
+def _still_edl(readings, *, text_anchor=None, transitions=None):
+    from auteur.edl import EditDecisionList, Motion, Shot, TextCue, Transition
+
+    shots = []
+    for index in range(len(readings)):
+        shot = Shot(
+            clip_id=f"C{index:02d}",
+            source=Path(f"/x/{index}.jpg"),
+            start=0.0,
+            end=2.5,
+            is_still=True,
+            motion=Motion(kind="punch-in", intensity=0.2, anchor=(0.5, 0.5)),
+        )
+        if transitions and index in transitions:
+            shot.transition_in = Transition(kind=transitions[index], duration=0.4)
+        shots.append(shot)
+    texts = []
+    if text_anchor is not None:
+        texts.append(TextCue(text="TITLE", start=0.2, duration=1.5, anchor=text_anchor))
+    return EditDecisionList(title="t", shots=shots, texts=texts)
+
+
+def test_the_finishing_agent_anchors_moves_on_the_subject(model):
+    """A punch-in toward the middle of a frame whose subject is off to one side
+    pushes the subject out of shot."""
+    from auteur.agents import FinishingAgent
+    from auteur.insight import predict
+
+    readings = _readings_for((0.86, 0.44), (0.20, 0.55), (0.5, 0.5))
+    edl = _still_edl(readings)
+
+    proposals = FinishingAgent(readings).inspect(edl, predict(edl, model), model)
+    reframe = next(p for p in proposals if "Reframe" in p.title)
+    reframe.change(edl)
+
+    for shot in edl.shots:
+        assert shot.motion.anchor == readings[shot.clip_id].focus
+
+
+def test_titles_are_moved_off_the_subject_and_still_obey_the_safe_area(model):
+    from auteur.agents import FinishingAgent
+    from auteur.insight import predict
+    from auteur.workflows import resolve
+
+    spec = resolve("tiktok")
+    readings = _readings_for((0.54, 0.38), (0.3, 0.5), (0.7, 0.5))
+    edl = _still_edl(readings, text_anchor=(0.54, 0.38))  # right on top of the subject
+
+    proposals = FinishingAgent(readings, spec=spec).inspect(edl, predict(edl, model), model)
+    move = next(p for p in proposals if "title" in p.title)
+    move.change(edl)
+
+    anchor = edl.texts[0].anchor
+    assert math.hypot(anchor[0] - 0.54, anchor[1] - 0.38) > 0.15, "still on the subject"
+    assert spec.safe.top <= anchor[1] <= 1 - spec.safe.bottom, "and still under the caption box"
+    assert spec.safe.left <= anchor[0] <= 1 - spec.safe.right
+
+
+def test_a_dissolve_between_two_matching_shots_is_cut(model):
+    """It looks like a mistake rather than a transition."""
+    from auteur.agents import FinishingAgent
+    from auteur.insight import predict
+
+    # Three near-identical frames, one of them joined with a dissolve.
+    readings = _readings_for((0.5, 0.5), (0.52, 0.51), (0.5, 0.49))
+    edl = _still_edl(readings, transitions={1: "dissolve"})
+
+    proposals = FinishingAgent(readings).inspect(edl, predict(edl, model), model)
+    fix = next(p for p in proposals if "dissolve" in p.title)
+    fix.change(edl)
+    assert edl.shots[1].transition_in.is_cut
+
+
+def test_sound_lands_only_on_the_joins_the_picture_marks(model):
+    """Sound on every cut is a metronome."""
+    from auteur.agents import FinishingAgent
+    from auteur.insight import predict
+    from auteur.vision import Reading
+
+    readings = {
+        "C00": Reading(focus=(0.5, 0.5), focus_strength=0.4, luma=0.1, hue=20.0),
+        "C01": Reading(focus=(0.5, 0.5), focus_strength=0.4, luma=0.11, hue=22.0),  # same
+        "C02": Reading(focus=(0.5, 0.5), focus_strength=0.4, luma=0.72, hue=210.0),  # a jump
+    }
+    edl = _still_edl(readings)
+
+    proposals = FinishingAgent(readings).inspect(edl, predict(edl, model), model)
+    sound = next(p for p in proposals if "effect" in p.title)
+    sound.change(edl)
+
+    ats = sorted(round(cue.at, 2) for cue in edl.sfx if cue.kind == "impact")
+    assert ats == [5.0], f"one impact, on the join at 5s, got {ats}"
+    assert any(cue.kind == "riser" for cue in edl.sfx), "a big jump earns a riser into it"
+
+
+def test_the_finishing_agent_says_nothing_without_a_reading(model):
+    """Every decision is only as good as the reading behind it, and a
+    default-driven finishing pass is worse than none."""
+    from auteur.agents import FinishingAgent
+    from auteur.insight import predict
+
+    readings = _readings_for((0.5, 0.5), (0.5, 0.5))
+    edl = _still_edl(readings)
+    assert FinishingAgent({}).inspect(edl, predict(edl, model), model) == []
+
+
+# ---------------------------------------------------------------------------
+# Scoring a finished video
+# ---------------------------------------------------------------------------
+
+
+def test_a_finished_video_can_be_scored(tmp_path):
+    from auteur import ffmpeg as ff
+    from auteur.insight import corpus, fit, predict, timeline_of
+
+    video = tmp_path / "cut.mp4"
+    subprocess.run(
+        [
+            str(ff.ffmpeg_path()),
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:size=320x240:rate=24:duration=2",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=white:size=320x240:rate=24:duration=2",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:size=320x240:rate=24:duration=2",
+            "-filter_complex",
+            "[0:v][1:v][2:v]concat=n=3:v=1:a=0",
+            "-pix_fmt",
+            "yuv420p",
+            str(video),
+        ],
+        check=True,
+    )
+
+    edl = timeline_of(video)
+    assert edl.shots, "a finished file has a timeline in it; it just has to be measured out"
+    assert edl.duration == pytest.approx(6.0, abs=0.5)
+    assert (edl.width, edl.height) == (320, 240)
+    # Black at both ends: the loop objective should notice the ends match.
+    assert edl.shots[-1].clip_id == edl.shots[0].clip_id
+
+    prediction = predict(edl, fit(corpus([], simulate_rows=400)))
+    assert 0.0 <= prediction.overall <= 1.0
+    # Nothing read any words, so nothing may claim a text-driven hook.
+    assert edl.texts == []
+
+
+# --------------------------------------------------------------------- graphics
+
+
+def _graphics_edl(tmp_path, count=4, seconds=2.5):
+    """A tiny timeline of solid-colour stills, for graphics tests."""
+    from PIL import Image
+
+    from auteur.edl import EditDecisionList, Motion, Shot, Transition
+
+    shots = []
+    for index in range(count):
+        path = tmp_path / f"still{index}.png"
+        Image.new("RGB", (600, 900), (30 + index * 40, 60, 90)).save(path)
+        shots.append(
+            Shot(
+                clip_id=f"c{index}",
+                source=path,
+                start=0.0,
+                end=seconds,
+                is_still=True,
+                motion=Motion("none", 0.0, (0.5, 0.5)),
+                transition_in=Transition("cut", 0.0),
+            )
+        )
+    edl = EditDecisionList(title="graphics", shots=shots, fps=30, width=1080, height=1920)
+    edl.repair()
+    return edl
+
+
+@pytest.mark.parametrize(
+    "kind",
+    ["circle", "bracket", "arrow", "underline", "highlight", "burst", "progress", "tape"],
+)
+def test_every_graphic_kind_draws_ink_where_it_was_aimed(tmp_path, kind):
+    """A graphic that renders empty, or lands somewhere else, is worse than none."""
+    import numpy as np
+    from PIL import Image
+
+    from auteur.craft import graphics
+    from auteur.edl import GraphicCue
+
+    cue = GraphicCue(kind=kind, start=0.0, duration=1.0, anchor=(0.4, 0.35), move="pop")
+    if kind in graphics.SPANNING:
+        cue.toward = (0.7, 0.6)
+    cue.normalise()
+
+    drawn = graphics.render_cue(cue, width=1080, height=1920, directory=tmp_path, index=0)
+    assert drawn is not None
+
+    # Sample each kind where it is meant to be at full strength. That is the
+    # last plate for anything that draws itself on and stays, but a burst is an
+    # impact mark that has deliberately burnt out by its final frame — checking
+    # that one would be checking an empty plate on purpose.
+    peak = int((drawn.frames - 1) * (0.4 if kind == "burst" else 1.0))
+    plate = (
+        Path(str(drawn.pattern).replace("%04d", f"{peak:04d}"))
+        if drawn.is_sequence
+        else drawn.pattern
+    )
+    alpha = np.array(Image.open(plate))[..., 3]
+    ys, xs = np.nonzero(alpha > 25)
+    assert len(xs) > 0, f"{kind} drew nothing at all"
+
+    # Where the ink actually landed, back in normalised frame coordinates.
+    at = ((xs.mean() + drawn.box[0]) / 1080, (ys.mean() + drawn.box[1]) / 1920)
+    if kind == "progress":
+        expected = (0.5, 0.35)  # spans the full width, so only y is the cue's
+    elif kind in graphics.SPANNING:
+        expected = (0.55, 0.475)  # midway along the span
+    else:
+        expected = (0.4, 0.35)
+    assert at[0] == pytest.approx(expected[0], abs=0.06)
+    assert at[1] == pytest.approx(expected[1], abs=0.06)
+
+
+def test_a_graphic_box_never_leaves_the_frame(tmp_path):
+    """Anchored in a corner, the plates still have to be a rectangle inside the film."""
+    from auteur.craft import graphics
+    from auteur.edl import GraphicCue
+
+    for anchor in [(0.02, 0.02), (0.98, 0.98), (0.98, 0.02), (0.5, 0.995)]:
+        cue = GraphicCue(kind="circle", anchor=anchor, size=3.0, move="pulse", duration=0.5)
+        cue.normalise()
+        x, y, w, h = graphics._box(cue, 1080, 1920)
+        assert 0 <= x and 0 <= y
+        assert x + w <= 1080 and y + h <= 1920
+        assert w > 0 and h > 0
+
+
+def test_a_long_graphic_is_a_still_rather_than_a_thousand_plates(tmp_path):
+    from auteur.craft import graphics
+    from auteur.edl import GraphicCue
+
+    brief = GraphicCue(kind="circle", duration=2.0, move="pulse")
+    lengthy = GraphicCue(kind="circle", duration=40.0, move="pulse")
+    brief.normalise()
+    lengthy.normalise()
+
+    assert graphics.render_cue(brief, width=540, height=960, directory=tmp_path, index=0).frames > 1
+    long_one = graphics.render_cue(lengthy, width=540, height=960, directory=tmp_path, index=1)
+    assert long_one.frames == 1
+    assert not long_one.is_sequence
+
+
+def test_stickers_are_found_in_a_stable_order_and_missing_folders_are_fine(tmp_path):
+    from PIL import Image
+
+    from auteur.craft.graphics import find_stickers
+
+    assert find_stickers(None) == []
+    assert find_stickers(tmp_path / "nope") == []
+
+    for name in ("zebra.png", "apple.png", "notes.txt"):
+        if name.endswith(".png"):
+            Image.new("RGBA", (64, 64), (255, 0, 0, 200)).save(tmp_path / name)
+        else:
+            (tmp_path / name).write_text("not a sticker")
+
+    found = find_stickers(tmp_path)
+    assert [p.name for p in found] == ["apple.png", "zebra.png"]
+
+
+def test_a_sticker_whose_file_vanished_is_dropped_not_rendered(tmp_path):
+    from auteur.edl import GraphicCue
+
+    edl = _graphics_edl(tmp_path)
+    edl.graphics = [
+        GraphicCue(kind="sticker", start=0.5, duration=1.0, source=tmp_path / "gone.png")
+    ]
+    notes = edl.repair()
+    assert edl.graphics == []
+    assert any("sticker" in note for note in notes)
+
+
+def test_graphics_past_the_end_of_the_film_are_dropped(tmp_path):
+    from auteur.edl import GraphicCue
+
+    edl = _graphics_edl(tmp_path, count=2, seconds=1.0)
+    edl.graphics = [
+        GraphicCue(kind="circle", start=0.5, duration=99.0),
+        GraphicCue(kind="burst", start=50.0, duration=0.5),
+    ]
+    edl.repair()
+    assert len(edl.graphics) == 1
+    # The survivor is trimmed to the runtime rather than left hanging past it.
+    assert edl.graphics[0].end <= edl.duration + 1e-6
+
+
+def test_graphics_survive_a_round_trip_through_json(tmp_path):
+    import json
+
+    from auteur.edl import GraphicCue
+
+    edl = _graphics_edl(tmp_path)
+    edl.graphics = [
+        GraphicCue(kind="arrow", start=0.4, duration=1.0, anchor=(0.2, 0.8), toward=(0.6, 0.4))
+    ]
+    edl.repair()
+    payload = json.loads(json.dumps(edl.to_json()))
+    assert payload["graphics"][0]["kind"] == "arrow"
+    assert payload["graphics"][0]["toward"] == [0.2 * 0 + 0.6, 0.4]
+
+
+# ------------------------------------------------------------------ overlay agent
+
+
+def _overlay_bits(tmp_path, focus=(0.3, 0.35), strength=0.5, count=5):
+    from auteur.insight import FitReport
+    from auteur.insight.score import Prediction
+    from auteur.vision import Reading
+
+    edl = _graphics_edl(tmp_path, count=count)
+    readings = {
+        f"c{i}": Reading(focus=focus, focus_strength=strength, luma=0.4, hue=30.0)
+        for i in range(count)
+    }
+    return (
+        edl,
+        readings,
+        Prediction(hook=0.5, share=0.5, loop=0.5),
+        FitReport(rows=0, simulated_rows=0, measured_rows=0),
+    )
+
+
+def test_the_overlay_agent_says_nothing_without_a_reading(tmp_path):
+    """A mark placed from a default lands on the subject about half the time."""
+    from auteur.agents import OverlayAgent
+
+    edl, _, prediction, model = _overlay_bits(tmp_path)
+    assert OverlayAgent({}).inspect(edl, prediction, model) == []
+
+
+def test_the_overlay_agent_will_not_point_at_a_texture(tmp_path):
+    from auteur.agents import OverlayAgent
+
+    edl, readings, prediction, model = _overlay_bits(tmp_path, strength=0.05)
+    titles = {p.title for p in OverlayAgent(readings).inspect(edl, prediction, model)}
+    assert not any("Ring" in t or "Bracket" in t or "Point" in t for t in titles)
+
+
+def test_overlay_proposals_are_binding_because_the_model_is_silent_on_them(tmp_path):
+    """No export this project has been given records on-screen graphics."""
+    from auteur.agents import OverlayAgent
+
+    edl, readings, prediction, model = _overlay_bits(tmp_path)
+    proposals = OverlayAgent(readings).inspect(edl, prediction, model)
+    assert proposals
+    assert all(p.binding for p in proposals)
+
+
+def test_the_overlay_agent_does_not_stack_a_second_set_of_stickers(tmp_path):
+    """The crew runs several rounds; an unguarded pass doubles every round."""
+    from PIL import Image
+
+    from auteur.agents import OverlayAgent
+
+    sticker = tmp_path / "s.png"
+    Image.new("RGBA", (80, 80), (255, 200, 0, 220)).save(sticker)
+
+    edl, readings, prediction, model = _overlay_bits(tmp_path)
+    agent = OverlayAgent(readings, stickers=[sticker])
+
+    first = [p for p in agent.inspect(edl, prediction, model) if "sticker" in p.title]
+    assert len(first) == 1
+    first[0].change(edl)
+    placed = len([g for g in edl.graphics if g.kind == "sticker"])
+    assert placed >= 1
+
+    again = [p for p in agent.inspect(edl, prediction, model) if "sticker" in p.title]
+    assert again == [], "stickers were proposed a second time on top of the ones already there"
+
+
+def _beat_edl(tmp_path, *, bpm=120.0, bars=6, count=6):
+    """The graphics timeline, with a beat grid on it like a director leaves."""
+    from auteur.edl import MusicCue
+
+    edl = _graphics_edl(tmp_path, count=count, seconds=2.0)
+    step = 60.0 / bpm
+    beats = [round(step * n, 4) for n in range(1, bars * 4 + 1)]
+    edl.music = MusicCue(
+        source=tmp_path / "track.wav",
+        beats=beats,
+        downbeats=[b for index, b in enumerate(beats) if index % 4 == 0],
+        tempo=bpm,
+    )
+    return edl
+
+
+def test_the_director_writes_the_beat_grid_onto_the_edl():
+    """Nothing downstream of the director can see the audio analysis.
+
+    The grid used to be recomputed in three places and written down in none, so
+    an agent holding an EDL had no way to put anything on a beat.
+    """
+    from auteur.director.heuristic import beat_grid
+
+    class _Audio:
+        has_beat = True
+        tempo = 128.0
+        beats = [0.5, 1.0, 1.5, 2.0, 2.5]
+        downbeats = [0.5, 2.5]
+
+    beats, downbeats, tempo = beat_grid(_Audio(), 0.5)
+    assert beats == [0.5, 1.0, 1.5, 2.0]  # offset subtracted, the one at zero dropped
+    assert downbeats == [2.0]
+    assert tempo == 128.0
+
+    # A brief that asked not to be cut to the music does not get stickers on
+    # the snare either.
+    assert beat_grid(_Audio(), 0.5, enabled=False) == ([], [], 0.0)
+    assert beat_grid(None, 0.0) == ([], [], 0.0)
+    # Nothing past the end of the film.
+    assert beat_grid(_Audio(), 0.5, runtime=1.2)[0] == [0.5, 1.0]
+
+
+def test_stickers_land_on_the_beat_and_share_the_screen(tmp_path):
+    """Not one per cut: several at once, arriving on the grid."""
+    from PIL import Image
+
+    from auteur.agents import OverlayAgent
+    from auteur.agents.overlay import MAX_LAYERS
+
+    stickers = []
+    for name, colour in (("a.png", (255, 0, 0, 220)), ("b.png", (0, 255, 0, 220))):
+        path = tmp_path / name
+        Image.new("RGBA", (90, 90), colour).save(path)
+        stickers.append(path)
+
+    edl = _beat_edl(tmp_path)
+    _, readings, prediction, model = _overlay_bits(tmp_path, count=6)
+    agent = OverlayAgent(readings, stickers=stickers)
+
+    placed = [p for p in agent.inspect(edl, prediction, model) if "sticker" in p.title]
+    assert len(placed) == 1
+    placed[0].change(edl)
+
+    cues = [g for g in edl.graphics if g.kind == "sticker"]
+    assert len(cues) > len(edl.shots), "still one sticker per shot"
+
+    grid = set(edl.music.beats)
+    assert all(round(cue.start, 4) in grid for cue in cues), "a sticker missed the beat"
+
+    at_once = agent._most_at_once(cues)
+    assert 2 <= at_once <= MAX_LAYERS, f"{at_once} on screen at once"
+
+    # Both files get used, because a set of stickers used once each is a set
+    # nobody noticed.
+    assert {cue.source.name for cue in cues} == {"a.png", "b.png"}
+
+
+def test_layered_stickers_do_not_sit_on_top_of_each_other(tmp_path):
+    """Three in one corner is one sticker with a shadow."""
+    import itertools
+
+    from PIL import Image
+
+    from auteur.agents import OverlayAgent
+    from auteur.agents.overlay import TOO_CLOSE
+
+    sticker = tmp_path / "s.png"
+    Image.new("RGBA", (90, 90), (255, 200, 0, 220)).save(sticker)
+
+    edl = _beat_edl(tmp_path)
+    _, readings, prediction, model = _overlay_bits(tmp_path, count=6)
+    agent = OverlayAgent(readings, stickers=[sticker])
+    [p for p in agent.inspect(edl, prediction, model) if "sticker" in p.title][0].change(edl)
+
+    cues = [g for g in edl.graphics if g.kind == "sticker"]
+    for one, other in itertools.combinations(cues, 2):
+        if one.start < other.end and other.start < one.end:
+            gap = (
+                (one.anchor[0] - other.anchor[0]) ** 2 + (one.anchor[1] - other.anchor[1]) ** 2
+            ) ** 0.5
+            assert gap >= TOO_CLOSE, f"two stickers stacked at {one.anchor} and {other.anchor}"
+
+
+def test_without_music_the_stickers_fall_on_the_cuts(tmp_path):
+    """An edit has a pulse whether or not there is a track under it."""
+    from PIL import Image
+
+    from auteur.agents import OverlayAgent
+
+    sticker = tmp_path / "s.png"
+    Image.new("RGBA", (90, 90), (120, 200, 255, 230)).save(sticker)
+
+    edl, readings, prediction, model = _overlay_bits(tmp_path, count=8)
+    agent = OverlayAgent(readings, stickers=[sticker])
+    proposal = [p for p in agent.inspect(edl, prediction, model) if "sticker" in p.title][0]
+    assert "the cuts" in proposal.title
+    proposal.change(edl)
+
+    cuts = {round(start, 3) for start, _, _ in edl.timeline()}
+    cues = [g for g in edl.graphics if g.kind == "sticker"]
+    assert cues
+    assert all(round(cue.start, 3) in cuts for cue in cues)
+
+
+def test_a_centred_subject_does_not_send_the_mark_to_the_centre(tmp_path):
+    """The mirror of the middle is the middle — the rule has to break there."""
+    from auteur.vision import Reading, emptiest_quadrant
+
+    centred = emptiest_quadrant(Reading(focus=(0.5, 0.5), balance=0.3))
+    assert abs(centred[0] - 0.5) > 0.15 or abs(centred[1] - 0.5) > 0.15
+    # Weight on the right means the mark belongs on the left.
+    assert centred[0] < 0.5
+
+    off = emptiest_quadrant(Reading(focus=(0.25, 0.7)))
+    assert off[0] > 0.5 and off[1] < 0.5
+
+
+def test_the_crew_result_carries_every_field_back_to_the_renderer(tmp_path):
+    """Anything an agent changed and the copy-back missed is silently discarded.
+
+    This happened: graphics, sound cues and the grade were dropped while the run
+    still printed them as applied. So this asserts the behaviour rather than the
+    shape of the code — every field the crew could have touched arrives.
+    """
+    import dataclasses
+
+    from auteur.edl import EditDecisionList, GraphicCue, SoundCue
+    from auteur.workflows import WORKFLOW_OWNED, resolve, with_agents
+
+    edl = _graphics_edl(tmp_path)
+    changed = copy.deepcopy(edl)
+    changed.graphics = [GraphicCue(kind="circle", start=0.1, duration=0.5)]
+    changed.sfx = [SoundCue(kind="impact", at=0.4)]
+    changed.texture = 0.42
+    changed.letterbox = 0.11
+    changed.rationale = "the agents said so"
+    changed.look.exposure = 0.33
+
+    class _Result:
+        def __init__(self, edl):
+            self.edl = edl
+            self.baseline = self.final = types.SimpleNamespace(overall=0.5)
+            self.rounds = []
+
+    class _Crew:
+        def run(self, _edl):
+            return _Result(changed)
+
+    with_agents(resolve("tiktok"), _Crew())(edl)
+
+    for field in dataclasses.fields(EditDecisionList):
+        if field.name in WORKFLOW_OWNED:
+            continue
+        assert getattr(edl, field.name) == getattr(
+            changed, field.name
+        ), f"{field.name} did not survive the crew"
+
+
+def test_the_studio_and_the_cli_build_the_same_crew(tmp_path):
+    """A studio showing fewer proposals than the CLI would act on is the wrong list."""
+    import inspect as _inspect
+
+    from auteur.web import server
+
+    source = _inspect.getsource(server.Handler._agents_plan)
+    assert "build_crew(" in source
+    assert "default_crew()" not in source
+
+
+# ----------------------------------------------------------------------- scholar
+
+
+def _learning(disc, technique, channel, index=0):
+    from auteur.scholar.knowledge import Learning
+
+    return Learning(
+        learning_id=f"{technique[:6]}-{channel}-{index}",
+        disciplines=[disc],
+        insight=f"{technique}: do the thing",
+        technique=technique,
+        application="do the thing",
+        source_video_id=f"v-{channel}-{index}",
+        source_channel=channel,
+        source_title="a tutorial",
+    )
+
+
+def test_youtube_says_it_cannot_reach_rather_than_returning_nothing(tmp_path, monkeypatch):
+    """An empty result and no network are different facts.
+
+    They were the same one: a Scholar with no way to reach YouTube reported the
+    same quiet success as one that had read the whole first page.
+    """
+    from auteur.scholar import youtube
+
+    monkeypatch.setattr(youtube, "_ytdlp", lambda: None)
+    monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+
+    access = youtube.YouTubeAccess(cache_dir=tmp_path / "c", api_key="")
+    can, why = youtube.reachable()
+    assert not can and "yt-dlp" in why
+
+    with pytest.raises(youtube.YouTubeUnavailable):
+        access.search("colour grading")
+    with pytest.raises(youtube.YouTubeUnavailable):
+        access.fetch_metadata("abc123")
+    with pytest.raises(youtube.YouTubeUnavailable):
+        access.check_new_uploads()
+
+
+def test_a_transcript_is_the_words_or_it_is_empty():
+    """`has_transcript` used to be True while the transcript was a placeholder."""
+    from auteur.scholar.youtube import YouTubeAccess, _parse_json3, _parse_vtt
+
+    cues = _parse_json3(
+        json.dumps(
+            {
+                "events": [
+                    {
+                        "tStartMs": 0,
+                        "dDurationMs": 1500,
+                        "segs": [{"utf8": "lift "}, {"utf8": "the shadows"}],
+                    },
+                    {"tStartMs": 1500, "dDurationMs": 10, "segs": [{"utf8": "\n"}]},
+                    {"tStartMs": 2000, "dDurationMs": 900},
+                ]
+            }
+        )
+    )
+    assert cues == [{"text": "lift the shadows", "start": 0.0, "duration": 1.5}]
+    assert _parse_json3("not json") == []
+
+    vtt = (
+        "WEBVTT\n\n"
+        "00:00:00.120 --> 00:00:02.500\nnode based <c>grading</c>\n\n"
+        "00:00:02.500 --> 00:00:04.000\nnode based grading\n\n"
+        "00:00:04.000 --> 00:00:06.250\nset contrast\nthen saturation\n"
+    )
+    parsed = _parse_vtt(vtt)
+    # The rolling repeat auto-captions produce is dropped, not counted twice.
+    assert [cue["text"] for cue in parsed] == [
+        "node based grading",
+        "set contrast then saturation",
+    ]
+    assert _parse_vtt("") == []
+
+    # No caption track at all means no transcript — not a note about one.
+    access = YouTubeAccess(cache_dir=Path(tempfile.mkdtemp()))
+    meta = access._meta_from_dict({"id": "x", "title": "t", "duration": 10})
+    assert meta.transcript_segments == []
+    assert not meta.has_transcript
+
+
+def test_the_learning_loop_has_an_exit(tmp_path):
+    """Everything arrived tentative and every consumer wanted supported.
+
+    So the Scholar could study for ever and teach nothing. Independent
+    corroboration is what promotes a technique out of tentative.
+    """
+    from auteur.scholar.knowledge import Confidence, Discipline, KnowledgeStore
+
+    store = KnowledgeStore(tmp_path / "k.jsonl")
+    store.add(_learning(Discipline.COLOR_THEORY, "lift the shadows", "Chan A"))
+    assert store.by_confidence(Confidence.SUPPORTED) == [], "one channel is one opinion"
+
+    # The same technique from a second, unrelated channel is corroboration.
+    store.add(_learning(Discipline.COLOR_THEORY, "lift the shadows", "Chan B"))
+    assert len(store.by_confidence(Confidence.SUPPORTED)) == 2
+
+    # The same channel again is not.
+    store.add(_learning(Discipline.MUSIC_THEORY, "cut on the beat", "Chan A", 1))
+    store.add(_learning(Discipline.MUSIC_THEORY, "cut on the beat", "Chan A", 2))
+    beats = [lg for lg in store._learnings if lg.technique == "cut on the beat"]
+    assert all(lg.confidence is Confidence.TENTATIVE for lg in beats)
+
+
+def test_a_measured_gain_validates_the_study_behind_it(tmp_path):
+    """`record_validation` existed and had no caller anywhere in the program."""
+    from auteur.edl import Motion
+    from auteur.insight import FitReport
+    from auteur.insight.score import Prediction
+    from auteur.scholar import Scholar
+    from auteur.scholar.agent import ScholarAgent
+    from auteur.scholar.knowledge import Confidence, Discipline
+
+    scholar = Scholar(base_dir=tmp_path)
+    # Three channels: enough to corroborate the technique, and enough for the
+    # agent to consider itself studied at all (see ENOUGH_TO_SPEAK).
+    for channel in ("Chan A", "Chan B", "Chan C"):
+        scholar.knowledge.add(_learning(Discipline.ART_BASICS, "composition and focal", channel))
+
+    agent = ScholarAgent(scholar)
+    edl = _graphics_edl(tmp_path, count=6)
+    # Anchors jammed into the corner, so the focal weight is genuinely weak and
+    # the composition review has something real to object to.
+    for shot in edl.shots:
+        shot.motion = Motion(kind=shot.motion.kind, intensity=0.0, anchor=(0.04, 0.04))
+    prediction = Prediction(hook=0.4, share=0.4, loop=0.4)
+    model = FitReport(rows=0, simulated_rows=0, measured_rows=0)
+
+    proposals = agent.inspect(edl, prediction, model)
+    assert proposals, "a studied Scholar with a weak cut in front of it should speak"
+    assert all(
+        p.binding for p in proposals
+    ), "advice the model cannot score is not advice it rejected"
+    assert all(getattr(p, "learning_ids", None) for p in proposals)
+
+    # Said once, not once per round.
+    assert agent.inspect(edl, prediction, model) == []
+
+    for proposal in proposals:
+        proposal.applied = True
+        proposal.predicted_gain = 0.05
+    assert agent.learn_from(proposals) > 0
+    assert scholar.knowledge.by_confidence(Confidence.VALIDATED)
+
+
+def test_an_unstudied_scholar_stays_quiet(tmp_path):
+    """A review backed by nothing is the Gaze agent's opinion arriving twice."""
+    from auteur.insight import FitReport
+    from auteur.insight.score import Prediction
+    from auteur.scholar import Scholar
+    from auteur.scholar.agent import ScholarAgent
+
+    agent = ScholarAgent(Scholar(base_dir=tmp_path))
+    assert agent.studied == 0
+    edl = _graphics_edl(tmp_path, count=6)
+    assert (
+        agent.inspect(
+            edl,
+            Prediction(hook=0.4, share=0.4, loop=0.4),
+            FitReport(rows=0, simulated_rows=0, measured_rows=0),
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    "kind,expected",
+    [("speech", "dialogue"), ("music", "music"), ("noise", "ambient"), ("transients", "effects")],
+)
+def test_the_scholar_hears_what_kind_of_sound_it_is(kind, expected):
+    """This returned DIALOGUE unconditionally, so the field carried no information."""
+    from auteur.scholar.auditory import AuditorySystem
+
+    rate = 22050
+    t = np.linspace(0, 6.0, int(rate * 6), endpoint=False)
+    rng = np.random.default_rng(7)
+
+    if kind == "speech":
+        spectrum = np.fft.rfft(rng.normal(0, 1, len(t)))
+        freqs = np.fft.rfftfreq(len(t), 1 / rate)
+        spectrum[(freqs < 300) | (freqs > 3400)] = 0
+        signal = np.fft.irfft(spectrum, n=len(t))
+        signal = signal / np.abs(signal).max() * (0.55 + 0.45 * np.sin(2 * np.pi * 4.5 * t))
+    elif kind == "music":
+        signal = np.zeros_like(t)
+        for beat in range(10):
+            start = int(beat * 0.6 * rate)
+            span = min(900, len(signal) - start)
+            if span > 0:
+                decay = np.exp(-np.linspace(0, 7, span))
+                signal[start : start + span] += decay * np.sin(
+                    2 * np.pi * 70 * np.linspace(0, span / rate, span)
+                )
+        signal = signal * 0.9 + sum(0.16 * np.sin(2 * np.pi * f * t) for f in (196, 246.9, 293.7))
+    elif kind == "noise":
+        signal = rng.normal(0, 0.12, len(t))
+    else:
+        signal = np.zeros_like(t)
+        for at in (0.3, 1.42, 3.05, 4.8):
+            start = int(at * rate)
+            span = min(1500, len(signal) - start)
+            decay = np.exp(-np.linspace(0, 9, span))
+            signal[start : start + span] += decay * np.sin(
+                2 * np.pi * 900 * np.linspace(0, span / rate, span)
+            )
+
+    pcm = (np.clip(signal, -1, 1) * 32767).astype("<i2").tobytes()
+    assert AuditorySystem()._classify_channel(pcm, rate).value == expected
+
+
+def test_audio_energy_is_measured_not_approximated_from_bytes():
+    """The old version read signed 16-bit samples as unsigned bytes."""
+    from auteur.scholar.auditory import AuditorySystem
+
+    ears = AuditorySystem()
+    silence = np.zeros(22050, dtype="<i2").tobytes()
+    assert ears._measure_energy(silence, 22050) == 0.0
+    assert ears._measure_energy(b"", 22050) == 0.0
+
+    full = (np.ones(22050) * 32000).astype("<i2").tobytes()
+    quiet = (np.ones(22050) * 320).astype("<i2").tobytes()
+    assert ears._measure_energy(full, 22050) > ears._measure_energy(quiet, 22050)
+    assert ears._measure_energy(full, 22050) == pytest.approx(1.0, abs=0.01)
+
+
+def test_the_scholar_says_when_it_cannot_answer(tmp_path, monkeypatch):
+    """It used to return a string shaped like an answer."""
+    from auteur.scholar import Scholar
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+
+    reply = Scholar(base_dir=tmp_path).chat("how do I pace a montage?")
+    assert "[Scholar response" not in reply.text
+    assert "cannot answer" in reply.text.lower()
+
+
+# ------------------------------------------------------- categorical noise guard
+
+
+def test_a_choice_that_explains_nothing_is_not_crowned_the_winner():
+    """With sixteen options the best group mean beats the grand mean every time.
+
+    Reporting that as "best palette: Warm Analogous (0.114)" reads as a finding
+    an agent should act on, and is the result of a lottery.
+    """
+    import random as _random
+
+    from auteur.insight.score import _explains_anything
+
+    rng = _random.Random(11)
+    noise = {f"option{i}": [rng.gauss(0.05, 0.03) for _ in range(200)] for i in range(16)}
+    assert not _explains_anything(noise)
+
+    # A real effect still has to get through.
+    real = {
+        f"option{i}": [rng.gauss(0.05 + i * 0.004, 0.03) for _ in range(200)] for i in range(16)
+    }
+    assert _explains_anything(real)
+
+
+def test_the_noise_guard_is_not_fooled_by_lopsided_groups():
+    """Best-minus-worst was the old statistic and it broke on uneven groups.
+
+    A column with a couple of hundred options, most holding a handful of rows,
+    produces a huge best-to-worst range from noise alone — so a genuine effect
+    could not clear its own shuffled baseline, and a spurious one could.
+    """
+    import random as _random
+
+    from auteur.insight.score import _explains_anything
+
+    rng = _random.Random(12)
+    many_tiny = {f"o{i}": [rng.gauss(0.1, 0.03) for _ in range(3)] for i in range(190)}
+    assert not _explains_anything(many_tiny)
+
+    lopsided = {"huge": [rng.gauss(0.1, 0.03) for _ in range(2000)]}
+    lopsided.update({f"t{i}": [rng.gauss(0.1, 0.03) for _ in range(3)] for i in range(50)})
+    assert not _explains_anything(lopsided)
+
+    # Weighted by evidence, a real effect carried by the big groups survives.
+    carried = {
+        "big_low": [rng.gauss(0.08, 0.03) for _ in range(800)],
+        "big_high": [rng.gauss(0.13, 0.03) for _ in range(800)],
+    }
+    assert _explains_anything(carried)
+
+
+def test_the_noise_guard_refuses_degenerate_input():
+    from auteur.insight.score import _explains_anything
+
+    assert not _explains_anything({})
+    assert not _explains_anything({"only": [0.1] * 50})
+    assert not _explains_anything({"a": [0.1], "b": [0.2]})  # too few rows per group
+    assert not _explains_anything({f"o{i}": [0.05] * 100 for i in range(5)})  # no variance
+
+
+# --------------------------------------------------------------- training data
+
+
+def test_the_generator_is_reproducible_without_being_handed_a_seed():
+    """It derived its default seed from `hash()`, which is salted per process."""
+    from auteur.training.generate import generate_domain
+
+    first = generate_domain("color_theory", rows=8)
+    second = generate_domain("color_theory", rows=8)
+    assert [row["avg_watch_time_pct"] for row in first] == [
+        row["avg_watch_time_pct"] for row in second
+    ]
+    # A different domain is still different data.
+    other = generate_domain("music_theory", rows=8)
+    assert [r["avg_watch_time_pct"] for r in first] != [r["avg_watch_time_pct"] for r in other]
+
+
+def test_the_creative_choices_actually_move_the_numbers():
+    """Every lever was drawn at random and then never referred to again.
+
+    So palette, bias, audio anchor and primary lever were noise columns bolted
+    onto unrelated performance figures, and a crew trained on it would learn
+    the single lesson the data contained: nothing you choose matters.
+    """
+    import statistics
+
+    from auteur.training.generate import _effect, generate_domain
+
+    rows = generate_domain("color_theory", rows=1200, seed=7)
+
+    by_palette: dict[str, list[float]] = {}
+    for row in rows:
+        by_palette.setdefault(row["color_theory_palette"], []).append(
+            float(row["click_through_rate_pct"])
+        )
+
+    values = [v for bucket in by_palette.values() for v in bucket]
+    grand = statistics.mean(values)
+    explained = sum(
+        len(bucket) * (statistics.mean(bucket) - grand) ** 2 for bucket in by_palette.values()
+    ) / sum((v - grand) ** 2 for v in values)
+    assert explained > 0.02, "the palette has to explain something, or the dataset teaches nothing"
+
+    # And the direction has to match the effect the generator actually applied,
+    # or the signal is real but backwards.
+    ranked = sorted(by_palette, key=lambda name: -statistics.mean(by_palette[name]))
+    assert _effect(ranked[0], "palette") > _effect(ranked[-1], "palette")
+
+
+def test_generated_rows_carry_rates_not_only_counts():
+    """Every count is views x rate, and views is lognormal with a 2.5x spread.
+
+    So correlating the counts measures the view multiplier: the generator's own
+    "shares follow completion" relationship came out at r = 0.10 in the counts
+    while being true by construction.
+    """
+    from auteur.training.generate import generate_domain
+
+    row = generate_domain("photography", rows=1, seed=3)[0]
+    for column in ("share_to_view_ratio", "save_to_view_ratio", "three_second_watch_rate"):
+        assert column in row, f"{column} is what the insight layer actually reads"
+        assert 0.0 <= float(row[column]) <= 1.0
+
+
+# ------------------------------------------------------------- crew memory
+
+
+def _proposal(agent, title, *, applied=False, gain=0.0, objective="hook"):
+    from auteur.agents.base import Proposal
+
+    p = Proposal(
+        agent=agent,
+        title=title,
+        reason="because",
+        change=lambda edl: None,
+        objective=objective,
+    )
+    p.applied = applied
+    p.predicted_gain = gain
+    return p
+
+
+def test_an_agent_is_not_asked_the_same_question_twice(tmp_path):
+    """Agents mostly have no memory, so a rejected idea came back every round.
+
+    The answer had not changed: the cut it objected to was still there
+    precisely because the objection was turned down.
+    """
+    from auteur.agents.base import Crew, Gate, Mode
+    from auteur.insight import FitReport
+
+    class Nagger:
+        name = "nagger"
+        objective = "hook"
+
+        def __init__(self):
+            self.asked = 0
+
+        def inspect(self, edl, prediction, model):
+            self.asked += 1
+            # Changes nothing, so it can never show a gain and is always declined.
+            return [_proposal("nagger", "do the pointless thing")]
+
+    edl = _graphics_edl(tmp_path, count=4)
+    agent = Nagger()
+    crew = Crew(
+        [agent],
+        FitReport(rows=0, simulated_rows=0, measured_rows=0),
+        gate=Gate(Mode.AUTONOMOUS),
+        max_rounds=3,
+    )
+    result = crew.run(edl)
+
+    scored = [p for round_ in result.rounds for p in round_.proposals]
+    assert len(scored) == 1, "the same rejected proposal was scored more than once"
+
+
+def test_the_ledger_remembers_what_was_worth_doing(tmp_path):
+    from auteur.agents.ledger import Ledger
+
+    ledger = Ledger(tmp_path / "led.jsonl")
+    for _ in range(4):
+        ledger.record(
+            [
+                _proposal("loop", "End on the frame it opened on", applied=True, gain=0.14),
+                _proposal("share", "Tighten the middle", applied=False, gain=0.0),
+            ]
+        )
+
+    assert ledger.value_of("loop", "End on the frame it opened on") == pytest.approx(0.14)
+    assert ledger.value_of("share", "Tighten the middle") == 0.0
+    # Never seen before is zero, not a penalty — an untried idea should be tried.
+    assert ledger.value_of("hook", "something new") == 0.0
+
+    proven = ledger.proven()
+    assert [t.title for t in proven] == ["End on the frame it opened on"]
+    assert "Tighten the middle" in [t.title for t in ledger.wasted()]
+
+    # It survives a restart.
+    assert len(Ledger(tmp_path / "led.jsonl").tracks) == 2
+
+
+def test_a_proposal_nobody_ever_took_has_not_earned_its_place(tmp_path):
+    """It appeared under both "earned its place" and "keeps being turned down"."""
+    from auteur.agents.ledger import Ledger
+
+    ledger = Ledger(tmp_path / "led.jsonl")
+    for _ in range(5):
+        ledger.record([_proposal("share", "Tighten the middle", applied=False, gain=0.004)])
+
+    titles = {t.title for t in ledger.proven()}
+    assert "Tighten the middle" not in titles
+    assert "Tighten the middle" in {t.title for t in ledger.wasted()}
+
+
+def test_the_same_change_on_different_films_is_one_track(tmp_path):
+    """Counts in the title fragmented one idea across dozens of names.
+
+    A change could be made on forty films and never reach three tries under any
+    single name, so nothing ever became established.
+    """
+    from auteur.agents.ledger import Ledger, kind_of
+
+    assert kind_of("Reframe 1 shot(s) onto the subject") == kind_of(
+        "Reframe 7 shot(s) onto the subject"
+    )
+    assert kind_of("Cut the opening from 2.0s to 1.6s") == kind_of(
+        "Cut the opening from 3.4s to 0.9s"
+    )
+    assert kind_of("End on the frame it opened on") == "End on the frame it opened on"
+
+    ledger = Ledger(tmp_path / "led.jsonl")
+    for count in (1, 2, 3, 5):
+        ledger.record(
+            [
+                _proposal(
+                    "finishing",
+                    f"Reframe {count} shot(s) onto the subject",
+                    applied=True,
+                    gain=0.02,
+                )
+            ]
+        )
+    assert len(ledger.tracks) == 1
+    track = next(iter(ledger.tracks.values()))
+    assert track.tries == 4 and track.established
+
+
+def test_the_ledger_puts_the_proven_changes_first(tmp_path):
+    """Order matters: each applied change alters what the next is scored against."""
+    from auteur.agents.ledger import Ledger
+
+    ledger = Ledger(tmp_path / "led.jsonl")
+    for _ in range(4):
+        ledger.record([_proposal("loop", "the good one", applied=True, gain=0.20)])
+        ledger.record([_proposal("share", "the weak one", applied=True, gain=0.01)])
+
+    shuffled = [
+        _proposal("hook", "brand new"),
+        _proposal("share", "the weak one"),
+        _proposal("loop", "the good one"),
+    ]
+    assert [p.title for p in ledger.order(shuffled)][0] == "the good one"
+
+
+def test_a_crew_with_no_ledger_still_runs(tmp_path):
+    """The memory is optional; an edit is not."""
+    from auteur.agents.base import Crew, Gate, Mode
+    from auteur.agents.ledger import NullLedger
+    from auteur.insight import FitReport
+
+    crew = Crew(
+        [], FitReport(rows=0, simulated_rows=0, measured_rows=0), gate=Gate(Mode.AUTONOMOUS)
+    )
+    assert isinstance(crew.ledger, NullLedger)
+    result = crew.run(_graphics_edl(tmp_path, count=3))
+    assert result.edl.shots
+
+
+def test_the_scholar_teaches_the_crew_rather_than_the_void(tmp_path):
+    """`TeachingBrief` appeared once outside the scholar package: a CLI print.
+
+    So the Scholar could study, corroborate and teach, and the crew it was
+    teaching never heard a word of it.
+    """
+    from auteur.insight import FitReport
+    from auteur.insight.score import Prediction
+    from auteur.scholar import Scholar
+    from auteur.scholar.agent import ScholarAgent
+    from auteur.scholar.knowledge import Discipline
+
+    scholar = Scholar(base_dir=tmp_path)
+    for index, (discipline, technique) in enumerate(
+        [
+            (Discipline.PSYCHOLOGY, "attention and curiosity"),
+            (Discipline.MUSIC_THEORY, "cut on the beat"),
+            (Discipline.COLOR_THEORY, "colour harmony"),
+        ]
+    ):
+        for channel in ("Chan A", "Chan B", "Chan C"):
+            scholar.knowledge.add(_learning(discipline, technique, channel, index))
+
+    agent = ScholarAgent(scholar)
+    edl = _graphics_edl(tmp_path, count=5)
+    prediction = Prediction(hook=0.4, share=0.4, loop=0.4)
+    model = FitReport(rows=0, simulated_rows=0, measured_rows=0)
+
+    proposals = agent.inspect(edl, prediction, model)
+    taught = [p for p in proposals if p.title.startswith("[Studied]")]
+    assert taught, "nothing the Scholar studied reached the crew"
+    assert {"hook", "loop", "gaze"} <= {p.title.split()[-2] for p in taught}
+    assert all(getattr(p, "learning_ids", None) for p in taught)
+
+    # A brief repeats itself otherwise: corroboration means several channels
+    # teaching the same sentence.
+    for proposal in taught:
+        sentences = [part.strip() for part in proposal.reason.split(";")]
+        assert len(sentences) == len(set(sentences))
+
+    # Said once per run, not once per round.
+    assert [
+        p for p in agent.inspect(edl, prediction, model) if p.title.startswith("[Studied]")
+    ] == []
+
+
+def test_the_phone_can_see_what_the_terminal_can(tmp_path, monkeypatch):
+    """A capability that exists in one entry point and not the other is a seam.
+
+    This has happened twice: the studio ran `default_crew()` while the CLI built
+    one with the eye, the finisher and the overlay agent; and `auteur agents` /
+    `auteur scholar` reported things the app you carry could not see. Both are
+    the same bug wearing different clothes, so this pins the shape rather than
+    the instance.
+    """
+    import inspect as _inspect
+
+    from auteur.web import server
+
+    routes = _inspect.getsource(server.Handler)
+    for path in ("/api/crew", "/api/scholar", "/api/insight", "/api/platforms"):
+        assert f'"{path}"' in routes, f"{path} is reachable from the terminal but not the app"
+
+    # And they must be behind the sign-in, like everything else that is not
+    # the login page itself.
+    assert "/api/crew" not in server.PUBLIC_PATHS
+    assert "/api/scholar" not in server.PUBLIC_PATHS
+
+
+def test_the_crew_endpoint_reports_the_ledger_and_says_what_it_is(tmp_path, monkeypatch):
+    from auteur.agents.ledger import Ledger
+    from auteur.web import server
+
+    monkeypatch.setattr(Ledger, "default_path", staticmethod(lambda: tmp_path / "led.jsonl"))
+    ledger = Ledger()
+    for _ in range(4):
+        ledger.record(
+            [
+                _proposal("loop", "End on the frame it opened on", applied=True, gain=0.14),
+                _proposal("share", "Tighten the middle", applied=False, gain=0.001),
+            ]
+        )
+
+    payload = server.Handler._crew_memory(server.Handler)
+    assert payload["kinds"] == 2
+    assert [row["title"] for row in payload["proven"]] == ["End on the frame it opened on"]
+    assert "Tighten the middle" in [row["title"] for row in payload["wasted"]]
+    # The caveat travels with the numbers rather than living only in the CLI.
+    assert "not view counts" in payload["note"]
+
+
+def test_the_scholar_endpoint_reports_whether_it_can_study(tmp_path, monkeypatch):
+    from auteur.scholar import youtube
+    from auteur.web import server
+
+    monkeypatch.setattr(youtube, "_ytdlp", lambda: None)
+    monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+
+    payload = server.Handler._scholar_state(server.Handler)
+    assert payload["available"] is True
+    assert payload["can_study"] is False, "it must say when it cannot reach YouTube"
+    assert "learnings" in payload and "gaps" in payload
+
+
+# --------------------------------------------------------------- benchmarks
+
+
+def _reading(**kwargs):
+    from auteur.vision import Reading
+
+    base = {
+        "depth_separation": 0.5,
+        "focus_strength": 0.25,
+        "hue_spread": 45.0,
+        "luma": 0.30,
+        "contrast": 0.20,
+    }
+    base.update(kwargs)
+    return Reading(**base)
+
+
+def test_craft_sees_what_the_structural_score_cannot():
+    """A film can be better organised and worse to look at. That is the trap."""
+    from auteur.insight.benchmark import craft_score
+
+    cinematic = craft_score(_reading(depth_separation=0.74, focus_strength=0.29, hue_spread=28.0))
+    snapshot = craft_score(_reading(depth_separation=0.19, focus_strength=0.21, hue_spread=77.0))
+    assert cinematic.overall > snapshot.overall
+    # And it names the right weakness rather than a generic one.
+    assert snapshot.weakest[0] == "separation"
+
+
+def test_craft_penalises_crushed_and_blown_exposure():
+    from auteur.insight.benchmark import craft_score
+
+    good = craft_score(_reading(luma=0.30))
+    crushed = craft_score(_reading(luma=0.04))
+    blown = craft_score(_reading(luma=0.93))
+    assert good.exposure > crushed.exposure
+    assert good.exposure > blown.exposure
+
+
+def test_surpassing_needs_both_scores():
+    """Either alone is a failure mode, not a win."""
+    from auteur.insight.benchmark import Benchmark, CraftScore, Standing
+
+    target = Benchmark(name="t", source="", structure=0.42, craft=CraftScore(0.7, 0.8, 1.0, 0.9))
+
+    pretty_but_shapeless = Standing(target, structure=0.30, craft=CraftScore(0.9, 0.9, 1.0, 0.9))
+    assert pretty_but_shapeless.beats_craft and not pretty_but_shapeless.surpassed
+
+    tidy_but_ugly = Standing(target, structure=0.90, craft=CraftScore(0.1, 0.2, 0.3, 0.4))
+    assert tidy_but_ugly.beats_structure and not tidy_but_ugly.surpassed
+
+    both = Standing(target, structure=0.90, craft=CraftScore(0.9, 0.9, 1.0, 0.95))
+    assert both.surpassed
+
+
+def test_a_level_score_does_not_read_as_behind():
+    from auteur.insight.benchmark import Benchmark, CraftScore, Standing
+
+    target = Benchmark(name="t", source="", structure=0.5, craft=CraftScore(0.5, 0.5, 1.0, 0.5))
+    standing = Standing(target, structure=0.5, craft=CraftScore(0.5, 0.5, 1.0, 0.5))
+    text = standing.describe()
+    assert "behind by 0.00" not in text
+    assert "level" in text
+
+
+def test_benchmarks_survive_a_restart_and_pick_the_hardest(tmp_path):
+    from auteur.insight.benchmark import Benchmark, Benchmarks, CraftScore
+
+    marks = Benchmarks(tmp_path / "b.json")
+    marks.add(
+        Benchmark(name="easy", source="", structure=0.9, craft=CraftScore(0.2, 0.2, 0.2, 0.2))
+    )
+    marks.add(
+        Benchmark(name="hard", source="", structure=0.3, craft=CraftScore(0.9, 0.9, 0.9, 0.9))
+    )
+
+    # Hardest is judged on craft: structure is the half this program was already
+    # good at, craft is the half it was not measuring at all.
+    assert marks.hardest.name == "hard"
+
+    reloaded = Benchmarks(tmp_path / "b.json")
+    assert set(reloaded.entries) == {"easy", "hard"}
+    assert reloaded.hardest.name == "hard"
+
+    assert reloaded.remove("easy") and not reloaded.remove("easy")
+
+
+def test_no_benchmark_means_no_standing(tmp_path):
+    from auteur.insight.benchmark import Benchmarks
+
+    marks = Benchmarks(tmp_path / "none.json")
+    assert marks.standing(_reading(), 0.8) is None
+    assert "nothing to beat yet" in marks.describe()
+
+
+# --------------------------------------------------------- gaming the craft score
+
+
+def test_a_destroyed_picture_cannot_score_well_however_tidy_its_palette():
+    """A rehearsal loop found this exploit in nine generations.
+
+    Given a grade that blew out 55% of every frame, separation and palette both
+    went *up* — a bloom makes the sharp/soft ratio look like depth, and one
+    colour smeared everywhere looks like discipline — and it beat the target it
+    was chasing while being visibly the worst render of the three.
+    """
+    from auteur.insight.benchmark import CraftScore
+
+    # The real shape of it: the ruined grade crushed 55% of the frame to black.
+    destroyed = CraftScore(
+        separation=1.0, subject=1.0, palette=1.0, exposure=0.1, clipped_black=0.55
+    )
+    modest = CraftScore(
+        separation=0.39, subject=0.6, palette=0.56, exposure=0.83, clipped_black=0.02
+    )
+    assert modest.overall > destroyed.overall
+    # Better on every dimension it can measure, and still comfortably beaten,
+    # because most of the picture is gone. Asserted as a relationship rather
+    # than a threshold: the exact multiplier is a tuning choice and moved once
+    # already, to leave room for deliberate chiaroscuro.
+    assert destroyed.overall < modest.overall * 0.5
+    assert destroyed.intact < 0.4
+
+
+def test_deep_blacks_on_purpose_are_not_the_same_as_a_destroyed_frame():
+    """Chiaroscuro is a named style, not a fault.
+
+    The thresholds come from the reels: the darkest real reference runs 0.288 of
+    the frame at true black and the black-and-white one runs 0.151, while the
+    grade a rehearsal loop produced by wrecking the picture runs 0.550.
+    """
+    from auteur.insight.benchmark import CraftScore
+
+    chiaroscuro = CraftScore(
+        separation=0.6, subject=0.8, palette=0.9, exposure=0.7, clipped_black=0.288
+    )
+    ruined = CraftScore(separation=0.6, subject=0.8, palette=0.9, exposure=0.7, clipped_black=0.550)
+    blown = CraftScore(separation=0.6, subject=0.8, palette=0.9, exposure=0.7, clipped_white=0.150)
+
+    assert chiaroscuro.damage == 0.0, "the darkest real reel must cost nothing"
+    assert ruined.damage > 0.5
+    # A blown highlight is a mistake in a way a black is not: there is nothing
+    # above white to recover toward.
+    assert blown.damage > chiaroscuro.damage
+
+
+def test_a_monochrome_wash_is_not_a_disciplined_palette():
+    """ "Narrower is better" made a single-colour smear a perfect score."""
+    from auteur.insight.benchmark import craft_score
+
+    wash = craft_score(_reading(hue_spread=2.0))
+    graded = craft_score(_reading(hue_spread=30.0))
+    uncontrolled = craft_score(_reading(hue_spread=85.0))
+
+    assert graded.palette > wash.palette, "one colour everywhere is a wash, not a look"
+    assert graded.palette > uncontrolled.palette
+
+
+def test_clipping_is_measured_off_the_frame():
+    """Nothing in a Reading could see destroyed detail before this."""
+    import numpy as np
+
+    from auteur.vision.connoisseur import read_frame
+
+    height, width = 90, 160
+    fine = np.linspace(0.15, 0.75, width, dtype=np.float32)
+    fine = np.repeat(fine[None, :], height, axis=0)
+    intact = read_frame(np.stack([fine] * 3, axis=-1))
+
+    ruined = np.clip((fine - 0.4) * 6.0, 0.0, 1.0).astype(np.float32)
+    crushed = read_frame(np.stack([ruined] * 3, axis=-1))
+
+    assert crushed.clipped > intact.clipped
+    assert crushed.clipped > 0.2
+
+
+# ------------------------------------------------------ the crew seeing its work
+
+
+def test_only_picture_changes_trigger_a_render(tmp_path):
+    """Retiming a shot cannot alter how a frame looks, so it must cost nothing."""
+    import copy
+
+    from auteur.agents.preview import changes_the_picture, picture_fingerprint
+    from auteur.edl import Look
+
+    edl = _graphics_edl(tmp_path, count=4)
+
+    retimed = copy.deepcopy(edl)
+    retimed.shots[0].end = retimed.shots[0].start + 0.7
+    assert not changes_the_picture(edl, retimed)
+    assert picture_fingerprint(edl) == picture_fingerprint(retimed)
+
+    graded = copy.deepcopy(edl)
+    graded.look = Look(preset="amber", strength=1.0)
+    assert changes_the_picture(edl, graded)
+
+    boxed = copy.deepcopy(edl)
+    boxed.letterbox = 0.11
+    assert changes_the_picture(edl, boxed)
+
+
+def test_the_crew_turns_down_a_change_that_ruins_the_picture(tmp_path):
+    """The structural score cannot move when a grade changes — no shot got longer.
+
+    So without an eye on it, a proposal that turns every frame magenta reads as
+    perfectly neutral and gets applied on a coin flip.
+    """
+    from auteur.agents.base import Crew, Gate, Mode, Proposal, Risk
+    from auteur.agents.preview import Comparison, Previewer, Proof
+    from auteur.edl import Look
+    from auteur.insight import FitReport
+    from auteur.insight.benchmark import CraftScore
+
+    class FakePreviewer(Previewer):
+        """Renders nothing; answers as if the change destroyed the frame."""
+
+        def __init__(self):
+            self.enabled = True
+            self.spent = 0
+            self._cache = {}
+
+        def compare(self, before, after, *, sources=None):
+            return Comparison(
+                baseline=Proof(
+                    "baseline", None, craft=CraftScore(0.4, 0.6, 0.5, 0.7, clipped_black=0.01)
+                ),
+                candidate=Proof(
+                    "candidate", None, craft=CraftScore(1.0, 0.9, 1.0, 0.1, clipped_black=0.55)
+                ),
+            )
+
+    def wreck(target):
+        target.look = Look(preset="amber", strength=1.0)
+
+    class Vandal:
+        name = "vandal"
+        objective = "hook"
+
+        def __init__(self):
+            self.said = False
+
+        def inspect(self, edl, prediction, model):
+            if self.said:
+                return []
+            self.said = True
+            return [
+                Proposal(
+                    agent="vandal",
+                    title="Grade it amber",
+                    reason="warm",
+                    change=wreck,
+                    objective="hook",
+                    binding=True,
+                    risk=Risk.LOW,
+                )
+            ]
+
+    crew = Crew(
+        [Vandal()],
+        FitReport(rows=0, simulated_rows=0, measured_rows=0),
+        gate=Gate(Mode.AUTONOMOUS),
+        previewer=FakePreviewer(),
+        max_rounds=1,
+    )
+    result = crew.run(_graphics_edl(tmp_path, count=4))
+    proposals = [p for round_ in result.rounds for p in round_.proposals]
+    assert proposals
+    # Binding means the *model* gets no veto. Visible damage is a different thing.
+    assert not proposals[0].applied
+    assert "worse" in proposals[0].decision_note
+    assert proposals[0].craft_gain < 0
+
+
+def test_a_change_the_model_cannot_see_can_still_be_taken_on_looks(tmp_path):
+    """A grade moves no shot length, so the structural score says nothing at all."""
+    from auteur.agents.base import Crew, Gate, Mode, Proposal, Risk
+    from auteur.agents.preview import Comparison, Previewer, Proof
+    from auteur.edl import Look
+    from auteur.insight import FitReport
+    from auteur.insight.benchmark import CraftScore
+
+    class Improver(Previewer):
+        def __init__(self):
+            self.enabled = True
+            self.spent = 0
+            self._cache = {}
+
+        def compare(self, before, after, *, sources=None):
+            return Comparison(
+                baseline=Proof(
+                    "baseline", None, craft=CraftScore(0.3, 0.5, 0.3, 0.6, clipped_black=0.02)
+                ),
+                candidate=Proof(
+                    "candidate", None, craft=CraftScore(0.4, 0.6, 0.8, 0.8, clipped_black=0.01)
+                ),
+            )
+
+    def grade(target):
+        target.look = Look(preset="kodak", strength=0.8)
+
+    class Colourist:
+        name = "colourist"
+        objective = "hook"
+
+        def __init__(self):
+            self.said = False
+
+        def inspect(self, edl, prediction, model):
+            if self.said:
+                return []
+            self.said = True
+            return [
+                Proposal(
+                    agent="colourist",
+                    title="Warm the grade",
+                    reason="it is cold",
+                    change=grade,
+                    objective="hook",
+                    risk=Risk.LOW,
+                )
+            ]
+
+    crew = Crew(
+        [Colourist()],
+        FitReport(rows=0, simulated_rows=0, measured_rows=0),
+        gate=Gate(Mode.AUTONOMOUS),
+        previewer=Improver(),
+        max_rounds=1,
+    )
+    result = crew.run(_graphics_edl(tmp_path, count=4))
+    proposals = [p for round_ in result.rounds for p in round_.proposals]
+    assert proposals[0].applied, "a change only the eye can judge still has to be possible"
+    assert "picture improves" in proposals[0].decision_note
+
+
+def test_a_crew_with_no_previewer_behaves_exactly_as_before(tmp_path):
+    from auteur.agents.base import Crew, Gate, Mode
+    from auteur.agents.preview import NullPreviewer
+    from auteur.insight import FitReport
+
+    crew = Crew(
+        [], FitReport(rows=0, simulated_rows=0, measured_rows=0), gate=Gate(Mode.AUTONOMOUS)
+    )
+    assert isinstance(crew.previewer, NullPreviewer)
+    assert not crew.previewer.enabled
+    assert crew.run(_graphics_edl(tmp_path, count=3)).edl.shots
+
+
+# ----------------------------------------------- a stuck agent asks the Scholar
+
+
+def test_a_scholar_with_nothing_to_say_says_so(tmp_path):
+    """An agent acting on a confident fabrication is worse off than a stuck one."""
+    from auteur.scholar import Scholar
+    from auteur.scholar.consult import HelpDesk, Question
+
+    desk = HelpDesk(Scholar(base_dir=tmp_path))
+    answer = desk.ask(Question(agent="overlay", goal="add depth", problem="every frame reads flat"))
+    assert not answer.useful
+    assert answer.basis == "none"
+    assert answer.confidence == "none"
+    assert "not studied this yet" in answer.describe()
+    # And it remembers to go and find out, rather than forgetting the question.
+    assert len(desk.homework) == 1
+
+
+def test_confidence_counts_channels_not_notes(tmp_path):
+    """Four notes from one tutorial is one opinion written down four times."""
+    from auteur.scholar import Scholar
+    from auteur.scholar.consult import HelpDesk, Question
+    from auteur.scholar.knowledge import Discipline
+
+    scholar = Scholar(base_dir=tmp_path)
+    for index in range(4):
+        scholar.knowledge.add(
+            _learning(Discipline.CINEMATOGRAPHY, "subject separation", "Only Chan", index)
+        )
+    lone = HelpDesk(scholar).ask(
+        Question(agent="overlay", goal="subject separation", problem="frames are flat")
+    )
+    assert lone.useful
+    assert "one source" in lone.confidence
+
+    for name in ("Chan B", "Chan C"):
+        scholar.knowledge.add(_learning(Discipline.CINEMATOGRAPHY, "subject separation", name))
+    many = HelpDesk(scholar).ask(
+        Question(agent="overlay", goal="subject separation", problem="frames are flat")
+    )
+    assert "independent sources" in many.confidence
+
+
+def test_the_overlay_agent_asks_when_it_has_nothing_to_point_at(tmp_path):
+    """Returning an empty list would let 'no subject anywhere' look like approval."""
+    from auteur.agents.base import Crew, Gate, Mode
+    from auteur.agents.overlay import OverlayAgent
+    from auteur.insight import FitReport
+    from auteur.scholar import Scholar
+    from auteur.scholar.consult import HelpDesk
+    from auteur.scholar.knowledge import Discipline
+    from auteur.vision import Reading
+
+    scholar = Scholar(base_dir=tmp_path)
+    for channel in ("Chan A", "Chan B", "Chan C"):
+        scholar.knowledge.add(_learning(Discipline.CINEMATOGRAPHY, "subject separation", channel))
+
+    edl = _graphics_edl(tmp_path, count=5)
+    # Every frame is a texture: nowhere for a ring or an arrow to go.
+    flat = {shot.clip_id: Reading(focus_strength=0.04) for shot in edl.shots}
+
+    desk = HelpDesk(scholar)
+    crew = Crew(
+        [OverlayAgent(flat)],
+        FitReport(rows=0, simulated_rows=0, measured_rows=0),
+        gate=Gate(Mode.AUTONOMOUS),
+        helpdesk=desk,
+        max_rounds=1,
+    )
+    crew.run(edl)
+
+    assert len(desk.asked) == 1, "it should ask once, not once per round"
+    question = desk.asked[0]
+    assert question.agent == "overlay"
+    assert "focus strength" in " ".join(question.evidence)
+    assert desk.answered[0].useful
+
+
+def test_asking_never_blocks_on_the_network(tmp_path, monkeypatch):
+    """Research happens after the edit, so the next run is better, not this one slower."""
+    from auteur.scholar import Scholar
+    from auteur.scholar.consult import HelpDesk, Question
+    from auteur.scholar.youtube import YouTubeUnavailable
+
+    scholar = Scholar(base_dir=tmp_path)
+
+    def refuse(*args, **kwargs):
+        raise YouTubeUnavailable("no network")
+
+    monkeypatch.setattr(scholar, "study", refuse)
+    desk = HelpDesk(scholar)
+
+    # The question is answered (with a no) without ever touching the network.
+    answer = desk.ask(Question(agent="hook", goal="pace it", problem="unclear"))
+    assert not answer.useful
+    # The research pass is where the network is needed, and it fails quietly.
+    assert desk.do_the_homework() == 0
+
+
+# --------------------------------------------------- standing a wide shot on end
+
+
+def test_turning_a_wide_frame_keeps_what_cropping_throws_away():
+    """A 16:9 source in a 9:16 frame loses about two thirds of its width."""
+    from auteur.craft.motion import reframe_chain
+
+    turned = reframe_chain(1080, 1920, mode="turn")
+    assert "transpose" in turned
+    # Fit and pad, never crop: the whole point is that nothing is discarded.
+    assert "force_original_aspect_ratio=decrease" in turned
+    assert "crop=" not in turned
+
+    cropped = reframe_chain(1080, 1920, mode="subject", anchor=(0.5, 0.5))
+    assert "crop=" in cropped and "transpose" not in cropped
+
+
+def test_the_finishing_agent_offers_to_turn_wide_footage(tmp_path):
+    from PIL import Image
+
+    from auteur.agents.assemble import read_the_footage
+    from auteur.agents.finishing import FinishingAgent
+    from auteur.edl import EditDecisionList, Motion, Shot, Transition
+    from auteur.insight import FitReport
+    from auteur.insight.score import Prediction
+
+    wide = []
+    for index in range(3):
+        path = tmp_path / f"w{index}.png"
+        image = Image.new("RGB", (1920, 1080), (20 + index * 20, 40, 70))
+        image.paste((240, 180, 90), (400 + index * 200, 300, 900 + index * 200, 800))
+        image.save(path)
+        wide.append(path)
+
+    readings = read_the_footage(wide)
+    assert all(r.aspect > 1.7 for r in readings.values()), "the reading has to carry the shape"
+
+    shots = [
+        Shot(
+            clip_id=clip,
+            source=path,
+            start=0.0,
+            end=1.5,
+            is_still=True,
+            motion=Motion("none", 0.0, (0.5, 0.5)),
+            transition_in=Transition("cut", 0.0),
+        )
+        for clip, path in zip(readings, wide, strict=False)
+    ]
+    edl = EditDecisionList(title="wide", shots=shots, fps=24, width=1080, height=1920)
+    edl.repair()
+
+    proposals = FinishingAgent(readings).inspect(
+        edl,
+        Prediction(hook=0.5, share=0.5, loop=0.5),
+        FitReport(rows=0, simulated_rows=0, measured_rows=0),
+    )
+    turning = [p for p in proposals if "on end" in p.title]
+    assert turning, "wide footage in a tall frame should at least be offered the alternative"
+
+    turning[0].change(edl)
+    assert all(shot.reframe == "turn" for shot in edl.shots)
+    # A camera move on a turned frame crops back into what was just saved.
+    assert all(shot.motion.kind == "none" for shot in edl.shots)
+
+
+def test_a_vertical_source_is_left_alone(tmp_path):
+    """Turning footage that already fits would be vandalism in the other direction."""
+    from PIL import Image
+
+    from auteur.agents.assemble import read_the_footage
+    from auteur.agents.finishing import _much_wider_than
+    from auteur.edl import EditDecisionList
+
+    path = tmp_path / "tall.png"
+    Image.new("RGB", (1080, 1920), (40, 50, 60)).save(path)
+    reading = next(iter(read_the_footage([path]).values()))
+
+    edl = EditDecisionList(title="t", width=1080, height=1920)
+    assert not _much_wider_than(reading, edl)
+    assert not _much_wider_than(None, edl)

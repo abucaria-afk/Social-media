@@ -28,7 +28,14 @@ from collections.abc import Callable
 
 from . import ffmpeg
 from .config import IMAGE_SUFFIXES, DeliveryFormat, Quality, Settings, Workspace
-from .craft import color, motion as motion_craft, sound as sound_craft, titles, transitions
+from .craft import (
+    color,
+    graphics,
+    motion as motion_craft,
+    sound as sound_craft,
+    titles,
+    transitions,
+)
 from .edl import EditDecisionList, Shot
 from .ffmpeg import chain, graph
 
@@ -271,24 +278,56 @@ def _assemble_video(edl: EditDecisionList, segment_count: int) -> tuple[str, str
     return ";".join(parts), current
 
 
-def _overlay_chain(overlays: list[titles.TextOverlay], video_label: str) -> tuple[str, str]:
-    """Composite each plate over the picture, animating it into place."""
-    if not overlays:
-        return "", video_label
+@dataclass(frozen=True)
+class _Composite:
+    """One thing to lay over the picture, ready for the overlay filter.
 
-    parts: list[str] = []
-    current = video_label
+    Text plates and drawn graphics are different upstream — one is a full-frame
+    RGBA plate, the other a cropped PNG sequence with a position — and identical
+    from here down, so they share one chain rather than two that drift apart.
+    """
+
+    label: str
+    x: str
+    y: str
+    start: float
+    end: float
+
+
+def _text_composites(overlays: list[titles.TextOverlay]) -> list[_Composite]:
+    out: list[_Composite] = []
     for order, overlay in enumerate(overlays):
-        label = f"vt{order}"
         settle = max(overlay.fade_in, 0.2)
         if overlay.rise > 0.5:
             # Ease the plate up into its resting position as it fades in.
             y = f"{overlay.rise:.1f}*(1-min(1\\,max(0\\,(t-{overlay.start:.3f})/{settle:.3f})))"
         else:
             y = "0"
+        out.append(
+            _Composite(f"txt{order}", "0", y, round(overlay.start, 3), round(overlay.end, 3))
+        )
+    return out
+
+
+def _graphic_composites(drawn: list[graphics.Graphic]) -> list[_Composite]:
+    return [
+        _Composite(f"gfx{order}", str(item.box[0]), str(item.box[1]), item.start, item.end)
+        for order, item in enumerate(drawn)
+    ]
+
+
+def _overlay_chain(composites: list[_Composite], video_label: str) -> tuple[str, str]:
+    """Composite each plate over the picture, animating it into place."""
+    if not composites:
+        return "", video_label
+
+    parts: list[str] = []
+    current = video_label
+    for order, item in enumerate(composites):
+        label = f"vov{order}"
         parts.append(
-            f"[{current}][txt{order}]overlay=x=0:y='{y}'"
-            f":enable='between(t,{overlay.start:.3f},{overlay.end:.3f})'"
+            f"[{current}][{item.label}]overlay=x={item.x}:y='{item.y}'"
+            f":enable='between(t,{item.start:.3f},{item.end:.3f})'"
             f":eof_action=pass[{label}]"
         )
         current = label
@@ -452,6 +491,38 @@ def _assemble(
         text_chains.append(f"[{next_index}:v]{chain(*links)}[txt{order}]")
         next_index += 1
 
+    drawn = graphics.render_all(
+        edl.graphics,
+        width=fmt.width,
+        height=fmt.height,
+        directory=workspace.assets,
+        prefix=fmt.name,
+    )
+    graphic_chains: list[str] = []
+    for order, item in enumerate(drawn):
+        if item.is_sequence:
+            # One input for the whole animation: the image demuxer reads the
+            # printf pattern as a stream, so a 90-frame graphic costs one input
+            # rather than ninety.
+            inputs += ["-framerate", f"{item.fps:g}", "-i", str(item.pattern)]
+        else:
+            inputs += ["-loop", "1", "-t", f"{item.duration + 0.5:.3f}", "-i", str(item.pattern)]
+        links = ["format=rgba"]
+        if item.is_sequence:
+            # The sequence was drawn at its own rate; conform it to the film's
+            # or ffmpeg holds each plate for a whole source frame period.
+            links.append(f"fps={edl.fps}")
+        if item.fade_in > 0.01:
+            links.append(f"fade=t=in:st=0:d={item.fade_in:.3f}:alpha=1")
+        if item.fade_out > 0.01:
+            links.append(
+                f"fade=t=out:st={max(item.duration - item.fade_out, 0.0):.3f}"
+                f":d={item.fade_out:.3f}:alpha=1"
+            )
+        links.append(f"setpts=PTS+{item.start:.4f}/TB")
+        graphic_chains.append(f"[{next_index}:v]{chain(*links)}[gfx{order}]")
+        next_index += 1
+
     video_graph, video_label = _assemble_video(edl, len(segments))
 
     finish = chain(
@@ -463,7 +534,11 @@ def _assemble(
         video_graph = graph(video_graph, f"[{video_label}]{finish}[vfinish]")
         video_label = "vfinish"
 
-    overlay_graph, video_label = _overlay_chain(text_overlays, video_label)
+    # Graphics go under the type: a ring is there to point at the picture, and a
+    # title that ends up behind one is a title nobody reads.
+    overlay_graph, video_label = _overlay_chain(
+        _graphic_composites(drawn) + _text_composites(text_overlays), video_label
+    )
 
     source_audio_shots: list[tuple[int, float]] = []
     for index, (start, _, shot) in enumerate(edl.timeline()):
@@ -482,6 +557,7 @@ def _assemble(
     full_graph = graph(
         video_graph,
         *text_chains,
+        *graphic_chains,
         overlay_graph,
         f"[{video_label}]format=yuv420p,setsar=1[vout]",
         audio_graph,

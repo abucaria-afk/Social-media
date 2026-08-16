@@ -18,16 +18,97 @@ import enum
 import json
 import logging
 import os
+import re
+import shutil
 import subprocess
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from collections.abc import Sequence
 
 log = logging.getLogger("auteur.scholar.youtube")
 
 #: Maximum number of results per search query.
 _MAX_RESULTS = 20
+
+
+def _parse_json3(raw: str) -> list[dict]:
+    """YouTube's own caption JSON: events carrying timed runs of text."""
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    cues: list[dict] = []
+    for event in payload.get("events") or []:
+        text = "".join(segment.get("utf8", "") for segment in event.get("segs") or [])
+        text = text.replace("\n", " ").strip()
+        if not text:
+            continue
+        cues.append(
+            {
+                "text": text,
+                "start": round(event.get("tStartMs", 0) / 1000.0, 3),
+                "duration": round(event.get("dDurationMs", 0) / 1000.0, 3),
+            }
+        )
+    return cues
+
+
+_VTT_TIME = re.compile(
+    r"(\d{2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[.,](\d{3})"
+)
+_VTT_TAG = re.compile(r"<[^>]+>")
+
+
+def _parse_vtt(raw: str) -> list[dict]:
+    """WebVTT, the format yt-dlp hands back when json3 is not offered."""
+
+    def seconds(h: str, m: str, s: str, ms: str) -> float:
+        return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
+
+    cues: list[dict] = []
+    lines = raw.splitlines()
+    for index, line in enumerate(lines):
+        match = _VTT_TIME.search(line)
+        if not match:
+            continue
+        start = seconds(*match.group(1, 2, 3, 4))
+        end = seconds(*match.group(5, 6, 7, 8))
+        body: list[str] = []
+        for follow in lines[index + 1 :]:
+            if not follow.strip() or _VTT_TIME.search(follow):
+                break
+            body.append(_VTT_TAG.sub("", follow).strip())
+        text = " ".join(part for part in body if part).strip()
+        # Auto-captions repeat the previous line as a rolling caption; keeping
+        # both would double every word in the transcript.
+        if text and (not cues or cues[-1]["text"] != text):
+            cues.append({"text": text, "start": round(start, 3), "duration": round(end - start, 3)})
+    return cues
+
+
+class YouTubeUnavailable(RuntimeError):
+    """There is no way to reach YouTube from here.
+
+    Raised rather than returning an empty list, because those are different
+    facts and the Scholar acts on them differently: "I searched and there was
+    nothing" means try another query, "I cannot search at all" means say so to
+    whoever asked. An empty list for both meant a Scholar with no network
+    reported the same clean, quiet, entirely fictional success as one that had
+    genuinely read the whole first page of results.
+    """
+
+
+def _ytdlp() -> str | None:
+    """The yt-dlp executable, or None if it is not installed."""
+    return shutil.which("yt-dlp")
+
+
+def reachable() -> tuple[bool, str]:
+    """Can this machine reach YouTube, and if not, what is missing?"""
+    if _ytdlp() is not None:
+        return True, "yt-dlp"
+    if os.environ.get("YOUTUBE_API_KEY"):
+        return True, "YouTube Data API key"
+    return False, "yt-dlp is not installed and YOUTUBE_API_KEY is not set"
 
 
 class SearchStrategy(enum.Enum):
@@ -170,16 +251,19 @@ class YouTubeAccess:
         Falls back to the Data API v3 if a key is configured and yt-dlp fails.
         """
         log.info("searching YouTube: %r (max %d)", query, max_results)
-        results: list[VideoMeta] = []
 
-        try:
-            results = self._search_via_ytdlp(query, max_results)
-        except Exception as exc:
-            log.warning("yt-dlp search failed: %s", exc)
-            if self._api_key:
-                results = self._search_via_api(query, max_results)
+        if _ytdlp() is not None:
+            try:
+                return self._search_via_ytdlp(query, max_results)
+            except Exception as exc:  # noqa: BLE001 - fall through to the API
+                log.warning("yt-dlp search failed: %s", exc)
+                if not self._api_key:
+                    raise YouTubeUnavailable(f"yt-dlp search failed: {exc}") from exc
 
-        return results
+        if self._api_key:
+            return self._search_via_api(query, max_results)
+
+        raise YouTubeUnavailable(reachable()[1])
 
     def fetch_metadata(self, video_id: str) -> VideoMeta | None:
         """Fetch full metadata (including transcript) for a single video."""
@@ -187,6 +271,9 @@ class YouTubeAccess:
         if cache_path.exists():
             data = json.loads(cache_path.read_text(encoding="utf-8"))
             return self._meta_from_dict(data)
+
+        if _ytdlp() is None:
+            raise YouTubeUnavailable(reachable()[1])
 
         try:
             result = subprocess.run(
@@ -224,18 +311,53 @@ class YouTubeAccess:
         This is the trigger for autonomous Scholar runs.
         """
         new_uploads: list[tuple[Subscription, VideoMeta]] = []
+        if _ytdlp() is None:
+            raise YouTubeUnavailable(reachable()[1])
 
         for sub in self.most_watched_creators:
             try:
-                results = self._search_via_ytdlp(f"channel:{sub.channel_id}", max_results=3)
+                results = self._channel_uploads(sub.channel_id, limit=3)
                 for video in results:
                     if video.video_id != sub.last_seen_video_id:
                         new_uploads.append((sub, video))
                         break
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - one dead channel is not a failure
                 log.debug("new upload check failed for %s: %s", sub.channel_name, exc)
 
         return new_uploads
+
+    def _channel_uploads(self, channel_id: str, *, limit: int = 3) -> list[VideoMeta]:
+        """The channel's most recent uploads, newest first.
+
+        This used to run `ytsearch3:channel:UC…`, which is a full-text search
+        for the literal words — it returns whatever YouTube thinks matches that
+        phrase, which is usually not the channel and never reliably its newest
+        video. The uploads tab is the actual list, and `--playlist-end` stops
+        yt-dlp walking a decade of back catalogue to answer "anything new?".
+        """
+        target = channel_id if channel_id.startswith("http") else f"channel/{channel_id}"
+        url = target if target.startswith("http") else f"https://www.youtube.com/{target}/videos"
+        result = subprocess.run(
+            [
+                "yt-dlp",
+                "--skip-download",
+                "--dump-json",
+                "--flat-playlist",
+                "--playlist-end",
+                str(max(1, limit)),
+                url,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=45,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"yt-dlp channel listing failed: {result.stderr[:200]}")
+        return [
+            self._meta_from_dict(json.loads(line))
+            for line in result.stdout.strip().splitlines()
+            if line.strip()
+        ]
 
     def _search_via_ytdlp(self, query: str, max_results: int) -> list[VideoMeta]:
         """Search using yt-dlp's ytsearch extractor."""
@@ -297,6 +419,40 @@ class YouTubeAccess:
             )
         return videos
 
+    def _fetch_transcript(self, data: dict) -> list[dict]:
+        """Real caption text with timings, or nothing.
+
+        This used to write the literal string "[auto-caption available]" into
+        the transcript and return it, so `has_transcript` said yes while the
+        transcript was a note to a future programmer. Anything downstream
+        looking for what was said got that sentence instead. Either the words
+        are here or the list is empty — those are the only two honest answers.
+
+        Author-written subtitles are preferred over machine captions: they are
+        punctuated, and the Scholar reads them for technique names.
+        """
+        for key in ("subtitles", "automatic_captions"):
+            tracks = (data.get(key) or {}).get("en") or []
+            for track in tracks:
+                if track.get("ext") not in ("json3", "vtt"):
+                    continue
+                url = track.get("url")
+                if not url:
+                    continue
+                try:
+                    import urllib.request
+
+                    with urllib.request.urlopen(url, timeout=20) as response:
+                        raw = response.read().decode("utf-8", "replace")
+                except Exception as exc:  # noqa: BLE001 - a missing caption is not a failure
+                    log.info("could not fetch captions: %s", exc)
+                    continue
+                cues = _parse_json3(raw) if track.get("ext") == "json3" else _parse_vtt(raw)
+                if cues:
+                    log.info("read %d caption cues from the %s track", len(cues), key)
+                    return cues
+        return []
+
     def _meta_from_dict(self, data: dict) -> VideoMeta:
         """Convert a yt-dlp info dict into a VideoMeta."""
         chapters = []
@@ -309,18 +465,7 @@ class YouTubeAccess:
                 }
             )
 
-        # Extract transcript segments if available
-        transcript: list[dict] = []
-        for sub in data.get("subtitles", {}).get("en", []):
-            if sub.get("ext") == "json3":
-                # Would need to fetch and parse — mark as available
-                transcript = [{"text": "[transcript available]", "start": 0}]
-                break
-        if not transcript:
-            for sub in data.get("automatic_captions", {}).get("en", []):
-                if sub.get("ext") == "json3":
-                    transcript = [{"text": "[auto-caption available]", "start": 0}]
-                    break
+        transcript = self._fetch_transcript(data)
 
         return VideoMeta(
             video_id=data.get("id", data.get("url", "")),

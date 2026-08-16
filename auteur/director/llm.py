@@ -408,12 +408,30 @@ def direct(
     )
 
     if music_path is not None:
+        from .heuristic import beat_grid
+
+        beats, downbeats, tempo = beat_grid(
+            music_analysis, music_offset, enabled=brief.beat_sync, runtime=edl.duration
+        )
         edl.music = MusicCue(
             source=music_path,
             offset=music_offset,
             gain=0.55 if brief.keep_source_audio else 0.85,
             duck=brief.keep_source_audio,
+            beats=beats,
+            downbeats=downbeats,
+            tempo=tempo,
         )
+
+    # Match the shots to each other, exactly as the built-in editor does. The
+    # model is asked for a film-wide look and is not asked — and should not be
+    # asked — to guess how many stops apart two clips it cannot measure are. So
+    # a Claude-directed film used to arrive with every shot ungraded relative to
+    # its neighbours, while the same footage through the built-in editor came
+    # back matched. Same pictures, different film, decided by which director ran.
+    from .heuristic import _match_looks
+
+    _match_looks(edl.shots, by_id, edl.look.preset, edl.look.strength)
 
     notes = edl.repair(by_id, target_duration=brief.duration or settings.target_duration)
     for note in notes:

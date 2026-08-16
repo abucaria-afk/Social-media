@@ -29,6 +29,7 @@ from collections.abc import Callable, Sequence
 
 from ..edl import EditDecisionList
 from ..insight import FitReport, Prediction, predict
+from .preview import changes_the_picture
 
 #: A change to an edit. Takes the EDL and mutates it in place.
 Change = Callable[[EditDecisionList], None]
@@ -77,6 +78,11 @@ class Proposal:
     binding: bool = False
     #: Filled in by the crew once the change has been tried against the model.
     predicted_gain: float = 0.0
+    #: How much better or worse the picture got, when the crew could see it.
+    #: Zero means it was never looked at, not that nothing changed.
+    craft_gain: float = 0.0
+    #: source / baseline / candidate, for anything that wants to show its work.
+    comparison: object | None = field(default=None, repr=False)
     applied: bool = False
     decided_by: str = ""
     decision_note: str = ""
@@ -90,6 +96,8 @@ class Proposal:
             "risk": self.risk.name.lower(),
             "binding": self.binding,
             "predicted_gain": round(self.predicted_gain, 4),
+            "craft_gain": round(self.craft_gain, 4),
+            "comparison": self.comparison.to_json() if self.comparison is not None else None,
             "applied": self.applied,
             "decided_by": self.decided_by,
             "decision_note": self.decision_note,
@@ -289,12 +297,39 @@ class Crew:
         gate: Gate | None = None,
         max_rounds: int = 3,
         min_gain: float = 0.005,
+        ledger=None,
+        previewer=None,
+        sources=None,
+        helpdesk=None,
     ):
         self.agents = list(agents)
         self.model = model
         self.gate = gate or Gate()
         self.max_rounds = max(1, max_rounds)
         self.min_gain = min_gain
+        # What previous runs found to be worth doing. Advisory: it changes the
+        # order things are tried in, never whether they may be tried.
+        if ledger is None:
+            from .ledger import NullLedger
+
+            ledger = NullLedger()
+        self.ledger = ledger
+
+        # Lets the crew look at what it is proposing rather than only computing
+        # about it. Off by default because it costs renders; when it is on, a
+        # change that improves the structure and ruins the picture is visible as
+        # exactly that.
+        if previewer is None:
+            from .preview import NullPreviewer
+
+            previewer = NullPreviewer()
+        self.previewer = previewer
+        #: The footage as it arrived, for the untouched end of the comparison.
+        self.sources = list(sources or [])
+        # Where a stuck agent goes. Optional, and an agent that has it still has
+        # to turn the answer into a proposal — nothing here reaches a frame
+        # without going through the gate like everything else.
+        self.helpdesk = helpdesk
 
     def run(self, edl: EditDecisionList) -> CrewResult:
         started = time.perf_counter()
@@ -302,6 +337,12 @@ class Crew:
         current = copy.deepcopy(edl)
         current_score = baseline.overall
         rounds: list[Round] = []
+        #: (agent, title) pairs already turned down this run, by the model or by
+        #: the person. Kept across rounds so nobody is asked twice.
+        declined: set[tuple[str, str]] = set()
+        #: The untouched footage is the same for every proposal, so it is read
+        #: once and carried, not re-read thirteen times.
+        seen_source = False
 
         for index in range(self.max_rounds):
             prediction = predict(current, self.model)
@@ -309,6 +350,11 @@ class Crew:
 
             proposals: list[Proposal] = []
             for agent in self.agents:
+                # Hand the help desk to anything that knows how to use it,
+                # before it inspects — so a question raised this round can be
+                # answered from what the Scholar already knows, this round.
+                if self.helpdesk is not None and hasattr(agent, "helpdesk"):
+                    agent.helpdesk = self.helpdesk
                 try:
                     proposals.extend(agent.inspect(current, prediction, self.model))
                 except Exception as exc:  # noqa: BLE001 - one bad agent must not stop the crew
@@ -322,10 +368,26 @@ class Crew:
                         )
                     )
 
+            # Try the changes that have earned their place first. Each applied
+            # change alters the timeline the next one is scored against, so a
+            # marginal proposal judged after the reliable ones is judged against
+            # a better cut than it would have been.
+            proposals = self.ledger.order(proposals)
+
             improved = False
             # A binding change is applied even where it costs prediction, so
             # the round must not be judged only on whether the score went up.
             for proposal in proposals:
+                # An agent that inspects the same timeline twice offers the same
+                # advice twice. Most of them have no memory of the last round,
+                # so a rejected proposal came back every round until the rounds
+                # ran out — recomputed, rescored, and printed again each time.
+                # The answer has not changed: the cut it objected to is still
+                # there precisely *because* the objection was turned down.
+                fingerprint = (proposal.agent, proposal.title)
+                if fingerprint in declined:
+                    continue
+
                 candidate = copy.deepcopy(current)
                 try:
                     proposal.change(candidate)
@@ -338,6 +400,28 @@ class Crew:
                 proposal.predicted_gain = scored - current_score
                 round_.proposals.append(proposal)
 
+                # If the change touches a pixel, look at it. The structural
+                # score cannot move when a grade changes — no shot got longer —
+                # so without this a proposal that turns the film magenta reads
+                # as perfectly neutral and gets applied on a coin flip.
+                if self.previewer.enabled and changes_the_picture(current, candidate):
+                    comparison = self.previewer.compare(
+                        current, candidate, sources=self.sources if not seen_source else None
+                    )
+                    seen_source = True
+                    proposal.comparison = comparison
+                    proposal.craft_gain = comparison.gain
+                    if comparison.candidate.craft is not None and comparison.gain < -0.02:
+                        # Not a veto on taste — a veto on damage. The picture
+                        # got measurably worse and the structure did not pay for
+                        # it, so there is nothing here to weigh against.
+                        proposal.decision_note = (
+                            f"the picture gets worse by {abs(comparison.gain):.2f} — "
+                            f"{comparison.candidate.craft.describe()}"
+                        )
+                        declined.add(fingerprint)
+                        continue
+
                 # A binding proposal is applied on the strength of the
                 # instruction behind it, not on the strength of the model's
                 # opinion of it. Gating these on predicted gain let a
@@ -345,9 +429,21 @@ class Crew:
                 # at their own reference footage — which is the exact thing
                 # the style agent exists to prevent.
                 if not proposal.binding and proposal.predicted_gain < self.min_gain:
-                    proposal.decision_note = proposal.decision_note or "no predicted gain"
-                    continue
+                    # Unless the eye disagrees with the model. A change the
+                    # structural score is blind to — a grade, a reframe — can
+                    # still be worth making, and this is the only place that
+                    # evidence exists.
+                    if proposal.craft_gain > 0.02:
+                        proposal.decision_note = (
+                            f"no structural gain, but the picture improves by "
+                            f"{proposal.craft_gain:.2f}"
+                        )
+                    else:
+                        proposal.decision_note = proposal.decision_note or "no predicted gain"
+                        declined.add(fingerprint)
+                        continue
                 if not self.gate.review(proposal):
+                    declined.add(fingerprint)
                     continue
 
                 current, current_score = candidate, scored
@@ -358,6 +454,9 @@ class Crew:
             rounds.append(round_)
             if not improved:
                 break
+
+        # Remember what this run found, so the next one starts from somewhere.
+        self.ledger.record([p for round_ in rounds for p in round_.proposals])
 
         return CrewResult(
             edl=current,

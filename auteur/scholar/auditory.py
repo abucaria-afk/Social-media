@@ -29,6 +29,8 @@ import time
 from dataclasses import dataclass, field
 from collections.abc import Sequence
 
+import numpy as np
+
 log = logging.getLogger("auteur.scholar.auditory")
 
 
@@ -216,8 +218,8 @@ class AuditorySystem:
         segment = AudioSegment(
             start_sec=0.0,
             end_sec=len(audio_data) / (sample_rate * 2),  # 16-bit mono
-            channel=self._classify_channel(audio_data),
-            energy=self._measure_energy(audio_data),
+            channel=self._classify_channel(audio_data, sample_rate),
+            energy=self._measure_energy(audio_data, sample_rate),
             confidence=0.7,
         )
         segments.append(segment)
@@ -341,50 +343,150 @@ class AuditorySystem:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _classify_channel(self, audio_data: bytes) -> AudioChannel:
-        """Classify audio data into a primary channel type."""
-        # Placeholder: real implementation would use an audio classifier model
-        # For now, assume dialogue-dominant
-        return AudioChannel.DIALOGUE
+    def _samples(self, audio_data: bytes, sample_rate: int) -> np.ndarray:
+        """16-bit signed little-endian PCM as floats in -1..1."""
+        if len(audio_data) < 2:
+            return np.zeros(0, np.float32)
+        usable = len(audio_data) - (len(audio_data) % 2)
+        raw = np.frombuffer(audio_data[:usable], dtype="<i2").astype(np.float32)
+        return raw / 32768.0
 
-    def _measure_energy(self, audio_data: bytes) -> float:
-        """Compute normalised energy (RMS) of audio data."""
-        if not audio_data:
+    def _classify_channel(self, audio_data: bytes, sample_rate: int = 44100) -> AudioChannel:
+        """Which of dialogue, music, ambient or effects this mostly is.
+
+        Measured, not assumed. This returned `DIALOGUE` unconditionally, which
+        meant every music bed the Scholar ever heard was filed as speech and
+        the whole channel field carried no information at all.
+
+        Two cues, both already used elsewhere in this project to answer nearly
+        the same question about a music bed: voice-band dominance modulated at
+        the syllable rate says speech, and a strong periodic onset envelope says
+        music. Neither is conclusive alone — percussion sits in the vocal band,
+        and plenty of speech has rhythm — so they are compared rather than
+        thresholded independently.
+        """
+        from ..analysis.audio import (
+            ENVELOPE_FPS,
+            SAMPLE_RATE,
+            _estimate_tempo,
+            _onset_envelope,
+            _speechiness,
+            _stft_magnitude,
+        )
+
+        samples = self._samples(audio_data, sample_rate)
+        if len(samples) < 2048:
+            return AudioChannel.AMBIENT
+
+        # The shared DSP assumes the project's own rate; resample by index
+        # rather than pulling in a resampler for a classification.
+        if sample_rate != SAMPLE_RATE:
+            wanted = int(len(samples) * SAMPLE_RATE / sample_rate)
+            if wanted < 2048:
+                return AudioChannel.AMBIENT
+            samples = np.interp(
+                np.linspace(0, len(samples) - 1, wanted),
+                np.arange(len(samples)),
+                samples,
+            ).astype(np.float32)
+
+        magnitude = _stft_magnitude(samples)
+        if not len(magnitude):
+            return AudioChannel.AMBIENT
+        envelope = _onset_envelope(magnitude)
+        speech = _speechiness(magnitude, envelope)
+
+        # Spectral flatness: the geometric mean of the average spectrum over its
+        # arithmetic mean. Near 1 is broadband noise with no structure — room
+        # tone, traffic, wind. Anything with pitch or formants sits near 0.
+        spectrum = magnitude.mean(axis=0)
+        flatness = float(
+            np.exp(np.mean(np.log(spectrum + 1e-9))) / max(float(spectrum.mean()), 1e-9)
+        )
+
+        # How much of the clip is actually sounding. Music sustains; effects are
+        # a handful of transients with silence between them.
+        frame_energy = magnitude.sum(axis=1)
+        activity = float(np.mean(frame_energy > frame_energy.mean() * 0.2))
+
+        # Beat confidence is only consulted when there is enough clip to find a
+        # beat in. The estimator needs roughly ten seconds to lock on — below
+        # that it correctly returns no confidence, and reading that as "not
+        # music" would file every short music clip as something else.
+        beat = 0.0
+        if len(samples) / SAMPLE_RATE >= 10.0:
+            _tempo, _phase, beat = _estimate_tempo(envelope, ENVELOPE_FPS)
+
+        if flatness > 0.5:
+            return AudioChannel.AMBIENT
+        if beat >= 0.55 and speech < 0.5:
+            return AudioChannel.MUSIC
+        if speech >= 0.45:
+            return AudioChannel.DIALOGUE
+        return AudioChannel.MUSIC if activity >= 0.5 else AudioChannel.EFFECTS
+
+    def _measure_energy(self, audio_data: bytes, sample_rate: int = 44100) -> float:
+        """Normalised RMS, 0..1.
+
+        The old version did `abs(b - 128)` over raw bytes while its own comment
+        said the data was 16-bit signed PCM. Those are different formats: on
+        signed 16-bit little-endian, a byte is half a sample and 128 is not the
+        zero point, so the result was a number that moved with the audio without
+        measuring it. It also only ever looked at the first 1024 bytes — about
+        12 milliseconds — and called that the energy of the whole clip.
+        """
+        samples = self._samples(audio_data, sample_rate)
+        if not len(samples):
             return 0.0
-        # Simplified: treat as 16-bit signed PCM mono
-        sample_count = len(audio_data) // 2
-        if sample_count == 0:
-            return 0.0
-        # Quick RMS approximation from byte magnitudes
-        total = sum(abs(b - 128) for b in audio_data[:1024]) / min(len(audio_data), 1024)
-        return min(total / 128.0, 1.0)
+        rms = float(np.sqrt(np.mean(samples**2)))
+        # -30 dBFS reads as quiet-but-present, 0 dBFS as full scale.
+        return float(np.clip(rms * 3.2, 0.0, 1.0))
 
     def _transcribe(self, audio_data: bytes, sample_rate: int) -> list[AudioSegment]:
-        """Transcribe audio into segments.
+        """Segment the audio by what it is, and by where it goes quiet.
 
-        Integration point: in production this calls into a speech-to-text model
-        (e.g. Whisper) with speaker diarisation. The implementation here provides
-        the structural contract.
+        There is no speech-to-text model in this project and none reachable
+        from here, so `transcript` stays empty. It used to hold the string
+        "[transcription pending — model integration point]" — a note to a
+        programmer, sitting in the field a caller reads to find out what was
+        said, indistinguishable from a transcript to anything downstream. The
+        same mistake was in the YouTube captions and the chatbot's replies.
+
+        What *is* measurable gets measured. Silences are real boundaries, the
+        channel of each stretch is classified from its spectrum, and the energy
+        is a true RMS — so a caller learns where the speech is and how loud it
+        is, and correctly learns nothing at all about the words.
         """
         duration = len(audio_data) / (sample_rate * 2) if audio_data else 0.0
-
-        # Produce a single segment placeholder; real model would produce many
         if duration <= 0:
             return []
 
-        return [
-            AudioSegment(
-                start_sec=0.0,
-                end_sec=duration,
-                channel=AudioChannel.DIALOGUE,
-                transcript="[transcription pending — model integration point]",
-                language="en",
-                speaker_id="speaker_0",
-                sentiment=AudioSentiment.NEUTRAL,
-                energy=self._measure_energy(audio_data),
-                confidence=0.0,
+        segments: list[AudioSegment] = []
+        # Roughly five-second stretches, so a long recording is not described
+        # by one verdict covering a scene change, a song and a silence.
+        span = 5.0
+        stride = int(span * sample_rate * 2)
+        for index, offset in enumerate(range(0, len(audio_data), max(stride, 2))):
+            chunk = audio_data[offset : offset + stride]
+            if len(chunk) < 4:
+                continue
+            start = offset / (sample_rate * 2)
+            segments.append(
+                AudioSegment(
+                    start_sec=round(start, 3),
+                    end_sec=round(min(start + span, duration), 3),
+                    channel=self._classify_channel(chunk, sample_rate),
+                    transcript="",
+                    language="",
+                    speaker_id=f"speaker_{index}" if index < 1 else "",
+                    sentiment=AudioSentiment.NEUTRAL,
+                    energy=self._measure_energy(chunk, sample_rate),
+                    # Nothing was transcribed, so there is nothing to be
+                    # confident about. This stays at zero until there is.
+                    confidence=0.0,
+                )
             )
-        ]
+        return segments
 
     def _compute_av_sync(
         self,

@@ -28,6 +28,7 @@ change. A score here is a prediction about an edit, made by a model fitted to
 from __future__ import annotations
 
 import math
+import random
 from dataclasses import dataclass, field
 from collections.abc import Sequence
 
@@ -99,6 +100,10 @@ class FitReport:
     drivers: tuple[tuple[str, str, float], ...] = ()
     #: Categorical winners: the best value of each descriptive column.
     best_of: dict[str, tuple[str, float]] = field(default_factory=dict)
+    #: Choices that were offered but explain no more spread than chance. Worth
+    #: printing: "your palette made no measurable difference" is a finding, and
+    #: a much more useful one than a ranking of noise.
+    no_signal: list[str] = field(default_factory=list)
     #: Rows the platform stopped pushing. The only real negative label there is.
     stalled_rows: int = 0
     forms: tuple[str, ...] = ()
@@ -172,6 +177,12 @@ class FitReport:
             lines += ["", "hook styles by three-second watch rate:"]
             for name, value in self.style_ranking:
                 lines.append(f"    {value:.0%}  {name}")
+        if self.no_signal:
+            lines += [
+                "",
+                "made no measurable difference to amplification here: "
+                + ", ".join(name.replace("_", " ") for name in sorted(self.no_signal)),
+            ]
         if self.best_of:
             lines += ["", "best of each choice, by amplification:"]
             for column, (value, score) in sorted(self.best_of.items()):
@@ -215,6 +226,70 @@ class FitReport:
         return "\n".join(lines)
 
 
+#: How many reshuffles decide whether a categorical choice explains anything.
+#: 200 resolves a one-in-twenty threshold comfortably and costs milliseconds.
+_SHUFFLES = 200
+
+
+def _explains_anything(groups: dict[str, list[float]], *, shuffles: int = _SHUFFLES) -> bool:
+    """Does *which* option was chosen account for more spread than chance?
+
+    A permutation test, because the alternative is what this code used to do:
+    take the highest group mean and call it the winner. With sixteen options
+    and a few hundred rows, the best group mean sits above the grand mean every
+    time, whether or not the choice matters at all — so a dataset where the
+    palette was picked by coin flip still produces "best palette: Warm
+    Analogous", ranked, to two decimal places, for an agent to act on.
+
+    Shuffling the labels across the same values destroys any real association
+    and keeps everything else — group sizes, the value distribution, the number
+    of options. If the observed spread is the sort of thing shuffling produces
+    anyway, there is nothing here to report.
+    """
+    values = [value for bucket in groups.values() for value in bucket]
+    sizes = [len(bucket) for bucket in groups.values()]
+    if len(groups) < 2 or len(values) < len(groups) * 3:
+        return False
+
+    grand = _mean(values)
+    total = sum((value - grand) ** 2 for value in values)
+
+    def spread(pools: list[list[float]]) -> float:
+        """Share of the variance explained by which group a row is in.
+
+        Not the range between the best and worst group mean, which is what this
+        used to be and is the wrong statistic whenever the groups are uneven: a
+        column with a hundred and ninety options, most of them holding a
+        handful of rows, produces a huge best-to-worst range from noise alone,
+        so a real effect could not clear its own shuffled baseline. Variance
+        explained weights each group by how much evidence it actually carries.
+        """
+        if total <= 0:
+            return 0.0
+        between = sum(len(pool) * (_mean(pool) - grand) ** 2 for pool in pools if pool)
+        return between / total
+
+    observed = spread(list(groups.values()))
+    if observed <= 0:
+        return False
+
+    rng = random.Random(0x5EED)  # fixed, so the same data gives the same verdict
+    shuffled = list(values)
+    beaten = 0
+    for _ in range(shuffles):
+        rng.shuffle(shuffled)
+        pools: list[list[float]] = []
+        cursor = 0
+        for size in sizes:
+            pools.append(shuffled[cursor : cursor + size])
+            cursor += size
+        if spread(pools) >= observed:
+            beaten += 1
+    # One in twenty. Not a deep claim about significance — just a floor low
+    # enough that pure noise does not clear it.
+    return beaten / shuffles < 0.05
+
+
 def fit(signals: Sequence[Signal]) -> FitReport:
     """Learn what the winners have in common.
 
@@ -256,6 +331,7 @@ def fit(signals: Sequence[Signal]) -> FitReport:
     # Categorical winners, judged on amplification because that is the column
     # every form has something like.
     best_of: dict[str, tuple[str, float]] = {}
+    no_signal: list[str] = []
     for column in (
         "shot_composition",
         "lighting_setup",
@@ -279,8 +355,17 @@ def fit(signals: Sequence[Signal]) -> FitReport:
             score = _mean(winner[1])
             # A form with no amplification column produces a "winner" scoring
             # nought, which is not a winner — it is an absence of measurement.
-            if score > 0:
+            if score <= 0:
+                continue
+            # And a choice that explains nothing produces a "winner" too: with
+            # sixteen options the best group mean sits above the grand mean by
+            # chance every single time. Ranking that reads as a finding and is
+            # a lottery result. So the spread has to beat the same labels
+            # shuffled before this column is reported at all.
+            if _explains_anything(groups):
                 best_of[column] = (winner[0], score)
+            else:
+                no_signal.append(column)
 
     # Correlations. Two rules, both learned the hard way:
     #
@@ -447,6 +532,7 @@ def fit(signals: Sequence[Signal]) -> FitReport:
         elite_loop=_mean([s.loop_count for s in loopers]),
         drivers=tuple(drivers[:8]),
         best_of=best_of,
+        no_signal=no_signal,
         stalled_rows=sum(1 for s in signals if s.stalled),
         forms=tuple(sorted({s.form for s in signals})),
         conflicts=tuple(conflicts),
@@ -557,6 +643,101 @@ class Prediction:
         if self.retention_curve:
             lines.append(f"  steepest drop-off at {self.drop_off_second():.1f}s")
         return "\n".join(lines)
+
+
+def timeline_of(path, *, analysis_fps: float = 24.0) -> EditDecisionList:
+    """Reconstruct a timeline from a finished video, so it can be scored.
+
+    Everything in `predict` reads the *edit* — shot lengths, where the first cut
+    lands, how the ends relate. A finished file has all of that in it; it just
+    has to be measured back out.
+
+    Sampled at 24 frames a second with a two-frame floor, for the same reason
+    `insight.reference.measure` is. It used to take the dossier's own boundary
+    list, which is built for a different question — where may this program
+    safely cut into somebody else's footage — and carries a 350ms refractory
+    period that caps any reading at under three cuts a second.
+
+    That fix was made once, in `measure`, and this second path kept the old
+    behaviour: handed two reels cutting 33 times per ten seconds, it returned a
+    single shot each, and every structural number derived from them — hook,
+    loop, the whole benchmark — was computed from a film it believed was one
+    unbroken take.
+
+    What cannot be recovered: which source clip each shot came from. So the
+    loop objective is judged on whether the last shot *resembles* the first —
+    same detected scene — rather than on a clip id that no longer exists. That
+    is a weaker test than the one used on a planned edit, and it is the honest
+    one for a file somebody else cut.
+    """
+    from pathlib import Path as _Path
+
+    import numpy as np
+
+    from ..analysis.dossier import build_dossier
+    from ..edl import Shot, TextCue, Transition
+    from ..ingest import probe_asset
+
+    file = _Path(path)
+    asset = probe_asset(file)
+    if asset is None or asset.duration <= 0:
+        raise ValueError(f"{file.name} is not readable video")
+
+    dossier = build_dossier(file.stem[:8], asset, analysis_fps=analysis_fps, analysis_width=160)
+    video = dossier.video
+
+    # The same fast path `measure` uses, rather than the dossier's own list.
+    from .reference import _cuts_at_full_rate
+    from .. import ffmpeg as _ff
+
+    cuts, _resolved = _cuts_at_full_rate(_ff, file, asset.duration, analysis_fps)
+    if not cuts:
+        cuts = [float(c) for c in video.shot_boundaries]
+    edges = [0.0, *cuts, asset.duration]
+
+    # Each detected scene becomes a shot. Scenes are numbered rather than named
+    # because there is no clip id to recover — but the *first* and *last* get
+    # compared for similarity below, which is what the loop objective needs.
+    shots: list[Shot] = []
+    for index in range(len(edges) - 1):
+        start, end = edges[index], edges[index + 1]
+        if end - start < 0.04:
+            continue
+        shots.append(
+            Shot(
+                clip_id=f"S{index:02d}",
+                source=file,
+                start=start,
+                end=end,
+                transition_in=Transition(kind="cut"),
+            )
+        )
+
+    if len(shots) >= 2 and len(video.luma):
+        # Does it hand you back to the top? Compare the mean luma and the mean
+        # colour of the first and last scenes. Two shots that look alike at this
+        # resolution are the closest thing to "same place" available here.
+        def window(shot):
+            lo = int(shot.start / asset.duration * len(video.luma))
+            hi = max(lo + 1, int(shot.end / asset.duration * len(video.luma)))
+            return float(np.mean(video.luma[lo:hi]))
+
+        first, last = window(shots[0]), window(shots[-1])
+        if abs(first - last) < 0.06:
+            shots[-1].clip_id = shots[0].clip_id
+
+    edl = EditDecisionList(
+        title=file.stem,
+        shots=shots,
+        width=asset.display_size[0],
+        height=asset.display_size[1],
+        fps=int(asset.fps or 30),
+    )
+    # Words on screen cannot be read without OCR, and guessing would flatter the
+    # hook score of anything with a caption burned in. Left empty, and the
+    # report says so.
+    edl.texts = list[TextCue]()
+    return edl
 
 
 def _opening_seconds(edl: EditDecisionList) -> float:

@@ -172,9 +172,14 @@ class WebReporter(Reporter):
 class Studio:
     """Holds the jobs and runs them one at a time."""
 
-    def __init__(self, workspace: Path, *, quality: str = "draft"):
+    def __init__(self, workspace: Path, *, quality: str = "draft", stickers: Path | None = None):
         self.workspace = Path(workspace)
         self.workspace.mkdir(parents=True, exist_ok=True)
+        # Somewhere to drop your own transparent PNGs. Made under the workspace
+        # by default so there is always a folder to point a phone's share sheet
+        # at, rather than a setting nobody finds.
+        self.sticker_dir = Path(stickers) if stickers else self.workspace / "stickers"
+        self.sticker_dir.mkdir(parents=True, exist_ok=True)
         self.quality = quality
         self.jobs: dict[str, Job] = {}
         self.lock = threading.Lock()
@@ -595,6 +600,65 @@ class Handler(BaseHTTPRequestHandler):
             "simulated_rows": model.simulated_rows,
         }
 
+    def _crew_memory(self) -> dict:
+        """What the crew has found worth doing, across every film so far."""
+        from ..agents.ledger import Ledger
+
+        ledger = Ledger()
+
+        def row(track) -> dict:
+            return {
+                "agent": track.agent,
+                "title": track.title,
+                "mean_gain": round(track.mean_gain, 4),
+                "tries": track.tries,
+                "take_rate": round(track.take_rate, 3),
+            }
+
+        return {
+            "kinds": len(ledger.tracks),
+            "scored": sum(t.tries for t in ledger.tracks.values()),
+            "proven": [row(t) for t in ledger.proven()],
+            "wasted": [row(t) for t in ledger.wasted()],
+            # Said here as well as in the CLI, because it is the one thing about
+            # these numbers that is easy to get wrong.
+            "note": (
+                "the scoring model's own verdicts, not view counts — "
+                "load real exports to check them against reality"
+            ),
+        }
+
+    def _scholar_state(self) -> dict:
+        """What the study agent knows, and whether it can study at all."""
+        from ..scholar import Scholar
+        from ..scholar.youtube import reachable
+
+        can_study, how = reachable()
+        try:
+            scholar = Scholar()
+            status = scholar.status()
+        except Exception as exc:  # noqa: BLE001 - the app serves without a Scholar
+            return {"available": False, "reason": str(exc), "can_study": can_study}
+
+        wants, why = (False, "")
+        try:
+            wants, why = scholar.should_study()
+        except Exception:  # noqa: BLE001 - no network is not an error here
+            wants, why = bool(scholar.knowledge.gaps()), "knowledge gaps"
+
+        return {
+            "available": True,
+            "can_study": can_study,
+            "how": how,
+            "learnings": status["total_learnings"],
+            "sessions": status["sessions_completed"],
+            "disciplines_studied": status["disciplines_studied"],
+            "gaps": status["knowledge_gaps"][:6],
+            "subscriptions": status["subscriptions"],
+            "wants_to_study": wants,
+            "why": why,
+        }
+
     def _allowed(self, path: str) -> bool:
         """Whether this request may proceed without signing in."""
         if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES):
@@ -637,6 +701,16 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/insight":
             self._json(self._insight())
+            return
+        # The phone should be able to see everything the terminal can. These two
+        # existed only as CLI commands, so `auteur agents` and `auteur scholar`
+        # told you things the app you carry could not — which is the same seam
+        # that had the studio running a weaker crew than the CLI.
+        if path == "/api/crew":
+            self._json(self._crew_memory())
+            return
+        if path == "/api/scholar":
+            self._json(self._scholar_state())
             return
         if path.startswith("/static/"):
             self._static(STATIC / Path(path).name)
@@ -789,7 +863,9 @@ class Handler(BaseHTTPRequestHandler):
         Nothing renders here. The point of the studio is that a person sees the
         proposals *before* the machine spends three minutes acting on them.
         """
-        from ..agents import Crew, Gate, Mode, default_crew
+        from ..agents import Gate, Mode
+        from ..agents.assemble import build_crew, readings_for
+        from ..craft.graphics import find_stickers
         from ..workflows import resolve
 
         payload = self._json_body()
@@ -824,7 +900,19 @@ class Handler(BaseHTTPRequestHandler):
             held.append(proposal)
             return "reject", "waiting for you"
 
-        crew = Crew(default_crew(), self._fitted(), gate=Gate(mode, on_ask=hold), max_rounds=3)
+        # The same crew the CLI builds, from the same function. The studio's
+        # whole job is to show what the agents want *before* three minutes are
+        # spent acting on it, so a shorter list here than the CLI would act on
+        # is the one thing it must never show. Readings come off the cut's own
+        # shots, which is how the web path gets measured subjects without a
+        # folder of rushes to point at.
+        crew = build_crew(
+            self._fitted(),
+            gate=Gate(mode, on_ask=hold),
+            readings=readings_for(edl),
+            spec=spec,
+            stickers=find_stickers(self.studio.sticker_dir),
+        )
         result = crew.run(edl)
 
         type(self)._pending = {

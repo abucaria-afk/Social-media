@@ -296,8 +296,12 @@ class Schedule:
         return next((post for post in self.posts if post.id == post_id), None)
 
     def due(self, now: datetime | None = None) -> list[Post]:
-        moment = now or datetime.now(timezone.utc)
-        return [post for post in self.posts if post.status == "queued" and post.when <= moment]
+        # `Post.is_due` says the same thing and was going unused, so the rule
+        # for "ready to go out" lived in two places — which is one place too
+        # many for a condition anybody might want to change.
+        if now is None:
+            return [post for post in self.posts if post.is_due]
+        return [post for post in self.posts if post.status == "queued" and post.when <= now]
 
     def upcoming(self, limit: int = 0) -> list[Post]:
         queued = [post for post in self.posts if post.status == "queued"]

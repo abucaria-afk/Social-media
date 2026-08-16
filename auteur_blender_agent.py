@@ -8,60 +8,72 @@ bl_info = {
     "category": "Interface",
 }
 
-import bpy
-import os
-import json
+# Blender requires `bl_info` to be the first statement in an add-on module, so
+# these imports cannot come before it. E402 is correct in general and wrong here.
+import bpy  # noqa: E402
+import os  # noqa: E402
+import json  # noqa: E402
+
 
 class AUTEUR_OT_run_final_check(bpy.types.Operator):
     """Executes safe-zone checks, composites visual stickers, and inserts frame-accurate sound FX."""
+
     bl_idname = "auteur.run_final_check"
     bl_label = "Run Final Check Pipeline"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         scene = context.scene
-        
+
         # --- 1. RESOLUTION VALIDATION & AUTO-CORRECTION ---
         target_x = 1080
         target_y = 1920
-        
+
         if scene.render.resolution_x != target_x or scene.render.resolution_y != target_y:
-            self.report({'WARNING'}, f"Resolution corrected from {scene.render.resolution_x}x{scene.render.resolution_y} to {target_x}x{target_y}")
+            self.report(
+                {"WARNING"},
+                f"Resolution corrected from {scene.render.resolution_x}x{scene.render.resolution_y} to {target_x}x{target_y}",
+            )
             scene.render.resolution_x = target_x
             scene.render.resolution_y = target_y
         else:
-            self.report({'INFO'}, "Dimensions Verified: Target vertical format matching 1080x1920 perfectly.")
+            self.report(
+                {"INFO"},
+                "Dimensions Verified: Target vertical format matching 1080x1920 perfectly.",
+            )
 
         # --- 2. MANIFEST PARSING (OPTIONAL) ---
         manifest_path = os.path.join(scene.auteur_asset_dir, "edit_manifest.json")
         target_frame = scene.auteur_sfx_frame
-        
+
         if os.path.exists(manifest_path):
             try:
-                with open(manifest_path, 'r') as f:
+                with open(manifest_path) as f:
                     data = json.load(f)
                     if "audio_cues" in data and len(data["audio_cues"]) > 0:
                         target_frame = data["audio_cues"][0].get("frame_trigger", target_frame)
-                        self.report({'INFO'}, f"Overrode sync frame from manifest target: {target_frame}")
+                        self.report(
+                            {"INFO"}, f"Overrode sync frame from manifest target: {target_frame}"
+                        )
             except Exception as e:
-                self.report({'WARNING'}, f"Could not parse manifest metadata: {str(e)}")
+                self.report({"WARNING"}, f"Could not parse manifest metadata: {str(e)}")
 
         # --- 3. VISUAL LAYER: AUTOMATED COMPOSITOR NODES ---
         scene.use_nodes = True
         node_tree = scene.node_tree
         nodes = node_tree.nodes
-        nodes.clear()  
+        nodes.clear()
 
-        render_layers = nodes.new(type='CompositorNodeRLayers')
+        render_layers = nodes.new(type="CompositorNodeRLayers")
         render_layers.location = (-300, 200)
-        
-        composite_out = nodes.new(type='CompositorNodeComposite')
+
+        composite_out = nodes.new(type="CompositorNodeComposite")
         composite_out.location = (300, 200)
 
-        overlay_node = nodes.new(type='CompositorNodeAlphaOver')
+        overlay_node = nodes.new(type="CompositorNodeAlphaOver")
         overlay_node.location = (0, 200)
-        
-        image_node = nodes.new(type='CompositorNodeImage')
+
+        image_node = nodes.new(type="CompositorNodeImage")
         image_node.location = (-300, -100)
 
         sticker_path = os.path.join(scene.auteur_asset_dir, "branding_sticker.png")
@@ -70,57 +82,66 @@ class AUTEUR_OT_run_final_check(bpy.types.Operator):
                 loaded_img = bpy.data.images.load(sticker_path)
                 image_node.image = loaded_img
             except Exception as e:
-                self.report({'ERROR'}, f"Failed to load branding sticker: {str(e)}")
+                self.report({"ERROR"}, f"Failed to load branding sticker: {str(e)}")
         else:
-            self.report({'WARNING'}, "No branding_sticker.png found. Created placeholder nodes.")
+            self.report({"WARNING"}, "No branding_sticker.png found. Created placeholder nodes.")
 
-        node_tree.links.new(render_layers.outputs['Image'], overlay_node.inputs[1])
-        node_tree.links.new(image_node.outputs['Image'], overlay_node.inputs[2])
-        node_tree.links.new(overlay_node.outputs['Image'], composite_out.inputs['Image'])
+        node_tree.links.new(render_layers.outputs["Image"], overlay_node.inputs[1])
+        node_tree.links.new(image_node.outputs["Image"], overlay_node.inputs[2])
+        node_tree.links.new(overlay_node.outputs["Image"], composite_out.inputs["Image"])
 
         # --- 4. AUDIO LAYER: VIDEO SEQUENCE EDITOR (VSE) SYNCHRONIZATION ---
         if not scene.sequence_editor:
             scene.sequence_editor_create()
-            
+
         vse = scene.sequence_editor
         sfx_path = os.path.join(scene.auteur_asset_dir, "hit_marker_effect.wav")
         audio_channel = 3
 
         if os.path.exists(sfx_path):
-            duplicates = [s for s in vse.sequences if s.frame_start == target_frame and s.channel == audio_channel]
+            duplicates = [
+                s
+                for s in vse.sequences
+                if s.frame_start == target_frame and s.channel == audio_channel
+            ]
             if not duplicates:
                 vse.sequences.new_sound(
                     name="Auteur_Check_SFX",
                     filepath=sfx_path,
                     channel=audio_channel,
-                    frame_start=target_frame
+                    frame_start=target_frame,
                 )
-                self.report({'INFO'}, f"SFX successfully synchronized at frame {target_frame}.")
+                self.report({"INFO"}, f"SFX successfully synchronized at frame {target_frame}.")
             else:
-                self.report({'INFO'}, "SFX sequence strip already exists at timestamp, skipped duplication.")
+                self.report(
+                    {"INFO"}, "SFX sequence strip already exists at timestamp, skipped duplication."
+                )
         else:
-            self.report({'WARNING'}, "Audio asset file missing. VSE track allocation skipped.")
+            self.report({"WARNING"}, "Audio asset file missing. VSE track allocation skipped.")
 
         # --- 5. AUTOMATED RENDER EXPORT LOOP ---
         if scene.auteur_auto_render:
-            self.report({'INFO'}, "Validation passed. Initializing background MP4 render loop...")
-            scene.render.image_settings.file_format = 'FFMPEG'
-            scene.render.ffmpeg.format = 'MPEG4'
-            scene.render.ffmpeg.codec = 'H264'
-            scene.render.ffmpeg.audio_codec = 'AAC'
-            scene.render.filepath = os.path.join(scene.auteur_asset_dir, "exports", "auteur_final_output.mp4")
+            self.report({"INFO"}, "Validation passed. Initializing background MP4 render loop...")
+            scene.render.image_settings.file_format = "FFMPEG"
+            scene.render.ffmpeg.format = "MPEG4"
+            scene.render.ffmpeg.codec = "H264"
+            scene.render.ffmpeg.audio_codec = "AAC"
+            scene.render.filepath = os.path.join(
+                scene.auteur_asset_dir, "exports", "auteur_final_output.mp4"
+            )
             bpy.ops.render.render(animation=True, write_still=True)
-            self.report({'INFO'}, "Render Loop Completed Successfully.")
+            self.report({"INFO"}, "Render Loop Completed Successfully.")
 
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class AUTEUR_PT_agent_panel(bpy.types.Panel):
     """Creates a dedicated UI Sidebar panel inside the 3D Viewport."""
+
     bl_label = "Auteur Final Check UI"
     bl_idname = "AUTEUR_PT_agent_panel"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
     bl_category = "Auteur"
 
     def draw(self, context):
@@ -128,35 +149,29 @@ class AUTEUR_PT_agent_panel(bpy.types.Panel):
         scene = context.scene
 
         box = layout.box()
-        box.label(text="Agent File Environments", icon='FOLDER_REDIRECT')
+        box.label(text="Agent File Environments", icon="FOLDER_REDIRECT")
         box.prop(scene, "auteur_asset_dir", text="Asset Path")
-        
+
         box = layout.box()
-        box.label(text="Timeline Sync Configurations", icon='TIME')
+        box.label(text="Timeline Sync Configurations", icon="TIME")
         box.prop(scene, "auteur_sfx_frame", text="SFX Marker Frame")
         box.prop(scene, "auteur_auto_render", text="Auto Render on Pass")
 
         layout.separator()
-        layout.operator("auteur.run_final_check", icon='CHECKMARK', text="Run Final Check Pipeline")
+        layout.operator("auteur.run_final_check", icon="CHECKMARK", text="Run Final Check Pipeline")
 
 
 def register():
     bpy.types.Scene.auteur_asset_dir = bpy.props.StringProperty(
-        name="Asset Directory",
-        subtype='DIR_PATH',
-        default=""
+        name="Asset Directory", subtype="DIR_PATH", default=""
     )
     bpy.types.Scene.auteur_sfx_frame = bpy.props.IntProperty(
-        name="SFX Playback Frame",
-        default=24,
-        min=1
+        name="SFX Playback Frame", default=24, min=1
     )
-    bpy.types.Scene.auteur_auto_render = bpy.props.BoolProperty(
-        name="Auto Render",
-        default=False
-    )
+    bpy.types.Scene.auteur_auto_render = bpy.props.BoolProperty(name="Auto Render", default=False)
     bpy.utils.register_class(AUTEUR_OT_run_final_check)
     bpy.utils.register_class(AUTEUR_PT_agent_panel)
+
 
 def unregister():
     bpy.utils.unregister_class(AUTEUR_PT_agent_panel)
@@ -165,16 +180,6 @@ def unregister():
     del bpy.types.Scene.auteur_sfx_frame
     del bpy.types.Scene.auteur_auto_render
 
+
 if __name__ == "__main__":
     register()
-# 1. Create a safe, tracking feature branch
-git checkout -b feature/blender-final-check-agent
-
-# 2. Stage the new script module
-git add auteur/blender/auteur_blender_agent.py
-
-# 3. Commit the changes with clear framework context
-git commit -m "feat(blender): add internal final check agent with compositor overlays, VSE audio sync, and render loop automation"
-
-# 4. Push the branch up to GitHub to open your Pull Request
-git push origin feature/blender-final-check-agent

@@ -44,12 +44,20 @@ def _palette_drift(edl: EditDecisionList) -> float:
     return min((max(temps) - min(temps)) / 1.5, 1.0)
 
 
-def _focal_weight(edl: EditDecisionList) -> list[float]:
-    """Per-shot focal strength, 0–1.  Shots with motion anchors near the
-    centre and no competing movement carry more weight."""
+def _focal_weight(edl: EditDecisionList, readings=None) -> list[float]:
+    """Per-shot focal strength, 0–1.
+
+    With `readings` from `auteur.vision`, "where the eye goes" is *measured* off
+    the frame. Without them it falls back to the shot's motion anchor — which is
+    a real limitation worth naming, because the anchor is whatever the director
+    set, so scoring it is scoring this program's own input rather than the
+    picture. The fallback can tell you an anchor is nowhere near a power point;
+    it cannot tell you whether the subject is.
+    """
     weights: list[float] = []
     for shot in edl.shots:
-        cx, cy = shot.motion.anchor
+        reading = (readings or {}).get(shot.clip_id)
+        cx, cy = reading.focus if reading is not None else shot.motion.anchor
         # Distance of the anchor from the power points (rule-of-thirds
         # intersections). Closer to a power point = stronger focal pull.
         thirds = [(1 / 3, 1 / 3), (2 / 3, 1 / 3), (1 / 3, 2 / 3), (2 / 3, 2 / 3)]
@@ -58,17 +66,6 @@ def _focal_weight(edl: EditDecisionList) -> list[float]:
         strength = max(0.0, 1.0 - best / 0.47)
         weights.append(strength)
     return weights
-
-
-def _composition_score(edl: EditDecisionList) -> float:
-    """Overall compositional coherence, 0–1."""
-    if not edl.shots:
-        return 1.0
-    weights = _focal_weight(edl)
-    avg = sum(weights) / len(weights) if weights else 0.5
-    exposure = 1.0 - _exposure_balance(edl)
-    palette = 1.0 - _palette_drift(edl)
-    return avg * 0.4 + exposure * 0.35 + palette * 0.25
 
 
 class GazeAgent:
@@ -83,6 +80,12 @@ class GazeAgent:
 
     name = "gaze"
     objective = "visual_coherence"
+
+    def __init__(self, readings=None):
+        # Optional so the existing `GazeAgent()` call site keeps working; when
+        # supplied, every judgement below is made about the frame rather than
+        # about the timeline's own metadata.
+        self.readings = readings or {}
 
     def inspect(
         self, edl: EditDecisionList, prediction: Prediction, model: FitReport
@@ -141,7 +144,7 @@ class GazeAgent:
             )
 
         # --- 3. Focal anchor — lead the eye, do not scatter it -----------
-        weights = _focal_weight(edl)
+        weights = _focal_weight(edl, self.readings)
         weak = [i for i, w in enumerate(weights) if w < 0.35]
         if len(weak) > len(edl.shots) * 0.4:
 

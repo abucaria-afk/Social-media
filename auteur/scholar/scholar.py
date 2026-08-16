@@ -33,22 +33,21 @@ from pathlib import Path
 from collections.abc import Sequence
 
 from ..edl import EditDecisionList
-from ..insight import FitReport, Prediction, predict
-from ..agents.base import Proposal, Risk
+from ..insight import FitReport, Prediction
+from ..agents.base import Proposal
 from ..agents.gaze import GazeAgent
 from .knowledge import (
     Confidence,
     Discipline,
     KnowledgeStore,
     Learning,
-    THEORY_DISCIPLINES,
     TOOL_DISCIPLINES,
 )
-from .youtube import YouTubeAccess, SearchStrategy, VideoMeta, Subscription
+from .youtube import YouTubeAccess, SearchStrategy, VideoMeta
 from .teach import Teacher, TeachingBrief, WorkflowPatch
 from .review import OutputReview, ReviewFinding
 from .auditory import AuditorySystem, AudioSegment, AudioVisualState, ListeningSession
-from .speech import SpeechSystem, SpeechResponse, CommunicationMode, VoiceStyle
+from .speech import SpeechSystem, SpeechResponse
 
 log = logging.getLogger("auteur.scholar")
 
@@ -351,6 +350,63 @@ class Scholar:
         )
         return session
 
+    def run_forever(
+        self,
+        *,
+        every_seconds: float = 3600.0,
+        max_videos: int = 5,
+        on_session=None,
+        stop=None,
+    ) -> None:
+        """Study on a loop, quietly, until told to stop.
+
+        This is what makes the Scholar a background process rather than a
+        command somebody has to remember to run. It wakes up, asks itself
+        whether there is anything worth studying, studies if so, and sleeps.
+
+        Deliberately forgiving about failure: a study session that cannot reach
+        YouTube, or hits a channel that has gone, must not end the loop — it
+        backs off and tries again later, because the network being down at 3am
+        is not a reason to stop learning for ever. It backs off *exponentially*
+        so an outage does not become a tight retry loop against somebody's API.
+
+        `stop` is a callable checked between sessions, so a caller can end the
+        loop without killing the thread mid-write.
+        """
+        from .youtube import YouTubeUnavailable
+
+        delay = every_seconds
+        while not (stop is not None and stop()):
+            should, reason = (False, "")
+            try:
+                should, reason = self.should_study()
+            except YouTubeUnavailable as exc:
+                log.info("cannot check for new uploads: %s", exc)
+                should, reason = bool(self._store.gaps()), "knowledge gaps"
+
+            if should:
+                log.info("studying: %s", reason)
+                try:
+                    session = self.study(max_videos=max_videos)
+                    delay = every_seconds  # a good round resets the back-off
+                    if on_session is not None:
+                        on_session(session)
+                except YouTubeUnavailable as exc:
+                    delay = min(delay * 2, every_seconds * 8)
+                    log.info("cannot study (%s) — next attempt in %.0fs", exc, delay)
+                except Exception as exc:  # noqa: BLE001 - the loop outlives its failures
+                    delay = min(delay * 2, every_seconds * 8)
+                    log.warning("study session failed (%s) — backing off to %.0fs", exc, delay)
+            else:
+                log.debug("not studying: %s", reason)
+
+            waited = 0.0
+            while waited < delay:
+                if stop is not None and stop():
+                    return
+                time.sleep(min(2.0, delay - waited))
+                waited += 2.0
+
     def _choose_strategy(self) -> tuple[SearchStrategy, SearchStrategy]:
         """Pick the best strategy based on current state."""
         new_uploads = self._youtube.check_new_uploads()
@@ -441,6 +497,12 @@ class Scholar:
                     )
                 )
 
+        # Captions, when there are any. Chapters give a video's skeleton; the
+        # transcript is where somebody actually says "lift the shadows before
+        # you touch saturation". This only became worth reading once the
+        # transcript stopped being the literal string "[auto-caption available]".
+        learnings.extend(self._learnings_from_transcript(video, disciplines, tool))
+
         # If no chapters, extract from the video as a whole
         if not learnings:
             learning_id = hashlib.sha256(video.video_id.encode()).hexdigest()[:16]
@@ -459,6 +521,76 @@ class Scholar:
                 )
             )
 
+        return learnings
+
+    #: Phrases that introduce a rule rather than a description. A tutorial says
+    #: a great deal; these are the moments it says something to keep.
+    _INSTRUCTIVE = (
+        "the trick is",
+        "the key is",
+        "always ",
+        "never ",
+        "make sure",
+        "you want to",
+        "the rule",
+        "what i do is",
+        "the secret",
+        "most people",
+        "instead of",
+        "start by",
+        "the reason",
+    )
+
+    def _learnings_from_transcript(
+        self, video: VideoMeta, disciplines: list, tool: str
+    ) -> list[Learning]:
+        """Keep the sentences that state a rule, not the ones that fill time.
+
+        A twenty-minute tutorial has perhaps a dozen sentences worth storing and
+        several hundred that are throat-clearing. Filtering on phrases that
+        introduce a rule is crude, and it is honest about being crude: it will
+        miss a technique explained without a signpost, and it will keep the
+        occasional "always subscribe". It is a long way better than storing the
+        whole transcript, which would bury every real learning in the noise.
+        """
+        if not video.transcript_segments:
+            return []
+
+        learnings: list[Learning] = []
+        seen: set[str] = set()
+        for cue in video.transcript_segments:
+            text = (cue.get("text") or "").strip()
+            lowered = text.lower()
+            if len(text) < 25 or len(text) > 240:
+                continue
+            if not any(phrase in lowered for phrase in self._INSTRUCTIVE):
+                continue
+            key = lowered[:60]
+            if key in seen:
+                continue
+            seen.add(key)
+
+            at = float(cue.get("start", 0.0))
+            learning_id = hashlib.sha256(f"{video.video_id}:{at}:{key}".encode()).hexdigest()[:16]
+            learnings.append(
+                Learning(
+                    learning_id=learning_id,
+                    disciplines=[d for d in disciplines if d is not None],
+                    insight=text,
+                    technique=video.chapter_at(at) or self._extract_technique(video),
+                    application=self._infer_application(text, disciplines),
+                    source_video_id=video.video_id,
+                    source_channel=video.channel,
+                    source_title=video.title,
+                    source_start_sec=at,
+                    source_end_sec=at + float(cue.get("duration", 0.0)),
+                    tool=tool,
+                    # Something a person said once, unverified against anything.
+                    confidence=Confidence.TENTATIVE,
+                )
+            )
+            if len(learnings) >= 25:  # one video is not a syllabus
+                break
         return learnings
 
     def _infer_disciplines(self, video: VideoMeta) -> list[Discipline]:

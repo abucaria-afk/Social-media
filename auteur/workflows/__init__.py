@@ -22,6 +22,7 @@ Nothing in this package uploads anything. See `publish` for why.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -144,6 +145,12 @@ def wanted_duration(spec: PlatformSpec, prompt: str, length: float | None = None
     return spec.fit_duration(asked)
 
 
+#: Fields the workflow decides, not the agents. The delivery format comes from
+#: the platform spec and the title from the brief; an agent that changed either
+#: would be overruling the thing it was asked to optimise for.
+WORKFLOW_OWNED = frozenset({"fps", "width", "height", "title"})
+
+
 def with_agents(spec: PlatformSpec, crew, *, on_result=None):
     """A plan hook that lets the agents re-cut before anything renders.
 
@@ -157,16 +164,36 @@ def with_agents(spec: PlatformSpec, crew, *, on_result=None):
 
     def adjust(edl: EditDecisionList) -> None:
         result = crew.run(edl)
-        # The crew works on a copy so a bad proposal cannot damage the original.
-        # Copy the survivor back onto the EDL the renderer is holding.
-        edl.shots = result.edl.shots
-        edl.texts = result.edl.texts
+        # The crew works on a copy so a bad proposal cannot damage the original;
+        # the survivor has to be copied back onto the EDL the renderer holds.
+        #
+        # Every field, taken from the dataclass rather than listed by hand. This
+        # was a hand-written list of two, and graphics, sound cues and the grade
+        # were being dropped on the floor while the run still printed them as
+        # applied — a change an agent won, reported as won, and thrown away. A
+        # list like that is only ever correct until the next field is added, so
+        # there is no list any more.
+        for field in dataclasses.fields(EditDecisionList):
+            if field.name in WORKFLOW_OWNED:
+                continue
+            setattr(edl, field.name, getattr(result.edl, field.name))
         log.info(
             "agents: predicted %.0f%% -> %.0f%% over %d round(s)",
             result.baseline.overall * 100,
             result.final.overall * 100,
             len(result.rounds),
         )
+
+        # Tell the Scholar which of its advice was taken and what it was worth.
+        # This is the only path by which anything it read ever gets tested, and
+        # without it the store fills with things nobody ever found out about.
+        applied = [p for round_ in result.rounds for p in round_.proposals]
+        for agent in getattr(crew, "agents", []):
+            if hasattr(agent, "learn_from"):
+                try:
+                    agent.learn_from(applied)
+                except Exception as exc:  # noqa: BLE001 - bookkeeping never loses a film
+                    log.info("could not record what the Scholar learned: %s", exc)
         readable(edl)
         if on_result is not None:
             on_result(result)
