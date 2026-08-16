@@ -83,6 +83,7 @@ def build_crew(
     style=None,
     stickers: list[Path] | None = None,
     scholar=None,
+    ledger=None,
     max_rounds: int = 3,
 ) -> Crew:
     """The full crew, in the order they should speak.
@@ -125,7 +126,12 @@ def build_crew(
     if style is not None and not style.is_empty:
         agents.insert(0, StyleAgent(style))
 
-    return Crew(agents, model, gate=gate, max_rounds=max_rounds)
+    if ledger is None:
+        from .ledger import Ledger
+
+        ledger = Ledger()
+
+    return Crew(agents, model, gate=gate, max_rounds=max_rounds, ledger=ledger)
 
 
 def crew_summary(crew: Crew) -> str:

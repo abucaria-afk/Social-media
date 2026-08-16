@@ -126,7 +126,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{edit,workflow,scholar,insight,media,schedule,demo,serve,account,analyse,looks}",
+        metavar="{edit,workflow,agents,scholar,insight,media,schedule,demo,serve,account,analyse,looks}",
     )
 
     edit = sub.add_parser(
@@ -338,6 +338,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     insight.add_argument("-o", "--out", default=None, metavar="FILE", help="where to write")
     insight.add_argument("--json", action="store_true", help="machine-readable output")
+
+    agents_cmd = sub.add_parser(
+        "agents", help="what the crew has learned about which changes are worth making"
+    )
+    agents_cmd.add_argument(
+        "action",
+        nargs="?",
+        default="show",
+        choices=["show", "forget"],
+        help="show (default) what has earned its place, or forget it all and start over",
+    )
+    agents_cmd.add_argument("--json", action="store_true", help="machine-readable output")
 
     scholar = sub.add_parser(
         "scholar",
@@ -1129,6 +1141,40 @@ def _run_score(args: argparse.Namespace, say: Reporter) -> int:
     return 0
 
 
+def _run_agents(args: argparse.Namespace, say: Reporter) -> int:
+    """What the crew has found to be worth doing, across every film so far."""
+    import json as _json
+
+    from .agents.ledger import Ledger
+
+    ledger = Ledger()
+    if args.action == "forget":
+        if ledger.path.exists():
+            ledger.path.unlink()
+        say.result("the crew has forgotten everything it learned")
+        return 0
+
+    if args.json:
+        print(
+            _json.dumps(
+                {
+                    "proven": [t.__dict__ for t in ledger.proven()],
+                    "wasted": [t.__dict__ for t in ledger.wasted()],
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    for line in ledger.describe().splitlines():
+        print(line)
+    say.detail(
+        "these are the scoring model's own verdicts, not view counts — "
+        "load real exports with `auteur insight fit` to check them against reality"
+    )
+    return 0
+
+
 def _run_scholar(args: argparse.Namespace, say: Reporter) -> int:
     """The study agent: what it knows, what it wants to watch, what it teaches."""
     import json as _json
@@ -1475,6 +1521,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_insight(args, say)
         if args.command == "scholar":
             return _run_scholar(args, say)
+        if args.command == "agents":
+            return _run_agents(args, say)
     except KeyboardInterrupt:
         say.failure("stopped")
         return 130

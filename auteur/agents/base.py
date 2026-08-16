@@ -289,12 +289,20 @@ class Crew:
         gate: Gate | None = None,
         max_rounds: int = 3,
         min_gain: float = 0.005,
+        ledger=None,
     ):
         self.agents = list(agents)
         self.model = model
         self.gate = gate or Gate()
         self.max_rounds = max(1, max_rounds)
         self.min_gain = min_gain
+        # What previous runs found to be worth doing. Advisory: it changes the
+        # order things are tried in, never whether they may be tried.
+        if ledger is None:
+            from .ledger import NullLedger
+
+            ledger = NullLedger()
+        self.ledger = ledger
 
     def run(self, edl: EditDecisionList) -> CrewResult:
         started = time.perf_counter()
@@ -302,6 +310,9 @@ class Crew:
         current = copy.deepcopy(edl)
         current_score = baseline.overall
         rounds: list[Round] = []
+        #: (agent, title) pairs already turned down this run, by the model or by
+        #: the person. Kept across rounds so nobody is asked twice.
+        declined: set[tuple[str, str]] = set()
 
         for index in range(self.max_rounds):
             prediction = predict(current, self.model)
@@ -322,10 +333,26 @@ class Crew:
                         )
                     )
 
+            # Try the changes that have earned their place first. Each applied
+            # change alters the timeline the next one is scored against, so a
+            # marginal proposal judged after the reliable ones is judged against
+            # a better cut than it would have been.
+            proposals = self.ledger.order(proposals)
+
             improved = False
             # A binding change is applied even where it costs prediction, so
             # the round must not be judged only on whether the score went up.
             for proposal in proposals:
+                # An agent that inspects the same timeline twice offers the same
+                # advice twice. Most of them have no memory of the last round,
+                # so a rejected proposal came back every round until the rounds
+                # ran out — recomputed, rescored, and printed again each time.
+                # The answer has not changed: the cut it objected to is still
+                # there precisely *because* the objection was turned down.
+                fingerprint = (proposal.agent, proposal.title)
+                if fingerprint in declined:
+                    continue
+
                 candidate = copy.deepcopy(current)
                 try:
                     proposal.change(candidate)
@@ -346,8 +373,10 @@ class Crew:
                 # the style agent exists to prevent.
                 if not proposal.binding and proposal.predicted_gain < self.min_gain:
                     proposal.decision_note = proposal.decision_note or "no predicted gain"
+                    declined.add(fingerprint)
                     continue
                 if not self.gate.review(proposal):
+                    declined.add(fingerprint)
                     continue
 
                 current, current_score = candidate, scored
@@ -358,6 +387,9 @@ class Crew:
             rounds.append(round_)
             if not improved:
                 break
+
+        # Remember what this run found, so the next one starts from somewhere.
+        self.ledger.record([p for round_ in rounds for p in round_.proposals])
 
         return CrewResult(
             edl=current,

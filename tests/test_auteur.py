@@ -4783,3 +4783,158 @@ def test_generated_rows_carry_rates_not_only_counts():
     for column in ("share_to_view_ratio", "save_to_view_ratio", "three_second_watch_rate"):
         assert column in row, f"{column} is what the insight layer actually reads"
         assert 0.0 <= float(row[column]) <= 1.0
+
+
+# ------------------------------------------------------------- crew memory
+
+
+def _proposal(agent, title, *, applied=False, gain=0.0, objective="hook"):
+    from auteur.agents.base import Proposal
+
+    p = Proposal(
+        agent=agent,
+        title=title,
+        reason="because",
+        change=lambda edl: None,
+        objective=objective,
+    )
+    p.applied = applied
+    p.predicted_gain = gain
+    return p
+
+
+def test_an_agent_is_not_asked_the_same_question_twice(tmp_path):
+    """Agents mostly have no memory, so a rejected idea came back every round.
+
+    The answer had not changed: the cut it objected to was still there
+    precisely because the objection was turned down.
+    """
+    from auteur.agents.base import Crew, Gate, Mode
+    from auteur.insight import FitReport
+
+    class Nagger:
+        name = "nagger"
+        objective = "hook"
+
+        def __init__(self):
+            self.asked = 0
+
+        def inspect(self, edl, prediction, model):
+            self.asked += 1
+            # Changes nothing, so it can never show a gain and is always declined.
+            return [_proposal("nagger", "do the pointless thing")]
+
+    edl = _graphics_edl(tmp_path, count=4)
+    agent = Nagger()
+    crew = Crew(
+        [agent],
+        FitReport(rows=0, simulated_rows=0, measured_rows=0),
+        gate=Gate(Mode.AUTONOMOUS),
+        max_rounds=3,
+    )
+    result = crew.run(edl)
+
+    scored = [p for round_ in result.rounds for p in round_.proposals]
+    assert len(scored) == 1, "the same rejected proposal was scored more than once"
+
+
+def test_the_ledger_remembers_what_was_worth_doing(tmp_path):
+    from auteur.agents.ledger import Ledger
+
+    ledger = Ledger(tmp_path / "led.jsonl")
+    for _ in range(4):
+        ledger.record(
+            [
+                _proposal("loop", "End on the frame it opened on", applied=True, gain=0.14),
+                _proposal("share", "Tighten the middle", applied=False, gain=0.0),
+            ]
+        )
+
+    assert ledger.value_of("loop", "End on the frame it opened on") == pytest.approx(0.14)
+    assert ledger.value_of("share", "Tighten the middle") == 0.0
+    # Never seen before is zero, not a penalty — an untried idea should be tried.
+    assert ledger.value_of("hook", "something new") == 0.0
+
+    proven = ledger.proven()
+    assert [t.title for t in proven] == ["End on the frame it opened on"]
+    assert "Tighten the middle" in [t.title for t in ledger.wasted()]
+
+    # It survives a restart.
+    assert len(Ledger(tmp_path / "led.jsonl").tracks) == 2
+
+
+def test_a_proposal_nobody_ever_took_has_not_earned_its_place(tmp_path):
+    """It appeared under both "earned its place" and "keeps being turned down"."""
+    from auteur.agents.ledger import Ledger
+
+    ledger = Ledger(tmp_path / "led.jsonl")
+    for _ in range(5):
+        ledger.record([_proposal("share", "Tighten the middle", applied=False, gain=0.004)])
+
+    titles = {t.title for t in ledger.proven()}
+    assert "Tighten the middle" not in titles
+    assert "Tighten the middle" in {t.title for t in ledger.wasted()}
+
+
+def test_the_same_change_on_different_films_is_one_track(tmp_path):
+    """Counts in the title fragmented one idea across dozens of names.
+
+    A change could be made on forty films and never reach three tries under any
+    single name, so nothing ever became established.
+    """
+    from auteur.agents.ledger import Ledger, kind_of
+
+    assert kind_of("Reframe 1 shot(s) onto the subject") == kind_of(
+        "Reframe 7 shot(s) onto the subject"
+    )
+    assert kind_of("Cut the opening from 2.0s to 1.6s") == kind_of(
+        "Cut the opening from 3.4s to 0.9s"
+    )
+    assert kind_of("End on the frame it opened on") == "End on the frame it opened on"
+
+    ledger = Ledger(tmp_path / "led.jsonl")
+    for count in (1, 2, 3, 5):
+        ledger.record(
+            [
+                _proposal(
+                    "finishing",
+                    f"Reframe {count} shot(s) onto the subject",
+                    applied=True,
+                    gain=0.02,
+                )
+            ]
+        )
+    assert len(ledger.tracks) == 1
+    track = next(iter(ledger.tracks.values()))
+    assert track.tries == 4 and track.established
+
+
+def test_the_ledger_puts_the_proven_changes_first(tmp_path):
+    """Order matters: each applied change alters what the next is scored against."""
+    from auteur.agents.ledger import Ledger
+
+    ledger = Ledger(tmp_path / "led.jsonl")
+    for _ in range(4):
+        ledger.record([_proposal("loop", "the good one", applied=True, gain=0.20)])
+        ledger.record([_proposal("share", "the weak one", applied=True, gain=0.01)])
+
+    shuffled = [
+        _proposal("hook", "brand new"),
+        _proposal("share", "the weak one"),
+        _proposal("loop", "the good one"),
+    ]
+    assert [p.title for p in ledger.order(shuffled)][0] == "the good one"
+
+
+def test_a_crew_with_no_ledger_still_runs(tmp_path):
+    """The memory is optional; an edit is not."""
+    from auteur.agents.base import Crew, Gate, Mode
+    from auteur.agents.ledger import NullLedger
+    from auteur.insight import FitReport
+
+    crew = Crew(
+        [], FitReport(rows=0, simulated_rows=0, measured_rows=0), gate=Gate(Mode.AUTONOMOUS)
+    )
+    assert isinstance(crew.ledger, NullLedger)
+    result = crew.run(_graphics_edl(tmp_path, count=3))
+    assert result.edl.shots
