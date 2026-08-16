@@ -107,6 +107,19 @@
     <p class="studio-empty" id="proposals-empty">Nothing proposed yet — plan a cut first.</p>
   </section>
 
+  <!-- 4. What the Scholar is doing ----------------------------------- -->
+  <!-- /api/scholar existed and no page read it, so the Scholar studied in
+       total silence: no way to tell whether it was running, what it knew, or
+       whether it had learned anything about this app. -->
+  <section class="panel" id="scholar-panel" hidden>
+    <h2 class="panel-title">What the Scholar is learning</h2>
+    <p class="panel-hint" id="scholar-state">checking…</p>
+    <ul class="learnings" id="scholar-product"></ul>
+    <p class="studio-empty" id="scholar-empty" hidden>
+      Nothing about this app yet — it studies the edit first.
+    </p>
+  </section>
+
   <button class="studio-go" id="run">Cut it</button>
   <p class="studio-foot">
     Agents change the edit. They never post. — <a href="/">back to the edit room</a>

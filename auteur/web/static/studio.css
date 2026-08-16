@@ -29,6 +29,14 @@
 }
 
 .sbar-back {
+  /* The glyph is small; the target must not be. It rendered 20×20 — under
+     half the area a fingertip covers, on the only way back out of the studio. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  margin-left: -10px; /* keep the glyph optically aligned with the edge */
   color: var(--ember-text);
   text-decoration: none;
   font-size: 1.15rem;
@@ -321,7 +329,8 @@
   border: 1px solid var(--line);
   color: var(--text-muted);
   border-radius: 999px;
-  padding: 0.4rem 0.8rem;
+  min-height: 44px;
+  padding: 0.4rem 0.9rem;
   font: inherit;
   font-size: 0.84rem;
   cursor: pointer;
@@ -444,6 +453,37 @@
   margin: 1rem 0 0;
 }
 .studio-foot a { color: var(--ember-text); }
+
+/* -- what the Scholar is learning ---------------------------------------- */
+
+.learnings { list-style: none; margin: 0.6rem 0 0; padding: 0; }
+
+.learning {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.15rem 0.6rem;
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--line);
+}
+.learning:first-child { border-top: 0; }
+
+.learning-title { font-weight: 600; font-size: 0.95rem; color: var(--text); }
+
+.learning-tag {
+  justify-self: end;
+  align-self: start;
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.learning-body {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  font-size: 0.87rem;
+  line-height: 1.45;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .dial-fill { transition: none; }

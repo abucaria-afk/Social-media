@@ -888,6 +888,60 @@ def test_every_icon_the_manifest_names_is_actually_served(tmp_path):
         assert (server.STATIC / referenced.lstrip("/")).is_file()
 
 
+def test_the_favicon_is_served_without_signing_in(web_server):
+    """Every browser asks for it on every visit, signed in or not.
+
+    Behind the auth gate it answered 303 to /login, which a browser cannot use
+    as an icon — so every page load logged a 404 in the console and in the
+    server log, on the login page most of all.
+    """
+    from urllib.request import urlopen
+
+    base, _, _ = web_server
+    with urlopen(base + "/favicon.ico") as response:  # no cookie: not signed in
+        assert response.status == 200
+        assert response.headers["Content-Type"] == "image/png"
+        assert len(response.read()) > 0
+
+
+def test_nothing_a_finger_lands_on_is_smaller_than_a_finger(web_server):
+    """44px is Apple's minimum, and the reason is physical rather than stylistic.
+
+    Six controls on the home screen and five in the studio sat at 34-36px: the
+    prompt chips, sign out, the studio's mode buttons, and the ← that is the
+    only way back out of the studio, which rendered 20x20.
+    """
+    import re
+
+    from auteur.web import server
+
+    for sheet in ("style.css", "studio.css"):
+        text = (server.STATIC / sheet).read_text()
+        # Only the interactive rules matter; a 20px avatar is not a target.
+        for block in re.findall(r"([^{}]*)\{([^}]*)\}", text):
+            selector, body = block[0].strip(), block[1]
+            if not re.search(r"\.chip|\.mode|\.whoami button|\.sbar-back|\.card-action", selector):
+                continue
+            for found in re.findall(r"min-height:\s*(\d+)px", body):
+                assert int(found) >= 44, f"{sheet} {selector} is {found}px"
+
+
+def test_the_first_step_looks_like_something_you_can_tap():
+    """The whole card is a label, and nothing said so.
+
+    Steps 2 and 3 have obvious controls; step 1 read as a paragraph, which made
+    the first action of the entire product invisible.
+    """
+    from auteur.web import server
+
+    page = (server.STATIC / "index.html").read_text()
+    assert 'id="clips-action"' in page
+    assert "Choose from camera roll" in page
+    # And it has to change once there are clips, or the step reads unfinished.
+    script = (server.STATIC / "app.js").read_text()
+    assert "Choose different clips" in script
+
+
 def test_the_page_is_built_for_a_phone():
     """The iPhone-specific pieces are load-bearing, not decoration."""
     from auteur.web import server

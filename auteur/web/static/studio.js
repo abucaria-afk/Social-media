@@ -245,10 +245,47 @@
       });
   });
 
+  // -- what the Scholar is doing -----------------------------------------
+
+  function drawScholar(s) {
+    if (!s || !s.available) { return; }
+    $("scholar-panel").hidden = false;
+
+    var parts = [s.learnings + (s.learnings === 1 ? " learning" : " learnings")];
+    parts.push(s.sessions + (s.sessions === 1 ? " session" : " sessions"));
+    if (!s.can_study) { parts.push("cannot reach YouTube right now"); }
+    else if (s.wants_to_study) { parts.push("about to study — " + (s.why || "")); }
+    $("scholar-state").textContent = parts.join("  ·  ");
+
+    var product = (s.product && s.product.learnings) || [];
+    var host = $("scholar-product");
+    host.innerHTML = "";
+    $("scholar-empty").hidden = product.length > 0;
+    product.forEach(function (item) {
+      var li = document.createElement("li");
+      li.className = "learning";
+      // textContent throughout: these strings come from video descriptions,
+      // which is to say from strangers.
+      var title = document.createElement("span");
+      title.className = "learning-title";
+      title.textContent = item.technique;
+      var tag = document.createElement("span");
+      tag.className = "learning-tag";
+      tag.textContent = item.confidence;
+      var body = document.createElement("span");
+      body.className = "learning-body";
+      body.textContent = item.insight;
+      li.appendChild(title); li.appendChild(tag); li.appendChild(body);
+      host.appendChild(li);
+    });
+  }
+
   // -- start -------------------------------------------------------------
 
   get("/api/platforms").then(function (d) { drawPlatforms(d.platforms || []); });
   get("/api/insight").then(drawInsight).catch(function () {
     $("provenance").textContent = "no performance data loaded";
   });
+  // Never fatal: the studio works with no Scholar at all.
+  get("/api/scholar").then(drawScholar).catch(function () {});
 })();

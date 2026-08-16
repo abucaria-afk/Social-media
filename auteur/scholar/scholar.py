@@ -181,6 +181,51 @@ _CURRICULUM: dict[Discipline, list[str]] = {
         "final cut pro effects tutorial",
         "final cut pro multicam editing",
     ],
+    # -- the product ------------------------------------------------------
+    # A film nobody can reach is a film nobody watches. The thing that
+    # delivers the work is part of the work, so the Scholar studies it too.
+    Discipline.WEB_DESIGN: [
+        "web design principles 2025",
+        "mobile first web design",
+        "landing page design that converts",
+        "design system fundamentals",
+        "typography for the web",
+    ],
+    Discipline.WEB_DEVELOPMENT: [
+        "modern web development best practices",
+        "core web vitals optimization",
+        "progressive web app tutorial",
+        "responsive layout css grid flexbox",
+        "web performance optimization",
+    ],
+    Discipline.APP_DEVELOPMENT: [
+        "mobile app development fundamentals",
+        "iOS human interface guidelines explained",
+        "app onboarding best practices",
+        "app store optimization",
+        "offline first app architecture",
+    ],
+    Discipline.ACCESSIBILITY: [
+        "web accessibility WCAG tutorial",
+        "accessible forms and labels",
+        "screen reader testing walkthrough",
+        "color contrast accessibility",
+        "touch target size guidelines",
+    ],
+    Discipline.CONVERSION: [
+        "conversion rate optimization tutorial",
+        "landing page copywriting that sells",
+        "checkout funnel optimization",
+        "user onboarding retention",
+        "a/b testing fundamentals",
+    ],
+    Discipline.ECOMMERCE: [
+        "shopify store setup tutorial",
+        "shopify theme customization",
+        "shopify product page optimization",
+        "ecommerce store design best practices",
+        "shopify apps for conversion",
+    ],
 }
 
 
@@ -279,7 +324,13 @@ class Scholar:
         """
         gaps = self._store.gaps()
         if gaps:
-            return True, f"knowledge gaps in {len(gaps)} disciplines: {[g.value for g in gaps[:3]]}"
+            # This string is shown to a person, in the studio and in the
+            # terminal. It used to interpolate a Python list, so the app said
+            # "gaps in 30 disciplines: ['color_theory', 'music_theory']" —
+            # brackets, quotes, underscores and all.
+            named = ", ".join(g.value.replace("_", " ") for g in gaps[:3])
+            more = f" and {len(gaps) - 3} more" if len(gaps) > 3 else ""
+            return True, f"gaps to fill — {named}{more}"
 
         new_uploads = self._youtube.check_new_uploads()
         if new_uploads:
@@ -695,6 +746,16 @@ class Scholar:
     def teach_all(self) -> TeachingBrief:
         """Generate a teaching brief for the entire crew."""
         return self._teacher.brief_for_all()
+
+    def teach_product(self) -> TeachingBrief:
+        """What it has learned about the app, the site and the shop.
+
+        Addressed to a person rather than to the crew: no proposal follows from
+        a rule about tap targets. It is here because the thing that delivers
+        the work is part of the work — a film nobody can reach is a film nobody
+        watches.
+        """
+        return self._teacher.brief_for_product()
 
     def propose_workflow_changes(self) -> list[WorkflowPatch]:
         """Propose workflow changes backed by validated learnings."""

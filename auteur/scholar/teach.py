@@ -208,6 +208,44 @@ class Teacher:
             discipline_context=disciplines,
         )
 
+    def brief_for_product(self, *, max_learnings: int = 12) -> TeachingBrief:
+        """What the Scholar has learned about the thing that delivers the work.
+
+        Web design, building, accessibility, conversion, the shop. These are
+        deliberately separate from every other brief, because they cannot
+        become proposals: no change to an edit decision list follows from a
+        rule about tap targets, and an agent handed this brief would have
+        nothing to do with it.
+
+        So it is addressed to a person. A film nobody can reach is a film
+        nobody watches — if the app is unusable none of the rest counts — which
+        is exactly why these learnings need somewhere to land rather than
+        sitting in a store nothing reads.
+        """
+        from .knowledge import PRODUCT_DISCIPLINES
+
+        seen: set[str] = set()
+        found: list[Learning] = []
+        for discipline in sorted(PRODUCT_DISCIPLINES, key=lambda d: d.value):
+            for learning in self._store.by_discipline(discipline):
+                if learning.learning_id not in seen:
+                    seen.add(learning.learning_id)
+                    found.append(learning)
+
+        order = {Confidence.VALIDATED: 0, Confidence.SUPPORTED: 1, Confidence.TENTATIVE: 2}
+        found.sort(key=lambda item: (order.get(item.confidence, 3), -item.learned_at))
+        selected = found[:max_learnings]
+        return TeachingBrief(
+            target_agents=[],  # nobody in the crew: this one is for a person
+            learnings=selected,
+            summary=(
+                f"{len(selected)} learning(s) about the app, the site and the shop"
+                if selected
+                else "nothing learned about the product yet — the Scholar has not studied it"
+            ),
+            discipline_context=sorted(PRODUCT_DISCIPLINES, key=lambda d: d.value),
+        )
+
     def brief_for_all(self, *, max_learnings: int = 20) -> TeachingBrief:
         """Generate a general teaching brief for the whole crew."""
         validated = self._store.by_confidence(Confidence.VALIDATED)

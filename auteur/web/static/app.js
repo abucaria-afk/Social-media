@@ -106,14 +106,19 @@
   clips.addEventListener("change", function () {
     var count = clips.files ? clips.files.length : 0;
     var hint = $("clips-hint");
+    var action = $("clips-action");
     $("clips").closest(".card").classList.toggle("has-files", count > 0);
     if (!count) {
       hint.textContent = "Straight from your camera roll. Music too, if you have some.";
+      if (action) { action.textContent = "Choose from camera roll"; }
       return;
     }
     var bytes = 0;
     for (var i = 0; i < clips.files.length; i++) { bytes += clips.files[i].size; }
     hint.textContent = count + (count === 1 ? " clip" : " clips") + " ready  ·  " + megabytes(bytes);
+    // Once there are clips the card's job changes from "start here" to "swap
+    // these", and the button has to say so or it reads as an unfinished step.
+    if (action) { action.textContent = "Choose different clips"; }
   });
 
   function megabytes(bytes) {

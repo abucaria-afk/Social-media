@@ -63,6 +63,11 @@
         <span class="card-body">
           <span class="card-title">Pick your clips</span>
           <span class="card-hint" id="clips-hint">Straight from your camera roll. Music too, if you have some.</span>
+          <!-- The whole card is the label, so tapping anywhere opens the
+               picker. Nothing said so: step 1 read as a description while
+               steps 2 and 3 had obvious controls, and the first action of the
+               whole product was invisible. This is the affordance. -->
+          <span class="card-action" id="clips-action" aria-hidden="true">Choose from camera roll</span>
         </span>
         <!-- No `capture` attribute: on iOS that would force the camera and hide
              the library, which is the opposite of what most people want. -->
