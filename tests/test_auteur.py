@@ -466,8 +466,44 @@ def test_heuristic_director_produces_a_legal_edit(rushes):
     assert edl.duration == pytest.approx(8.0, abs=2.0)
     ids = [shot.clip_id for shot in edl.shots]
     assert all(a != b for a, b in zip(ids, ids[1:], strict=False)), "no clip cuts back to itself"
+    # The floor is two frames at 24fps, not a fifth of a second. This asserted
+    # 0.2 back when `MIN_SLOT` was 0.32 and the director could not plan a
+    # shorter shot anyway — it was reading a ceiling back and calling it a
+    # rule. The reference reels have a median shot of 0.167s.
+    from auteur.edl import MIN_SHOT
+
     for shot in edl.shots:
-        assert shot.duration >= 0.2
+        assert shot.duration >= MIN_SHOT
+
+
+def test_a_hypercut_reaches_the_rate_the_reference_reels_are_cut_at(rushes):
+    """Three ceilings used to stop it, in three different places.
+
+    `edl.MIN_SHOT` dropped shots under a quarter second, the cut detector's
+    350ms refractory made a fast reel report as meditative, and `MIN_SLOT`
+    would not plan a shot under 0.32s. With those gone the beat grid was still
+    one: a whole beat at 120 BPM is half a second, so beat-synced cutting could
+    not go faster than twice a second whatever the brief asked.
+    """
+    from auteur.director.heuristic import _subdivided
+
+    bin_ = ingest([rushes])
+    dossiers = [build_dossier(f"C{i + 1:02d}", asset) for i, asset in enumerate(bin_.visuals)]
+    settings = Settings(quality=QUALITIES["draft"], target_duration=10.0)
+
+    fast = cut(parse_brief("a hypercut of the city, 10 seconds"), dossiers, settings)
+    slow = cut(parse_brief("a cinematic montage of the city, 10 seconds"), dossiers, settings)
+
+    rate = len(fast.shots) / (fast.duration / 10.0)
+    assert rate > len(slow.shots) / (slow.duration / 10.0) * 2, "a hypercut cuts like a montage"
+    # The measured reference band is 19.4 to 76.1 cuts per ten seconds.
+    assert rate >= 19.0, f"{rate:.1f} cuts per ten seconds is slower than every reference reel"
+
+    # Half-second beats, and a brief that wants shots a third that long.
+    beats = [0.5 * n for n in range(1, 21)]
+    assert len(_subdivided(beats, 0.167)) > len(beats) * 2
+    # A leisurely brief still lands on whole beats.
+    assert _subdivided(beats, 1.2) == beats
 
 
 def test_the_same_seed_gives_the_same_cut(rushes):

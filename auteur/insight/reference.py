@@ -177,6 +177,32 @@ def _cuts_at_full_rate(ff, file: Path, duration: float, fps: float) -> tuple[lis
     return cuts, resolves_cutting(frames, motion)
 
 
+#: How much longer than the body's median a trailing shot has to run before it
+#: reads as a card rather than as a held ending. The references sit at 8x to
+#: 67x, and a held final beat in an ordinary edit is two or three.
+CARD_MULTIPLE = 8.0
+
+#: ...and it has to be long in absolute terms too, or a montage of quarter
+#: second shots calls its two second closer a card.
+CARD_SECONDS = 2.0
+
+
+def _end_card(lengths: list) -> float:
+    """The length of a trailing sign-off card, or 0 if the film just ends.
+
+    Detected by shape rather than by content: a final shot many times longer
+    than everything before it is not part of the cutting, it is the thing
+    played after the cutting stops.
+    """
+    if len(lengths) < 4:
+        return 0.0
+    body = _median([float(x) for x in lengths[:-1]])
+    last = float(lengths[-1])
+    if body > 0 and last > max(CARD_MULTIPLE * body, CARD_SECONDS):
+        return last
+    return 0.0
+
+
 def measure(paths: Sequence[str | Path], *, analysis_fps: float = 24.0) -> StyleTarget:
     """Watch some footage and describe how it was cut.
 
@@ -216,9 +242,23 @@ def measure(paths: Sequence[str | Path], *, analysis_fps: float = 24.0) -> Style
         duration = asset.duration
         lengths = list(np.diff([0.0, *cuts, duration])) if cuts else [duration]
 
+        # A held card at the end is a signature, not an edit. Fourteen of the
+        # fifteen reference reels end on one — a static frame carrying a handle,
+        # almost exactly four seconds every time — and counting those seconds as
+        # part of the cut understates how fast the film is cut by about a third.
+        # Across the references the median went from 21.7 cuts per ten seconds
+        # to 29.3 once the card was left out, and the fastest from 47 to 78.
+        # Told to match 21.7, the director would aim at a number no reel in the
+        # set actually holds.
+        card = _end_card(lengths)
+        if card:
+            duration -= card
+            lengths = lengths[:-1]
+            cuts = cuts[:-1]
+
         per_clip.append(
             {
-                "cuts_per_10s": len(cuts) / duration * 10.0,
+                "cuts_per_10s": len(cuts) / duration * 10.0 if duration > 0 else 0.0,
                 "shot_seconds": _median([float(x) for x in lengths]),
                 "shortest_shot": float(min(lengths)),
                 # No cut at all means the whole clip is the opening shot.

@@ -27,6 +27,7 @@ from ..analysis.audio import AudioAnalysis
 from ..analysis.dossier import ClipDossier, Take
 from ..config import Settings
 from ..edl import (
+    MIN_SHOT,
     EditDecisionList,
     Look,
     Motion,
@@ -42,7 +43,18 @@ from .brief import Brief
 
 log = logging.getLogger("auteur.director.heuristic")
 
-MIN_SLOT = 0.32
+#: The same floor the EDL uses, imported rather than restated. This was 0.32
+#: while `edl.MIN_SHOT` was 0.083, so the slot builder could not plan a shot
+#: shorter than a third of a second however fast the brief asked for — a hard
+#: ceiling of three cuts a second, against a reference set whose median is
+#: 0.167s and whose fastest runs 0.125s.
+#:
+#: That is the third place this same ceiling has been found: `edl.MIN_SHOT`
+#: dropped shots under a quarter second, the cut detector's 350ms refractory
+#: period made a six-cuts-a-second reel report as meditative, and this. Three
+#: different constants, one belief, none of them talking to each other. Now
+#: there is one number.
+MIN_SLOT = MIN_SHOT
 MAX_SLOT = 5.0
 #: Frame difference that counts as "fully energetic" when matching shots to the arc.
 MOTION_FULL_SCALE = 0.12
@@ -65,6 +77,51 @@ class _Slot:
 #: as a mistake rather than a choice.
 MUSICAL_MULTIPLES = (1, 2, 4, 8)
 
+#: How many pieces a beat may be cut into. Two is eighth notes, three is
+#: triplets, four is sixteenths. Beyond that the divisions are shorter than a
+#: shot can usefully be and the grid stops meaning anything.
+SUBDIVISIONS = (1, 2, 3, 4)
+
+
+def _subdivided(beats: list[float], want: float) -> list[float]:
+    """The beat grid, densified if the brief asks for shots shorter than a beat.
+
+    A whole beat is the shortest slot the grid can offer, which at 120 BPM is
+    half a second — so with beat sync on, no film could cut faster than twice a
+    second whatever the brief said. The reference reels cut at 0.167s against
+    that same half-second beat: three cuts per beat, which is not arbitrary, it
+    is triplets. Cutting on subdivisions is what a fast montage *is*.
+
+    The division is chosen to bracket the wanted shot length rather than to be
+    as fine as possible, so a leisurely brief still lands on whole beats.
+    """
+    if len(beats) < 2 or want <= 0:
+        return beats
+    period = _median_gap(beats)
+    if period <= 0 or want >= period * 0.75:
+        return beats  # a beat is already short enough
+
+    # The division whose pieces land closest to the wanted length, rather than
+    # the first that is merely close enough. Against a half-second beat a brief
+    # asking for 0.167s is asking for triplets exactly; a "good enough" rule
+    # stopped at halves and cut the film at 0.25s, which is a different edit.
+    pieces = min(SUBDIVISIONS, key=lambda count: abs(period / count - want))
+    if pieces < 2:
+        return beats
+
+    dense: list[float] = []
+    for index, beat in enumerate(beats):
+        dense.append(beat)
+        nxt = beats[index + 1] if index + 1 < len(beats) else beat + period
+        step = (nxt - beat) / pieces
+        dense.extend(beat + step * n for n in range(1, pieces))
+    return sorted(dense)
+
+
+def _median_gap(beats: list[float]) -> float:
+    gaps = sorted(b - a for a, b in zip(beats, beats[1:], strict=False))
+    return gaps[len(gaps) // 2] if gaps else 0.0
+
 
 def _build_slots(
     brief: Brief, target: float, audio: AudioAnalysis | None, offset: float, rng: random.Random
@@ -83,6 +140,7 @@ def _build_slots(
     if audio is not None and audio.has_beat and brief.beat_sync:
         beats = [b - offset for b in audio.beats if b - offset > 0]
         downbeats = {round(b - offset, 3) for b in audio.downbeats if b - offset > 0}
+        beats = _subdivided(beats, brief.base_shot_length)
 
     slots: list[_Slot] = []
     cursor = 0.0
