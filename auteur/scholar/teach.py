@@ -43,6 +43,15 @@ class TeachingBrief:
     summary: str = ""
     #: The discipline context these learnings apply to.
     discipline_context: list[Discipline] = field(default_factory=list)
+    #: What several independent sources agree on, stated once.
+    #:
+    #: Measured learnings come one per film, so a brief built straight from
+    #: them reads "abc123.mp4 measures 0.034 inter-frame motion" twelve times —
+    #: an opaque filename and a number that generalises to nothing. An agent
+    #: cannot act on that. What it can act on is the consensus: what the *set*
+    #: does, with the spread, which is also the only thing several sources
+    #: agreeing actually licenses you to say.
+    consensus: list[str] = field(default_factory=list)
     #: When this brief was generated.
     generated_at: float = field(default_factory=time.time)
 
@@ -51,16 +60,18 @@ class TeachingBrief:
             "target_agents": self.target_agents,
             "learnings": [learning.to_json() for learning in self.learnings],
             "summary": self.summary,
+            "consensus": list(self.consensus),
             "discipline_context": [d.value for d in self.discipline_context],
             "generated_at": self.generated_at,
         }
 
     def describe(self) -> str:
         targets = ", ".join(self.target_agents) if self.target_agents else "all agents"
-        lines = [
-            f"[Scholar → {targets}] {self.summary}",
-            f"  {len(self.learnings)} relevant learnings surfaced:",
-        ]
+        lines = [f"[Scholar → {targets}] {self.summary}"]
+        if self.consensus:
+            lines.extend(f"    • {line}" for line in self.consensus)
+            return "\n".join(lines)
+        lines.append(f"  {len(self.learnings)} relevant learnings surfaced:")
         for learning in self.learnings[:5]:
             lines.append(f"    • {learning.technique}: {learning.insight}")
         if len(self.learnings) > 5:
@@ -123,6 +134,59 @@ class WorkflowPatch:
             f"  Reason: {self.reason}\n"
             f"  Backed by {len(self.supporting_learnings)} learnings ({self.confidence.value})"
         )
+
+
+#: What a measured property is called when it is said out loud to an agent, and
+#: how to render its value. Keyed on the `measurements` keys `library` writes.
+MEASURED: dict[str, tuple[str, str]] = {
+    "cuts_per_10s": ("cut {v} times per ten seconds", "{:.1f}"),
+    "shot_seconds": ("hold a shot for {v}s", "{:.3f}"),
+    "first_cut": ("cut away from the opening shot after {v}s", "{:.2f}"),
+    "motion": ("measure {v} inter-frame motion", "{:.3f}"),
+    "luma": ("sit at luma {v}", "{:.2f}"),
+    "contrast": ("run {v} contrast", "{:.2f}"),
+    "hue_spread": ("spread their hues over {v}°", "{:.0f}"),
+    "clipped_black": ("put {v} of the frame at true black", "{:.0%}"),
+}
+
+#: Below this many independent sources, a "consensus" is one opinion with a
+#: median taken over it.
+AGREEING = 2
+
+
+def consensus_from(learnings: list[Learning]) -> list[str]:
+    """Collapse per-source measurements into what the set agrees on.
+
+    Measured learnings arrive one per film. Listed individually a brief reads
+    "abc123.mp4 measures 0.034 inter-frame motion" a dozen times — an opaque
+    name and a number that generalises to nothing. Several sources agreeing
+    licenses exactly one statement, so this makes exactly one: the median, the
+    spread, and how many independent sources it rests on.
+    """
+    gathered: dict[str, list[tuple[float, str]]] = {}
+    for learning in learnings:
+        for key, value in (learning.measurements or {}).items():
+            if key in MEASURED and isinstance(value, (int, float)):
+                gathered.setdefault(key, []).append((float(value), learning.source_channel))
+
+    lines: list[str] = []
+    for key, (phrase, form) in MEASURED.items():
+        seen = gathered.get(key) or []
+        sources = {channel for _, channel in seen if channel}
+        if len(sources) < AGREEING:
+            continue
+        values = sorted(value for value, _ in seen)
+        middle = values[len(values) // 2]
+        spread = ""
+        if len(values) > 2 and values[-1] > values[0]:
+            spread = f" (from {form.format(values[0])} to {form.format(values[-1])})"
+        lines.append(
+            f"Across {len(sources)} films they "
+            + phrase.format(v=form.format(middle))
+            + spread
+            + "."
+        )
+    return lines
 
 
 class Teacher:
@@ -201,10 +265,16 @@ class Teacher:
         )
 
         selected = unique[:max_learnings]
+        agreed = consensus_from(unique)
         return TeachingBrief(
             target_agents=[agent_name],
             learnings=selected,
-            summary=f"{len(selected)} learnings relevant to the {agent_name} agent's objective",
+            consensus=agreed,
+            summary=(
+                f"{len(agreed)} thing(s) the studied films agree on, for the {agent_name} agent"
+                if agreed
+                else f"{len(selected)} learnings relevant to the {agent_name} agent's objective"
+            ),
             discipline_context=disciplines,
         )
 
@@ -252,10 +322,18 @@ class Teacher:
         supported = self._store.by_confidence(Confidence.SUPPORTED)
 
         selected = (validated + supported)[:max_learnings]
+        # Consensus over everything corroborated, not just the slice shown —
+        # a median taken over a truncated list is a median of a truncation.
+        agreed = consensus_from(validated + supported)
         return TeachingBrief(
             target_agents=[],
             learnings=selected,
-            summary=f"{len(selected)} high-confidence learnings for the crew",
+            consensus=agreed,
+            summary=(
+                f"{len(agreed)} thing(s) the studied films agree on"
+                if agreed
+                else f"{len(selected)} high-confidence learnings for the crew"
+            ),
         )
 
     def propose_patches(self) -> list[WorkflowPatch]:

@@ -1502,8 +1502,14 @@ def _run_scholar(args: argparse.Namespace, say: Reporter) -> int:
             print(_json.dumps(brief.to_json(), indent=2))
             return 0
         print(brief.summary)
-        for learning in brief.learnings[:12]:
-            print(f"  · {learning.insight}")
+        # The consensus when several films agree, the raw learnings when they
+        # do not — a list of "abc123.mp4 measures 0.034" teaches nobody.
+        if brief.consensus:
+            for line in brief.consensus:
+                print(f"  · {line}")
+        else:
+            for learning in brief.learnings[:12]:
+                print(f"  · {learning.insight}")
         if not brief.learnings:
             say.detail("nothing studied yet — run `auteur scholar study <topic>`")
         return 0

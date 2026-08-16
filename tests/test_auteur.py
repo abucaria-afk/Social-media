@@ -6408,3 +6408,96 @@ def test_the_expressive_look_is_applied_once_not_twice(rushes, tmp_path):
     # The corrective pass belongs on the shot; the expressive one does not.
     assert "colortemperature" in graph, "the per-shot correction went missing"
     assert "colorbalance" not in graph, "the expressive look is still on the segment"
+
+
+def test_every_film_counts_as_its_own_source(rushes, tmp_path):
+    """Corroboration counts channels, and all the reels lived in one folder.
+
+    Filing each film under the directory it happens to sit in made sixteen
+    films by sixteen creators into one voice, so "these all cut fast" could
+    never corroborate and every measured learning stayed TENTATIVE forever.
+    """
+    from auteur.scholar.library import measure_film
+
+    one = measure_film(rushes / "a_wide.mp4")
+    other = measure_film(rushes / "c_motion.mp4")
+    assert one and other
+    assert one[0].source_channel != other[0].source_channel, "two films, one channel"
+    assert one[0].source_channel.startswith("film:")
+
+
+def test_two_films_agreeing_promotes_the_technique(tmp_path):
+    from auteur.scholar.knowledge import Confidence, Discipline, KnowledgeStore, Learning
+
+    store = KnowledgeStore(tmp_path / "k.jsonl")
+
+    def measured(channel, motion):
+        return Learning(
+            learning_id=f"{channel}-motion",
+            disciplines=[Discipline.CINEMATOGRAPHY],
+            insight=f"{channel} measures {motion}",
+            technique="camera movement",
+            application="",
+            source_video_id=channel,
+            source_channel=channel,
+            source_title=channel,
+            measurements={"motion": motion},
+        )
+
+    store.add(measured("film:aaa", 0.03))
+    assert store.all()[0].confidence is Confidence.TENTATIVE, "one source is one opinion"
+
+    store.add(measured("film:bbb", 0.05))
+    assert all(x.confidence is Confidence.SUPPORTED for x in store.all())
+
+
+def test_the_crew_is_taught_what_the_films_agree_on_not_a_list_of_filenames(tmp_path):
+    """ "abc123.mp4 measures 0.034" names a hash and generalises to nothing."""
+    from auteur.scholar.knowledge import Discipline, KnowledgeStore, Learning
+    from auteur.scholar.teach import Teacher
+
+    store = KnowledgeStore(tmp_path / "k.jsonl")
+    for index, rate in enumerate([19.4, 27.8, 39.3, 76.1]):
+        store.add(
+            Learning(
+                learning_id=f"r{index}",
+                disciplines=[Discipline.MOVIE_MAKING],
+                insight=f"reel{index}.mp4 cuts {rate} times per ten seconds",
+                technique="cutting rate",
+                application="",
+                source_video_id=f"file:reel{index}.mp4",
+                source_channel=f"film:{index:012d}",
+                source_title=f"reel{index}.mp4",
+                measurements={"cuts_per_10s": rate},
+            )
+        )
+
+    brief = Teacher(store).brief_for_all()
+    assert brief.consensus, "several films agreed and nothing was said about it"
+    line = brief.consensus[0]
+    assert "Across 4 films" in line
+    assert "27.8" in line or "39.3" in line, "the median is what several sources license"
+    assert "19.4" in line and "76.1" in line, "the spread belongs with the median"
+    assert ".mp4" not in line, "a filename is not a teaching"
+    assert "Across 4 films" in brief.describe()
+
+
+def test_one_film_alone_is_not_a_consensus(tmp_path):
+    from auteur.scholar.knowledge import Discipline, KnowledgeStore, Learning
+    from auteur.scholar.teach import Teacher
+
+    store = KnowledgeStore(tmp_path / "k.jsonl")
+    store.add(
+        Learning(
+            learning_id="only",
+            disciplines=[Discipline.MOVIE_MAKING],
+            insight="one reel cuts fast",
+            technique="cutting rate",
+            application="",
+            source_video_id="file:one.mp4",
+            source_channel="film:only",
+            source_title="one.mp4",
+            measurements={"cuts_per_10s": 40.0},
+        )
+    )
+    assert Teacher(store).brief_for_all().consensus == []

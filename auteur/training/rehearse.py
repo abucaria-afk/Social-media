@@ -38,6 +38,8 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from ..edl import MIN_SHOT
+
 log = logging.getLogger("auteur.training.rehearse")
 
 #: The knobs the loop is allowed to turn, and the range each may take. Only
@@ -51,7 +53,14 @@ KNOBS: dict[str, tuple[float, float]] = {
     "strength": (0.0, 1.0),
     "texture": (0.0, 0.6),
     "letterbox": (0.0, 0.18),
-    "shot_seconds": (0.25, 3.0),
+    # The floor is the EDL's, not a rounder number. At 0.25 the loop could not
+    # explore anything faster than four cuts a second, while the reference
+    # reels this trains against have a median shot of 0.167s and a fastest of
+    # 0.125s — so the cadence being chased was outside the search space and no
+    # number of generations would have found it. Fifth place the same ceiling
+    # has turned up: MIN_SHOT, the cut detector's refractory, MIN_SLOT, the
+    # beat grid, and here.
+    "shot_seconds": (MIN_SHOT, 3.0),
 }
 
 #: Named grades the loop may choose between. A preset moves the palette far
@@ -255,7 +264,7 @@ class Rehearsal:
 
         started = time.perf_counter()
         count = max(1, len(self.footage))
-        hold = _clamp(recipe.shot_seconds, 0.25, 3.0)
+        hold = _clamp(recipe.shot_seconds, *KNOBS["shot_seconds"])
 
         shots = [
             Shot(
