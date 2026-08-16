@@ -191,7 +191,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--shape",
         default="vertical",
         metavar="SHAPE",
-        help="vertical (default), square, widescreen, cinematic — " "comma-separate to get several",
+        help="vertical (default), square, widescreen, cinematic — comma-separate to get several",
     )
     edit.add_argument(
         "--quality",
@@ -299,8 +299,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "platform",
         nargs="?",
         metavar="WHERE",
-        help="instagram-reel, instagram-post, instagram-story, tiktok, "
-        "tiktok-photo, youtube-short",
+        help="instagram-reel, instagram-post, instagram-story, tiktok, tiktok-photo, youtube-short",
     )
     workflow.add_argument("paths", nargs="*", metavar="FOOTAGE")
     workflow.add_argument("-p", "--prompt", default=None, help="what the post is about")
@@ -1533,8 +1532,7 @@ def _run_scholar(args: argparse.Namespace, say: Reporter) -> int:
         say.failure("the Scholar could not study", str(exc))
         return 1
     say.result(
-        f"{session.videos_watched} video(s) watched, "
-        f"{session.learnings_extracted} learning(s) kept"
+        f"{session.videos_watched} video(s) watched, {session.learnings_extracted} learning(s) kept"
     )
     if session.videos_watched == 0:
         say.detail("nothing new — everything it found had already been watched")

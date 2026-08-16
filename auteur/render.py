@@ -220,7 +220,7 @@ def render_shot(
             args,
             0,
             # The caller names the shot; this says only why.
-            f"no frames in {shot.source.name} between " f"{shot.start:.2f}s and {shot.end:.2f}s",
+            f"no frames in {shot.source.name} between {shot.start:.2f}s and {shot.end:.2f}s",
         )
     return destination
 

@@ -244,7 +244,7 @@ def _hues(color: np.ndarray, weights: np.ndarray) -> tuple[float, float]:
 
 def _palette_name(spread: float) -> str:
     if spread < 25:
-        return "Monographic" if False else "Monochromatic"
+        return "Monochromatic"
     if spread < 60:
         return "Analogous"
     if spread < 110:

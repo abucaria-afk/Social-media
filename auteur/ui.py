@@ -145,7 +145,26 @@ class Reporter:
 
     # -- the ending -------------------------------------------------------
 
-    def result(self, *, headline: str, facts: list[str], files: list[tuple[str, str]]) -> None:
+    def result(
+        self,
+        headline: str = "",
+        *,
+        facts: list[str] | None = None,
+        files: list[tuple[str, str]] | None = None,
+    ) -> None:
+        """The green tick at the end of a command.
+
+        `headline` is positional and the rest optional because half the callers
+        want a whole block — headline, facts, the files written — and half want
+        one line saying the thing worked. It used to be keyword-only with both
+        lists required, so every one-line caller raised `TypeError` at the
+        exact moment its command *succeeded*: `benchmark remove`, and four of
+        the scholar commands. Tests never caught it because nothing unit-tests
+        a success message, and a person running it saw a traceback instead of a
+        tick. CodeQL caught it.
+        """
+        facts = facts or []
+        files = files or []
         self._write()
         self._write("  " + self._tint("✓  " + headline, "good", "1;32"))
         self._write()

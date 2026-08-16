@@ -85,6 +85,26 @@ body {
 }
 .card.picker.has-files { border-color: var(--ember); }
 
+/* Reads as a button because it is the one control on the card, and the card
+   was otherwise indistinguishable from a paragraph. Not a real <button>: it
+   sits inside the label, and a button inside a label swallows the tap on iOS
+   instead of forwarding it to the file input. */
+.card-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin-top: 12px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 1px solid var(--ember);
+  color: var(--ember-text);
+  font-size: 15px;
+  font-weight: 600;
+}
+.card.picker:active .card-action { background: var(--line); }
+.card.picker.has-files .card-action { border-style: dashed; }
+
 .step-number {
   flex: 0 0 26px;
   height: 26px;
@@ -124,10 +144,14 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
 
 /* -- chips and choices --------------------------------------------------- */
 
+/* 44px everywhere a finger goes. Apple's guideline, and the reason is
+   physical rather than stylistic — a fingertip covers about that much glass,
+   so anything smaller is aimed at rather than tapped. Six controls on the
+   home screen and five in the studio sat at 34–36. */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .chip {
-  min-height: 34px;
-  padding: 6px 12px;
+  min-height: 44px;
+  padding: 6px 14px;
   border-radius: 999px;
   border: 1px solid var(--line);
   background: transparent;
@@ -153,7 +177,8 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   justify-content: center;
   gap: 2px;
 }
-.choice small { font-weight: 400; font-size: 11px; color: var(--text-muted); }
+/* 11px is below what anybody reads comfortably at arm's length on glass. */
+.choice small { font-weight: 400; font-size: 13px; color: var(--text-muted); }
 .choice.is-on {
   border-color: var(--ember);
   /* Flat fill first for anything older than Chrome 111 / Safari 16.2, which
@@ -326,7 +351,8 @@ input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   top: 50%;
   right: 6px;
   transform: translateY(-50%);
-  min-height: 40px;
+  min-height: 44px;
+  min-width: 44px;
   padding: 0 12px;
   border: 0;
   border-radius: 10px;
@@ -360,8 +386,8 @@ input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   color: var(--text-muted);
 }
 .whoami button {
-  min-height: 36px;
-  padding: 0 14px;
+  min-height: 44px;
+  padding: 0 16px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: transparent;

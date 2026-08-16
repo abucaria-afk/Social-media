@@ -70,6 +70,10 @@ PUBLIC_PATHS = frozenset(
         "/reset",
         "/manifest.webmanifest",
         "/sw.js",
+        # The browser asks for this before anybody has signed in — it is on the
+        # login page too. Behind the gate it 303s to /login, which is a
+        # redirect the browser cannot use as an icon.
+        "/favicon.ico",
         "/api/session",
         "/api/login",
         "/api/forgot",
@@ -161,7 +165,7 @@ class WebReporter(Reporter):
         with self.lock:
             self.job.percent = 100.0
 
-    def result(self, **_: Any) -> None:  # the page renders its own ending
+    def result(self, headline: str = "", **_: Any) -> None:  # the page renders its own ending
         pass
 
     def failure(self, headline: str, hint: str = "") -> None:
@@ -640,11 +644,30 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001 - the app serves without a Scholar
             return {"available": False, "reason": str(exc), "can_study": can_study}
 
-        wants, why = (False, "")
         try:
             wants, why = scholar.should_study()
         except Exception:  # noqa: BLE001 - no network is not an error here
             wants, why = bool(scholar.knowledge.gaps()), "knowledge gaps"
+
+        # What it has learned about this app. Nothing in the crew can act on a
+        # rule about tap targets, so it is surfaced to the person instead —
+        # here, on the page it is about.
+        try:
+            brief = scholar.teach_product()
+            product = {
+                "summary": brief.summary,
+                "learnings": [
+                    {
+                        "technique": item.technique,
+                        "insight": item.insight,
+                        "confidence": item.confidence.value,
+                    }
+                    for item in brief.learnings[:6]
+                ],
+            }
+        except Exception as exc:  # noqa: BLE001 - a missing brief is not an outage
+            log.debug("no product brief: %s", exc)
+            product = {"summary": "", "learnings": []}
 
         return {
             "available": True,
@@ -657,6 +680,7 @@ class Handler(BaseHTTPRequestHandler):
             "subscriptions": status["subscriptions"],
             "wants_to_study": wants,
             "why": why,
+            "product": product,
         }
 
     def _allowed(self, path: str) -> bool:
@@ -723,6 +747,12 @@ class Handler(BaseHTTPRequestHandler):
             name.startswith("icon") and name.endswith(".png") and path == "/" + name
         ):
             self._static(STATIC / name)
+            return
+        # Every browser asks for this on every visit whether or not anything
+        # links to it, so not answering meant a 404 in the console and in the
+        # log on every page load. The 192 is the smallest square already built.
+        if path == "/favicon.ico":
+            self._static(STATIC / "icon-192.png")
             return
 
         if path.startswith("/api/jobs/"):

@@ -63,6 +63,11 @@
         <span class="card-body">
           <span class="card-title">Pick your clips</span>
           <span class="card-hint" id="clips-hint">Straight from your camera roll. Music too, if you have some.</span>
+          <!-- The whole card is the label, so tapping anywhere opens the
+               picker. Nothing said so: step 1 read as a description while
+               steps 2 and 3 had obvious controls, and the first action of the
+               whole product was invisible. This is the affordance. -->
+          <span class="card-action" id="clips-action" aria-hidden="true">Choose from camera roll</span>
         </span>
         <!-- No `capture` attribute: on iOS that would force the camera and hide
              the library, which is the opposite of what most people want. -->
@@ -98,10 +103,15 @@
             <button type="button" class="choice" data-value="wide" role="radio" aria-checked="false">Wide<small>for screens</small></button>
           </div>
           <div class="choices" id="seconds" role="radiogroup" aria-label="Length">
+            <!-- "Let it decide" is the default because it is the only option
+                 that listens: it sends no length, so the number in the prompt
+                 is used. With 20s preselected, typing "10 seconds" produced a
+                 20 second film and nothing said why — a control nobody touched
+                 silently beat words the person typed. -->
             <button type="button" class="choice" data-value="10" role="radio" aria-checked="false">10s</button>
-            <button type="button" class="choice is-on" data-value="20" role="radio" aria-checked="true">20s</button>
+            <button type="button" class="choice" data-value="20" role="radio" aria-checked="false">20s</button>
             <button type="button" class="choice" data-value="30" role="radio" aria-checked="false">30s</button>
-            <button type="button" class="choice" data-value="" role="radio" aria-checked="false">Let it<small>decide</small></button>
+            <button type="button" class="choice is-on" data-value="" role="radio" aria-checked="true">Let it<small>read your words</small></button>
           </div>
         </span>
       </div>

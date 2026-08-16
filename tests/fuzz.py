@@ -216,7 +216,7 @@ def fuzz_ramp(rng):
             check(
                 "ramp",
                 abs(overlap - 1.0 / fps) < 1e-6,
-                f"windows {i}/{i+1} overlap {overlap:.6f}, wanted {1/fps:.6f}",
+                f"windows {i}/{i + 1} overlap {overlap:.6f}, wanted {1 / fps:.6f}",
             )
         check(
             "ramp",

@@ -187,8 +187,7 @@ def draft_caption(brief: Brief, edl: EditDecisionList, spec: PlatformSpec) -> Ca
 
     alt = body_line or lead or "A short film"
     alt_text = (
-        f"{alt}. {len(edl.shots)} shots over {edl.duration:.0f} seconds, "
-        f"{edl.look.preset} grade."
+        f"{alt}. {len(edl.shots)} shots over {edl.duration:.0f} seconds, {edl.look.preset} grade."
     )
     return Caption(
         body="\n".join(lines), hashtags=tuple(tags[: spec.hashtag_limit]), alt_text=alt_text

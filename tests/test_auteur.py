@@ -659,6 +659,33 @@ def test_a_missing_api_key_is_not_reported_as_a_failure():
     assert plain_model_reason("could not reach the model: connection reset")[1] is True
 
 
+def test_a_one_line_success_message_does_not_crash_the_command(capsys):
+    """Half the commands want a block; half want one line saying it worked.
+
+    `result` was keyword-only with both lists required, so every one-line
+    caller raised TypeError at the exact moment its command *succeeded* —
+    `benchmark remove` and four scholar commands. Nothing unit-tests a success
+    message, so the suite was silent about it and CodeQL found it instead.
+    Every implementation of the interface has to take the short form.
+    """
+    import threading
+
+    from auteur.ui import NullReporter, Reporter
+    from auteur.web.server import Job, WebReporter
+
+    say = Reporter()
+    say.result("dropped the benchmark")
+    assert "dropped the benchmark" in capsys.readouterr().out
+
+    # The full form still works, and so do the other two implementations.
+    say.result(headline="Your film is ready", facts=["12 shots"], files=[("the film", "/x.mp4")])
+    assert "Your film is ready" in capsys.readouterr().out
+
+    NullReporter().result("quiet")
+    WebReporter(Job(id="j", prompt="p", folder=Path("/tmp/nowhere")), threading.Lock()).result("w")
+    assert capsys.readouterr().out == ""
+
+
 def test_the_quiet_reporter_prints_nothing(capsys):
     from auteur.ui import NullReporter
 
@@ -859,6 +886,81 @@ def test_every_icon_the_manifest_names_is_actually_served(tmp_path):
     for referenced in ("/icon-180.png", "/icon-192.png"):
         assert referenced in page
         assert (server.STATIC / referenced.lstrip("/")).is_file()
+
+
+def test_the_favicon_is_served_without_signing_in(web_server):
+    """Every browser asks for it on every visit, signed in or not.
+
+    Behind the auth gate it answered 303 to /login, which a browser cannot use
+    as an icon — so every page load logged a 404 in the console and in the
+    server log, on the login page most of all.
+    """
+    from urllib.request import urlopen
+
+    base, _, _ = web_server
+    with urlopen(base + "/favicon.ico") as response:  # no cookie: not signed in
+        assert response.status == 200
+        assert response.headers["Content-Type"] == "image/png"
+        assert len(response.read()) > 0
+
+
+def test_nothing_a_finger_lands_on_is_smaller_than_a_finger(web_server):
+    """44px is Apple's minimum, and the reason is physical rather than stylistic.
+
+    Six controls on the home screen and five in the studio sat at 34-36px: the
+    prompt chips, sign out, the studio's mode buttons, and the ← that is the
+    only way back out of the studio, which rendered 20x20.
+    """
+    from auteur.web import server
+
+    for sheet in ("style.css", "studio.css"):
+        text = (server.STATIC / sheet).read_text()
+        # Only the interactive rules matter; a 20px avatar is not a target.
+        for block in re.findall(r"([^{}]*)\{([^}]*)\}", text):
+            selector, body = block[0].strip(), block[1]
+            if not re.search(r"\.chip|\.mode|\.whoami button|\.sbar-back|\.card-action", selector):
+                continue
+            for found in re.findall(r"min-height:\s*(\d+)px", body):
+                assert int(found) >= 44, f"{sheet} {selector} is {found}px"
+
+
+def test_a_length_typed_in_the_prompt_is_not_overruled_by_a_control_nobody_touched():
+    """Two controls set the length, and the invisible one used to win.
+
+    "Let it decide" sends no length, so `parse_brief` reads the number out of
+    the prompt. With 20s preselected instead, typing "fast neon montage, 10
+    seconds" produced a 20 second film and nothing said why.
+    """
+    from auteur.director.brief import parse_brief
+    from auteur.web import server
+
+    page = (server.STATIC / "index.html").read_text()
+    chips = page.split('id="seconds"', 1)[1].split("</div>", 1)[0]
+    # Exactly one is preselected, and it is the one that sends nothing.
+    selected = [line for line in chips.splitlines() if "is-on" in line]
+    assert len(selected) == 1, "more than one length is preselected"
+    assert 'data-value=""' in selected[0], "a fixed length is preselected over the prompt"
+
+    # And that empty value really does hand the decision to the words: the web
+    # handler treats "" as absent, and an absent duration lets the prompt speak.
+    assert parse_brief("fast neon montage, 10 seconds", duration=None).duration == 10.0
+    assert parse_brief("fast neon montage, 10 seconds", duration=20.0).duration == 20.0
+
+
+def test_the_first_step_looks_like_something_you_can_tap():
+    """The whole card is a label, and nothing said so.
+
+    Steps 2 and 3 have obvious controls; step 1 read as a paragraph, which made
+    the first action of the entire product invisible.
+    """
+    from auteur.web import server
+
+    page = (server.STATIC / "index.html").read_text()
+    assert 'id="clips-action"' in page
+    assert "Choose from camera roll" in page
+    # And it has to change once there are clips, or the step reads unfinished.
+    script = (server.STATIC / "app.js").read_text()
+    assert "Choose different clips" in script
 
 
 def test_the_page_is_built_for_a_phone():
@@ -3285,7 +3387,7 @@ def test_publishing_always_needs_a_person_in_every_mode():
         assert Gate(mode).may_publish("a reel") is False, mode
 
     answered = []
-    gate = Gate(Mode.AUTONOMOUS, on_ask=lambda p: (answered.append(p) or ("approve", "")))
+    gate = Gate(Mode.AUTONOMOUS, on_ask=lambda p: answered.append(p) or ("approve", ""))
     assert gate.may_publish("a reel") is True
     assert answered[0].risk.name == "HIGH"
 
@@ -4273,8 +4375,6 @@ def test_graphics_past_the_end_of_the_film_are_dropped(tmp_path):
 
 
 def test_graphics_survive_a_round_trip_through_json(tmp_path):
-    import json
-
     from auteur.edl import GraphicCue
 
     edl = _graphics_edl(tmp_path)
@@ -5252,7 +5352,11 @@ def test_benchmarks_survive_a_restart_and_pick_the_hardest(tmp_path):
     assert set(reloaded.entries) == {"easy", "hard"}
     assert reloaded.hardest.name == "hard"
 
-    assert reloaded.remove("easy") and not reloaded.remove("easy")
+    # Not inside one assert: under `python -O` the asserts vanish and so would
+    # the removals, which is the whole thing being tested.
+    removed = reloaded.remove("easy")
+    removed_again = reloaded.remove("easy")
+    assert removed and not removed_again
 
 
 def test_no_benchmark_means_no_standing(tmp_path):
@@ -5386,9 +5490,7 @@ def test_the_crew_turns_down_a_change_that_ruins_the_picture(tmp_path):
         """Renders nothing; answers as if the change destroyed the frame."""
 
         def __init__(self):
-            self.enabled = True
-            self.spent = 0
-            self._cache = {}
+            super().__init__(workspace=tmp_path / "fake-proofs")
 
         def compare(self, before, after, *, sources=None):
             return Comparison(
@@ -5452,9 +5554,7 @@ def test_a_change_the_model_cannot_see_can_still_be_taken_on_looks(tmp_path):
 
     class Improver(Previewer):
         def __init__(self):
-            self.enabled = True
-            self.spent = 0
-            self._cache = {}
+            super().__init__(workspace=tmp_path / "improver-proofs")
 
         def compare(self, before, after, *, sources=None):
             return Comparison(

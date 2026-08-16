@@ -47,6 +47,16 @@ class Discipline(enum.Enum):
     MOVIE_MAKING = "movie_making"
     DIRECTING = "directing"
 
+    # The product itself. A film nobody can get to is a film nobody watches,
+    # so the thing that delivers the work is part of the work. These are the
+    # disciplines behind the app, the site and the shop.
+    WEB_DESIGN = "web_design"
+    WEB_DEVELOPMENT = "web_development"
+    APP_DEVELOPMENT = "app_development"
+    ACCESSIBILITY = "accessibility"
+    CONVERSION = "conversion"
+    ECOMMERCE = "ecommerce"
+
     # NLE tools — learned through tutorials
     ANIMATION = "animation"
     COMPUTER_SFX = "computer_sfx"
@@ -68,6 +78,24 @@ TOOL_DISCIPLINES = {
     Discipline.IMOVIE,
     Discipline.AFTER_EFFECTS,
     Discipline.FINAL_CUT,
+    # Building is tutorial-shaped in the same way an NLE is: somebody shows you
+    # the steps. Designing is not, which is why web *design* is not in here.
+    Discipline.WEB_DEVELOPMENT,
+    Discipline.APP_DEVELOPMENT,
+    Discipline.ECOMMERCE,
+}
+
+#: The disciplines behind the thing that delivers the work rather than the work
+#: itself. Kept as its own set because their learnings do not belong to any
+#: editing agent — no proposal changes an EDL because of a tap-target rule —
+#: and they have to land somewhere that is not the cut.
+PRODUCT_DISCIPLINES = {
+    Discipline.WEB_DESIGN,
+    Discipline.WEB_DEVELOPMENT,
+    Discipline.APP_DEVELOPMENT,
+    Discipline.ACCESSIBILITY,
+    Discipline.CONVERSION,
+    Discipline.ECOMMERCE,
 }
 
 #: Disciplines that are theory/knowledge — the Scholar learns principles.
