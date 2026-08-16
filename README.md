@@ -101,6 +101,10 @@ each:
 | **hook** | `three_second_watch_rate` | > 0.80 | shortens the opening, lands the title before the first cut |
 | **share** | `share_to_view_ratio` | > 0.05 | argues about runtime and pace, because shares grow out of completion |
 | **loop** | `loop_count` | > 1.5 | removes end cards, returns the last shot to the opening frame |
+| **gaze** | — | — | exposure, temperature and contrast continuity across the cut |
+| **finishing** | — | — | reframes onto the measured subject, moves words off it, picks each join |
+| **overlay** | — | — | rings, arrows, brackets, a retention bar, and your own stickers |
+| **scholar** | — | — | reviews the cut with what it has studied, and teaches the rest |
 
 Every proposal is applied to a copy and kept only if the overall prediction
 improves, so an agent can be confidently wrong and lose nothing but a round.
@@ -125,7 +129,39 @@ seven failure modes the data recorded — and told which two it cannot see.
 See **[docs/agent-briefs.md](docs/agent-briefs.md)**.
 
 `auteur serve` exposes all of this at **/studio** — pick a destination, see the
-prediction and the retention curve, approve or reject each proposal.
+prediction and the retention curve, approve or reject each proposal. The studio
+and the CLI build the same crew from the same function, so the page that shows
+you what the agents want can never show a shorter list than the CLI would act on.
+
+### What the crew remembers
+
+`auteur agents` — every scored proposal is recorded across runs, so the crew
+learns which changes earn their place in *your* films and tries those first.
+Ordering only; it never vetoes, and an untried idea is not penalised for being
+new. These are the scoring model's own verdicts, not view counts.
+
+### The Scholar
+
+`auteur scholar` — a study agent that watches craft tutorials (metadata,
+chapters and captions; it never downloads video), keeps what it learns, and
+hands it to the crew. A technique arrives *tentative*, reaches *supported* when
+an unrelated channel teaches the same thing, and *validated* only once advice
+derived from it was applied to a real edit and the prediction moved.
+
+`auteur serve` studies in the background while the app is up. Needs
+`pip install auteur[scholar]`; without it, it says so rather than reporting an
+empty success.
+
+### Overlays and stickers
+
+`--stickers ./my-stickers` — drop transparent PNGs in a folder and they are
+placed in the quadrant the subject is *not* in, and animated. Rings, arrows,
+viewfinder brackets, progress bars and torn tape are drawn from primitives with
+Pillow, so nothing is fetched and nothing carries a licence.
+
+Nothing in any export records whether a post carried on-screen graphics, so the
+model has no opinion about them and does not pretend to: overlay proposals are
+binding and go to you rather than being silently dropped as *no predicted gain*.
 
 ---
 
@@ -145,10 +181,13 @@ pip install pre-commit && pre-commit install
 auteur/            the package
   analysis/        what it sees in the footage
   director/        who decides the shots (Claude, or the built-in editor)
-  craft/           grammar, motion, colour, transitions, sound, titles
+  craft/           grammar, motion, colour, transitions, sound, titles, graphics
+  vision/          reading a frame the way a picture is read, not measured
   workflows/       platforms, the media index, post packaging, the queue
   insight/         performance schemas, the loader, the simulator, the scorer
-  agents/          hook / share / loop agents, and the human approval gate
+  agents/          the crew, the shared builder, the ledger, the approval gate
+  scholar/         the study agent: what it watches, keeps, and teaches
+  training/        a generator for practice data with knowable ground truth
   web/             the phone app: stdlib-only server and static front end
   theme.py         the one palette, read by the app, the icons and the terminal
 demo/              make_footage.py — synthetic clips for a first run

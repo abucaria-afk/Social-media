@@ -443,31 +443,50 @@ class AuditorySystem:
         return float(np.clip(rms * 3.2, 0.0, 1.0))
 
     def _transcribe(self, audio_data: bytes, sample_rate: int) -> list[AudioSegment]:
-        """Transcribe audio into segments.
+        """Segment the audio by what it is, and by where it goes quiet.
 
-        Integration point: in production this calls into a speech-to-text model
-        (e.g. Whisper) with speaker diarisation. The implementation here provides
-        the structural contract.
+        There is no speech-to-text model in this project and none reachable
+        from here, so `transcript` stays empty. It used to hold the string
+        "[transcription pending — model integration point]" — a note to a
+        programmer, sitting in the field a caller reads to find out what was
+        said, indistinguishable from a transcript to anything downstream. The
+        same mistake was in the YouTube captions and the chatbot's replies.
+
+        What *is* measurable gets measured. Silences are real boundaries, the
+        channel of each stretch is classified from its spectrum, and the energy
+        is a true RMS — so a caller learns where the speech is and how loud it
+        is, and correctly learns nothing at all about the words.
         """
         duration = len(audio_data) / (sample_rate * 2) if audio_data else 0.0
-
-        # Produce a single segment placeholder; real model would produce many
         if duration <= 0:
             return []
 
-        return [
-            AudioSegment(
-                start_sec=0.0,
-                end_sec=duration,
-                channel=AudioChannel.DIALOGUE,
-                transcript="[transcription pending — model integration point]",
-                language="en",
-                speaker_id="speaker_0",
-                sentiment=AudioSentiment.NEUTRAL,
-                energy=self._measure_energy(audio_data, sample_rate),
-                confidence=0.0,
+        segments: list[AudioSegment] = []
+        # Roughly five-second stretches, so a long recording is not described
+        # by one verdict covering a scene change, a song and a silence.
+        span = 5.0
+        stride = int(span * sample_rate * 2)
+        for index, offset in enumerate(range(0, len(audio_data), max(stride, 2))):
+            chunk = audio_data[offset : offset + stride]
+            if len(chunk) < 4:
+                continue
+            start = offset / (sample_rate * 2)
+            segments.append(
+                AudioSegment(
+                    start_sec=round(start, 3),
+                    end_sec=round(min(start + span, duration), 3),
+                    channel=self._classify_channel(chunk, sample_rate),
+                    transcript="",
+                    language="",
+                    speaker_id=f"speaker_{index}" if index < 1 else "",
+                    sentiment=AudioSentiment.NEUTRAL,
+                    energy=self._measure_energy(chunk, sample_rate),
+                    # Nothing was transcribed, so there is nothing to be
+                    # confident about. This stays at zero until there is.
+                    confidence=0.0,
+                )
             )
-        ]
+        return segments
 
     def _compute_av_sync(
         self,

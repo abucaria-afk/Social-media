@@ -4984,3 +4984,61 @@ def test_the_scholar_teaches_the_crew_rather_than_the_void(tmp_path):
     assert [
         p for p in agent.inspect(edl, prediction, model) if p.title.startswith("[Studied]")
     ] == []
+
+
+def test_the_phone_can_see_what_the_terminal_can(tmp_path, monkeypatch):
+    """A capability that exists in one entry point and not the other is a seam.
+
+    This has happened twice: the studio ran `default_crew()` while the CLI built
+    one with the eye, the finisher and the overlay agent; and `auteur agents` /
+    `auteur scholar` reported things the app you carry could not see. Both are
+    the same bug wearing different clothes, so this pins the shape rather than
+    the instance.
+    """
+    import inspect as _inspect
+
+    from auteur.web import server
+
+    routes = _inspect.getsource(server.Handler)
+    for path in ("/api/crew", "/api/scholar", "/api/insight", "/api/platforms"):
+        assert f'"{path}"' in routes, f"{path} is reachable from the terminal but not the app"
+
+    # And they must be behind the sign-in, like everything else that is not
+    # the login page itself.
+    assert "/api/crew" not in server.PUBLIC_PATHS
+    assert "/api/scholar" not in server.PUBLIC_PATHS
+
+
+def test_the_crew_endpoint_reports_the_ledger_and_says_what_it_is(tmp_path, monkeypatch):
+    from auteur.agents.ledger import Ledger
+    from auteur.web import server
+
+    monkeypatch.setattr(Ledger, "default_path", staticmethod(lambda: tmp_path / "led.jsonl"))
+    ledger = Ledger()
+    for _ in range(4):
+        ledger.record(
+            [
+                _proposal("loop", "End on the frame it opened on", applied=True, gain=0.14),
+                _proposal("share", "Tighten the middle", applied=False, gain=0.001),
+            ]
+        )
+
+    payload = server.Handler._crew_memory(server.Handler)
+    assert payload["kinds"] == 2
+    assert [row["title"] for row in payload["proven"]] == ["End on the frame it opened on"]
+    assert "Tighten the middle" in [row["title"] for row in payload["wasted"]]
+    # The caveat travels with the numbers rather than living only in the CLI.
+    assert "not view counts" in payload["note"]
+
+
+def test_the_scholar_endpoint_reports_whether_it_can_study(tmp_path, monkeypatch):
+    from auteur.scholar import youtube
+    from auteur.web import server
+
+    monkeypatch.setattr(youtube, "_ytdlp", lambda: None)
+    monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+
+    payload = server.Handler._scholar_state(server.Handler)
+    assert payload["available"] is True
+    assert payload["can_study"] is False, "it must say when it cannot reach YouTube"
+    assert "learnings" in payload and "gaps" in payload

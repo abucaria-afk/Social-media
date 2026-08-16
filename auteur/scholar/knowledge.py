@@ -236,14 +236,18 @@ class KnowledgeStore:
         if len(agreeing) < self.CORROBORATION:
             return
 
-        changed = False
-        for other in self._learnings:
-            if (
-                other.technique or ""
-            ).strip().lower() == technique and other.confidence == Confidence.TENTATIVE:
-                other.confidence = Confidence.SUPPORTED
-                changed = True
-        if changed:
+        # Through `promote`, so there is one place a confidence level moves.
+        # Written inline this did `promote`'s exact job two lines from it while
+        # leaving `promote` itself with no caller anywhere in the program.
+        raised = [
+            other.learning_id
+            for other in self._learnings
+            if (other.technique or "").strip().lower() == technique
+            and other.confidence == Confidence.TENTATIVE
+        ]
+        for learning_id in raised:
+            self.promote(learning_id, Confidence.SUPPORTED, save=False)
+        if raised:
             log.info(
                 "%r corroborated by %d channels — now supported", learning.technique, len(agreeing)
             )
@@ -298,12 +302,18 @@ class KnowledgeStore:
                 counts[d] = counts.get(d, 0) + 1
         return [d for d, count in counts.items() if count < 5]
 
-    def promote(self, learning_id: str, to: Confidence) -> None:
-        """Promote a learning's confidence after validation."""
+    def promote(self, learning_id: str, to: Confidence, *, save: bool = True) -> None:
+        """Move one learning's confidence.
+
+        `save=False` lets a caller promote a batch and write once, which is the
+        difference between one file write and one per learning when a
+        corroborated technique raises twenty of them together.
+        """
         for learning in self._learnings:
             if learning.learning_id == learning_id:
                 learning.confidence = to
-                self.save()
+                if save:
+                    self.save()
                 return
 
     def record_validation(self, learning_id: str, gain: float) -> None:

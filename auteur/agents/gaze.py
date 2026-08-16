@@ -68,17 +68,6 @@ def _focal_weight(edl: EditDecisionList, readings=None) -> list[float]:
     return weights
 
 
-def _composition_score(edl: EditDecisionList, readings=None) -> float:
-    """Overall compositional coherence, 0–1."""
-    if not edl.shots:
-        return 1.0
-    weights = _focal_weight(edl, readings)
-    avg = sum(weights) / len(weights) if weights else 0.5
-    exposure = 1.0 - _exposure_balance(edl)
-    palette = 1.0 - _palette_drift(edl)
-    return avg * 0.4 + exposure * 0.35 + palette * 0.25
-
-
 class GazeAgent:
     """Owns visual coherence — the curator's eye across the whole cut.
 
