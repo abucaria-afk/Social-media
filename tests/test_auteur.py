@@ -4938,3 +4938,49 @@ def test_a_crew_with_no_ledger_still_runs(tmp_path):
     assert isinstance(crew.ledger, NullLedger)
     result = crew.run(_graphics_edl(tmp_path, count=3))
     assert result.edl.shots
+
+
+def test_the_scholar_teaches_the_crew_rather_than_the_void(tmp_path):
+    """`TeachingBrief` appeared once outside the scholar package: a CLI print.
+
+    So the Scholar could study, corroborate and teach, and the crew it was
+    teaching never heard a word of it.
+    """
+    from auteur.insight import FitReport
+    from auteur.insight.score import Prediction
+    from auteur.scholar import Scholar
+    from auteur.scholar.agent import ScholarAgent
+    from auteur.scholar.knowledge import Discipline
+
+    scholar = Scholar(base_dir=tmp_path)
+    for index, (discipline, technique) in enumerate(
+        [
+            (Discipline.PSYCHOLOGY, "attention and curiosity"),
+            (Discipline.MUSIC_THEORY, "cut on the beat"),
+            (Discipline.COLOR_THEORY, "colour harmony"),
+        ]
+    ):
+        for channel in ("Chan A", "Chan B", "Chan C"):
+            scholar.knowledge.add(_learning(discipline, technique, channel, index))
+
+    agent = ScholarAgent(scholar)
+    edl = _graphics_edl(tmp_path, count=5)
+    prediction = Prediction(hook=0.4, share=0.4, loop=0.4)
+    model = FitReport(rows=0, simulated_rows=0, measured_rows=0)
+
+    proposals = agent.inspect(edl, prediction, model)
+    taught = [p for p in proposals if p.title.startswith("[Studied]")]
+    assert taught, "nothing the Scholar studied reached the crew"
+    assert {"hook", "loop", "gaze"} <= {p.title.split()[-2] for p in taught}
+    assert all(getattr(p, "learning_ids", None) for p in taught)
+
+    # A brief repeats itself otherwise: corroboration means several channels
+    # teaching the same sentence.
+    for proposal in taught:
+        sentences = [part.strip() for part in proposal.reason.split(";")]
+        assert len(sentences) == len(set(sentences))
+
+    # Said once per run, not once per round.
+    assert [
+        p for p in agent.inspect(edl, prediction, model) if p.title.startswith("[Studied]")
+    ] == []

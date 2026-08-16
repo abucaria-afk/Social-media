@@ -21,7 +21,7 @@ import logging
 
 from ..edl import EditDecisionList
 from ..insight import FitReport, Prediction
-from ..agents.base import Proposal
+from ..agents.base import Proposal, Risk
 
 log = logging.getLogger("auteur.scholar.agent")
 
@@ -63,9 +63,60 @@ class ScholarAgent:
         # every round would produce the same list again. Said once is a note;
         # said three times is a complaint.
         fresh = [p for p in proposals if p.title not in self._said]
+        fresh.extend(self._teaching_proposals())
         self._said.update(p.title for p in fresh)
         self._pending.extend(fresh)
         return fresh
+
+    def _teaching_proposals(self) -> list[Proposal]:
+        """Hand each agent what the Scholar has read that bears on its job.
+
+        The teaching interface existed, produced a brief per agent, and was
+        consumed by nothing — `TeachingBrief` appeared in one place outside the
+        scholar package, a CLI printout. So the Scholar could study, corroborate
+        and teach, and the crew it was teaching never heard any of it.
+
+        These arrive as proposals because that is the only thing the crew reads,
+        and they change nothing on their own: an agent's thresholds are its own
+        business and a note from the Scholar is not an instruction. What they do
+        is put the knowledge in front of the person at the gate, next to the
+        edit it applies to, which is where it is worth something.
+        """
+        out: list[Proposal] = []
+        for name in ("hook", "share", "loop", "gaze", "style"):
+            title = f"[Studied] what bears on the {name} agent"
+            if title in self._said:
+                continue
+            try:
+                brief = self.scholar.teach(name)
+            except Exception as exc:  # noqa: BLE001 - a brief is never worth a film
+                log.debug("could not brief %s: %s", name, exc)
+                continue
+            if len(brief.learnings) < ENOUGH_TO_SPEAK:
+                continue
+
+            # Corroboration means several channels teaching the same thing, so
+            # the same sentence arrives several times. Saying it three times
+            # makes a brief look longer without making it say more.
+            distinct: list[str] = []
+            for learning in brief.learnings:
+                if learning.insight not in distinct:
+                    distinct.append(learning.insight)
+                if len(distinct) == 3:
+                    break
+            lines = "; ".join(distinct)
+            proposal = Proposal(
+                agent=self.name,
+                title=title,
+                reason=f"{brief.summary}. {lines}",
+                change=lambda edl: None,
+                objective=self.objective,
+                binding=True,
+                risk=Risk.LOW,
+            )
+            proposal.learning_ids = [learning.learning_id for learning in brief.learnings[:5]]
+            out.append(proposal)
+        return out
 
     def learn_from(self, proposals: list[Proposal]) -> int:
         """Promote the learnings whose advice measurably helped.
