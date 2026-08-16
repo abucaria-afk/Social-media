@@ -22,7 +22,17 @@ from collections.abc import Iterable
 
 log = logging.getLogger("auteur.edl")
 
-MIN_SHOT = 0.25
+#: The shortest a shot may be. Two frames at 24fps, which is the shortest join
+#: a viewer reads as a cut rather than a flicker.
+#:
+#: This was 0.25s, and it was a hard ceiling on what this program could make. A
+#: quarter of a second caps the cutting rate at four a second; every reference
+#: reel measured here cuts at six, with individual shots down to 0.083s — a
+#: sixteenth note at 90 BPM, which is where that number comes from and why it
+#: recurs. Anything shorter was not trimmed but *dropped*, with a note calling
+#: it a flash frame, so a montage in the style of the footage being chased came
+#: out with a third of its shots silently missing.
+MIN_SHOT = 0.083
 MAX_SHOT = 12.0
 
 TRANSITIONS = {

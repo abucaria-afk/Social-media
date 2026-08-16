@@ -89,6 +89,11 @@ class Reading:
     #: Fraction of pixels crushed to black or blown to white. Detail that is
     #: gone rather than dark: no grade recovers it and no compressor helps.
     clipped: float = 0.0
+    #: The same, split. They are not the same mistake: a deep black background
+    #: is a lighting choice with a century of pedigree, and a blown highlight is
+    #: almost always an accident.
+    clipped_black: float = 0.0
+    clipped_white: float = 0.0
     contrast: float = 0.0
     luma: float = 0.0
     #: Secondary places the eye goes, best first.
@@ -398,7 +403,9 @@ def read_frame(frame: np.ndarray) -> Reading:
     # Detail that is gone rather than merely dark. A frame can sit at a
     # perfectly respectable mean brightness with a third of it crushed flat,
     # and nothing else measured here would notice.
-    clipped = float(((gray <= 0.02) | (gray >= 0.98)).mean())
+    clipped_black = float((gray <= 0.02).mean())
+    clipped_white = float((gray >= 0.98).mean())
+    clipped = clipped_black + clipped_white
     tilt = _tilt(gray)
 
     reading = Reading(
@@ -415,6 +422,8 @@ def read_frame(frame: np.ndarray) -> Reading:
         contrast=contrast,
         luma=luma,
         clipped=clipped,
+        clipped_black=clipped_black,
+        clipped_white=clipped_white,
         secondary=tuple(secondary[:2]),
     )
 
@@ -528,6 +537,8 @@ def _consensus(readings: list[Reading]) -> Reading:
         contrast=median("contrast"),
         luma=median("luma"),
         clipped=median("clipped"),
+        clipped_black=median("clipped_black"),
+        clipped_white=median("clipped_white"),
         secondary=readings[0].secondary,
     )
     seen: set[str] = set()
