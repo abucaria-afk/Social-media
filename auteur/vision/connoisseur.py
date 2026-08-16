@@ -480,6 +480,36 @@ def read_asset(path: str | Path, *, samples: int = 5) -> Reading:
     Sampling rather than averaging every frame: a reading is about structure,
     and structure that changes shot to shot should be reported as the dominant
     one rather than smeared into a mean of two different pictures.
+
+    **A known contamination, stated because it is not fixed.** Reels carry the
+    creator's handle burned into every frame — "@someone" and a platform glyph,
+    in the same place from first frame to last. It is a signature, not a shot,
+    and this reads it as picture.
+
+    It is far too small to move the exposure numbers: about a tenth of a
+    percent of the frame. What it moves is *attention*, and that is the half
+    that matters, because bright type on a dark ground is exactly what a
+    centre-surround salience field is built to find. Measured on one reference
+    reel by painting the handle out by hand, the focus point moved 0.083 of the
+    frame, focus strength rose from 0.334 to 0.433 — the mark had been diluting
+    the real subject — and the composition it reported changed from Center
+    Framed to Low-Angle Hero. The creator's handle was deciding what the eye
+    thought the shot was.
+
+    Finding it automatically was attempted three ways and none worked. Pixels
+    that hold still find the letterbox bars, which are most of what holds still
+    in a reel posted from a horizontal source — on one reel 32.8% of the frame,
+    at a mean luma of 1.9. Pixels that hold still *and* sit bright find nothing,
+    because the handle is semi-transparent and its values move with whatever is
+    behind it. Pixels consistently brighter than their own neighbourhood find
+    nothing at 320px, where the type is a few pixels tall, and at 1080 they
+    score a clean synthetic clip higher than any marked reel. A detector that
+    fires on unmarked footage would paint over real pictures, which is worse
+    than the contamination, so there is no detector here.
+
+    So: readings of *reference reels* carry this error, and readings of the
+    user's own rushes do not, because rushes are not signed. Where it would
+    change a decision, it is worth masking the handle by hand first.
     """
     from .. import ffmpeg as ff
     from ..ingest import probe_asset
