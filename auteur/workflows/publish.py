@@ -71,15 +71,13 @@ _SERVICE_TAGS: dict[str, tuple[str, ...]] = {
 
 #: Words long enough to look like nouns and empty enough to be worthless as
 #: tags. `#after` finds nothing anybody wanted to find.
-_NOT_WORTH_TAGGING = frozenset(
-    """
+_NOT_WORTH_TAGGING = frozenset("""
     after also away back been before being both come does down each else even
     ever from have here into just like made make many more most much must
     near next once only over said same show some such than that them then
     there these they this those through very want well were what when where
     which while will with within would your
-    """.split()
-)
+    """.split())
 
 
 def _sentence(text: str) -> str:

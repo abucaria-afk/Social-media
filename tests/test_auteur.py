@@ -911,8 +911,6 @@ def test_nothing_a_finger_lands_on_is_smaller_than_a_finger(web_server):
     prompt chips, sign out, the studio's mode buttons, and the ← that is the
     only way back out of the studio, which rendered 20x20.
     """
-    import re
-
     from auteur.web import server
 
     for sheet in ("style.css", "studio.css"):
@@ -1438,9 +1436,9 @@ def test_a_ramped_shot_lands_on_its_intended_screen_time(rushes, tmp_path):
         shot, 0, space, FORMATS["square"], QUALITIES["draft"], want_audio=False
     )
     measured = float(ffmpeg.probe(path)["format"]["duration"])
-    assert measured == pytest.approx(shot.duration, abs=0.06), (
-        f"wanted {shot.duration:.3f}s of screen time, got {measured:.3f}s"
-    )
+    assert measured == pytest.approx(
+        shot.duration, abs=0.06
+    ), f"wanted {shot.duration:.3f}s of screen time, got {measured:.3f}s"
 
 
 def test_ramp_windows_overlap_by_exactly_one_frame():
@@ -1530,9 +1528,9 @@ def test_a_film_of_stills_lands_on_its_runtime_at_every_quality(rushes, tmp_path
             duration=8.0,
         )
         measured = float(ff.probe(production.primary)["format"]["duration"])
-        assert measured == pytest.approx(production.edl.duration, abs=0.35), (
-            f"{name}: planned {production.edl.duration:.2f}s, delivered {measured:.2f}s"
-        )
+        assert measured == pytest.approx(
+            production.edl.duration, abs=0.35
+        ), f"{name}: planned {production.edl.duration:.2f}s, delivered {measured:.2f}s"
 
 
 # ---------------------------------------------------------------------------
@@ -1677,9 +1675,9 @@ def test_accounts_survive_a_restart(accounts, tmp_path):
     token, _ = accounts.sign_in("streetlightseason", TEST_PASSWORD)
     reopened = Accounts(tmp_path / "accounts.json")
     assert reopened.get("streetlightseason").check(TEST_PASSWORD)
-    assert reopened.session_user(token) == "streetlightseason", (
-        "a restart must not sign the phone out"
-    )
+    assert (
+        reopened.session_user(token) == "streetlightseason"
+    ), "a restart must not sign the phone out"
 
 
 def test_weak_passwords_are_explained_not_just_refused():
@@ -2321,9 +2319,9 @@ def test_a_transition_never_outlasts_half_its_shorter_neighbour():
     for index in range(1, len(edl.shots)):
         overlap = edl.shots[index].transition_in.duration
         shorter = min(edl.shots[index - 1].duration, edl.shots[index].duration)
-        assert overlap <= shorter / 2, (
-            f"transition {index} is {overlap!r}, more than half of {shorter!r}"
-        )
+        assert (
+            overlap <= shorter / 2
+        ), f"transition {index} is {overlap!r}, more than half of {shorter!r}"
 
 
 def test_the_static_route_stays_inside_its_folder(web_server):
@@ -2673,9 +2671,9 @@ def test_a_digest_match_is_not_enough_on_its_own(footage, tmp_path, monkeypatch)
 
     # one.mp4 and copy.mp4 really are identical; still.png is not, and the
     # full comparison is what tells them apart.
-    assert {copy.name for copy, _ in report.duplicates} == {"copy.mp4"}, (
-        "still.png fingerprints the same but is not the same file"
-    )
+    assert {copy.name for copy, _ in report.duplicates} == {
+        "copy.mp4"
+    }, "still.png fingerprints the same but is not the same file"
 
 
 def test_the_index_survives_being_written_and_read_back(footage, tmp_path):
@@ -3095,9 +3093,9 @@ def test_a_correlation_is_never_computed_between_a_number_and_itself(tmp_path):
     model = fit(load([path]))
 
     for column, label, _ in model.drivers:
-        assert not (column == "stop_scroll_ms" and "three second" in label), (
-            "correlated a derived field against the column it was derived from"
-        )
+        assert not (
+            column == "stop_scroll_ms" and "three second" in label
+        ), "correlated a derived field against the column it was derived from"
 
 
 def test_a_generated_export_is_spotted_and_discounted(tmp_path):
@@ -4609,9 +4607,9 @@ def test_the_crew_result_carries_every_field_back_to_the_renderer(tmp_path):
     for field in dataclasses.fields(EditDecisionList):
         if field.name in WORKFLOW_OWNED:
             continue
-        assert getattr(edl, field.name) == getattr(changed, field.name), (
-            f"{field.name} did not survive the crew"
-        )
+        assert getattr(edl, field.name) == getattr(
+            changed, field.name
+        ), f"{field.name} did not survive the crew"
 
 
 def test_the_studio_and_the_cli_build_the_same_crew(tmp_path):
@@ -4758,9 +4756,9 @@ def test_a_measured_gain_validates_the_study_behind_it(tmp_path):
 
     proposals = agent.inspect(edl, prediction, model)
     assert proposals, "a studied Scholar with a weak cut in front of it should speak"
-    assert all(p.binding for p in proposals), (
-        "advice the model cannot score is not advice it rejected"
-    )
+    assert all(
+        p.binding for p in proposals
+    ), "advice the model cannot score is not advice it rejected"
     assert all(getattr(p, "learning_ids", None) for p in proposals)
 
     # Said once, not once per round.
