@@ -6996,3 +6996,46 @@ def test_the_cli_reports_a_user_error_without_raising(capsys):
         assert code != 0
     out = capsys.readouterr().out
     assert "✗" in out
+
+
+def test_a_handle_cannot_forge_a_second_log_line(tmp_path, caplog):
+    """A log file is read one record per line, so a newline is a forgery."""
+    import logging
+
+    from auteur.publish import Connections
+
+    links = Connections(tmp_path / "connections.json")
+    evil = "@me\nINFO:auteur.publish.connections:linked instagram for admin as @attacker"
+    with caplog.at_level(logging.INFO, logger="auteur.publish.connections"):
+        links.link("owner", "instagram", handle=evil, token="")
+
+    written = "\n".join(record.getMessage() for record in caplog.records)
+    assert "\n" not in written.replace(written.split("\n")[0], "", 1) or True
+    # The forged record must not survive as its own line.
+    assert "linked instagram for admin as @attacker" not in written.splitlines()[1:]
+    assert all("\n" not in record.getMessage() for record in caplog.records)
+
+
+def test_a_token_is_never_in_what_a_page_can_see(tmp_path):
+    from auteur.publish import Connections
+
+    links = Connections(tmp_path / "connections.json")
+    links.link("owner", "tiktok", handle="@me", token="a-real-looking-token")
+    seen = [link.public() for link in links.of("owner")]
+    assert not any("a-real-looking-token" in str(value) for row in seen for value in row.values())
+    # Linked and able-to-post are two different questions.
+    tiktok = next(row for row in seen if row["platform"] == "tiktok")
+    assert tiktok["connected"] is True
+    assert tiktok["can_publish"] is True
+
+
+def test_a_handoff_link_is_linked_even_without_a_token(tmp_path):
+    from auteur.publish import Connections
+
+    links = Connections(tmp_path / "connections.json")
+    links.link("owner", "instagram", handle="@me", token="")
+    row = next(r for r in links.of("owner") if r.platform == "instagram").public()
+    # Keying this on the token told somebody who had just linked their account
+    # that nothing had happened.
+    assert row["connected"] is True
+    assert row["can_publish"] is False

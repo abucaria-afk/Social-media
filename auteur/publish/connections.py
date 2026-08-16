@@ -37,6 +37,20 @@ from pathlib import Path
 
 log = logging.getLogger("auteur.publish.connections")
 
+
+def _for_log(text: str, limit: int = 64) -> str:
+    """A value from a page, made safe to put in a log line.
+
+    A handle is typed by somebody, and a log file is read as one record per
+    line. A handle containing a newline therefore writes a second record that
+    looks exactly like a real one — which is a way to hide something in a log
+    by burying it under convincing forgeries. Control characters out, length
+    capped, quoted so the boundary is visible.
+    """
+    clean = "".join(ch for ch in str(text) if ch.isprintable())
+    return repr(clean[:limit])
+
+
 #: The platforms this knows how to talk about. Ordered as the tab shows them.
 PLATFORMS = ("instagram", "tiktok")
 
@@ -173,8 +187,14 @@ class Connections:
         link = Connection(platform=platform, handle=handle, token=token, expires=expires)
         self._by_owner.setdefault(owner, {})[platform] = link
         self._save()
-        # The handle, never the token — this line ends up in a log file.
-        log.info("linked %s for %s as %s", platform, owner, handle or "an account")
+        # The handle, never the token — this line ends up in a log file, and
+        # both the handle and the owner came from outside this process.
+        log.info(
+            "linked %s for %s as %s",
+            _for_log(platform, 24),
+            _for_log(owner),
+            _for_log(handle) if handle else "an account",
+        )
         return link
 
     def unlink(self, owner: str, platform: str) -> bool:
@@ -184,7 +204,7 @@ class Connections:
             return False
         held.pop(platform)
         self._save()
-        log.info("unlinked %s for %s", platform, owner)
+        log.info("unlinked %s for %s", _for_log(platform, 24), _for_log(owner))
         return True
 
 
