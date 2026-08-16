@@ -5489,3 +5489,86 @@ def test_asking_never_blocks_on_the_network(tmp_path, monkeypatch):
     assert not answer.useful
     # The research pass is where the network is needed, and it fails quietly.
     assert desk.do_the_homework() == 0
+
+
+# --------------------------------------------------- standing a wide shot on end
+
+
+def test_turning_a_wide_frame_keeps_what_cropping_throws_away():
+    """A 16:9 source in a 9:16 frame loses about two thirds of its width."""
+    from auteur.craft.motion import reframe_chain
+
+    turned = reframe_chain(1080, 1920, mode="turn")
+    assert "transpose" in turned
+    # Fit and pad, never crop: the whole point is that nothing is discarded.
+    assert "force_original_aspect_ratio=decrease" in turned
+    assert "crop=" not in turned
+
+    cropped = reframe_chain(1080, 1920, mode="subject", anchor=(0.5, 0.5))
+    assert "crop=" in cropped and "transpose" not in cropped
+
+
+def test_the_finishing_agent_offers_to_turn_wide_footage(tmp_path):
+    from PIL import Image
+
+    from auteur.agents.assemble import read_the_footage
+    from auteur.agents.finishing import FinishingAgent
+    from auteur.edl import EditDecisionList, Motion, Shot, Transition
+    from auteur.insight import FitReport
+    from auteur.insight.score import Prediction
+
+    wide = []
+    for index in range(3):
+        path = tmp_path / f"w{index}.png"
+        image = Image.new("RGB", (1920, 1080), (20 + index * 20, 40, 70))
+        image.paste((240, 180, 90), (400 + index * 200, 300, 900 + index * 200, 800))
+        image.save(path)
+        wide.append(path)
+
+    readings = read_the_footage(wide)
+    assert all(r.aspect > 1.7 for r in readings.values()), "the reading has to carry the shape"
+
+    shots = [
+        Shot(
+            clip_id=clip,
+            source=path,
+            start=0.0,
+            end=1.5,
+            is_still=True,
+            motion=Motion("none", 0.0, (0.5, 0.5)),
+            transition_in=Transition("cut", 0.0),
+        )
+        for clip, path in zip(readings, wide, strict=False)
+    ]
+    edl = EditDecisionList(title="wide", shots=shots, fps=24, width=1080, height=1920)
+    edl.repair()
+
+    proposals = FinishingAgent(readings).inspect(
+        edl,
+        Prediction(hook=0.5, share=0.5, loop=0.5),
+        FitReport(rows=0, simulated_rows=0, measured_rows=0),
+    )
+    turning = [p for p in proposals if "on end" in p.title]
+    assert turning, "wide footage in a tall frame should at least be offered the alternative"
+
+    turning[0].change(edl)
+    assert all(shot.reframe == "turn" for shot in edl.shots)
+    # A camera move on a turned frame crops back into what was just saved.
+    assert all(shot.motion.kind == "none" for shot in edl.shots)
+
+
+def test_a_vertical_source_is_left_alone(tmp_path):
+    """Turning footage that already fits would be vandalism in the other direction."""
+    from PIL import Image
+
+    from auteur.agents.assemble import read_the_footage
+    from auteur.agents.finishing import _much_wider_than
+    from auteur.edl import EditDecisionList
+
+    path = tmp_path / "tall.png"
+    Image.new("RGB", (1080, 1920), (40, 50, 60)).save(path)
+    reading = next(iter(read_the_footage([path]).values()))
+
+    edl = EditDecisionList(title="t", width=1080, height=1920)
+    assert not _much_wider_than(reading, edl)
+    assert not _much_wider_than(None, edl)

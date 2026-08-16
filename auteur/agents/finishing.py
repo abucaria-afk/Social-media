@@ -35,6 +35,20 @@ from ..vision import Reading, emptiest_quadrant
 from .base import Proposal, Risk
 
 
+def _much_wider_than(reading, edl) -> bool:
+    """Is this source wide enough that a vertical crop would be vandalism?
+
+    About the shape of what *arrived*, not the timeline: a 16:9 clip going into
+    a 9:16 frame loses roughly two thirds of its width, and no arrangement of
+    the crop avoids that. Turning it loses nothing at all.
+    """
+    if reading is None or reading.aspect <= 0:
+        return False
+    target_ratio = edl.width / max(edl.height, 1)
+    # Wider than 1.3:1 going into anything taller than square.
+    return reading.aspect > 1.3 and target_ratio < 1.0
+
+
 @dataclass
 class _Join:
     """One cut, and how different the two sides of it are."""
@@ -154,6 +168,38 @@ class FinishingAgent:
                         "of shot entirely."
                     ),
                     change=reframe,
+                    objective=self.objective,
+                    risk=Risk.MEDIUM,
+                )
+            )
+
+        # -- 1b. or do not crop it at all ----------------------------------
+        turnable = [
+            shot
+            for shot in edl.shots
+            if shot.reframe != "turn" and _much_wider_than(readings.get(shot.clip_id), edl)
+        ]
+        if turnable:
+
+            def turn(target: EditDecisionList) -> None:
+                for shot in target.shots:
+                    if _much_wider_than(readings.get(shot.clip_id), target):
+                        shot.reframe = "turn"
+                        # A turned frame already fills the height; a camera move
+                        # on top of it would crop back into what was just saved.
+                        shot.motion = Motion("none", 0.0, shot.motion.anchor)
+
+            proposals.append(
+                Proposal(
+                    agent=self.name,
+                    title=f"Stand {len(turnable)} wide shot(s) on end rather than cropping",
+                    reason=(
+                        "A vertical crop of a wide frame keeps about a third of it and throws "
+                        "the rest away. Turned, the whole composition survives at full height "
+                        "and the viewer rotates the phone — one wrist movement, and how several "
+                        "of the reels this is measured against are delivered."
+                    ),
+                    change=turn,
                     objective=self.objective,
                     risk=Risk.MEDIUM,
                 )

@@ -63,7 +63,11 @@ MOTIONS = {
     "float",
     "shake",
 }
-REFRAMES = {"subject", "center", "fill", "blur-pad"}
+#: How a source that is the wrong shape gets into the delivery frame.
+#: `turn` stands landscape footage on its end so it fills a vertical frame at
+#: full height — the viewer rotates the phone. Deliberate, and used by several
+#: of the reels this project measures against.
+REFRAMES = {"subject", "center", "fill", "blur-pad", "turn"}
 TEXT_STYLES = {"title", "kinetic", "lower-third", "caption", "end-card", "chapter"}
 #: Drawn graphics — everything on screen that is not type.
 GRAPHIC_KINDS = {

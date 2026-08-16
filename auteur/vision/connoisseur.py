@@ -86,6 +86,10 @@ class Reading:
     balance: float = 0.0
     #: Fraction of the frame that carries most of the detail.
     busy: float = 0.0
+    #: Width over height of the source. 1.78 is 16:9, 0.56 is 9:16. Kept because
+    #: the decision "crop this or stand it on end" is about the shape of what
+    #: arrived, and nothing else in a Reading records it.
+    aspect: float = 0.0
     #: Fraction of pixels crushed to black or blown to white. Detail that is
     #: gone rather than dark: no grade recovers it and no compressor helps.
     clipped: float = 0.0
@@ -421,6 +425,7 @@ def read_frame(frame: np.ndarray) -> Reading:
         busy=busy,
         contrast=contrast,
         luma=luma,
+        aspect=float(width) / float(height) if height else 0.0,
         clipped=clipped,
         clipped_black=clipped_black,
         clipped_white=clipped_white,
@@ -536,6 +541,7 @@ def _consensus(readings: list[Reading]) -> Reading:
         busy=median("busy"),
         contrast=median("contrast"),
         luma=median("luma"),
+        aspect=median("aspect"),
         clipped=median("clipped"),
         clipped_black=median("clipped_black"),
         clipped_white=median("clipped_white"),

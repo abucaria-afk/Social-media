@@ -50,6 +50,24 @@ def reframe_chain(
     if mode == "fill":
         return f"scale={width}:{height}:flags=bicubic,setsar=1"
 
+    if mode == "turn":
+        # Landscape footage stood on its end to fill a vertical frame, and the
+        # viewer turns the phone. Not a mistake and not a fallback — it is a
+        # deliberate delivery format used by several of the reels this project
+        # measures itself against, and the reason is resolution: a 16:9 frame
+        # letterboxed into 9:16 uses about a third of the height, while turned
+        # it uses all of it. Full quality, at the cost of asking the viewer to
+        # rotate, which on a phone is one wrist movement.
+        #
+        # `transpose=1` is clockwise. The source's long edge becomes the frame's
+        # long edge, so nothing is cropped at all — which is the other half of
+        # the point: a crop to vertical throws away most of a wide composition,
+        # and this throws away none of it.
+        return (
+            f"transpose=1,scale={width}:{height}:force_original_aspect_ratio=decrease:"
+            f"flags=bicubic,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1"
+        )
+
     if mode == "blur-pad":
         # Background: cover the frame, blur it hard, darken it. Foreground: fit.
         return (
