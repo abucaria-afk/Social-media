@@ -21,16 +21,30 @@ def read(name):
 
 
 def body_of(html):
-    m = re.search(r"<body[^>]*>(.*)</body>", html, re.S)
+    m = re.search(r"<body[^>]*>(.*)</body>", html, re.S | re.I)
     return m.group(1)
 
 
 def strip_scripts(html):
-    return re.sub(r"<script\b[^>]*>.*?</script>", "", html, flags=re.S)
+    """Take the app's own scripts out; this page brings its own.
+
+    Case-insensitive because `<SCRIPT>` is the same tag to a browser and was
+    not the same tag to this regex — CodeQL caught that, and it is the kind of
+    thing that would sit here silently until somebody typed a capital letter.
+    A regex is only good enough because the input is markup from this repo,
+    which is why the result is checked below rather than trusted.
+    """
+    return re.sub(r"<script\b[^>]*>.*?</script\s*>", "", html, flags=re.S | re.I)
 
 
 home = strip_scripts(body_of(read("index.html")))
 studio = strip_scripts(body_of(read("studio.html")))
+# The invariant the regex is standing in for, stated where it can fail loudly.
+# The published page loads `browser-render.js` and its own wiring; a script
+# that survived from the app would be a second copy racing the first.
+for name, markup in (("index.html", home), ("studio.html", studio)):
+    if re.search(r"<script", markup, re.I):
+        raise SystemExit(f"{name}: a <script> survived stripping — check the markup")
 # The studio's own header links back to "/" — make both screens live on one page.
 studio = studio.replace('href="/"', 'href="#" data-goto="home"')
 home = home.replace('href="/studio"', 'href="#" data-goto="studio"')
