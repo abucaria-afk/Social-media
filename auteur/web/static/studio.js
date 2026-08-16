@@ -257,10 +257,24 @@
     else if (s.wants_to_study) { parts.push("about to study — " + (s.why || "")); }
     $("scholar-state").textContent = parts.join("  ·  ");
 
+    // What the films agree on, first: it is the only thing here an editing
+    // agent can be held to.
+    var agreed = s.consensus || [];
+    var agreedHost = $("scholar-consensus");
+    agreedHost.innerHTML = "";
+    // One heading for the group, not one per line — the same three words
+    // five times is a label repeated, not information.
+    $("scholar-agree-head").hidden = agreed.length === 0;
+    agreed.forEach(function (line) {
+      var li = document.createElement("li");
+      li.textContent = line;
+      agreedHost.appendChild(li);
+    });
+
     var product = (s.product && s.product.learnings) || [];
     var host = $("scholar-product");
     host.innerHTML = "";
-    $("scholar-empty").hidden = product.length > 0;
+    $("scholar-empty").hidden = product.length > 0 || agreed.length > 0;
     product.forEach(function (item) {
       var li = document.createElement("li");
       li.className = "learning";

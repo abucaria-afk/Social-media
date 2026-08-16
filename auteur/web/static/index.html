@@ -83,6 +83,11 @@
           <!-- Short labels, full prompts. Spelling out each prompt on the chip
                cost four stacked rows on a phone and pushed the button off screen. -->
           <span class="chips" id="chips">
+            <!-- First, because it is the one thing the app could not previously
+                 ask for: the cadence the reference reels are actually cut at,
+                 a median 0.167s shot. Four ceilings in the code used to make it
+                 unreachable and there was still no way to request it. -->
+            <button type="button" class="chip" data-prompt="a hypercut, cut hard to the beat">Hypercut</button>
             <button type="button" class="chip" data-prompt="fast neon montage">Neon</button>
             <button type="button" class="chip" data-prompt="warm summer memories, gentle">Warm</button>
             <button type="button" class="chip" data-prompt="slow and cinematic">Cinematic</button>

@@ -244,9 +244,9 @@ class Rehearsal:
     # ------------------------------------------------------------------ recipe
 
     def load_recipe(self) -> Recipe:
-        """The best settings found so far, or the defaults."""
+        """The best settings found so far, or a sensible place to start."""
         if not self.recipe_path.exists():
-            return Recipe()
+            return self._starting_recipe()
         try:
             data = json.loads(self.recipe_path.read_text(encoding="utf-8"))
             # Only the fields a Recipe actually has, so a file written by a
@@ -256,7 +256,35 @@ class Rehearsal:
             return Recipe(**known)
         except (json.JSONDecodeError, OSError, TypeError) as exc:
             log.info("could not read the recipe (%s) — starting from the defaults", exc)
-            return Recipe()
+            return self._starting_recipe()
+
+    def _starting_recipe(self) -> Recipe:
+        """The defaults, with the shot length set from the film being chased.
+
+        Hill climbing cannot cross a valley, and there is a deep one here. From
+        a 1.4s shot every small step toward the reference cadence costs craft
+        before it pays anything back on cadence, so each one is rejected:
+        thirty-three generations against a 46-cuts-per-ten-seconds benchmark
+        climbed craft from 0.238 to 0.839 and left the shot length at 1.62s and
+        cadence at 0.334. The objective was right and the search could not get
+        there.
+
+        Starting at the target's own shot length is not cheating — it is using
+        a number already measured and written down rather than making a random
+        walk rediscover it. The search still runs; it just does not begin on
+        the wrong side of the valley.
+        """
+        recipe = Recipe()
+        rate = getattr(self.benchmark, "cuts_per_10s", 0.0) if self.benchmark else 0.0
+        if rate > 0:
+            low, high = KNOBS["shot_seconds"]
+            recipe.shot_seconds = _clamp(10.0 / rate, low, high)
+            log.info(
+                "starting from the target's own pace: %.3fs a shot (%.1f cuts per ten seconds)",
+                recipe.shot_seconds,
+                rate,
+            )
+        return recipe
 
     def save_recipe(self, attempt: Attempt) -> None:
         """Write the winner where an ordinary run will find it."""

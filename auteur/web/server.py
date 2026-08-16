@@ -669,6 +669,16 @@ class Handler(BaseHTTPRequestHandler):
             log.debug("no product brief: %s", exc)
             product = {"summary": "", "learnings": []}
 
+        # What the studied films agree on. Separate from the product notes
+        # because it is about the *films*, not the app, and because it is the
+        # only thing in the store an editing agent can be held to: a median, a
+        # spread, and how many independent films it rests on.
+        try:
+            agreed = scholar.teach_all().consensus[:5]
+        except Exception as exc:  # noqa: BLE001 - a brief is not an outage
+            log.debug("no consensus: %s", exc)
+            agreed = []
+
         return {
             "available": True,
             "can_study": can_study,
@@ -681,6 +691,7 @@ class Handler(BaseHTTPRequestHandler):
             "wants_to_study": wants,
             "why": why,
             "product": product,
+            "consensus": agreed,
         }
 
     def _allowed(self, path: str) -> bool:

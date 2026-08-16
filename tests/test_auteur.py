@@ -6556,3 +6556,47 @@ def test_the_trainer_can_reach_the_rate_it_is_chasing():
     low, high = KNOBS["shot_seconds"]
     assert low == MIN_SHOT
     assert low <= 0.125, "the fastest reference reel is outside the search space"
+
+
+def test_the_app_can_ask_for_the_cadence_the_references_are_cut_at():
+    """The style existed and no chip offered it.
+
+    Four ceilings in the code used to make the reference cadence unreachable;
+    with those gone there was still no way to ask for it from the app.
+    """
+    from auteur.director.brief import parse_brief
+    from auteur.web import server
+
+    page = (server.STATIC / "index.html").read_text()
+    chips = page.split('id="chips"', 1)[1].split("</span>", 1)[0]
+    prompts = re.findall(r'data-prompt="([^"]+)"', chips)
+    assert prompts, "no prompt chips at all"
+
+    styles = {parse_brief(prompt).style for prompt in prompts}
+    assert "hypercut" in styles, "no chip reaches the reference cadence"
+
+
+def test_the_studio_shows_what_the_films_agree_on(web_server):
+    """The consensus is the only thing in the store an agent can be held to."""
+    import json as _json
+    from urllib.request import Request, urlopen
+
+    base, _, cookie = web_server
+    request = Request(base + "/api/scholar", headers={"Cookie": cookie})
+    with urlopen(request) as response:
+        payload = _json.loads(response.read())
+
+    # The key is served whether or not anything has been studied yet.
+    assert "consensus" in payload
+    assert isinstance(payload["consensus"], list)
+
+    page = (server_static() / "studio.html").read_text()
+    assert 'id="scholar-consensus"' in page
+    script = (server_static() / "studio.js").read_text()
+    assert "s.consensus" in script, "the page does not read what the API serves"
+
+
+def server_static():
+    from auteur.web import server
+
+    return server.STATIC
