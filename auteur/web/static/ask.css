@@ -1,0 +1,112 @@
+/* Asking the Scholar. Built on studio.css's panel language rather than a new
+   one — this is another room in the same place, not another app. */
+
+.ask-wrap {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 0 1rem calc(2rem + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - 4rem);
+}
+
+.thread {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  flex: 1 1 auto;
+}
+
+.says {
+  max-width: 88%;
+  padding: 0.75rem 0.95rem;
+  border-radius: 1rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+.says p { margin: 0; }
+.says p + p { margin-top: 0.6rem; }
+
+.says.scholar {
+  align-self: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-bottom-left-radius: 0.3rem;
+  color: var(--text);
+}
+
+.says.you {
+  align-self: flex-end;
+  background: var(--ember);
+  color: var(--on-ember);
+  border-bottom-right-radius: 0.3rem;
+}
+
+/* A refusal is not an answer, and must not look like one. */
+.says.unreachable {
+  border-style: dashed;
+  color: var(--text-muted);
+}
+
+.says.thinking { color: var(--text-faint); font-style: italic; }
+
+.openers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1rem 0 0.6rem;
+}
+
+.asker {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+  padding: 0.7rem 0 calc(0.7rem + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--ground) 72%, transparent);
+}
+
+.asker textarea {
+  flex: 1 1 auto;
+  min-height: 48px;
+  max-height: 40vh;
+  padding: 0.7rem 0.85rem;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  font-family: inherit;
+  /* 16px minimum or iOS zooms the page the moment the field is focused. */
+  font-size: 16px;
+  line-height: 1.4;
+  resize: none;
+}
+.asker textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
+
+.ask-go {
+  flex: none;
+  min-height: 48px;
+  min-width: 64px;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 1rem;
+  background: var(--ember);
+  color: var(--on-ember);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ask-go:disabled { opacity: 0.5; cursor: default; }
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

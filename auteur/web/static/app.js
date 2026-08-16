@@ -61,42 +61,9 @@
       .then(function () { window.location.href = "/login"; });
   });
 
-  // -- appearance -----------------------------------------------------------
+  // Appearance lives in theme.js, which every page loads — it used to be
+  // here, so the studio and the ask page had no way to change it at all.
 
-  function applyTheme(mode) {
-    if (mode === "light" || mode === "dark") {
-      document.documentElement.setAttribute("data-theme", mode);
-    } else {
-      document.documentElement.removeAttribute("data-theme");
-    }
-    // Keep the status bar and the browser chrome in step with the page. The
-    // media-scoped <meta theme-color> tags cover the automatic case; an
-    // explicit choice needs the value written directly.
-    var colours = { dark: "#0c0b0a", light: "#f6f1e6" };
-    var bar = document.querySelector('meta[name="theme-color"]:not([media])');
-    if (mode === "system") {
-      if (bar) { bar.remove(); }
-    } else {
-      if (!bar) {
-        bar = document.createElement("meta");
-        bar.setAttribute("name", "theme-color");
-        document.head.appendChild(bar);
-      }
-      bar.setAttribute("content", colours[mode]);
-    }
-    try { localStorage.setItem("auteur-theme", mode); } catch (e) { /* private mode */ }
-  }
-
-  var savedTheme = "system";
-  try { savedTheme = localStorage.getItem("auteur-theme") || "system"; } catch (e) { /* */ }
-
-  wireChoices($("appearance"), applyTheme);
-  Array.prototype.forEach.call($("appearance").querySelectorAll(".choice"), function (button) {
-    var on = button.dataset.value === savedTheme;
-    button.classList.toggle("is-on", on);
-    button.setAttribute("aria-checked", on ? "true" : "false");
-  });
-  applyTheme(savedTheme);
 
   $("chips").addEventListener("click", function (event) {
     var chip = event.target.closest(".chip");

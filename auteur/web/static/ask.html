@@ -1,0 +1,81 @@
+<!--
+  Talking to the Scholar. Same palette as everything else — colours come from
+  theme.css, generated from auteur/theme.py — so the page it studies and the
+  page you ask it questions on cannot drift apart.
+-->
+<!doctype html>
+<html lang="en" data-page="ask">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0c0b0a">
+  <title>auteur · ask the Scholar</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icon-180.png">
+  <link rel="stylesheet" href="/static/theme.css">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/studio.css">
+  <link rel="stylesheet" href="/static/ask.css">
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("auteur-theme");
+        if (saved === "light" || saved === "dark") {
+          document.documentElement.setAttribute("data-theme", saved);
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+
+<header class="sbar">
+  <a class="sbar-back" href="/" aria-label="Back to the edit room">←</a>
+  <span class="sbar-title">Ask the Scholar</span>
+  <span class="sbar-note" id="knows">…</span>
+</header>
+
+<main class="ask-wrap">
+  <ol class="thread" id="thread" aria-live="polite">
+    <li class="says scholar">
+      <p>I study the reels you have given me and the notes in this project, and
+         I teach the crew what several of them agree on. Ask me about pacing, a
+         grade, what the references do, or why an agent proposed something.</p>
+    </li>
+  </ol>
+
+  <!-- Openers, so the first question does not have to be invented. -->
+  <div class="openers" id="openers">
+    <button type="button" class="chip" data-ask="How fast do the reference reels cut?">How fast do the reels cut?</button>
+    <button type="button" class="chip" data-ask="What have you learned about grading?">What about grading?</button>
+    <button type="button" class="chip" data-ask="Why does a hypercut work?">Why does a hypercut work?</button>
+    <button type="button" class="chip" data-ask="What are you studying next?">What next?</button>
+  </div>
+
+  <form class="asker" id="asker">
+    <label class="sr-only" for="question">Your question</label>
+    <textarea id="question" rows="1" enterkeyhint="send"
+              placeholder="Ask the Scholar something"></textarea>
+    <button type="submit" class="ask-go" id="send" aria-label="Send">Ask</button>
+  </form>
+  <div class="settings">
+    <span class="settings-label" id="appearance-label">Appearance</span>
+    <div class="choices" id="appearance" role="radiogroup" aria-labelledby="appearance-label">
+      <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
+      <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
+      <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
+    </div>
+  </div>
+
+  <p class="studio-foot">
+    It answers from what it has studied. — <a href="/studio">the studio</a> ·
+    <a href="/">the edit room</a>
+  </p>
+</main>
+
+<script src="/static/theme.js"></script>
+<script src="/static/ask.js"></script>
+</body>
+</html>

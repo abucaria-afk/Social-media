@@ -120,7 +120,20 @@
     <p class="studio-empty" id="scholar-empty" hidden>
       Nothing about this app yet — it studies the edit first.
     </p>
+    <a class="studio-link" href="/ask">
+      <span class="studio-link-title">Ask it something</span>
+      <span class="studio-link-note">Put a question to it in your own words</span>
+    </a>
   </section>
+
+  <div class="settings">
+    <span class="settings-label" id="appearance-label">Appearance</span>
+    <div class="choices" id="appearance" role="radiogroup" aria-labelledby="appearance-label">
+      <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
+      <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
+      <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
+    </div>
+  </div>
 
   <button class="studio-go" id="run">Cut it</button>
   <p class="studio-foot">
@@ -128,6 +141,7 @@
   </p>
 </main>
 
+<script src="/static/theme.js"></script>
 <script src="/static/studio.js"></script>
 </body>
 </html>
