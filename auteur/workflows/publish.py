@@ -71,13 +71,15 @@ _SERVICE_TAGS: dict[str, tuple[str, ...]] = {
 
 #: Words long enough to look like nouns and empty enough to be worthless as
 #: tags. `#after` finds nothing anybody wanted to find.
-_NOT_WORTH_TAGGING = frozenset("""
+_NOT_WORTH_TAGGING = frozenset(
+    """
     after also away back been before being both come does down each else even
     ever from have here into just like made make many more most much must
     near next once only over said same show some such than that them then
     there these they this those through very want well were what when where
     which while will with within would your
-    """.split())
+    """.split()
+)
 
 
 def _sentence(text: str) -> str:
@@ -187,8 +189,7 @@ def draft_caption(brief: Brief, edl: EditDecisionList, spec: PlatformSpec) -> Ca
 
     alt = body_line or lead or "A short film"
     alt_text = (
-        f"{alt}. {len(edl.shots)} shots over {edl.duration:.0f} seconds, "
-        f"{edl.look.preset} grade."
+        f"{alt}. {len(edl.shots)} shots over {edl.duration:.0f} seconds, {edl.look.preset} grade."
     )
     return Caption(
         body="\n".join(lines), hashtags=tuple(tags[: spec.hashtag_limit]), alt_text=alt_text

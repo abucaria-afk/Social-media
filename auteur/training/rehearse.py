@@ -337,10 +337,9 @@ class Rehearsal:
     def _sweep(self, folder: Path) -> None:
         import shutil
 
-        try:
-            shutil.rmtree(folder, ignore_errors=True)
-        except OSError:
-            pass
+        # `ignore_errors` already swallows everything this could raise; the
+        # try/except that used to wrap it caught nothing.
+        shutil.rmtree(folder, ignore_errors=True)
 
     def generation(self) -> Attempt | None:
         """Run one: mutate from the best so far, render it, keep it if better."""

@@ -545,7 +545,12 @@ def render_cue(
     if cue.kind == "progress":
         centre = (width / 2 - box[0], cue.anchor[1] * height - box[1])
     elif cue.kind in SPANNING:
-        (x0, y0), (x1, y1) = _points(cue, width, height)
+        # First and last rather than an unpack of two: a spanning kind always
+        # has both, but reading it off the ends means a single-point cue that
+        # somehow reached here collapses to a zero-length span instead of
+        # raising in the middle of a render.
+        points = _points(cue, width, height)
+        (x0, y0), (x1, y1) = points[0], points[-1]
         centre = ((x0 + x1) / 2 - box[0], (y0 + y1) / 2 - box[1])
     else:
         centre = (cue.anchor[0] * width - box[0], cue.anchor[1] * height - box[1])

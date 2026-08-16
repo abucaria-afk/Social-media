@@ -280,7 +280,8 @@ class OverlayAgent:
         ]
         if body:
             start, end, clip = max(
-                body, key=lambda w: self.readings[w[2]].focus_strength  # strongest subject
+                body,
+                key=lambda w: self.readings[w[2]].focus_strength,  # strongest subject
             )
             reading = self.readings[clip]
             ring = GraphicCue(

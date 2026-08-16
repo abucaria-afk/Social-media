@@ -377,7 +377,6 @@ class Scholar:
 
         delay = every_seconds
         while not (stop is not None and stop()):
-            should, reason = (False, "")
             try:
                 should, reason = self.should_study()
             except YouTubeUnavailable as exc:

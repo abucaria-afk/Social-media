@@ -161,7 +161,7 @@ class WebReporter(Reporter):
         with self.lock:
             self.job.percent = 100.0
 
-    def result(self, **_: Any) -> None:  # the page renders its own ending
+    def result(self, headline: str = "", **_: Any) -> None:  # the page renders its own ending
         pass
 
     def failure(self, headline: str, hint: str = "") -> None:
@@ -640,7 +640,6 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001 - the app serves without a Scholar
             return {"available": False, "reason": str(exc), "can_study": can_study}
 
-        wants, why = (False, "")
         try:
             wants, why = scholar.should_study()
         except Exception:  # noqa: BLE001 - no network is not an error here

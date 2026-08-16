@@ -416,7 +416,8 @@ def fit(signals: Sequence[Signal]) -> FitReport:
                 pairs = [
                     (getattr(s, column), getattr(s, objective))
                     for s in rows
-                    if getattr(s, column, 0.0) and getattr(s, objective, 0.0)
+                    if getattr(s, column, 0.0)
+                    and getattr(s, objective, 0.0)
                     # Skip only genuinely circular pairs — an objective
                     # derived from *this* column. Excluding every derived
                     # objective was too blunt: it threw away tempo against
