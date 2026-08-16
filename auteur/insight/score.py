@@ -28,6 +28,7 @@ change. A score here is a prediction about an edit, made by a model fitted to
 from __future__ import annotations
 
 import math
+import random
 from dataclasses import dataclass, field
 from collections.abc import Sequence
 
@@ -99,6 +100,10 @@ class FitReport:
     drivers: tuple[tuple[str, str, float], ...] = ()
     #: Categorical winners: the best value of each descriptive column.
     best_of: dict[str, tuple[str, float]] = field(default_factory=dict)
+    #: Choices that were offered but explain no more spread than chance. Worth
+    #: printing: "your palette made no measurable difference" is a finding, and
+    #: a much more useful one than a ranking of noise.
+    no_signal: list[str] = field(default_factory=list)
     #: Rows the platform stopped pushing. The only real negative label there is.
     stalled_rows: int = 0
     forms: tuple[str, ...] = ()
@@ -172,6 +177,12 @@ class FitReport:
             lines += ["", "hook styles by three-second watch rate:"]
             for name, value in self.style_ranking:
                 lines.append(f"    {value:.0%}  {name}")
+        if self.no_signal:
+            lines += [
+                "",
+                "made no measurable difference to amplification here: "
+                + ", ".join(name.replace("_", " ") for name in sorted(self.no_signal)),
+            ]
         if self.best_of:
             lines += ["", "best of each choice, by amplification:"]
             for column, (value, score) in sorted(self.best_of.items()):
@@ -215,6 +226,70 @@ class FitReport:
         return "\n".join(lines)
 
 
+#: How many reshuffles decide whether a categorical choice explains anything.
+#: 200 resolves a one-in-twenty threshold comfortably and costs milliseconds.
+_SHUFFLES = 200
+
+
+def _explains_anything(groups: dict[str, list[float]], *, shuffles: int = _SHUFFLES) -> bool:
+    """Does *which* option was chosen account for more spread than chance?
+
+    A permutation test, because the alternative is what this code used to do:
+    take the highest group mean and call it the winner. With sixteen options
+    and a few hundred rows, the best group mean sits above the grand mean every
+    time, whether or not the choice matters at all — so a dataset where the
+    palette was picked by coin flip still produces "best palette: Warm
+    Analogous", ranked, to two decimal places, for an agent to act on.
+
+    Shuffling the labels across the same values destroys any real association
+    and keeps everything else — group sizes, the value distribution, the number
+    of options. If the observed spread is the sort of thing shuffling produces
+    anyway, there is nothing here to report.
+    """
+    values = [value for bucket in groups.values() for value in bucket]
+    sizes = [len(bucket) for bucket in groups.values()]
+    if len(groups) < 2 or len(values) < len(groups) * 3:
+        return False
+
+    grand = _mean(values)
+    total = sum((value - grand) ** 2 for value in values)
+
+    def spread(pools: list[list[float]]) -> float:
+        """Share of the variance explained by which group a row is in.
+
+        Not the range between the best and worst group mean, which is what this
+        used to be and is the wrong statistic whenever the groups are uneven: a
+        column with a hundred and ninety options, most of them holding a
+        handful of rows, produces a huge best-to-worst range from noise alone,
+        so a real effect could not clear its own shuffled baseline. Variance
+        explained weights each group by how much evidence it actually carries.
+        """
+        if total <= 0:
+            return 0.0
+        between = sum(len(pool) * (_mean(pool) - grand) ** 2 for pool in pools if pool)
+        return between / total
+
+    observed = spread(list(groups.values()))
+    if observed <= 0:
+        return False
+
+    rng = random.Random(0x5EED)  # fixed, so the same data gives the same verdict
+    shuffled = list(values)
+    beaten = 0
+    for _ in range(shuffles):
+        rng.shuffle(shuffled)
+        pools: list[list[float]] = []
+        cursor = 0
+        for size in sizes:
+            pools.append(shuffled[cursor : cursor + size])
+            cursor += size
+        if spread(pools) >= observed:
+            beaten += 1
+    # One in twenty. Not a deep claim about significance — just a floor low
+    # enough that pure noise does not clear it.
+    return beaten / shuffles < 0.05
+
+
 def fit(signals: Sequence[Signal]) -> FitReport:
     """Learn what the winners have in common.
 
@@ -256,6 +331,7 @@ def fit(signals: Sequence[Signal]) -> FitReport:
     # Categorical winners, judged on amplification because that is the column
     # every form has something like.
     best_of: dict[str, tuple[str, float]] = {}
+    no_signal: list[str] = []
     for column in (
         "shot_composition",
         "lighting_setup",
@@ -279,8 +355,17 @@ def fit(signals: Sequence[Signal]) -> FitReport:
             score = _mean(winner[1])
             # A form with no amplification column produces a "winner" scoring
             # nought, which is not a winner — it is an absence of measurement.
-            if score > 0:
+            if score <= 0:
+                continue
+            # And a choice that explains nothing produces a "winner" too: with
+            # sixteen options the best group mean sits above the grand mean by
+            # chance every single time. Ranking that reads as a finding and is
+            # a lottery result. So the spread has to beat the same labels
+            # shuffled before this column is reported at all.
+            if _explains_anything(groups):
                 best_of[column] = (winner[0], score)
+            else:
+                no_signal.append(column)
 
     # Correlations. Two rules, both learned the hard way:
     #
@@ -447,6 +532,7 @@ def fit(signals: Sequence[Signal]) -> FitReport:
         elite_loop=_mean([s.loop_count for s in loopers]),
         drivers=tuple(drivers[:8]),
         best_of=best_of,
+        no_signal=no_signal,
         stalled_rows=sum(1 for s in signals if s.stalled),
         forms=tuple(sorted({s.form for s in signals})),
         conflicts=tuple(conflicts),

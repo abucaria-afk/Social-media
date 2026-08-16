@@ -4659,3 +4659,127 @@ def test_the_scholar_says_when_it_cannot_answer(tmp_path, monkeypatch):
     reply = Scholar(base_dir=tmp_path).chat("how do I pace a montage?")
     assert "[Scholar response" not in reply.text
     assert "cannot answer" in reply.text.lower()
+
+
+# ------------------------------------------------------- categorical noise guard
+
+
+def test_a_choice_that_explains_nothing_is_not_crowned_the_winner():
+    """With sixteen options the best group mean beats the grand mean every time.
+
+    Reporting that as "best palette: Warm Analogous (0.114)" reads as a finding
+    an agent should act on, and is the result of a lottery.
+    """
+    import random as _random
+
+    from auteur.insight.score import _explains_anything
+
+    rng = _random.Random(11)
+    noise = {f"option{i}": [rng.gauss(0.05, 0.03) for _ in range(200)] for i in range(16)}
+    assert not _explains_anything(noise)
+
+    # A real effect still has to get through.
+    real = {
+        f"option{i}": [rng.gauss(0.05 + i * 0.004, 0.03) for _ in range(200)] for i in range(16)
+    }
+    assert _explains_anything(real)
+
+
+def test_the_noise_guard_is_not_fooled_by_lopsided_groups():
+    """Best-minus-worst was the old statistic and it broke on uneven groups.
+
+    A column with a couple of hundred options, most holding a handful of rows,
+    produces a huge best-to-worst range from noise alone — so a genuine effect
+    could not clear its own shuffled baseline, and a spurious one could.
+    """
+    import random as _random
+
+    from auteur.insight.score import _explains_anything
+
+    rng = _random.Random(12)
+    many_tiny = {f"o{i}": [rng.gauss(0.1, 0.03) for _ in range(3)] for i in range(190)}
+    assert not _explains_anything(many_tiny)
+
+    lopsided = {"huge": [rng.gauss(0.1, 0.03) for _ in range(2000)]}
+    lopsided.update({f"t{i}": [rng.gauss(0.1, 0.03) for _ in range(3)] for i in range(50)})
+    assert not _explains_anything(lopsided)
+
+    # Weighted by evidence, a real effect carried by the big groups survives.
+    carried = {
+        "big_low": [rng.gauss(0.08, 0.03) for _ in range(800)],
+        "big_high": [rng.gauss(0.13, 0.03) for _ in range(800)],
+    }
+    assert _explains_anything(carried)
+
+
+def test_the_noise_guard_refuses_degenerate_input():
+    from auteur.insight.score import _explains_anything
+
+    assert not _explains_anything({})
+    assert not _explains_anything({"only": [0.1] * 50})
+    assert not _explains_anything({"a": [0.1], "b": [0.2]})  # too few rows per group
+    assert not _explains_anything({f"o{i}": [0.05] * 100 for i in range(5)})  # no variance
+
+
+# --------------------------------------------------------------- training data
+
+
+def test_the_generator_is_reproducible_without_being_handed_a_seed():
+    """It derived its default seed from `hash()`, which is salted per process."""
+    from auteur.training.generate import generate_domain
+
+    first = generate_domain("color_theory", rows=8)
+    second = generate_domain("color_theory", rows=8)
+    assert [row["avg_watch_time_pct"] for row in first] == [
+        row["avg_watch_time_pct"] for row in second
+    ]
+    # A different domain is still different data.
+    other = generate_domain("music_theory", rows=8)
+    assert [r["avg_watch_time_pct"] for r in first] != [r["avg_watch_time_pct"] for r in other]
+
+
+def test_the_creative_choices_actually_move_the_numbers():
+    """Every lever was drawn at random and then never referred to again.
+
+    So palette, bias, audio anchor and primary lever were noise columns bolted
+    onto unrelated performance figures, and a crew trained on it would learn
+    the single lesson the data contained: nothing you choose matters.
+    """
+    import statistics
+
+    from auteur.training.generate import _effect, generate_domain
+
+    rows = generate_domain("color_theory", rows=1200, seed=7)
+
+    by_palette: dict[str, list[float]] = {}
+    for row in rows:
+        by_palette.setdefault(row["color_theory_palette"], []).append(
+            float(row["click_through_rate_pct"])
+        )
+
+    values = [v for bucket in by_palette.values() for v in bucket]
+    grand = statistics.mean(values)
+    explained = sum(
+        len(bucket) * (statistics.mean(bucket) - grand) ** 2 for bucket in by_palette.values()
+    ) / sum((v - grand) ** 2 for v in values)
+    assert explained > 0.02, "the palette has to explain something, or the dataset teaches nothing"
+
+    # And the direction has to match the effect the generator actually applied,
+    # or the signal is real but backwards.
+    ranked = sorted(by_palette, key=lambda name: -statistics.mean(by_palette[name]))
+    assert _effect(ranked[0], "palette") > _effect(ranked[-1], "palette")
+
+
+def test_generated_rows_carry_rates_not_only_counts():
+    """Every count is views x rate, and views is lognormal with a 2.5x spread.
+
+    So correlating the counts measures the view multiplier: the generator's own
+    "shares follow completion" relationship came out at r = 0.10 in the counts
+    while being true by construction.
+    """
+    from auteur.training.generate import generate_domain
+
+    row = generate_domain("photography", rows=1, seed=3)[0]
+    for column in ("share_to_view_ratio", "save_to_view_ratio", "three_second_watch_rate"):
+        assert column in row, f"{column} is what the insight layer actually reads"
+        assert 0.0 <= float(row[column]) <= 1.0
