@@ -5923,12 +5923,17 @@ class _RecordedCollections:
             return (self.folder / url[len("pic://") :]).read_bytes()
         if url.startswith("iiif/"):
             return (self.folder / (url.split("/")[1] + ".png")).read_bytes()
-        # Matched on the host, not on a substring of the whole URL: "artic.edu"
-        # appears in a path or a query string just as happily as in a hostname.
-        host = urlsplit(url).hostname or ""
-        if host.endswith("metmuseum.org") and "/search?" in url:
+        # Matched on the host, and on the whole of it. A substring of the
+        # URL matches a path or a query string; `endswith` on the hostname
+        # matches evilmetmuseum.org. Neither is what "is this the Met" means.
+        host = (urlsplit(url).hostname or "").lower()
+
+        def served_by(domain):
+            return host == domain or host.endswith("." + domain)
+
+        if served_by("metmuseum.org") and "/search?" in url:
             return _json.dumps({"total": 2, "objectIDs": [101, 102]}).encode()
-        if host.endswith("metmuseum.org") and "/objects/101" in url:
+        if served_by("metmuseum.org") and "/objects/101" in url:
             return _json.dumps(
                 {
                     "objectID": 101,
@@ -5941,7 +5946,7 @@ class _RecordedCollections:
                     "objectURL": "https://www.metmuseum.org/art/collection/search/101",
                 }
             ).encode()
-        if host.endswith("metmuseum.org") and "/objects/102" in url:
+        if served_by("metmuseum.org") and "/objects/102" in url:
             return _json.dumps(
                 {
                     "objectID": 102,
@@ -5953,7 +5958,7 @@ class _RecordedCollections:
                     "objectURL": "x",
                 }
             ).encode()
-        if host.endswith("artic.edu"):
+        if served_by("artic.edu"):
             return _json.dumps(
                 {
                     "config": {"iiif_url": "iiif"},
@@ -5969,7 +5974,7 @@ class _RecordedCollections:
                     ],
                 }
             ).encode()
-        if host.endswith("clevelandart.org"):
+        if served_by("clevelandart.org"):
             return _json.dumps({"data": []}).encode()
         raise RuntimeError(f"unexpected url {url}")
 
@@ -6000,7 +6005,8 @@ def test_one_collection_being_down_is_a_smaller_search_not_a_failed_one(tmp_path
         def get(self, url, *, headers=None):
             from urllib.parse import urlsplit
 
-            if (urlsplit(url).hostname or "").endswith("artic.edu"):
+            host = (urlsplit(url).hostname or "").lower()
+            if host == "api.artic.edu" or host.endswith(".artic.edu"):
                 raise OSError("connection refused")
             return super().get(url, headers=headers)
 
