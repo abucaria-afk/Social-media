@@ -5136,3 +5136,52 @@ def test_no_benchmark_means_no_standing(tmp_path):
     marks = Benchmarks(tmp_path / "none.json")
     assert marks.standing(_reading(), 0.8) is None
     assert "nothing to beat yet" in marks.describe()
+
+
+# --------------------------------------------------------- gaming the craft score
+
+
+def test_a_destroyed_picture_cannot_score_well_however_tidy_its_palette():
+    """A rehearsal loop found this exploit in nine generations.
+
+    Given a grade that blew out 55% of every frame, separation and palette both
+    went *up* — a bloom makes the sharp/soft ratio look like depth, and one
+    colour smeared everywhere looks like discipline — and it beat the target it
+    was chasing while being visibly the worst render of the three.
+    """
+    from auteur.insight.benchmark import CraftScore
+
+    destroyed = CraftScore(separation=1.0, subject=1.0, palette=1.0, exposure=0.1, clipped=0.55)
+    modest = CraftScore(separation=0.39, subject=0.6, palette=0.56, exposure=0.83, clipped=0.02)
+    assert modest.overall > destroyed.overall
+    assert destroyed.intact < 0.15
+
+
+def test_a_monochrome_wash_is_not_a_disciplined_palette():
+    """ "Narrower is better" made a single-colour smear a perfect score."""
+    from auteur.insight.benchmark import craft_score
+
+    wash = craft_score(_reading(hue_spread=2.0))
+    graded = craft_score(_reading(hue_spread=30.0))
+    uncontrolled = craft_score(_reading(hue_spread=85.0))
+
+    assert graded.palette > wash.palette, "one colour everywhere is a wash, not a look"
+    assert graded.palette > uncontrolled.palette
+
+
+def test_clipping_is_measured_off_the_frame():
+    """Nothing in a Reading could see destroyed detail before this."""
+    import numpy as np
+
+    from auteur.vision.connoisseur import read_frame
+
+    height, width = 90, 160
+    fine = np.linspace(0.15, 0.75, width, dtype=np.float32)
+    fine = np.repeat(fine[None, :], height, axis=0)
+    intact = read_frame(np.stack([fine] * 3, axis=-1))
+
+    ruined = np.clip((fine - 0.4) * 6.0, 0.0, 1.0).astype(np.float32)
+    crushed = read_frame(np.stack([ruined] * 3, axis=-1))
+
+    assert crushed.clipped > intact.clipped
+    assert crushed.clipped > 0.2

@@ -62,6 +62,23 @@ chapters and captions — it never downloads video. Asking needs ANTHROPIC_API_K
 Without either it tells you so rather than reporting an empty success.
 """
 
+REHEARSE_EXAMPLES = """examples:
+  auteur rehearse ./footage -n 30
+  auteur rehearse ./footage --forever
+  auteur rehearse ./footage --against pulkitxx -l 6
+
+The crew argues about one edit for three rounds and stops, which is right for
+someone waiting on a render and wrong for getting better at this. This runs the
+other loop: build a candidate, measure it on both yardsticks, change something,
+build again — far more times than anybody would sit through.
+
+It does not stop when it passes the target. It raises the bar to what it just
+achieved and carries on, because a goal stops being useful the moment it is met.
+
+What it cannot do is make the footage better. If the source has no depth in it,
+no amount of rehearsal invents any, and the loop says so rather than grinding.
+"""
+
 BENCHMARK_EXAMPLES = """examples:
   auteur benchmark add ./thegoal.mp4 --name pulkitxx
   auteur benchmark                          what is being chased, hardest first
@@ -142,7 +159,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{edit,workflow,benchmark,agents,scholar,insight,media,schedule,demo,serve,account,analyse,looks}",
+        metavar="{edit,workflow,rehearse,benchmark,agents,scholar,insight,media,schedule,demo,serve,account,analyse,looks}",
     )
 
     edit = sub.add_parser(
@@ -354,6 +371,38 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     insight.add_argument("-o", "--out", default=None, metavar="FILE", help="where to write")
     insight.add_argument("--json", action="store_true", help="machine-readable output")
+
+    rehearse = sub.add_parser(
+        "rehearse",
+        help="build, measure, change, rebuild — until the target is passed, then again",
+        epilog=REHEARSE_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    rehearse.add_argument("paths", nargs="+", metavar="FOOTAGE")
+    rehearse.add_argument(
+        "-n",
+        "--generations",
+        type=int,
+        default=20,
+        help="how many candidates to build and measure (default 20)",
+    )
+    rehearse.add_argument(
+        "--forever",
+        action="store_true",
+        help="never stop — the loop is the point, not any one film it makes",
+    )
+    rehearse.add_argument(
+        "--against", default=None, metavar="NAME", help="which benchmark to chase"
+    )
+    rehearse.add_argument(
+        "-l",
+        "--length",
+        type=float,
+        default=8.0,
+        metavar="SECONDS",
+        help="how long each candidate is (short is faster and enough to measure)",
+    )
+    rehearse.add_argument("--seed", type=int, default=None)
 
     bench = sub.add_parser(
         "benchmark",
@@ -1206,6 +1255,77 @@ def _run_score(args: argparse.Namespace, say: Reporter) -> int:
     return 0
 
 
+def _run_rehearse(args: argparse.Namespace, say: Reporter) -> int:
+    """Build, measure, change, rebuild. The other loop."""
+    from .insight.benchmark import Benchmarks
+    from .training.rehearse import Rehearsal
+
+    footage: list[Path] = []
+    for entry in args.paths:
+        path = Path(entry)
+        if path.is_dir():
+            footage.extend(sorted(p for p in path.iterdir() if p.is_file()))
+        elif path.exists():
+            footage.append(path)
+    if not footage:
+        say.failure("nothing to rehearse with", "point at a folder or some files")
+        return 2
+
+    marks = Benchmarks()
+    target = marks.entries.get(args.against) if args.against else marks.hardest
+    if target is None:
+        say.warn("no benchmark to chase — add one with `auteur benchmark add <video>`")
+    else:
+        say.detail(
+            f"chasing {target.name}: craft {target.craft.overall:.2f}, "
+            f"structure {target.structure:.2f}"
+        )
+
+    loop = Rehearsal(
+        footage,
+        benchmark=target,
+        seconds=max(3.0, args.length),
+        seed=args.seed if args.seed is not None else 0xB0A7,
+    )
+
+    def report(attempt, progress) -> None:
+        best = progress.best is attempt
+        flag = "  ← best" if best else ""
+        if attempt.beat_target:
+            flag = "  ← PASSED THE TARGET, bar raised"
+        print(
+            f"     gen {attempt.generation:3}  {attempt.recipe.preset:13} "
+            f"craft {attempt.craft:.3f}  structure {attempt.structure:.3f}"
+            f"  combined {attempt.combined:.3f}{flag}",
+            flush=True,
+        )
+
+    say.banner(
+        f"rehearsing on {len(footage)} file(s)"
+        + (
+            "  ·  forever, ctrl-c to stop"
+            if args.forever
+            else f"  ·  {args.generations} generations"
+        )
+    )
+    try:
+        if args.forever:
+            loop.forever(on_generation=lambda a, p: None)
+        else:
+            loop.run(generations=args.generations, on_generation=report)
+    except KeyboardInterrupt:
+        say.detail("stopped")
+
+    print()
+    for line in loop.progress.describe().splitlines():
+        print(f"     {line}")
+    ceiling = loop.ceiling()
+    if ceiling:
+        say.warn(ceiling)
+    say.detail(f"the winning settings are saved to {loop.recipe_path}")
+    return 0
+
+
 def _run_benchmark(args: argparse.Namespace, say: Reporter) -> int:
     """The films the work is chasing, and what it would take to pass them."""
     import json as _json
@@ -1635,6 +1755,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_agents(args, say)
         if args.command == "benchmark":
             return _run_benchmark(args, say)
+        if args.command == "rehearse":
+            return _run_rehearse(args, say)
     except KeyboardInterrupt:
         say.failure("stopped")
         return 130

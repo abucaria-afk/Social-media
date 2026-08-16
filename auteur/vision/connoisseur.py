@@ -86,6 +86,9 @@ class Reading:
     balance: float = 0.0
     #: Fraction of the frame that carries most of the detail.
     busy: float = 0.0
+    #: Fraction of pixels crushed to black or blown to white. Detail that is
+    #: gone rather than dark: no grade recovers it and no compressor helps.
+    clipped: float = 0.0
     contrast: float = 0.0
     luma: float = 0.0
     #: Secondary places the eye goes, best first.
@@ -392,6 +395,10 @@ def read_frame(frame: np.ndarray) -> Reading:
     busy = float((salience > float(salience.max()) * 0.35).mean())
     contrast = float(gray.std())
     luma = float(gray.mean())
+    # Detail that is gone rather than merely dark. A frame can sit at a
+    # perfectly respectable mean brightness with a third of it crushed flat,
+    # and nothing else measured here would notice.
+    clipped = float(((gray <= 0.02) | (gray >= 0.98)).mean())
     tilt = _tilt(gray)
 
     reading = Reading(
@@ -407,6 +414,7 @@ def read_frame(frame: np.ndarray) -> Reading:
         busy=busy,
         contrast=contrast,
         luma=luma,
+        clipped=clipped,
         secondary=tuple(secondary[:2]),
     )
 
@@ -519,6 +527,7 @@ def _consensus(readings: list[Reading]) -> Reading:
         busy=median("busy"),
         contrast=median("contrast"),
         luma=median("luma"),
+        clipped=median("clipped"),
         secondary=readings[0].secondary,
     )
     seen: set[str] = set()

@@ -66,15 +66,34 @@ class CraftScore:
     palette: float = 0.0
     #: Neither crushed nor blown, with real tonal range in between.
     exposure: float = 0.0
+    #: Fraction of the picture destroyed. Not a dimension — a disqualifier.
+    clipped: float = 0.0
+
+    @property
+    def intact(self) -> float:
+        """How much of the picture is still there, 0..1.
+
+        Clipping multiplies the whole score rather than averaging into it,
+        because it does not trade against the other qualities: a frame with half
+        its pixels crushed to black is not two-thirds of a good frame.
+
+        A rehearsal loop found this the hard way. Given a grade that blew out
+        55% of every frame, the other three measures went *up* — a bloom makes
+        the sharp/soft ratio look like depth, and one colour smeared everywhere
+        looks like a disciplined palette — and it scored higher than the target
+        it was chasing while being visibly the worst render of the three.
+        """
+        return _clamp(1.0 - _clamp(self.clipped / 0.25) * 0.9)
 
     @property
     def overall(self) -> float:
-        return (
+        raw = (
             self.separation * CRAFT_WEIGHTS["separation"]
             + self.subject * CRAFT_WEIGHTS["subject"]
             + self.palette * CRAFT_WEIGHTS["palette"]
             + self.exposure * CRAFT_WEIGHTS["exposure"]
         )
+        return raw * self.intact
 
     @property
     def weakest(self) -> tuple[str, float]:
@@ -93,6 +112,8 @@ class CraftScore:
             "subject": round(self.subject, 4),
             "palette": round(self.palette, 4),
             "exposure": round(self.exposure, 4),
+            "clipped": round(self.clipped, 4),
+            "intact": round(self.intact, 4),
             "overall": round(self.overall, 4),
         }
 
@@ -100,7 +121,9 @@ class CraftScore:
         return (
             f"craft {self.overall:.2f}  "
             f"(separation {self.separation:.2f}, subject {self.subject:.2f}, "
-            f"palette {self.palette:.2f}, exposure {self.exposure:.2f})"
+            f"palette {self.palette:.2f}, exposure {self.exposure:.2f}"
+            + (f", {self.clipped:.0%} of the picture clipped" if self.clipped > 0.03 else "")
+            + ")"
         )
 
 
@@ -120,13 +143,22 @@ def craft_score(reading) -> CraftScore:
     # against a theoretical 1.0 nothing reaches.
     subject = _clamp(reading.focus_strength / 0.35)
 
-    # Hue spread: under 30 degrees is a palette somebody chose, over 90 is a
-    # palette nobody did.
-    palette = _clamp((90.0 - reading.hue_spread) / 60.0)
+    # Hue spread wants a *band*, not a minimum. This was "narrower is better",
+    # and a rehearsal loop pointed at it found the obvious exploit within nine
+    # generations: smear the whole film one colour and the spread goes to zero
+    # for a perfect score. The winning grade was a magenta bloom that destroyed
+    # every frame and scored 1.00 here.
+    #
+    # A graded palette is disciplined, not absent. Under about 12 degrees there
+    # is one colour and no relationships, which is a wash rather than a look;
+    # over 90 nobody chose anything. The target measured 28.
+    spread = reading.hue_spread
+    if spread < 12.0:
+        palette = _clamp(spread / 12.0) * 0.7
+    else:
+        palette = _clamp((90.0 - spread) / 55.0)
 
-    # Exposure wants headroom at both ends and real range in between. Crushed
-    # blacks and blown highlights both lose the picture, and a platform's
-    # compression finds a very dark frame hard.
+    # Exposure wants headroom at both ends and real range in between.
     luma = reading.luma
     if luma < 0.10 or luma > 0.80:
         headroom = 0.0
@@ -134,9 +166,19 @@ def craft_score(reading) -> CraftScore:
         # Peaks around 0.30, which is where cinematic footage of this kind sits.
         headroom = _clamp(1.0 - abs(luma - 0.30) / 0.45)
     tonal = _clamp(reading.contrast / 0.22)
-    exposure = _clamp(headroom * 0.6 + tonal * 0.4)
+    # Clipping is subtracted rather than averaged in, because it is not a
+    # quality that trades against the others — it is detail that no longer
+    # exists. A tenth of the frame crushed or blown costs half the score.
+    ruined = _clamp(reading.clipped / 0.20)
+    exposure = _clamp((headroom * 0.6 + tonal * 0.4) * (1.0 - ruined * 0.85))
 
-    return CraftScore(separation=separation, subject=subject, palette=palette, exposure=exposure)
+    return CraftScore(
+        separation=separation,
+        subject=subject,
+        palette=palette,
+        exposure=exposure,
+        clipped=reading.clipped,
+    )
 
 
 @dataclass
@@ -193,6 +235,7 @@ class Benchmark:
                 subject=craft.get("subject", 0.0),
                 palette=craft.get("palette", 0.0),
                 exposure=craft.get("exposure", 0.0),
+                clipped=craft.get("clipped", 0.0),
             ),
             cuts_per_10s=data.get("cuts_per_10s", 0.0),
             shot_seconds=data.get("shot_seconds", 0.0),
