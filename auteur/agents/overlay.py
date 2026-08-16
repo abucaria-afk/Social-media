@@ -48,6 +48,33 @@ HAS_SUBJECT = 0.18
 #: something they would not have worked out unaided.
 OFF_CENTRE = 0.16
 
+#: How many stickers may share the screen at once. One is a watermark. Two or
+#: three read as a layer over the film, which is the thing the reference reels
+#: do and the thing a single sticker per shot cannot ever be. Four is a mood
+#: board — at that point the picture is competing with the decoration.
+MAX_LAYERS = 3
+
+#: Off the downbeat, fire on every other beat. Firing on all of them at three
+#: layers puts something new on screen ten times a second, which stops reading
+#: as rhythm and starts reading as noise.
+BEAT_STRIDE = 2
+
+#: A ceiling on the whole pass, so a four-minute track cannot turn into two
+#: hundred plates of PNG for marks nobody is still watching.
+MOST_STICKERS = 36
+
+#: Places a sticker can sit that are not the middle and not the caption band.
+#: Scored against the subject at placement time; this is only the shortlist.
+LANES: tuple[tuple[float, float], ...] = (
+    (0.20, 0.22),
+    (0.50, 0.16),
+    (0.80, 0.22),
+    (0.15, 0.47),
+    (0.85, 0.47),
+    (0.22, 0.72),
+    (0.78, 0.72),
+)
+
 
 def _shot_windows(edl: EditDecisionList) -> list[tuple[float, float, str]]:
     """(start, end, clip id) for every shot on the finished timeline."""
@@ -60,8 +87,65 @@ def _clear_of(cue: GraphicCue, existing: list[GraphicCue], gap: float = 0.25) ->
     Two marks at once is a busy frame; three is a slideshow template. Time
     overlap is what matters, not position, because the eye only has one place
     to be.
+
+    Applies to the *drawn* marks — the ring, the bracket, the arrow. Stickers
+    are deliberately exempt and use `_lanes_free_at` instead: layering is the
+    whole point of them.
     """
     return all(cue.start >= other.end + gap or cue.end + gap <= other.start for other in existing)
+
+
+#: Two stickers closer together than this are one sticker with a shadow.
+TOO_CLOSE = 0.14
+
+
+def _lane_spots(
+    reading: Reading | None,
+    count: int,
+    spec=None,
+    avoid: list[tuple[float, float]] | None = None,
+) -> list[tuple[float, float]]:
+    """`count` places to put a sticker that are not on the subject or on each other.
+
+    The first is the emptiest quadrant, which is the same answer the titles get
+    and the best single spot in the frame. The rest are chosen greedily from the
+    shortlist to be far from the subject *and* far from the spots already taken,
+    because three stickers stacked in one corner is one sticker with a shadow.
+
+    `avoid` is where the stickers *already on screen* are sitting. Without it a
+    sticker arriving on the third beat lands on top of one that arrived on the
+    downbeat and is still there — the spots are recomputed per beat, so lane
+    numbers alone do not keep them apart.
+    """
+
+    def apart(spot: tuple[float, float], others: list[tuple[float, float]]) -> float:
+        if not others:
+            return 1.0
+        return min(((spot[0] - o[0]) ** 2 + (spot[1] - o[1]) ** 2) ** 0.5 for o in others)
+
+    taken = list(avoid or [])
+    subject = reading.focus if reading is not None else (0.5, 0.5)
+    chosen: list[tuple[float, float]] = []
+    if reading is not None:
+        best_spot = emptiest_quadrant(reading)
+        if apart(best_spot, taken) >= TOO_CLOSE:
+            chosen.append(best_spot)
+
+    while len(chosen) < count:
+        best, best_score = None, -1.0
+        for spot in (s for s in LANES if s not in chosen):
+            # Distance from the subject matters most; distance from the other
+            # stickers stops them clumping. Both, or they pile into one corner.
+            score = apart(spot, [subject]) + 1.4 * apart(spot, chosen + taken)
+            if score > best_score:
+                best, best_score = spot, score
+        if best is None:
+            break
+        chosen.append(best)
+
+    if spec is not None:
+        chosen = [spec.safe.clamp(spot) for spot in chosen]
+    return chosen[:count]
 
 
 class OverlayAgent:
@@ -274,7 +358,7 @@ class OverlayAgent:
                 break  # one arrow in a film. Two is a diagram.
 
         # --- 5. The user's own stickers ----------------------------------
-        proposals.extend(self._sticker_proposals(windows, existing))
+        proposals.extend(self._sticker_proposals(edl, windows, existing))
         return proposals
 
     def _ask_about_flat_footage(self, weak: list) -> Proposal | None:
@@ -312,14 +396,42 @@ class OverlayAgent:
             risk=Risk.LOW,
         )
 
-    def _sticker_proposals(
-        self, windows: list[tuple[float, float, str]], existing: list[GraphicCue]
-    ) -> list[Proposal]:
-        """Place supplied PNGs in space the subject is not using.
+    def _grid(self, edl: EditDecisionList, windows: list[tuple[float, float, str]]):
+        """The times to hang stickers on, and whether each one is a downbeat.
 
-        Deliberately conservative: one sticker per shot at most, never on the
-        opening shot (the hook has one job), and only on shots with a subject
-        clear enough that "away from it" means something.
+        The music's beat grid if the director left one — it does now, which is
+        the whole reason this pass can exist. Failing that, the cuts: an edit
+        has a pulse whether or not there is a track under it, and landing on
+        the cut is the next best thing to landing on the snare.
+        """
+        beats = list(getattr(edl.music, "beats", []) or [])
+        if beats:
+            downbeats = {round(b, 2) for b in getattr(edl.music, "downbeats", []) or []}
+            return [(b, round(b, 2) in downbeats) for b in beats], "the beat grid"
+        # No music. The cuts are the rhythm — every fourth one stands in for a
+        # downbeat, which is what a four-bar phrase would have given us anyway.
+        return [(start, index % 4 == 0) for index, (start, _, _) in enumerate(windows)], "the cuts"
+
+    def _sticker_proposals(
+        self,
+        edl: EditDecisionList,
+        windows: list[tuple[float, float, str]],
+        existing: list[GraphicCue],
+    ) -> list[Proposal]:
+        """Hang the supplied PNGs on the beat, several at a time, in layers.
+
+        The old rule here was one sticker per shot, at most one on screen at any
+        moment, each file used once. That is a caption, not a layer — and it is
+        not what the reels being chased do: they carry two or three marks at
+        once, arriving on the beat and leaving on the next one, the same few
+        images recurring until they read as the film's own vocabulary.
+
+        So: lanes rather than slots. Up to `MAX_LAYERS` stickers live at a time,
+        each in a place the reading says the subject is not, each popping onto a
+        beat and holding for a musical length. Downbeats get the bigger, more
+        opaque arrival; the beats between get something smaller that wiggles.
+        The supplied files cycle, because a set of stickers used once each is a
+        set of stickers nobody noticed.
         """
         # The crew runs several rounds, and a proposal that does not look at what
         # is already on the timeline gets applied again in each one. Every other
@@ -327,27 +439,69 @@ class OverlayAgent:
         if not self.stickers or any(cue.kind == "sticker" for cue in existing):
             return []
 
+        marks, grid_name = self._grid(edl, windows)
+        if not marks:
+            return []
+
         placements: list[GraphicCue] = []
-        for index, (start, end, clip) in enumerate(windows[1:], start=1):
-            if len(placements) >= len(self.stickers) or end - start < 0.8:
+        #: When each lane next comes free. A lane is a place on screen, so a
+        #: lane that is busy is a lane whose sticker is still there.
+        free_at = [0.0] * MAX_LAYERS
+        since_downbeat = 0
+
+        for index, (at, is_downbeat) in enumerate(marks):
+            if len(placements) >= MOST_STICKERS:
+                break
+            # The hook has one job. Nothing decorates the first half second.
+            if at < 0.5:
                 continue
-            reading = self.readings.get(clip)
-            if reading is None or reading.focus_strength < HAS_SUBJECT:
-                continue
-            spot = emptiest_quadrant(reading)
-            if self.spec is not None:
-                spot = self.spec.safe.clamp(spot)
-            cue = GraphicCue(
-                kind="sticker",
-                start=round(start + 0.12, 3),
-                duration=round(min(2.0, end - start - 0.12), 3),
-                anchor=spot,
-                move="wiggle",
-                source=self.stickers[len(placements)],
-                note=f"your sticker, clear of the subject in shot {index + 1}",
-            )
-            if cue.duration > 0.3 and _clear_of(cue, existing + placements, gap=0.0):
+            if not is_downbeat:
+                since_downbeat += 1
+                if since_downbeat % BEAT_STRIDE:
+                    continue
+            else:
+                since_downbeat = 0
+
+            # A downbeat is a hit: several arrive together and hold through the
+            # phrase, so they are still there when the beats between them fire.
+            # That overlap *is* the layering — one lane filled at a time would
+            # just be the old one-at-a-time pass with better timing.
+            ahead = marks[index + 1 :]
+            if is_downbeat:
+                nxt = next((t for t, down in ahead if down), None)
+                span = (nxt - at) if nxt is not None else 1.6
+                # One lane is deliberately left open, for the beats in between.
+                want = MAX_LAYERS - 1
+            else:
+                span = (ahead[0][0] - at) if ahead else 0.6
+                want = 1
+            duration = max(0.25, min(2.4, span * 0.95))
+
+            free = [n for n in range(MAX_LAYERS) if free_at[n] <= at + 1e-6]
+            if not free:
+                continue  # every lane still occupied — this beat gets nothing
+
+            reading = self._reading_at(at, windows)
+            live = [cue.anchor for cue in placements if cue.end > at]
+            spots = _lane_spots(reading, len(free[:want]), self.spec, avoid=live)
+            for slot, lane in enumerate(free[:want]):
+                if len(placements) >= MOST_STICKERS or slot >= len(spots):
+                    break
+                cue = GraphicCue(
+                    kind="sticker",
+                    start=round(at, 3),
+                    duration=round(duration, 3),
+                    anchor=spots[slot],
+                    # A downbeat is an arrival: overshoot in. The beats between
+                    # are already-there things reacting, so they wiggle.
+                    move="pop" if is_downbeat else "wiggle",
+                    size=1.15 if is_downbeat else 0.85,
+                    opacity=1.0 if is_downbeat else 0.82,
+                    source=self.stickers[len(placements) % len(self.stickers)],
+                    note=("downbeat" if is_downbeat else "beat") + f", layer {lane + 1}",
+                )
                 placements.append(cue)
+                free_at[lane] = cue.end
 
         if not placements:
             return []
@@ -356,15 +510,20 @@ class OverlayAgent:
             target.graphics.extend(cues)
 
         names = ", ".join(sorted({c.source.name for c in placements if c.source})[:3])
+        layered = self._most_at_once(placements)
+        tempo = getattr(edl.music, "tempo", 0.0)
         return [
             Proposal(
                 agent=self.name,
-                title=f"Place {len(placements)} of your stickers",
+                title=f"Layer {len(placements)} sticker hits onto {grid_name}",
                 reason=(
-                    f"Using {names}. Each one goes in the quadrant the reading says the "
-                    "subject is not in, so it decorates the dead space rather than the "
-                    "picture, and each carries a slow rotation — a sticker that sits "
-                    "perfectly still reads as a watermark."
+                    f"Using {names}, cycling, "
+                    + (f"on {tempo:.0f} BPM. " if tempo else "on the cuts. ")
+                    + f"Up to {layered} on screen at once, in lanes the reading says the "
+                    "subject is not using. Downbeats pop in bigger and hold through the "
+                    "phrase; the beats between wiggle in smaller underneath. One sticker "
+                    "sitting still through a shot is a watermark — this is the film "
+                    "keeping time with itself."
                 ),
                 change=place,
                 objective=self.objective,
@@ -372,3 +531,20 @@ class OverlayAgent:
                 risk=Risk.LOW,
             )
         ]
+
+    def _reading_at(self, when: float, windows) -> Reading | None:
+        """The reading of whatever is on screen at this moment on the timeline."""
+        for start, end, clip in windows:
+            if start <= when < end:
+                return self.readings.get(clip)
+        return self.readings.get(windows[-1][2]) if windows else None
+
+    @staticmethod
+    def _most_at_once(cues: list[GraphicCue]) -> int:
+        """The busiest instant, for the sentence that has to justify it."""
+        edges = sorted([(c.start, 1) for c in cues] + [(c.end, -1) for c in cues])
+        live = most = 0
+        for _, delta in edges:
+            live += delta
+            most = max(most, live)
+        return most

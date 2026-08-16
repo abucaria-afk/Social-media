@@ -401,6 +401,14 @@ class MusicCue:
     #: Duck the music under source dialogue.
     duck: bool = True
     duck_amount: float = 0.55
+    #: Where the beats fall *on the finished timeline*, already offset-corrected.
+    #: The director, the grammar and the critic each recomputed this from the
+    #: audio analysis and none of them wrote it down, so an agent — which never
+    #: sees the analysis — had no way to put anything on a beat. Anything that
+    #: wants to move in time with the music reads these.
+    beats: list = field(default_factory=list)
+    downbeats: list = field(default_factory=list)
+    tempo: float = 0.0
 
 
 @dataclass
@@ -672,6 +680,9 @@ class EditDecisionList:
             ],
             "music": {
                 "source": str(self.music.source) if self.music.source else None,
+                "tempo": round(self.music.tempo, 2),
+                "beats": [round(b, 3) for b in self.music.beats[:512]],
+                "downbeats": [round(b, 3) for b in self.music.downbeats[:128]],
                 "offset": round(self.music.offset, 3),
                 "gain": round(self.music.gain, 3),
                 "duck": self.music.duck,

@@ -4356,6 +4356,131 @@ def test_the_overlay_agent_does_not_stack_a_second_set_of_stickers(tmp_path):
     assert again == [], "stickers were proposed a second time on top of the ones already there"
 
 
+def _beat_edl(tmp_path, *, bpm=120.0, bars=6, count=6):
+    """The graphics timeline, with a beat grid on it like a director leaves."""
+    from auteur.edl import MusicCue
+
+    edl = _graphics_edl(tmp_path, count=count, seconds=2.0)
+    step = 60.0 / bpm
+    beats = [round(step * n, 4) for n in range(1, bars * 4 + 1)]
+    edl.music = MusicCue(
+        source=tmp_path / "track.wav",
+        beats=beats,
+        downbeats=[b for index, b in enumerate(beats) if index % 4 == 0],
+        tempo=bpm,
+    )
+    return edl
+
+
+def test_the_director_writes_the_beat_grid_onto_the_edl():
+    """Nothing downstream of the director can see the audio analysis.
+
+    The grid used to be recomputed in three places and written down in none, so
+    an agent holding an EDL had no way to put anything on a beat.
+    """
+    from auteur.director.heuristic import beat_grid
+
+    class _Audio:
+        has_beat = True
+        tempo = 128.0
+        beats = [0.5, 1.0, 1.5, 2.0, 2.5]
+        downbeats = [0.5, 2.5]
+
+    beats, downbeats, tempo = beat_grid(_Audio(), 0.5)
+    assert beats == [0.5, 1.0, 1.5, 2.0]  # offset subtracted, the one at zero dropped
+    assert downbeats == [2.0]
+    assert tempo == 128.0
+
+    # A brief that asked not to be cut to the music does not get stickers on
+    # the snare either.
+    assert beat_grid(_Audio(), 0.5, enabled=False) == ([], [], 0.0)
+    assert beat_grid(None, 0.0) == ([], [], 0.0)
+    # Nothing past the end of the film.
+    assert beat_grid(_Audio(), 0.5, runtime=1.2)[0] == [0.5, 1.0]
+
+
+def test_stickers_land_on_the_beat_and_share_the_screen(tmp_path):
+    """Not one per cut: several at once, arriving on the grid."""
+    from PIL import Image
+
+    from auteur.agents import OverlayAgent
+    from auteur.agents.overlay import MAX_LAYERS
+
+    stickers = []
+    for name, colour in (("a.png", (255, 0, 0, 220)), ("b.png", (0, 255, 0, 220))):
+        path = tmp_path / name
+        Image.new("RGBA", (90, 90), colour).save(path)
+        stickers.append(path)
+
+    edl = _beat_edl(tmp_path)
+    _, readings, prediction, model = _overlay_bits(tmp_path, count=6)
+    agent = OverlayAgent(readings, stickers=stickers)
+
+    placed = [p for p in agent.inspect(edl, prediction, model) if "sticker" in p.title]
+    assert len(placed) == 1
+    placed[0].change(edl)
+
+    cues = [g for g in edl.graphics if g.kind == "sticker"]
+    assert len(cues) > len(edl.shots), "still one sticker per shot"
+
+    grid = set(edl.music.beats)
+    assert all(round(cue.start, 4) in grid for cue in cues), "a sticker missed the beat"
+
+    at_once = agent._most_at_once(cues)
+    assert 2 <= at_once <= MAX_LAYERS, f"{at_once} on screen at once"
+
+    # Both files get used, because a set of stickers used once each is a set
+    # nobody noticed.
+    assert {cue.source.name for cue in cues} == {"a.png", "b.png"}
+
+
+def test_layered_stickers_do_not_sit_on_top_of_each_other(tmp_path):
+    """Three in one corner is one sticker with a shadow."""
+    import itertools
+
+    from PIL import Image
+
+    from auteur.agents import OverlayAgent
+    from auteur.agents.overlay import TOO_CLOSE
+
+    sticker = tmp_path / "s.png"
+    Image.new("RGBA", (90, 90), (255, 200, 0, 220)).save(sticker)
+
+    edl = _beat_edl(tmp_path)
+    _, readings, prediction, model = _overlay_bits(tmp_path, count=6)
+    agent = OverlayAgent(readings, stickers=[sticker])
+    [p for p in agent.inspect(edl, prediction, model) if "sticker" in p.title][0].change(edl)
+
+    cues = [g for g in edl.graphics if g.kind == "sticker"]
+    for one, other in itertools.combinations(cues, 2):
+        if one.start < other.end and other.start < one.end:
+            gap = (
+                (one.anchor[0] - other.anchor[0]) ** 2 + (one.anchor[1] - other.anchor[1]) ** 2
+            ) ** 0.5
+            assert gap >= TOO_CLOSE, f"two stickers stacked at {one.anchor} and {other.anchor}"
+
+
+def test_without_music_the_stickers_fall_on_the_cuts(tmp_path):
+    """An edit has a pulse whether or not there is a track under it."""
+    from PIL import Image
+
+    from auteur.agents import OverlayAgent
+
+    sticker = tmp_path / "s.png"
+    Image.new("RGBA", (90, 90), (120, 200, 255, 230)).save(sticker)
+
+    edl, readings, prediction, model = _overlay_bits(tmp_path, count=8)
+    agent = OverlayAgent(readings, stickers=[sticker])
+    proposal = [p for p in agent.inspect(edl, prediction, model) if "sticker" in p.title][0]
+    assert "the cuts" in proposal.title
+    proposal.change(edl)
+
+    cuts = {round(start, 3) for start, _, _ in edl.timeline()}
+    cues = [g for g in edl.graphics if g.kind == "sticker"]
+    assert cues
+    assert all(round(cue.start, 3) in cuts for cue in cues)
+
+
 def test_a_centred_subject_does_not_send_the_mark_to_the_centre(tmp_path):
     """The mirror of the middle is the middle — the rule has to break there."""
     from auteur.vision import Reading, emptiest_quadrant

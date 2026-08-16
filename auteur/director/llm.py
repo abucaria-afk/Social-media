@@ -408,11 +408,19 @@ def direct(
     )
 
     if music_path is not None:
+        from .heuristic import beat_grid
+
+        beats, downbeats, tempo = beat_grid(
+            music_analysis, music_offset, enabled=brief.beat_sync, runtime=edl.duration
+        )
         edl.music = MusicCue(
             source=music_path,
             offset=music_offset,
             gain=0.55 if brief.keep_source_audio else 0.85,
             duck=brief.keep_source_audio,
+            beats=beats,
+            downbeats=downbeats,
+            tempo=tempo,
         )
 
     # Match the shots to each other, exactly as the built-in editor does. The
