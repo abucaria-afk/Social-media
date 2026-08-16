@@ -5797,3 +5797,429 @@ def test_a_vertical_source_is_left_alone(tmp_path):
     edl = EditDecisionList(title="t", width=1080, height=1920)
     assert not _much_wider_than(reading, edl)
     assert not _much_wider_than(None, edl)
+
+
+# ------------------------------------------------------------- the gallery
+
+
+def _archetypes(folder):
+    """The pictures a museum API actually returns, drawn rather than fetched.
+
+    Two real pictures, and four kinds of record: an object on a sweep, a page
+    of text, a repeating swatch, and a faded scan with nothing in it.
+    """
+    import random
+
+    from PIL import Image, ImageDraw, ImageFilter
+
+    random.seed(7)
+    folder.mkdir(parents=True, exist_ok=True)
+
+    # An object dead centre on a flat grey sweep.
+    coin = Image.new("RGB", (900, 900), (232, 231, 228))
+    draw = ImageDraw.Draw(coin)
+    draw.ellipse([390, 390, 510, 510], fill=(176, 150, 92), outline=(140, 118, 70))
+    draw.ellipse([408, 408, 492, 492], fill=(190, 165, 105))
+    coin.filter(ImageFilter.GaussianBlur(0.4)).save(folder / "record_coin.png")
+
+    # A page of text: detail everywhere, nowhere for the eye to go.
+    page = Image.new("RGB", (900, 1200), (243, 239, 228))
+    draw = ImageDraw.Draw(page)
+    for row in range(46):
+        y = 90 + row * 23
+        draw.rectangle([110, y, 110 + random.randint(480, 690), y + 9], fill=(58, 52, 44))
+    page.save(folder / "record_document.png")
+
+    # A lit subject against a soft ground: depth, and one place to look.
+    portrait = Image.new("RGB", (900, 1200), (14, 16, 26))
+    draw = ImageDraw.Draw(portrait)
+    for y in range(1200):
+        fade = (1 - y / 1200) ** 2
+        draw.line(
+            [(0, y), (900, y)],
+            fill=(int(16 + 70 * fade), int(18 + 64 * fade), int(30 + 96 * fade)),
+        )
+    portrait = portrait.filter(ImageFilter.GaussianBlur(14))
+    draw = ImageDraw.Draw(portrait)
+    draw.ellipse([300, 300, 620, 700], fill=(236, 202, 150))
+    draw.ellipse([345, 350, 575, 640], fill=(248, 224, 178))
+    for _ in range(240):
+        draw.point((random.randint(300, 620), random.randint(300, 700)), fill=(255, 240, 210))
+    portrait.save(folder / "picture_portrait.png")
+    return folder
+
+
+def test_the_craft_score_alone_would_rank_the_slop_first(tmp_path):
+    """The finding the gallery's gates exist because of.
+
+    A catalogue photograph of a coin is maximum depth separation and an
+    unambiguous subject on a narrow palette — every dimension of the craft
+    score reads it as excellent. Sorting search results by craft would put the
+    record shots at the top, which is backwards.
+    """
+    from auteur.insight.benchmark import craft_score
+    from auteur.vision import read_asset
+
+    folder = _archetypes(tmp_path / "arch")
+    coin = craft_score(read_asset(folder / "record_coin.png", samples=1)).overall
+    document = craft_score(read_asset(folder / "record_document.png", samples=1)).overall
+
+    assert coin > document, "sanity: the coin is the one that fools the score"
+    assert coin > 0.6, f"the coin scores {coin:.3f} — if this drops, re-derive the gates"
+
+
+def test_the_gates_tell_a_picture_from_a_catalogue_photograph(tmp_path):
+    from auteur.gallery import looks_like_a_record_shot
+    from auteur.vision import read_asset
+
+    folder = _archetypes(tmp_path / "arch")
+
+    def verdict(name):
+        return looks_like_a_record_shot(read_asset(folder / name, samples=1))
+
+    assert "blank ground" in verdict("record_coin.png")
+    assert "detail spread" in verdict("record_document.png")
+    assert verdict("picture_portrait.png") == "", "a real picture was turned away"
+
+
+def test_the_paperwork_gate_runs_before_anything_is_downloaded():
+    """Rights, size and catalogue vocabulary, all from the record itself."""
+    from auteur.gallery import Candidate, paperwork_clears
+
+    fine = Candidate(rights="Public Domain", image_url="http://x/y.jpg", width=3000, height=2000)
+    assert paperwork_clears(fine) == ""
+
+    # The search filter is a request; the record is the answer.
+    assert "not clearly free" in paperwork_clears(
+        Candidate(rights="not stated", image_url="http://x/y.jpg")
+    )
+    assert "no image" in paperwork_clears(Candidate(rights="CC0"))
+    assert "too small" in paperwork_clears(
+        Candidate(rights="CC0", image_url="http://x/y.jpg", width=300, height=220)
+    )
+    assert "fragment" in paperwork_clears(
+        Candidate(rights="CC0", image_url="http://x/y.jpg", title="Textile fragment, silk")
+    )
+
+
+class _RecordedCollections:
+    """The three APIs' documented response shapes, and the archetype images.
+
+    The sandbox this was written in refuses connections to all three hosts, so
+    the shapes come from each collection's published documentation rather than
+    from a live call. The parsing is written to survive being wrong about them.
+    """
+
+    def __init__(self, folder):
+        self.folder = folder
+        self.fetched = []
+
+    def get(self, url, *, headers=None):
+        import json as _json
+
+        self.fetched.append(url)
+        if url.startswith("pic://"):
+            return (self.folder / url[len("pic://") :]).read_bytes()
+        if url.startswith("iiif/"):
+            return (self.folder / (url.split("/")[1] + ".png")).read_bytes()
+        if "metmuseum" in url and "/search?" in url:
+            return _json.dumps({"total": 2, "objectIDs": [101, 102]}).encode()
+        if "metmuseum" in url and "/objects/101" in url:
+            return _json.dumps(
+                {
+                    "objectID": 101,
+                    "isPublicDomain": True,
+                    "title": "Portrait in Lamplight",
+                    "artistDisplayName": "A Painter",
+                    "classification": "Paintings",
+                    "primaryImage": "https://images.metmuseum.org/101.png",
+                    "primaryImageSmall": "pic://picture_portrait.png",
+                    "objectURL": "https://www.metmuseum.org/art/collection/search/101",
+                }
+            ).encode()
+        if "metmuseum" in url and "/objects/102" in url:
+            return _json.dumps(
+                {
+                    "objectID": 102,
+                    "isPublicDomain": True,
+                    "title": "Tetradrachm",
+                    "classification": "Coins",
+                    "primaryImage": "https://images.metmuseum.org/102.png",
+                    "primaryImageSmall": "pic://record_coin.png",
+                    "objectURL": "x",
+                }
+            ).encode()
+        if "artic.edu" in url:
+            return _json.dumps(
+                {
+                    "config": {"iiif_url": "iiif"},
+                    "data": [
+                        {
+                            "id": 201,
+                            "title": "Ledger page",
+                            "classification_title": "Manuscript",
+                            "image_id": "record_document",
+                            "is_public_domain": True,
+                            "thumbnail": {"width": 2000, "height": 2600},
+                        }
+                    ],
+                }
+            ).encode()
+        if "clevelandart" in url:
+            return _json.dumps({"data": []}).encode()
+        raise RuntimeError(f"unexpected url {url}")
+
+
+def test_a_search_keeps_the_pictures_and_says_why_it_dropped_the_rest(tmp_path):
+    from auteur.gallery import Curator
+
+    folder = _archetypes(tmp_path / "arch")
+    transport = _RecordedCollections(folder)
+    result = Curator(tmp_path / "out", transport=transport).search("lamplight", keep=5)
+
+    assert [j.candidate.title for j in result.kept] == ["Portrait in Lamplight"]
+    reasons = {j.candidate.title: j.rejected for j in result.dropped}
+    assert "blank ground" in reasons["Tetradrachm"]
+    assert "detail spread" in reasons["Ledger page"]
+
+    # The keeper is on disk; the ones turned away are not left behind.
+    assert result.kept[0].local is not None and result.kept[0].local.is_file()
+    assert list((tmp_path / "out").glob("*")) == [result.kept[0].local]
+
+
+def test_one_collection_being_down_is_a_smaller_search_not_a_failed_one(tmp_path):
+    from auteur.gallery import Curator
+
+    folder = _archetypes(tmp_path / "arch")
+
+    class HalfDown(_RecordedCollections):
+        def get(self, url, *, headers=None):
+            if "artic.edu" in url:
+                raise OSError("connection refused")
+            return super().get(url, headers=headers)
+
+    result = Curator(tmp_path / "out", transport=HalfDown(folder)).search("lamplight")
+    assert [j.candidate.title for j in result.kept] == ["Portrait in Lamplight"]
+    assert any("artic" in note for note in result.trouble)
+
+
+def test_the_same_work_in_two_collections_is_kept_once(tmp_path):
+    from auteur.gallery import Candidate, Curator
+
+    both = [
+        Candidate(
+            provider="The Met",
+            ref="1",
+            title="Wheatfield",
+            artist="A Painter",
+            rights="public domain",
+            image_url="http://x/1.jpg",
+            preview_url="pic://picture_portrait.png",
+        ),
+        Candidate(
+            provider="Cleveland Museum of Art",
+            ref="2",
+            title="  wheatfield ",
+            artist="a painter",
+            rights="CC0",
+            image_url="http://x/2.jpg",
+            preview_url="pic://picture_portrait.png",
+        ),
+    ]
+    folder = _archetypes(tmp_path / "arch")
+    curator = Curator(tmp_path / "out", transport=_RecordedCollections(folder))
+
+    from auteur.gallery import sources
+
+    saved = sources.search_all
+    sources.search_all = lambda *args, **kwargs: (both, [])
+    try:
+        result = curator.search("wheatfield")
+    finally:
+        sources.search_all = saved
+
+    assert len(result.kept) == 1
+    assert any("another collection" in j.rejected for j in result.dropped)
+
+
+# ------------------------------------------------- studying what is on disk
+
+
+def test_a_claim_spread_over_three_lines_is_read_as_one_sentence(tmp_path):
+    """Prose in markdown is wrapped, so line-at-a-time reading yields fragments."""
+    from auteur.scholar.library import read_document
+
+    doc = tmp_path / "notes.md"
+    doc.write_text(
+        "# Cutting\n\n"
+        "A dissolve between two shots that already match in tone\n"
+        "looks like a mistake rather than a transition, so save them\n"
+        "for the joins where the picture actually changes.\n\n"
+        "Short.\n",
+        encoding="utf-8",
+    )
+
+    learnings = read_document(doc)
+    assert len(learnings) == 1
+    only = learnings[0]
+    assert only.insight.endswith("picture actually changes.")
+    assert "\n" not in only.insight
+    assert only.technique == "Cutting", "the heading it sat under is the technique"
+    # A fragment is not a claim.
+    assert "Short." not in only.insight
+
+
+def test_reading_the_same_document_twice_does_not_double_the_knowledge(tmp_path):
+    """`hash()` is salted per process, so the ids have to be derived."""
+    from auteur.scholar.library import read_document
+
+    doc = tmp_path / "notes.md"
+    doc.write_text(
+        "Words must be placed where the subject is not, because a title over "
+        "somebody's face makes the viewer choose.\n",
+        encoding="utf-8",
+    )
+    first = read_document(doc)
+    second = read_document(doc)
+    assert first and [x.learning_id for x in first] == [x.learning_id for x in second]
+
+
+def test_a_measured_film_carries_its_numbers_not_just_a_sentence_about_them(rushes):
+    """Holding the crew to a measurement means comparing floats, not parsing English."""
+    from auteur.scholar.library import measure_film
+
+    learnings = measure_film(rushes / "a_wide.mp4")
+    assert learnings, "a real file produced no measurements"
+    by_technique = {x.technique: x for x in learnings}
+
+    movement = by_technique["camera movement"]
+    assert isinstance(movement.measurements.get("motion"), float)
+
+    # This clip is one continuous take. A film the detector finds no cuts in is
+    # not a *cutting rate* to hold anybody to — recorded as 0.0 it drags the
+    # median toward zero and quietly excuses the crew from cutting at all.
+    assert "cutting rate" not in by_technique
+
+    # And the numbers survive being written down and read back.
+    from auteur.scholar.knowledge import Learning
+
+    again = Learning.from_json(movement.to_json())
+    assert again.measurements == movement.measurements
+
+
+def test_the_same_reel_saved_under_two_names_is_one_film(rushes, tmp_path):
+    """Counting a copy twice doubles its vote in every median the crew faces.
+
+    Two of the twelve reels first studied were byte-identical copies of two
+    others, so the learning id is keyed on what the file is rather than where
+    it sits.
+    """
+    from auteur.scholar.knowledge import KnowledgeStore
+    from auteur.scholar.library import measure_film
+
+    original = rushes / "a_wide.mp4"
+    copy = tmp_path / "same-film-different-name.mp4"
+    copy.write_bytes(original.read_bytes())
+
+    store = KnowledgeStore(tmp_path / "k.jsonl")
+    kept_first = sum(1 for learning in measure_film(original) if store.add(learning))
+    kept_again = sum(1 for learning in measure_film(copy) if store.add(learning))
+
+    assert kept_first > 0
+    assert kept_again == 0, "the same film under another name was learned twice"
+
+
+def _store_that_studied(tmp_path, **numbers):
+    """A knowledge store holding one measured film, with numbers we choose."""
+    from auteur.scholar.knowledge import Discipline, KnowledgeStore, Learning
+
+    store = KnowledgeStore(tmp_path / "k.jsonl")
+    for technique, measurements in numbers.items():
+        store.add(
+            Learning(
+                learning_id=technique,
+                disciplines=[Discipline.MOVIE_MAKING],
+                insight="measured",
+                technique=technique,
+                application="",
+                source_video_id="file:reference.mp4",
+                source_channel="local:rushes",
+                source_title="reference.mp4",
+                measurements=measurements,
+            )
+        )
+    return store
+
+
+def _cut_at_rate(count, seconds, *, move="none", opening=None, strength=0.8):
+    from auteur.edl import EditDecisionList, Look, Motion, Shot
+
+    shots = [
+        Shot(
+            clip_id=f"c{i}",
+            source=Path("x.mp4"),
+            start=0.0,
+            end=seconds,
+            motion=Motion(move, 0.2 if move != "none" else 0.0, (0.5, 0.5)),
+        )
+        for i in range(count)
+    ]
+    if opening is not None:
+        shots[0].end = opening
+    edl = EditDecisionList(
+        title="t", shots=shots, look=Look(preset="noir", strength=strength), width=1080, height=1920
+    )
+    edl.repair()
+    return edl
+
+
+def test_the_scholar_says_how_far_off_the_pace_is_and_which_film_says_so(tmp_path):
+    from auteur.scholar.library import critique_technique
+
+    store = _store_that_studied(tmp_path, **{"cutting rate": {"cuts_per_10s": 17.6}})
+    findings = critique_technique(_cut_at_rate(8, 2.5), store)
+
+    assert len(findings) == 1
+    only = findings[0]
+    assert only.category == "pacing"
+    assert only.severity == "important"
+    # Every finding names a number, the number it is held against, and the source.
+    assert "17.6" in only.description
+    assert "reference.mp4" in only.description
+
+
+def test_the_scholar_is_silent_when_the_crew_is_already_doing_it(tmp_path):
+    """A critic that always finds something is not read twice."""
+    from auteur.scholar.library import critique_technique
+
+    store = _store_that_studied(
+        tmp_path,
+        **{
+            "cutting rate": {"cuts_per_10s": 17.6},
+            "how long before the first cut": {"first_cut": 0.21},
+            "camera movement": {"motion": 0.03},
+            "exposure and palette": {"clipped_black": 0.79},
+        },
+    )
+    assert critique_technique(_cut_at_rate(18, 0.56, opening=0.25), store) == []
+
+
+def test_nothing_is_criticised_on_a_measurement_that_was_never_taken(tmp_path):
+    """Prose is not a yardstick — only measured properties produce findings."""
+    from auteur.scholar.knowledge import Discipline, KnowledgeStore, Learning
+    from auteur.scholar.library import critique_technique
+
+    store = KnowledgeStore(tmp_path / "k.jsonl")
+    store.add(
+        Learning(
+            learning_id="prose",
+            disciplines=[Discipline.MOVIE_MAKING],
+            insight="fast cutting feels energetic and modern",
+            technique="pacing",
+            application="",
+            source_video_id="blog",
+            source_channel="somewhere",
+            source_title="a blog post",
+        )
+    )
+    assert critique_technique(_cut_at_rate(4, 5.0), store) == []
