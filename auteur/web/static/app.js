@@ -234,6 +234,9 @@
     $("notes").href = job.notes || "#";
     $("notes").hidden = !job.notes;
 
+    $("heard").textContent = job.heard || "";
+    $("heard").hidden = !job.heard;
+
     var facts = $("facts");
     facts.textContent = "";
     (job.facts || []).forEach(function (fact) {

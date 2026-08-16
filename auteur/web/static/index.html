@@ -179,6 +179,11 @@
     <h2 class="done-title">Your film is ready</h2>
     <!-- playsinline is what stops iOS from hijacking into fullscreen. -->
     <video id="player" controls playsinline preload="metadata"></video>
+    <!-- What it heard in your words, said back. A prompt whose effect you
+         cannot see is indistinguishable from a prompt that was ignored, and
+         that is exactly how it read: people typed a sentence, got a film, and
+         had no way to tell which part of the sentence did anything. -->
+    <p class="heard" id="heard" hidden></p>
     <ul class="facts" id="facts"></ul>
     <a class="go" id="save" download="film.mp4">Save to my phone</a>
     <a class="ghost" id="notes" target="_blank" rel="noopener">What it did, and why</a>

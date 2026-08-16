@@ -302,6 +302,20 @@ video {
 .facts li { padding: 4px 0; }
 .facts li::before { content: "·  "; color: var(--ember-text); }
 
+/* -- what it heard ------------------------------------------------------- */
+
+.heard {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ember);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
 /* -- install ------------------------------------------------------------- */
 
 .install { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
