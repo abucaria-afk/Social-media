@@ -149,6 +149,85 @@
     };
   }
 
+  /* How much there is to look at in a source, 0 to 1.
+   *
+   * Contrast plus fine detail, read off a 64px thumbnail — the same two things
+   * that make a frame arresting rather than flat. Used only to decide which
+   * picture opens the film and which one it returns to: the first frame is the
+   * whole hook, and picking it by upload order is picking it at random. */
+  function strengthOf(source) {
+    var side = 64;
+    var c = document.createElement("canvas");
+    c.width = side; c.height = side;
+    var g = c.getContext("2d", { alpha: false, willReadFrequently: true });
+    var data;
+    try {
+      g.drawImage(source.el, 0, 0, side, side);
+      data = g.getImageData(0, 0, side, side).data;
+    } catch (e) {
+      return 0.5;                       // unreadable: no opinion either way
+    }
+
+    var luma = new Float32Array(side * side);
+    var mean = 0;
+    for (var p = 0; p < luma.length; p++) {
+      luma[p] = (0.2126 * data[p * 4] + 0.7152 * data[p * 4 + 1] + 0.0722 * data[p * 4 + 2]) / 255;
+      mean += luma[p];
+    }
+    mean /= luma.length;
+
+    var spread = 0;
+    for (p = 0; p < luma.length; p++) { spread += (luma[p] - mean) * (luma[p] - mean); }
+    spread = Math.sqrt(spread / luma.length);
+
+    // A discrete Laplacian: how much the picture changes over a pixel, which
+    // is edges, texture and focus, and is near zero for sky or a blurred frame.
+    var detail = 0, counted = 0;
+    for (var y = 1; y < side - 1; y++) {
+      for (var x = 1; x < side - 1; x++) {
+        var k = y * side + x;
+        detail += Math.abs(
+          4 * luma[k] - luma[k - 1] - luma[k + 1] - luma[k - side] - luma[k + side]
+        );
+        counted += 1;
+      }
+    }
+    detail /= Math.max(counted, 1);
+
+    return Math.min(1, spread * 1.6 + detail * 6);
+  }
+
+  /* One visiting order per movement, each a different tour of every source.
+   *
+   * Stepping by a number coprime with the count visits all of them before
+   * repeating any, and a different step per movement gives a different order
+   * each time — so the second minute of a film is not the first minute again.
+   * Falls back to a rotation when the count has no other coprime, which is
+   * only ever the case for one or two sources. */
+  function visitOrders(count, movements, opener) {
+    function coprime(a, b) {
+      while (b) { var t = b; b = a % b; a = t; }
+      return a === 1;
+    }
+    var steps = [];
+    for (var s = 1; s < Math.max(count, 2); s++) {
+      if (coprime(s, count)) { steps.push(s); }
+    }
+    if (!steps.length) { steps = [1]; }
+
+    var orders = [];
+    for (var m = 0; m < movements; m++) {
+      var step = steps[m % steps.length];
+      // Start each movement somewhere new, and never on the opening image —
+      // the hook is spent, and coming straight back to it reads as a stutter.
+      var start = (opener + 1 + m) % Math.max(count, 1);
+      var tour = [];
+      for (var n = 0; n < count; n++) { tour.push((start + n * step) % count); }
+      orders.push(tour);
+    }
+    return orders;
+  }
+
   /* Resolves with a source, or with null if this file will not open.
    *
    * Never rejects. A camera roll has odd things in it — a codec this browser
@@ -437,29 +516,61 @@
       var ctx = canvas.getContext("2d", { alpha: false });
       var vignette = vignetteCanvas(W, H, plan.look.vignette);
 
-      /* The shot list. Round-robin through everything you picked, so a
-       * camera roll of eight photographs and one clip is a film of eight
-       * photographs and one clip, not a film of the clip.
+      /* The shot list.
        *
-       * Each shot carries its own framing, and lengths follow a phrase —
-       * three on the beat and one held — so the cut has a shape rather than
-       * a metronome. The median stays at `hold`, which is the number the
-       * cadence words promise. */
+       * This used to be `sources[i % sources.length]` — a round robin. Five
+       * pictures and thirty seconds is then the same five-second cycle, forty
+       * times, and that is exactly what it looked like: a loop playing, not a
+       * film running. A reel has to go somewhere.
+       *
+       * So it is built in three parts, the shape the reference reels use:
+       *
+       *   the hook   the strongest frame you gave it, held widest, first
+       *   movements  each one visits every source in a different order and at
+       *              a tighter framing than the last, so the film closes in
+       *              as it runs
+       *   the return the last shot goes back to the hook's source and its
+       *              framing, so the final frame matches the first and the
+       *              whole thing loops without a seam
+       *
+       * Lengths follow a phrase — three on the beat and one held — so the cut
+       * has a shape rather than a metronome, and the median stays at `hold`,
+       * which is the number the cadence words promise. */
       var PHRASE = [1, 1, 1, 1.5];
+      var strengths = sources.map(strengthOf);
+      var opener = 0;
+      for (var n = 1; n < strengths.length; n++) {
+        if (strengths[n] > strengths[opener]) { opener = n; }
+      }
+
+      // How many movements the film can carry. Six seconds is two; thirty is
+      // five. Fewer than two and there is no development to speak of.
+      var movements = Math.max(2, Math.min(5, Math.round(total / 6)));
+      var visits = visitOrders(sources.length, movements, opener);
+
       var shots = [];
       var at = 0;
       var i = 0;
+      var hookFrame = null;
       while (at < total && shots.length < 400) {
-        var which = i % sources.length;
-        var source = sources[which];
-        var pick = rng(i + 1);
         var dur = Math.min(hold * PHRASE[i % PHRASE.length], total - at);
         if (dur < 0.05) { break; }
-        // A still needs somewhere to go, so it gets more push than a clip
-        // that is already moving.
-        var zoom = 1 + pick() * (source.kind === "image" ? 0.22 : 0.14);
-        var drift = source.kind === "image" ? 0.06 + pick() * 0.08 : 0.02 + pick() * 0.04;
-        shots.push({
+
+        // Where in the film this shot falls, 0 at the first frame and 1 at
+        // the last. Everything about the framing is a function of this.
+        var through = total > 0 ? at / total : 0;
+        var movement = Math.min(movements - 1, Math.floor(through * movements));
+        var order = visits[movement];
+        var which = i === 0 ? opener : order[i % order.length];
+        var source = sources[which];
+        var pick = rng(i + 1);
+
+        // Wide at the top, tight at the end. A still needs somewhere to go,
+        // so it gets more push than a clip that is already moving.
+        var room = source.kind === "image" ? 0.26 : 0.16;
+        var zoom = 1 + room * (0.12 + 0.78 * through) * (0.7 + 0.6 * pick());
+        var drift = (source.kind === "image" ? 0.06 : 0.02) + pick() * 0.08;
+        var frame = {
           source: source,
           start: at,
           dur: dur,
@@ -467,9 +578,26 @@
           drift: (pick() < 0.5 ? -1 : 1) * drift,
           dx: pick() * 1.6 - 0.8,
           dy: pick() * 1.2 - 0.6
-        });
+        };
+        if (i === 0) { hookFrame = frame; }
+        shots.push(frame);
         at += dur;
         i += 1;
+      }
+
+      /* Come back to where it started. The last shot is the opening image at
+       * the opening framing, so the final frame and the first frame are the
+       * same picture and the reel loops into itself rather than jumping. */
+      if (hookFrame && shots.length > 3) {
+        var last = shots[shots.length - 1];
+        last.source = hookFrame.source;
+        last.zoom = hookFrame.zoom;
+        last.dx = hookFrame.dx;
+        last.dy = hookFrame.dy;
+        // Drifting *into* the opening framing rather than away from it, so
+        // the film arrives at the first frame instead of passing through it.
+        last.drift = -hookFrame.drift;
+        last.closes = true;
       }
       var runFor = shots.length ? shots[shots.length - 1].start + shots[shots.length - 1].dur : total;
 
@@ -527,6 +655,8 @@
             // What it actually is, measured, not what was asked for.
             seconds: ran,
             shot_seconds: ran / Math.max(shots.length, 1),
+            movements: movements,
+            loops: !!(shots.length && shots[shots.length - 1].closes),
             reading: {
               look: plan.lookName,
               cadence: plan.cadence,

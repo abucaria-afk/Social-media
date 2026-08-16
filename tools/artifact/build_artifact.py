@@ -236,6 +236,9 @@ DEMO = r"""
     heard += " It used " + film.clips + (film.clips === 1 ? " clip" : " clips")
       + " and " + film.stills + (film.stills === 1 ? " photo" : " photos") + ".";
     if (film.music) { heard += " Your music is on it."; }
+    heard += " Built in " + film.movements + " movements, opening on the frame with"
+      + " the most in it and tightening as it goes";
+    heard += film.loops ? ", and it ends back on that frame so it loops." : ".";
     $("heard").textContent = heard;
     $("heard").hidden = false;
 

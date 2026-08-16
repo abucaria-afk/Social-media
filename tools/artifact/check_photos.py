@@ -13,6 +13,7 @@ in twenty lines that never touch this renderer — so the video path has to be
 checked on a real device instead. That same build has no H.264 either.
 """
 
+import base64
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,18 @@ PHOTOS = [
 ]
 HERE = Path(tempfile.mkdtemp(prefix="auteur-check-"))
 CHROME = "/opt/pw-browsers/chromium"
+
+#: Pull the finished film out of the page as one base64 string.
+READ_BLOB = """
+async (url) => {
+  const blob = await (await fetch(url)).blob();
+  return await new Promise((ok) => {
+    const reader = new FileReader();
+    reader.onload = () => ok(reader.result);
+    reader.readAsDataURL(blob);
+  });
+}
+"""
 
 TRIALS = [
     ("hypercut + titles", 'a hypercut, 6 seconds, "PORTLAND" and "JULY"'),
@@ -108,12 +121,12 @@ def main():
             page.wait_for_selector("#screen-done:not([hidden])", timeout=120000)
 
             url = page.eval_on_selector("#player", "el => el.src")
-            raw = page.evaluate(
-                "async u => Array.from(new Uint8Array(" "await (await fetch(u)).arrayBuffer()))",
-                url,
-            )
+            # Base64, not an array of numbers. `Array.from(new Uint8Array(…))`
+            # hands the debugging protocol one JSON number per byte, which for
+            # a long film is slower than rendering it was.
+            raw = base64.b64decode(page.evaluate(READ_BLOB, url).split(",", 1)[1])
             film = HERE / f"{name.split()[0]}.webm"
-            film.write_bytes(bytes(raw))
+            film.write_bytes(raw)
 
             print(f"\n--- {name}: {prompt!r}")
             print("   heard:", page.inner_text("#heard"))

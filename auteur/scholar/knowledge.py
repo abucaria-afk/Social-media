@@ -15,9 +15,65 @@ from __future__ import annotations
 import enum
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+#: Words that appear in almost every question and so separate nothing. Kept
+#: small on purpose: dropping a word that carries meaning costs more than
+#: keeping one that does not, because a term that matches everything scores
+#: everything equally and changes no ranking.
+_NOT_WORTH_MATCHING = frozenset("""
+    the and but for with from that this these those what which who whom whose
+    how why when where does did done doing can could should would will shall
+    have has had are was were been being its it's you your yours our ours
+    about into onto than then them they their there here just very really
+    something anything nothing some any all most more much many way ways
+    make makes made get gets got give gives tell tells say says
+    """.split())
+
+#: This project is written in British English and its disciplines are named in
+#: American English — `color_theory`, `grayscale`. So a person typing "colour
+#: grading", which is how everything else in the program spells it, matched
+#: none of the thirty-three colour learnings. Spelling is not a topic.
+_SAME_WORD = {
+    "colour": "color",
+    "colours": "colors",
+    "coloured": "colored",
+    "colourist": "colorist",
+    "grey": "gray",
+    "greyscale": "grayscale",
+    "behaviour": "behavior",
+    "favourite": "favorite",
+    "centre": "center",
+    "theatre": "theater",
+    "analyse": "analyze",
+    "organise": "organize",
+    "cinematographer": "cinematography",
+}
+
+
+def _plainly(word: str) -> str:
+    """One spelling and one ending for a word that has several.
+
+    Crude on purpose — there is no stemmer in this project and pulling one in
+    for eight lines would be worse. It has to survive the cases that actually
+    turned up: *cut* must find *cutting* and *cuts*, and *grading* must find
+    *grade*. Matching on prefixes did neither, because it needed a four-letter
+    term to fire and the word people type is "cut".
+    """
+    word = _SAME_WORD.get(word, word)
+    for ending in ("ing", "ed", "es", "s"):
+        if word.endswith(ending) and len(word) - len(ending) >= 3:
+            word = word[: -len(ending)]
+            break
+    if len(word) > 3 and word[-1] == word[-2]:  # cutt -> cut
+        word = word[:-1]
+    if len(word) > 3 and word.endswith("e"):  # grade -> grad, matching grading
+        word = word[:-1]
+    return word
+
 
 log = logging.getLogger("auteur.scholar.knowledge")
 
@@ -355,7 +411,11 @@ class KnowledgeStore:
         ]
 
     def search(self, keywords: str) -> list[Learning]:
-        """Keyword search across insights and techniques."""
+        """Keyword search across insights and techniques.
+
+        Every term must appear, so this answers "colour grading" and not
+        questions. Use `recall` for anything a person typed.
+        """
         terms = keywords.lower().split()
         results: list[Learning] = []
         for learning in self._learnings:
@@ -363,6 +423,53 @@ class KnowledgeStore:
             if all(term in text for term in terms):
                 results.append(learning)
         return results
+
+    def recall(self, question: str, *, limit: int = 5) -> list[Learning]:
+        """What this store holds that bears on a question somebody typed.
+
+        `search` requires every term, which is right for a phrase and useless
+        for a sentence: "how fast should I cut a reel, and why?" asks for
+        learnings containing the words *how*, *should*, *and* and *why*, so
+        the store answered nothing to every real question ever put to it.
+
+        This scores instead of filtering. A term counts when it appears
+        anywhere in the learning — insight, technique, application, discipline
+        or tool — and a four-letter-or-longer term also counts against a word
+        that begins with it, so *cut* finds *cutting* and *cuts*. Learnings
+        several sources agree on outrank one-offs at the same score, because
+        that is what the confidence ladder is for.
+        """
+        terms = [
+            _plainly(term)
+            for term in re.findall(r"[a-z0-9']+", question.lower())
+            if len(term) > 2 and term not in _NOT_WORTH_MATCHING
+        ]
+        if not terms:
+            return []
+
+        standing = {
+            Confidence.VALIDATED: 3.0,
+            Confidence.SUPPORTED: 2.0,
+            Confidence.TENTATIVE: 1.0,
+        }
+        scored: list[tuple[float, float, Learning]] = []
+        for learning in self._learnings:
+            haystack = " ".join(
+                [
+                    learning.insight,
+                    learning.technique,
+                    learning.application,
+                    learning.tool,
+                    " ".join(d.value.replace("_", " ") for d in learning.disciplines),
+                ]
+            ).lower()
+            words = {_plainly(word) for word in re.findall(r"[a-z0-9']+", haystack)}
+            hits = float(len(set(terms) & words))
+            if hits:
+                scored.append((hits, standing.get(learning.confidence, 1.0), learning))
+
+        scored.sort(key=lambda row: (row[0], row[1]), reverse=True)
+        return [learning for _, _, learning in scored[:limit]]
 
     def gaps(self) -> list[Discipline]:
         """Disciplines with fewer than 5 learnings — knowledge gaps to fill."""

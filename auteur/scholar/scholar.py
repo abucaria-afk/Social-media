@@ -28,7 +28,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from collections.abc import Sequence
 
@@ -44,7 +44,7 @@ from .knowledge import (
     TOOL_DISCIPLINES,
 )
 from .youtube import YouTubeAccess, SearchStrategy, VideoMeta
-from .teach import Teacher, TeachingBrief, WorkflowPatch
+from .teach import Teacher, TeachingBrief, WorkflowPatch, consensus_from
 from .review import OutputReview, ReviewFinding
 from .auditory import AuditorySystem, AudioSegment, AudioVisualState, ListeningSession
 from .speech import SpeechSystem, SpeechResponse
@@ -878,12 +878,103 @@ class Scholar:
     # Speech interface — chatbot and voicebot communication
     # ------------------------------------------------------------------
 
+    def recall(self, question: str, *, limit: int = 5) -> list[Learning]:
+        """The learnings that bear on a question, best first."""
+        return self._store.recall(question, limit=limit)
+
+    def answer_from_study(self, question: str, *, limit: int = 4) -> str:
+        """What it has stored on this, when it cannot reach a model to think.
+
+        Not a generated answer and it does not pretend to be one: every line
+        is a learning it kept, with where the learning came from and how many
+        sources stand behind it. A Scholar with 65 learnings and no API key
+        used to answer every question with the same apology, which made the
+        studying pointless from the one place a person can ask about it.
+
+        Returns "" only when the store is empty. When it holds things but none
+        of them touch the question, that is worth saying too — "I have not
+        studied that" is a different fact from "I have no API key", and the
+        apology was reporting the second when the first was true.
+        """
+        # Recall wide, then collapse. Measured learnings arrive one per film,
+        # so five of the top six hits are the same fact about five different
+        # filenames — the exact shape `consensus_from` exists to fix, reused
+        # here rather than re-derived.
+        wide = self.recall(question, limit=max(40, limit * 6))
+        measured = consensus_from(wide)[:3]
+
+        found: list[Learning] = []
+        covered: set[str] = set()
+        for learning in wide:
+            if learning.technique in covered:
+                continue
+            # A measured learning whose numbers are already in the consensus
+            # above would be that fact a second time, named after one file.
+            if measured and learning.measurements:
+                continue
+            covered.add(learning.technique)
+            found.append(learning)
+            if len(found) >= limit:
+                break
+
+        if not found and not measured:
+            held = self._store.all()
+            if not held:
+                return ""
+            counts: dict[str, int] = {}
+            for learning in held:
+                for discipline in learning.disciplines:
+                    counts[discipline.value.replace("_", " ")] = (
+                        counts.get(discipline.value.replace("_", " "), 0) + 1
+                    )
+            best = sorted(counts.items(), key=lambda row: row[1], reverse=True)[:4]
+            subjects = ", ".join(f"{name} ({count})" for name, count in best)
+            return (
+                "I have not studied that yet — nothing in what I have kept "
+                f"touches it. What I do hold, {len(held)} learnings in all, is "
+                f"mostly {subjects}."
+            )
+
+        said = ["I have no model to think with here, so this is what I have studied."]
+        if measured:
+            said.append("\nMeasured across the films themselves:")
+            said.extend(f"• {line}" for line in measured)
+        if found:
+            said.append("\nAnd what I have kept on it:")
+        for learning in found:
+            where = learning.source_title or learning.source_channel or "an unnamed source"
+            said.append(
+                f"\n• {learning.technique} — {learning.application}"
+                f"\n  {learning.insight}"
+                f"\n  ({learning.confidence.value}, from {where})"
+            )
+        return "\n".join(said)
+
     def chat(self, user_text: str, *, conversation_id: str = "") -> SpeechResponse:
-        """Respond to a text message via chatbot."""
+        """Respond to a text message via chatbot.
+
+        The recalled learnings go to the model as context, so a reply it does
+        write is grounded in what this Scholar actually studied rather than in
+        what a model knows about editing in general. When there is no model,
+        the same material is handed back directly.
+        """
+        found = self.recall(user_text)
+        knowledge = "\n".join(
+            f"- [{learning.confidence.value}] {learning.insight} ({learning.application})"
+            for learning in found
+        )
         context = f"Scholar status: {self.describe()}"
-        return self._speech.respond_text(
+        if knowledge:
+            context += f"\n\nWhat this Scholar has studied that bears on the question:\n{knowledge}"
+
+        answer = self._speech.respond_text(
             user_text, conversation_id=conversation_id, context=context
         )
+        if not answer.reachable:
+            from_study = self.answer_from_study(user_text)
+            if from_study:
+                return replace(answer, text=from_study, from_study=True)
+        return answer
 
     def speak(self, user_text: str, *, conversation_id: str = "") -> SpeechResponse:
         """Respond with synthesised voice via voicebot."""

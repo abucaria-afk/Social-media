@@ -730,9 +730,15 @@ class Handler(BaseHTTPRequestHandler):
         self._json(
             {
                 "reply": text,
-                # `speech` returns a plain sentence when it cannot reach a
-                # model. The page shows that differently from a real answer.
-                "reachable": "not reachable from here" not in text,
+                # Carried on the response rather than sniffed out of the
+                # wording. Matching "not reachable from here" meant the page
+                # would call a real answer an outage the day somebody
+                # reworded a sentence, or quoted it back.
+                "reachable": bool(getattr(answer, "reachable", True)),
+                # Read out of the knowledge store instead of written. The
+                # page labels it, because notes and an answer are not the
+                # same thing and only one of them was thought about.
+                "from_study": bool(getattr(answer, "from_study", False)),
                 "learnings": scholar.knowledge.total_learnings,
             }
         )
