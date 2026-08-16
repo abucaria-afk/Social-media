@@ -6501,3 +6501,58 @@ def test_one_film_alone_is_not_a_consensus(tmp_path):
         )
     )
     assert Teacher(store).brief_for_all().consensus == []
+
+
+def test_a_slow_cut_cannot_beat_a_reel_it_is_cutting_a_quarter_as_fast_as():
+    """Cadence was recorded on the benchmark and left out of the objective.
+
+    Craft measures the picture and structure measures the shape; neither
+    rewards cutting six times a second. So forty generations against a
+    46-cuts-per-ten-seconds benchmark sat at a 1.4s shot and climbed craft
+    instead — the most distinctive property of the films being chased was not
+    in the score at all.
+    """
+    from auteur.training.rehearse import Attempt, Recipe
+
+    def attempt(cadence):
+        return Attempt(generation=1, recipe=Recipe(), structure=0.75, craft=0.78, cadence=cadence)
+
+    assert attempt(0.95).combined > attempt(0.20).combined
+
+    # And "beat the target" now means matching the pace, not only the picture.
+    from auteur.insight.benchmark import Benchmark, CraftScore
+
+    target = Benchmark(
+        name="t",
+        source="t.mp4",
+        structure=0.70,
+        craft=CraftScore(separation=0.5),
+        cuts_per_10s=46.0,
+    )
+    fast, slow = attempt(0.95), attempt(0.20)
+    for candidate in (fast, slow):
+        candidate.beat_target = (
+            candidate.craft > target.craft.overall
+            and candidate.structure > target.structure
+            and candidate.cadence > 0.75
+        )
+    assert fast.beat_target and not slow.beat_target
+
+
+def test_with_nothing_to_chase_the_score_is_what_it_always_was():
+    """A rehearsal with no benchmark must not be penalised on a pace it has no target for."""
+    from auteur.training.rehearse import Attempt, Recipe
+
+    blank = Attempt(generation=1, recipe=Recipe(), structure=0.8, craft=0.6)
+    assert blank.cadence == 1.0
+    assert blank.combined == pytest.approx(0.6 * 0.5 + 0.8 * 0.3 + 0.2)
+
+
+def test_the_trainer_can_reach_the_rate_it_is_chasing():
+    """The floor was 0.25s — four cuts a second — against a 0.125s reference."""
+    from auteur.edl import MIN_SHOT
+    from auteur.training.rehearse import KNOBS
+
+    low, high = KNOBS["shot_seconds"]
+    assert low == MIN_SHOT
+    assert low <= 0.125, "the fastest reference reel is outside the search space"
