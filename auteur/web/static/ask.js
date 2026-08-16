@@ -28,6 +28,7 @@
     // Blank lines become paragraphs; nothing else is interpreted.
     String(text).split(/\n\s*\n/).forEach(function (part) {
       var p = document.createElement("p");
+      p.className = "said";
       p.textContent = part.trim();
       li.appendChild(p);
     });

@@ -484,11 +484,27 @@ def _build_parser() -> argparse.ArgumentParser:
         "action",
         nargs="?",
         default="status",
-        choices=["status", "study", "watch", "teach", "subscribe", "ask", "read", "critique"],
+        choices=[
+            "status",
+            "study",
+            "watch",
+            "teach",
+            "subscribe",
+            "ask",
+            "read",
+            "critique",
+            "scroll",
+        ],
         help=(
             "status (default), study once, watch (keep studying), teach, subscribe, ask, "
-            "read (study files on disk), critique (hold a cut against what it studied)"
+            "read (study files on disk), critique (hold a cut against what it studied), "
+            "scroll (be served reels and measure what arrived)"
         ),
+    )
+    scholar.add_argument(
+        "--feed",
+        default="youtube",
+        help="where to scroll: youtube, or a folder of reels to serve in order",
     )
     scholar.add_argument(
         "--every",
@@ -936,7 +952,7 @@ def _run_template(args, say) -> int:
 
     if action == "watch":
         if not paths:
-            say.problem("Give it a reel to watch.")
+            say.failure("Give it a reel to watch.")
             return 2
         kept = []
         for path in paths:
@@ -946,7 +962,7 @@ def _run_template(args, say) -> int:
                 continue
             kept.append(template)
         if not kept:
-            say.problem("None of those would open as video.")
+            say.failure("None of those would open as video.")
             return 1
         say.result(
             f"Watched {len(kept)} " + ("reel" if len(kept) == 1 else "reels"),
@@ -961,7 +977,7 @@ def _run_template(args, say) -> int:
 
     # cut
     if len(paths) < 2:
-        say.problem("Give it a template to follow and some pictures to cut.")
+        say.failure("Give it a template to follow and some pictures to cut.")
         return 2
 
     template = shelf.find(paths[0])
@@ -969,7 +985,7 @@ def _run_template(args, say) -> int:
         # Not on the shelf — maybe they handed over the reel itself.
         template = tpl.read(paths[0])
         if template is None:
-            say.problem(f"No template called {paths[0]!r}, and it is not a readable reel either.")
+            say.failure(f"No template called {paths[0]!r}, and it is not a readable reel either.")
             return 1
 
     words = [w.strip() for w in (args.words or "").split(",") if w.strip()]
@@ -981,7 +997,7 @@ def _run_template(args, say) -> int:
             words=words,
         )
     except ValueError as exc:
-        say.problem(str(exc))
+        say.failure(str(exc))
         return 1
 
     from .config import FORMATS, Settings, Workspace
@@ -991,7 +1007,7 @@ def _run_template(args, say) -> int:
     result = render(film, workspace, Settings(), formats=(FORMATS["reel"],), name=film.title)
     made = result.primary
     if made is None:
-        say.problem("The render produced nothing.")
+        say.failure("The render produced nothing.")
         return 1
 
     say.result(
@@ -1589,6 +1605,65 @@ def _run_agents(args: argparse.Namespace, say: Reporter) -> int:
     return 0
 
 
+def _scholar_scroll(args: argparse.Namespace, say: Reporter, text: str) -> int:
+    """Be served reels, watch every one, and report what arrived in what order.
+
+    The order is the finding. Nothing here reads an article about a ranking;
+    it looks at what was put in front of it first and what was put in front of
+    it tenth, and says the difference — for this session, on this account,
+    which is exactly as much as one session is worth.
+    """
+    from .scholar.feed import LocalFeed, ScrollHistory, YouTubeFeed, learnings_from, scroll
+    from .scholar.knowledge import KnowledgeStore
+
+    wanted = (getattr(args, "feed", "") or "youtube").strip()
+    if wanted.lower() in ("youtube", "yt"):
+        feed = YouTubeFeed()
+    else:
+        feed = LocalFeed(wanted)
+
+    ok, why = feed.reachable()
+    if not ok:
+        say.failure(f"Cannot scroll {feed.name}: {why}")
+        say.detail("`--feed <folder>` scrolls a folder of reels instead, in order.")
+        return 1
+
+    say.step(f"scrolling {feed.name}" + (f" for {text!r}" if text else ""))
+    session = scroll(feed, text, count=max(2, int(getattr(args, "videos", 5) or 5)))
+
+    if session.unreachable and not session.servings:
+        say.failure(f"The scroll stopped: {session.unreachable}")
+        return 1
+
+    kept = ScrollHistory().keep(session)
+    store = KnowledgeStore()
+    added = sum(1 for learning in learnings_from(session) if store.add(learning))
+
+    facts = [
+        f"{x.position + 1:2d}.  {x.seconds:5.1f}s   {x.cuts_per_10s:5.1f} cuts/10s   "
+        f"hold {x.shot_seconds:.3f}s   hook {x.hook:.2f}s"
+        for x in session.servings
+    ]
+    facts.append("")
+    facts.extend(session.what_it_served())
+    if session.unreachable:
+        facts.append(f"(it stopped early: {session.unreachable})")
+    if feed.name == "library":
+        facts.append(
+            "a folder has no ranking in it, so this measures your own library "
+            "rather than anybody's feed"
+        )
+
+    say.result(
+        f"Watched {session.watched} from {feed.name}",
+        facts=facts,
+        files=[("the session", str(kept))],
+    )
+    if added:
+        say.detail(f"{added} kept as learnings — tentative, because one session is one voice")
+    return 0
+
+
 def _run_scholar(args: argparse.Namespace, say: Reporter) -> int:
     """The study agent: what it knows, what it wants to watch, what it teaches."""
     import json as _json
@@ -1598,6 +1673,9 @@ def _run_scholar(args: argparse.Namespace, say: Reporter) -> int:
 
     scholar = Scholar()
     text = " ".join(args.words).strip()
+
+    if args.action == "scroll":
+        return _scholar_scroll(args, say, text)
 
     if args.action == "status":
         if args.json:

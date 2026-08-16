@@ -6764,3 +6764,235 @@ def test_the_shelf_picks_the_reel_cut_closest_to_a_rate_that_was_asked_for(tmp_p
 
     assert shelf.closest_to(35.0).name == "fast"
     assert shelf.closest_to(5.0).name == "slow"
+
+
+# ---------------------------------------------------------------------------
+# Scrolling a feed rather than reading about one
+# ---------------------------------------------------------------------------
+
+
+class _FakeFeed:
+    """Serves a fixed sequence, so a test never needs a network."""
+
+    name = "fake"
+
+    def __init__(self, files, *, why=""):
+        self._files = list(files)
+        self._why = why
+
+    def reachable(self):
+        return (not self._why), self._why
+
+    def serve(self, query, *, count):
+        for path in self._files[:count]:
+            yield path, {"from": "fake"}
+
+
+def _reel(tmp_path, name, *, shots, hold):
+    """A tiny film with a known number of cuts in it."""
+    import subprocess
+
+    from PIL import Image
+
+    frames = tmp_path / f"{name}-frames"
+    frames.mkdir(exist_ok=True)
+    index = 0
+    for shot in range(shots):
+        # Alternating black and white, so every boundary is unmissable.
+        tone = 20 if shot % 2 else 235
+        for _ in range(max(1, int(round(hold * 24)))):
+            Image.new("RGB", (128, 224), (tone, tone, tone)).save(frames / f"{index:04d}.png")
+            index += 1
+    out = tmp_path / f"{name}.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "quiet",
+            "-y",
+            "-framerate",
+            "24",
+            "-i",
+            str(frames / "%04d.png"),
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(out),
+        ],
+        check=True,
+    )
+    return out
+
+
+def test_a_scroll_keeps_the_order_it_was_served_in(tmp_path):
+    from auteur.scholar.feed import scroll
+
+    files = [
+        _reel(tmp_path, "a", shots=8, hold=0.25),
+        _reel(tmp_path, "b", shots=4, hold=0.5),
+        _reel(tmp_path, "c", shots=8, hold=0.25),
+    ]
+    session = scroll(_FakeFeed(files), count=3)
+    assert [s.position for s in session.servings] == [0, 1, 2]
+    # The order is the whole point, so it must be the order served and not
+    # anything tidier.
+    assert [Path(s.source).name for s in session.servings] == [f.name for f in files]
+
+
+def test_a_feed_that_cannot_be_reached_says_so_instead_of_looking_empty():
+    from auteur.scholar.feed import scroll
+
+    session = scroll(_FakeFeed([], why="a proxy refused the connection"))
+    assert session.watched == 0
+    # An empty list reads as "there was nothing there", which is a different
+    # fact from "it could not be asked".
+    assert "proxy" in session.unreachable
+
+
+def test_a_session_reports_what_the_top_of_the_feed_differed_by(tmp_path):
+    from auteur.scholar.feed import Scroll, Serving
+
+    session = Scroll(feed="fake", query="")
+    for position in range(6):
+        # The first three cut twice as fast as the last three.
+        session.servings.append(
+            Serving(
+                position=position,
+                name=f"r{position}",
+                source="x",
+                seconds=10.0,
+                cuts_per_10s=40.0 if position < 3 else 10.0,
+                shot_seconds=0.2 if position < 3 else 0.8,
+            )
+        )
+    said = " ".join(session.what_it_served())
+    assert "40.00" in said and "10.00" in said
+    assert "Higher" in said
+
+
+def test_a_session_that_found_nothing_says_that_rather_than_nothing():
+    from auteur.scholar.feed import Scroll, Serving
+
+    session = Scroll(feed="fake", query="")
+    for position in range(6):
+        session.servings.append(
+            Serving(
+                position=position,
+                name="r",
+                source="x",
+                seconds=10.0,
+                cuts_per_10s=20.0,
+                shot_seconds=0.5,
+            )
+        )
+    said = session.what_it_served()
+    assert len(said) == 1
+    assert "differed enough" in said[0]
+
+
+def test_every_scroll_is_its_own_voice_not_one_voice_called_youtube():
+    from auteur.scholar.feed import Scroll, Serving, learnings_from
+
+    def session_at(when):
+        one = Scroll(feed="youtube", query="reels", at=when)
+        for position in range(6):
+            one.servings.append(
+                Serving(
+                    position=position,
+                    name="r",
+                    source="x",
+                    seconds=10.0,
+                    cuts_per_10s=40.0 if position < 3 else 10.0,
+                    shot_seconds=0.3,
+                )
+            )
+        return one
+
+    first = learnings_from(session_at(1000.0))
+    second = learnings_from(session_at(2000.0))
+    assert first and second
+    # Keyed on the session, so ten scrolls agreeing is ten sources. Keyed on
+    # the feed they would be one voice forever, which is the mistake the film
+    # library already made once.
+    assert first[0].source_channel != second[0].source_channel
+
+
+def test_a_scroll_survives_the_trip_through_json(tmp_path):
+    from auteur.scholar.feed import Scroll, ScrollHistory, Serving
+
+    session = Scroll(feed="fake", query="reels")
+    session.servings.append(Serving(position=0, name="r", source="x", cuts_per_10s=30.0))
+    history = ScrollHistory(tmp_path / "scrolls")
+    history.keep(session)
+    back = history.all()
+    assert len(back) == 1
+    assert back[0].servings[0].cuts_per_10s == 30.0
+
+
+def test_only_a_direction_most_sessions_agree_on_is_reported(tmp_path):
+    from auteur.scholar.feed import Scroll, ScrollHistory, Serving
+
+    history = ScrollHistory(tmp_path / "scrolls")
+
+    def session(at, faster_at_top):
+        one = Scroll(feed="fake", query="", at=at)
+        for position in range(6):
+            fast = position < 3 if faster_at_top else position >= 3
+            one.servings.append(
+                Serving(
+                    position=position,
+                    name="r",
+                    source="x",
+                    seconds=10.0,
+                    cuts_per_10s=40.0 if fast else 10.0,
+                    shot_seconds=0.3,
+                )
+            )
+        return one
+
+    # Three sessions that disagree three ways say nothing.
+    split = [session(1.0, True), session(2.0, False)]
+    assert history.across_sessions(split) == []
+
+    # Three that agree say so, and say how many.
+    agreed = [session(float(n), True) for n in range(3)]
+    said = history.across_sessions(agreed)
+    assert said and "3 of them" in said[0]
+
+
+def test_saying_a_youtube_route_exists_is_not_saying_youtube_answered(monkeypatch):
+    from auteur.scholar import youtube
+
+    # `reachable` looks for the tool; `can_reach` asks YouTube. Both can be
+    # present on a machine with no route out, which is what a proxy is, and
+    # conflating them sent the study loop into 403s it had been told about.
+    monkeypatch.setattr(youtube, "_ytdlp", lambda: "/usr/bin/yt-dlp")
+    assert youtube.reachable()[0] is True
+
+    class _Refused:
+        returncode = 1
+        stdout = ""
+        stderr = "ERROR: Unable to connect to proxy: 403 Forbidden"
+
+    monkeypatch.setattr(youtube.subprocess, "run", lambda *a, **k: _Refused())
+    ok, why = youtube.can_reach()
+    assert ok is False
+    assert "proxy" in why
+
+
+def test_the_cli_reports_a_user_error_without_raising(capsys):
+    from auteur.cli import main
+
+    # Every one of these is a *failure* path, which is exactly the kind that
+    # goes untested and then raises AttributeError at the moment it fires —
+    # the same shape as the six success messages CodeQL caught.
+    for argv in (
+        ["template", "watch"],
+        ["template", "cut"],
+        ["template", "cut", "nothing-called-this", "also-not-a-file.jpg"],
+    ):
+        code = main(argv)
+        assert code != 0
+    out = capsys.readouterr().out
+    assert "✗" in out

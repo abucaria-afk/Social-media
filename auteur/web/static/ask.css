@@ -27,12 +27,17 @@
   font-size: 0.95rem;
   line-height: 1.5;
 }
-/* The Scholar's own line breaks are kept. It answers in bullets when it is
-   reading measurements back, and collapsing single newlines ran the whole
-   list into one paragraph — three separate findings printed as one sentence
-   with bullet characters loose in the middle of it. The text arrives through
-   textContent either way, so nothing here is interpreted as markup. */
-.says p { margin: 0; white-space: pre-wrap; }
+.says p { margin: 0; }
+
+/* The Scholar's own line breaks are kept — but only on the paragraphs the
+   script writes. It answers in bullets when it is reading measurements back,
+   and collapsing single newlines ran three separate findings into one
+   sentence with bullet characters loose in the middle of it.
+   Scoped to `.said` rather than every `.says p`, because the greeting is
+   static markup indented to fit the file, and `pre-wrap` faithfully
+   reproduced that indentation as ragged line breaks on the screen. The text
+   arrives through textContent either way, so nothing is read as markup. */
+.says p.said { white-space: pre-wrap; }
 .says p + p { margin-top: 0.6rem; }
 
 .says.scholar {
