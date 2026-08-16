@@ -26,10 +26,9 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import quote
-
-from .curator import Candidate
 
 log = logging.getLogger("auteur.gallery.sources")
 
@@ -41,10 +40,39 @@ AGENT = "auteur/1.0 (public-domain art search; https://github.com/abucaria-afk/S
 TIMEOUT = 20.0
 
 
+@dataclass
+class Candidate:
+    """One record from a collection, before anybody has looked at the picture."""
+
+    provider: str = ""
+    ref: str = ""
+    title: str = ""
+    artist: str = ""
+    date: str = ""
+    medium: str = ""
+    classification: str = ""
+    #: The largest image the collection offers, and a smaller one to judge from.
+    image_url: str = ""
+    preview_url: str = ""
+    #: The record's own page, for a person who wants to check.
+    page_url: str = ""
+    #: The provider's own rights statement. Never inferred from a search filter.
+    rights: str = ""
+    width: int = 0
+    height: int = 0
+    credit: str = ""
+
+    @property
+    def key(self) -> str:
+        """What makes two records the same work, across two collections."""
+        return f"{self.artist.strip().lower()}|{self.title.strip().lower()}"
+
+
 class Transport(Protocol):
     """Anything that can fetch bytes. Real network, or a test's recording."""
 
-    def get(self, url: str, *, headers: dict | None = None) -> bytes: ...
+    def get(self, url: str, *, headers: dict | None = None) -> bytes:
+        raise NotImplementedError
 
 
 class Web:

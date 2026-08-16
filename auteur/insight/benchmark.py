@@ -167,7 +167,25 @@ def craft_score(reading) -> CraftScore:
     none, mid-grey sits around 0.30 for footage of this kind, and a frame with
     no local contrast at all is flat however well it is exposed.
     """
-    # Separation is already 0..1 and means the right thing directly.
+    # Separation is a *ratio* — sharp subject against soft ground — so a frame
+    # with no sharp anything satisfies it perfectly. Measured on a 1080x1920
+    # frame and three degraded copies of it, the score went the wrong way at
+    # every step: sharp 0.688, a seven-pixel blur 0.785, a 270px version
+    # upscaled back to full size 0.807. Blur wins here, and a rehearsal loop
+    # pointed at this would learn to blur exactly as one already learned to
+    # crush the blacks.
+    #
+    # `Reading.acuity` measures whether there is real detail to separate from,
+    # and it is deliberately *not* applied here. Multiplying separation by it
+    # closes the exploit and punishes the reference reels for existing: across
+    # sixteen of them acuity runs 0.214 to 0.431, overlapping the degraded
+    # copies above, because heavily compressed social video has genuinely had
+    # its fine detail destroyed by the codec. No absolute threshold separates a
+    # real reel from a blurred still, and a number that looks calibrated and is
+    # not would be worse than none.
+    #
+    # Where it does work is against the same source — see `Comparison.softened`,
+    # which is how a grade that quietly smears the picture gets caught.
     separation = _clamp(reading.depth_separation)
 
     # Focus strength runs low even on good footage — 0.29 on the target — so it
