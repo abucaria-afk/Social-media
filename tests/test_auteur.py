@@ -6600,3 +6600,167 @@ def server_static():
     from auteur.web import server
 
     return server.STATIC
+
+
+# ---------------------------------------------------------------------------
+# Cutting to a reel's own timeline
+# ---------------------------------------------------------------------------
+
+
+def _template_of(beats):
+    """A template built by hand, so a test does not need a reel to decode."""
+    from auteur.insight.template import Beat, Template
+
+    made = []
+    at = 0.0
+    for span, luma in beats:
+        made.append(Beat(start=at, duration=span, luma=luma, contrast=0.2))
+        at += span
+    return Template(name="made-up", fingerprint="abc123", seconds=at, beats=made)
+
+
+def _photos(tmp_path, count=4):
+    from PIL import Image
+
+    out = []
+    for index in range(count):
+        path = tmp_path / f"photo{index}.png"
+        # Different brightnesses, so tone matching has something to choose on.
+        grey = 30 + index * 60
+        Image.new("RGB", (400, 700), (grey, grey, grey)).save(path)
+        out.append(path)
+    return out
+
+
+def test_a_template_keeps_when_the_cuts_land_not_how_fast_they_average():
+    template = _template_of([(0.5, 0.2), (0.2, 0.8), (0.2, 0.5), (0.2, 0.4), (4.0, 0.4)])
+    assert [round(b.start, 2) for b in template.beats] == [0.0, 0.5, 0.7, 0.9, 1.1]
+    # The median hold, not the mean: one four second shot must not make a reel
+    # cut five times a second look slow, which is the whole reason a timeline
+    # beats an average. The mean here is 1.02s.
+    assert template.shot_seconds == 0.2
+    assert template.hook == 0.5
+
+
+def test_a_film_cut_to_a_template_holds_every_shot_for_as_long_as_the_reel_did(tmp_path):
+    from auteur.insight.template import cast
+
+    template = _template_of([(0.5, 0.2), (0.2, 0.8), (0.2, 0.5), (0.3, 0.4)])
+    film = cast(template, _photos(tmp_path))
+
+    assert len(film.shots) == len(template.beats)
+    for shot, beat in zip(film.shots, template.beats, strict=True):
+        assert abs(shot.duration - beat.duration) < 0.001
+
+
+def test_the_same_picture_never_lands_either_side_of_a_cut(tmp_path):
+    from auteur.insight.template import cast
+
+    # Twelve beats and four pictures: something has to repeat, and the one
+    # thing it must not do is repeat across a cut, which is not a cut.
+    template = _template_of([(0.2, 0.5)] * 12)
+    film = cast(template, _photos(tmp_path))
+    sources = [shot.source for shot in film.shots]
+    assert all(a != b for a, b in zip(sources, sources[1:], strict=False))
+
+
+def test_a_dark_beat_is_given_a_dark_picture(tmp_path):
+    from auteur.insight.template import cast
+
+    template = _template_of([(0.4, 0.5), (0.4, 0.05), (0.4, 0.95)])
+    film = cast(template, _photos(tmp_path))
+    # Shot 0 is the opener and picked for detail, so judge the two after it.
+    darkest = min(_photos(tmp_path), key=lambda p: p.name)
+    assert film.shots[1].source == darkest or film.shots[1].look.exposure < 0.2
+
+
+def test_the_grade_carries_a_picture_towards_the_beat_without_becoming_it(tmp_path):
+    from auteur.insight.template import PULL, cast
+
+    template = _template_of([(0.4, 0.5), (0.4, 0.9)])
+    film = cast(template, _photos(tmp_path, count=2))
+    # A correction that fully matched every shot would flatten the person's
+    # own photographs into the reference's palette.
+    assert PULL < 1.0
+    assert all(abs(shot.look.exposure) <= 0.8 for shot in film.shots)
+
+
+def test_a_template_repeats_from_the_top_to_fill_a_longer_film():
+    from auteur.insight.template import timeline
+
+    template = _template_of([(0.5, 0.2), (0.5, 0.8)])
+    longer = timeline(template, seconds=2.5)
+    assert abs(sum(b.duration for b in longer) - 2.5) < 0.01
+    # Second time through starts at the top again: a reel's shape is a run at
+    # something and a return, and playing that backwards is not a second run.
+    assert longer[2].luma == longer[0].luma
+
+
+def test_a_template_trims_rather_than_overrunning_a_shorter_film():
+    from auteur.insight.template import timeline
+
+    template = _template_of([(0.5, 0.2), (0.5, 0.8), (0.5, 0.4)])
+    shorter = timeline(template, seconds=0.8)
+    assert sum(b.duration for b in shorter) <= 0.81
+
+
+def test_the_words_go_where_the_reel_put_words(tmp_path):
+    from auteur.insight.template import Beat, Template, cast
+
+    beats = [
+        Beat(start=0.0, duration=0.4, words=0.0),
+        Beat(start=0.4, duration=0.4, words=0.9),
+        Beat(start=0.8, duration=0.4, words=0.1),
+    ]
+    template = Template(name="t", fingerprint="f", seconds=1.2, beats=beats)
+    film = cast(template, _photos(tmp_path), words=["HELLO"])
+    assert len(film.texts) == 1
+    assert abs(film.texts[0].start - 0.4) < 0.001
+
+
+def test_cutting_to_a_template_with_no_openable_pictures_says_so(tmp_path):
+    from auteur.insight.template import cast
+
+    template = _template_of([(0.4, 0.5)])
+    with pytest.raises(ValueError, match="would open"):
+        cast(template, [tmp_path / "not-a-picture.png"])
+
+
+def test_a_template_survives_the_trip_through_json(tmp_path):
+    from auteur.insight.template import Template
+
+    template = _template_of([(0.5, 0.2), (0.25, 0.8)])
+    path = tmp_path / "t.json"
+    template.save(path)
+    back = Template.load(path)
+    assert back.shot_seconds == template.shot_seconds
+    assert [b.start for b in back.beats] == [b.start for b in template.beats]
+
+
+def test_the_shelf_keeps_one_template_per_reel_however_it_is_named(tmp_path):
+    from auteur.scholar.library import TemplateShelf
+
+    shelf = TemplateShelf(tmp_path / "templates")
+    template = _template_of([(0.4, 0.5), (0.4, 0.3)])
+    template.save(shelf.folder / f"{template.fingerprint}.json")
+    # The same reel again under another name is the same fingerprint, so it
+    # lands on the same file rather than beside it.
+    template.name = "renamed"
+    template.save(shelf.folder / f"{template.fingerprint}.json")
+    assert len(shelf.all()) == 1
+    assert shelf.find("renamed") is not None
+
+
+def test_the_shelf_picks_the_reel_cut_closest_to_a_rate_that_was_asked_for(tmp_path):
+    from auteur.scholar.library import TemplateShelf
+
+    shelf = TemplateShelf(tmp_path / "templates")
+    slow = _template_of([(2.0, 0.5)] * 5)
+    slow.name, slow.fingerprint = "slow", "1111"
+    fast = _template_of([(0.167, 0.5)] * 30)
+    fast.name, fast.fingerprint = "fast", "2222"
+    for one in (slow, fast):
+        one.save(shelf.folder / f"{one.fingerprint}.json")
+
+    assert shelf.closest_to(35.0).name == "fast"
+    assert shelf.closest_to(5.0).name == "slow"

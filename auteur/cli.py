@@ -33,6 +33,15 @@ tips:
   Say how long you want it -- "20 seconds" -- and it will hit that length.
 """
 
+TEMPLATE_EXAMPLES = """examples:
+  auteur template watch reel.mp4          read a reel's timing and keep it
+  auteur template list                    what it has watched
+  auteur template cut 21cb photos/*.jpg   your pictures, cut to that reel
+
+A template is when the cuts land and what each shot looked like — timing and
+tone, not footage. The film it makes is your pictures and nobody else's.
+"""
+
 WORKFLOW_EXAMPLES = """examples:
   auteur workflow list
   auteur workflow run instagram-reel ./clips "harbour at dusk"
@@ -283,6 +292,33 @@ def _build_parser() -> argparse.ArgumentParser:
     analyse.add_argument("--json", action="store_true", help="machine-readable output")
 
     sub.add_parser("looks", help="list the film looks and transitions you can ask for")
+
+    # -- templates --------------------------------------------------------
+
+    template = sub.add_parser(
+        "template",
+        help="read a reel shot by shot, then cut your own pictures to its timing",
+        epilog=TEMPLATE_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    template.add_argument(
+        "action",
+        nargs="?",
+        default="list",
+        choices=["list", "watch", "cut"],
+        help="list what it has watched (default), watch a reel, or cut to one",
+    )
+    template.add_argument(
+        "paths",
+        nargs="*",
+        help="reels to watch, or — for `cut` — the template then your pictures",
+    )
+    template.add_argument("--name", default="", help="what to call a reel it watches")
+    template.add_argument(
+        "--seconds", type=float, default=0.0, help="runtime to fill; the reel's own by default"
+    )
+    template.add_argument("--words", default="", help="words to put on screen, comma separated")
+    template.add_argument("--out", default="", help="where to write the film")
 
     # -- workflows --------------------------------------------------------
 
@@ -872,6 +908,101 @@ def _run_analyse(args: argparse.Namespace, say: Reporter) -> int:
     if music and analysis:
         print(f"  music: {music.name} at {analysis.tempo:.0f} beats per minute")
         print()
+    return 0
+
+
+def _run_template(args, say) -> int:
+    """Read a reel's timing, or cut somebody's pictures to one already read."""
+    from .insight import template as tpl
+    from .scholar.library import TemplateShelf
+
+    shelf = TemplateShelf()
+    action = getattr(args, "action", "list")
+    paths = list(getattr(args, "paths", []) or [])
+
+    if action == "list":
+        held = shelf.all()
+        if not held:
+            say.result(
+                "Nothing watched yet.",
+                facts=["auteur template watch <reel.mp4> reads one and keeps its timing"],
+            )
+            return 0
+        say.result(
+            f"{len(held)} " + ("reel" if len(held) == 1 else "reels") + " watched",
+            facts=[t.describe() for t in held],
+        )
+        return 0
+
+    if action == "watch":
+        if not paths:
+            say.problem("Give it a reel to watch.")
+            return 2
+        kept = []
+        for path in paths:
+            template = shelf.watch(path, name=args.name)
+            if template is None:
+                say.note(f"could not read {Path(path).name}")
+                continue
+            kept.append(template)
+        if not kept:
+            say.problem("None of those would open as video.")
+            return 1
+        say.result(
+            f"Watched {len(kept)} " + ("reel" if len(kept) == 1 else "reels"),
+            facts=[t.describe() for t in kept]
+            + (
+                ["the decode could not resolve some of this cutting — the rates are a floor"]
+                if any(t.under_resolved for t in kept)
+                else []
+            ),
+        )
+        return 0
+
+    # cut
+    if len(paths) < 2:
+        say.problem("Give it a template to follow and some pictures to cut.")
+        return 2
+
+    template = shelf.find(paths[0])
+    if template is None:
+        # Not on the shelf — maybe they handed over the reel itself.
+        template = tpl.read(paths[0])
+        if template is None:
+            say.problem(f"No template called {paths[0]!r}, and it is not a readable reel either.")
+            return 1
+
+    words = [w.strip() for w in (args.words or "").split(",") if w.strip()]
+    try:
+        film = tpl.cast(
+            template,
+            paths[1:],
+            seconds=args.seconds or None,
+            words=words,
+        )
+    except ValueError as exc:
+        say.problem(str(exc))
+        return 1
+
+    from .config import FORMATS, Settings, Workspace
+    from .render import render
+
+    workspace = Workspace(Path(args.out or "auteur-work") / "template")
+    result = render(film, workspace, Settings(), formats=(FORMATS["reel"],), name=film.title)
+    made = result.primary
+    if made is None:
+        say.problem("The render produced nothing.")
+        return 1
+
+    say.result(
+        "Cut to " + template.name,
+        facts=[
+            f"{len(film.shots)} shots, median hold {template.shot_seconds:.3f}s",
+            f"{template.cuts_per_10s:.1f} cuts per ten seconds",
+            f"from {len({s.source for s in film.shots})} of your pictures",
+        ],
+        files=[("your film", str(made))],
+    )
     return 0
 
 
@@ -1848,6 +1979,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_analyse(args, say)
         if args.command == "looks":
             return _run_looks()
+        if args.command == "template":
+            return _run_template(args, say)
         if args.command == "workflow":
             return _run_workflow(args, say)
         if args.command == "media":
