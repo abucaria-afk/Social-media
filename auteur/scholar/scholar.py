@@ -181,6 +181,28 @@ _CURRICULUM: dict[Discipline, list[str]] = {
         "final cut pro effects tutorial",
         "final cut pro multicam editing",
     ],
+    # -- getting it seen --------------------------------------------------
+    Discipline.PLATFORM_ALGORITHM: [
+        "instagram algorithm explained",
+        "instagram reels algorithm ranking signals",
+        "tiktok algorithm how it works",
+        "youtube shorts algorithm explained",
+        "what the algorithm rewards short form",
+    ],
+    Discipline.ANALYTICS: [
+        "instagram analytics explained creators",
+        "instagram insights reach vs impressions",
+        "reading retention graphs short form",
+        "watch time metrics explained",
+        "which metrics actually matter creators",
+    ],
+    Discipline.SCHEDULING: [
+        "instagram posting schedule best times",
+        "content calendar for creators",
+        "instagram scheduling tools workflow",
+        "posting frequency consistency growth",
+        "batch content planning creators",
+    ],
     # -- the product ------------------------------------------------------
     # A film nobody can reach is a film nobody watches. The thing that
     # delivers the work is part of the work, so the Scholar studies it too.
@@ -734,6 +756,63 @@ class Scholar:
         if Discipline.COLOR_THEORY in clean_disciplines:
             return f"Apply to colour grading and palette design: {title}"
         return f"Apply to content creation: {title}"
+
+    # ------------------------------------------------------------------
+    # Studying what is already on the disk
+    # ------------------------------------------------------------------
+
+    def study_files(self, roots, *, max_documents: int = 40, max_films: int = 12) -> StudySession:
+        """Read the documents and measure the films in the given folders.
+
+        Needs no network, which is the point: the material that matters most is
+        usually already here — the notes about how this is meant to work, and
+        the reels it is measured against.
+
+        Films cost real time to measure, so they are capped separately and
+        lower. A folder of forty reels would otherwise be a twenty minute
+        session, and the Scholar is supposed to run in the background rather
+        than take the machine over.
+        """
+        from .library import find_study_material, measure_film, read_document
+
+        started = time.time()
+        session = StudySession(strategy=SearchStrategy.CURRICULUM)
+        material = find_study_material(roots)
+
+        # Counted by what the store *accepted*, not by what was produced.
+        # Learning ids are derived, so a second pass over the same folder keeps
+        # nothing — and reporting the produced count made that look like work.
+        for path in material.documents[:max_documents]:
+            kept = sum(1 for learning in read_document(path) if self._store.add(learning))
+            session.videos_watched += 1
+            session.learnings_extracted += kept
+
+        for path in material.films[:max_films]:
+            kept = sum(1 for learning in measure_film(path) if self._store.add(learning))
+            session.videos_watched += 1
+            session.learnings_extracted += kept
+
+        session.duration_sec = time.time() - started
+        self._sessions.append(session)
+        log.info(
+            "studied %d file(s) from disk, kept %d learning(s) in %.1fs",
+            session.videos_watched,
+            session.learnings_extracted,
+            session.duration_sec,
+        )
+        return session
+
+    def critique(self, edl: EditDecisionList) -> list:
+        """Hold the crew's finished timeline against the films it studied.
+
+        This is what makes studying worth doing. Reading and measuring only
+        accumulate; this compares. Every finding names a number, the number it
+        is held against, and the film that number came from — nothing here is
+        allowed to say "it feels slow".
+        """
+        from .library import critique_technique
+
+        return critique_technique(edl, self._store)
 
     # ------------------------------------------------------------------
     # Teaching interface

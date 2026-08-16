@@ -47,6 +47,13 @@ class Discipline(enum.Enum):
     MOVIE_MAKING = "movie_making"
     DIRECTING = "directing"
 
+    # Getting it seen. Distinct from making it well: a film can be cut
+    # perfectly and posted into a dead hour on an account the ranking has
+    # stopped showing to anybody.
+    PLATFORM_ALGORITHM = "platform_algorithm"
+    ANALYTICS = "analytics"
+    SCHEDULING = "scheduling"
+
     # The product itself. A film nobody can get to is a film nobody watches,
     # so the thing that delivers the work is part of the work. These are the
     # disciplines behind the app, the site and the shop.
@@ -144,6 +151,14 @@ class Learning:
     times_taught: int = 0
     #: Whether this learning has been validated against actual output scoring.
     validated_gain: float | None = None
+    #: The numbers behind the sentence, when there were any.
+    #:
+    #: A learning taken from a measured film knows that the film cut 17.6 times
+    #: per ten seconds. Written only into `insight` that fact is a string, and
+    #: holding the crew to it would mean parsing English back into a float —
+    #: which works until somebody rewords the sentence. Carried here it stays a
+    #: number. Empty for everything learned from prose, which is most of them.
+    measurements: dict = field(default_factory=dict)
 
     def to_json(self) -> dict:
         return {
@@ -162,6 +177,7 @@ class Learning:
             "learned_at": self.learned_at,
             "times_taught": self.times_taught,
             "validated_gain": self.validated_gain,
+            "measurements": dict(self.measurements),
         }
 
     @classmethod
@@ -182,6 +198,7 @@ class Learning:
             learned_at=data.get("learned_at", 0.0),
             times_taught=data.get("times_taught", 0),
             validated_gain=data.get("validated_gain"),
+            measurements=data.get("measurements") or {},
         )
 
 
@@ -221,14 +238,31 @@ class KnowledgeStore:
             encoding="utf-8",
         )
 
-    def add(self, learning: Learning) -> None:
-        """Record a new learning, persist it, and re-check its corroboration."""
+    def add(self, learning: Learning) -> bool:
+        """Record a new learning, persist it, and re-check its corroboration.
+
+        Returns whether it was actually stored, so a caller can report what it
+        kept rather than what it produced. Without that the study command said
+        "46 learnings kept" on a second run over the same folder, when it had
+        kept none of them.
+
+        Ignores one it already holds. Learning ids are *derived* from the
+        source and the claim rather than generated, precisely so that studying
+        the same material twice is a no-op — and without this check it was not:
+        reading one document three times left three copies of every sentence,
+        which double-counts in every median and every gap count. That matters
+        more than it sounds, because "read the folder again" is the normal way
+        to use this.
+        """
+        if any(known.learning_id == learning.learning_id for known in self._learnings):
+            return False
         self._learnings.append(learning)
         self._watched_videos.add(learning.source_video_id)
         # Append rather than rewrite — cheaper for large stores.
         with self._path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(learning.to_json()) + "\n")
         self._corroborate(learning)
+        return True
 
     #: How many *different* channels have to say the same thing before it stops
     #: being one person's opinion. Two is the smallest number that can rule out
@@ -288,6 +322,14 @@ class KnowledgeStore:
     @property
     def total_learnings(self) -> int:
         return len(self._learnings)
+
+    def all(self) -> list[Learning]:
+        """Everything known, newest first.
+
+        A copy, so a caller iterating cannot be surprised by a study session
+        appending underneath it.
+        """
+        return sorted(self._learnings, key=lambda learning: learning.learned_at, reverse=True)
 
     def by_discipline(self, discipline: Discipline) -> list[Learning]:
         """All learnings for a given discipline, newest first."""

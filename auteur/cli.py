@@ -448,8 +448,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "action",
         nargs="?",
         default="status",
-        choices=["status", "study", "watch", "teach", "subscribe", "ask"],
-        help="status (default), study once, watch (keep studying), teach, subscribe, ask",
+        choices=["status", "study", "watch", "teach", "subscribe", "ask", "read", "critique"],
+        help=(
+            "status (default), study once, watch (keep studying), teach, subscribe, ask, "
+            "read (study files on disk), critique (hold a cut against what it studied)"
+        ),
     )
     scholar.add_argument(
         "--every",
@@ -469,6 +472,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--videos", type=int, default=5, metavar="N", help="how many videos one session watches"
     )
     scholar.add_argument("--json", action="store_true", help="machine-readable output")
+    scholar.add_argument(
+        "--from",
+        dest="study_from",
+        nargs="*",
+        default=None,
+        metavar="PATH",
+        help="for `read`: folders or files to study (documents and films). Default: docs and .",
+    )
 
     media = sub.add_parser(
         "media",
@@ -1495,6 +1506,55 @@ def _run_scholar(args: argparse.Namespace, say: Reporter) -> int:
             print(f"  · {learning.insight}")
         if not brief.learnings:
             say.detail("nothing studied yet — run `auteur scholar study <topic>`")
+        return 0
+
+    if args.action == "read":
+        # No network needed: the material that matters most is usually already
+        # on the disk — the notes about how this works, and the reels it is
+        # measured against.
+        roots = args.study_from or ["docs", "."]
+        say.step(f"Reading {', '.join(roots)}")
+        session = scholar.study_files(roots)
+        say.result(
+            f"{session.videos_watched} file(s) studied, "
+            f"{session.learnings_extracted} learning(s) kept"
+        )
+        if session.learnings_extracted == 0:
+            say.detail("nothing new — everything there had already been read")
+        return 0
+
+    if args.action == "critique":
+        # A finished film rather than an edit decision list: the timeline is
+        # recovered from the cuts, which is the same reconstruction a benchmark
+        # uses, and it means this works on anything — including somebody
+        # else's reel.
+        if not args.words:
+            say.failure("no film to critique", "auteur scholar critique <film.mp4>")
+            return 2
+        source = Path(args.words[0])
+        if not source.is_file():
+            say.failure(f"no such file: {source}")
+            return 2
+
+        from .insight.score import timeline_of
+
+        try:
+            edl = timeline_of(source)
+        except Exception as exc:  # noqa: BLE001 - unreadable media, said plainly
+            say.failure("that film could not be read", str(exc))
+            return 2
+
+        findings = scholar.critique(edl)
+        if args.json:
+            print(_json.dumps([f.to_json() for f in findings], indent=2))
+            return 0
+        if not findings:
+            say.result("nothing to say — this matches what it has studied")
+            return 0
+        say.step(f"{len(findings)} thing(s) the studied films do differently")
+        for finding in findings:
+            say.detail(f"[{finding.severity}] {finding.description}")
+            say.detail(f"    → {finding.suggestion}")
         return 0
 
     if args.action == "watch":
