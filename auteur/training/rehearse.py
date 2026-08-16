@@ -150,6 +150,19 @@ class Attempt:
         forty generations against a 46-cuts-per-ten-seconds benchmark sat at a
         1.4s shot and climbed craft instead. The most distinctive property of
         the films being chased was not in the objective at all.
+
+        The weights are set by what they rank. Same footage, same grade, three
+        shot lengths, against a 46-cuts-per-ten-seconds benchmark:
+
+            shots   craft  structure  cadence   now    before
+            1.400   0.710      0.753    0.336  0.648   0.728
+            0.500   0.751      0.621    0.399  0.641   0.699
+            0.167   0.745      0.553    0.952  0.729   0.668
+
+        The old objective ranked the 1.4s cut *first* and the reference cadence
+        last. This one inverts that, which is the whole point — and note that
+        structure falls as the cutting speeds up, so cadence is carrying the
+        judgement against a model that is actively pulling the other way.
         """
         return self.craft * 0.5 + self.structure * 0.3 + self.cadence * 0.2
 
