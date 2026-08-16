@@ -86,6 +86,7 @@ def build_crew(
     ledger=None,
     previewer=None,
     sources=None,
+    helpdesk=None,
     max_rounds: int = 3,
 ) -> Crew:
     """The full crew, in the order they should speak.
@@ -141,6 +142,7 @@ def build_crew(
         ledger=ledger,
         previewer=previewer,
         sources=sources,
+        helpdesk=helpdesk,
     )
 
 

@@ -300,6 +300,7 @@ class Crew:
         ledger=None,
         previewer=None,
         sources=None,
+        helpdesk=None,
     ):
         self.agents = list(agents)
         self.model = model
@@ -325,6 +326,10 @@ class Crew:
         self.previewer = previewer
         #: The footage as it arrived, for the untouched end of the comparison.
         self.sources = list(sources or [])
+        # Where a stuck agent goes. Optional, and an agent that has it still has
+        # to turn the answer into a proposal — nothing here reaches a frame
+        # without going through the gate like everything else.
+        self.helpdesk = helpdesk
 
     def run(self, edl: EditDecisionList) -> CrewResult:
         started = time.perf_counter()
@@ -345,6 +350,11 @@ class Crew:
 
             proposals: list[Proposal] = []
             for agent in self.agents:
+                # Hand the help desk to anything that knows how to use it,
+                # before it inspects — so a question raised this round can be
+                # answered from what the Scholar already knows, this round.
+                if self.helpdesk is not None and hasattr(agent, "helpdesk"):
+                    agent.helpdesk = self.helpdesk
                 try:
                     proposals.extend(agent.inspect(current, prediction, self.model))
                 except Exception as exc:  # noqa: BLE001 - one bad agent must not stop the crew

@@ -81,6 +81,7 @@ no amount of rehearsal invents any, and the loop says so rather than grinding.
 
 BENCHMARK_EXAMPLES = """examples:
   auteur benchmark add ./thegoal.mp4 --name pulkitxx
+  auteur benchmark add a=./one.mp4 b=./two.mp4 --name the-goal
   auteur benchmark                          what is being chased, hardest first
   auteur benchmark remove pulkitxx
 
@@ -1351,17 +1352,46 @@ def _run_benchmark(args: argparse.Namespace, say: Reporter) -> int:
         if not args.paths:
             say.failure("point at a video", "auteur benchmark add ./thegoal.mp4")
             return 2
-        for index, path in enumerate(args.paths):
-            target = Path(path)
+        from .insight.benchmark import combine
+
+        measured = []
+        for entry in args.paths:
+            # `handle=./file.mp4` names a reel. Without it a composite goal
+            # reports its parts as upload UUIDs, which makes "separation set by
+            # 3a41839d" useless as an instruction to go and look at one.
+            label, _, raw = entry.rpartition("=")
+            target = Path(raw or entry)
             if not target.exists():
                 say.warn(f"{target.name} is not there")
                 continue
-            say.step(f"Watching {target.name}")
-            name = args.name if args.name and len(args.paths) == 1 else None
-            benchmark = marks.add(measure_benchmark(target, name=name or ""))
+            say.step(f"Watching {label or target.name}")
+            measured.append(measure_benchmark(target, name=label))
+
+        if not measured:
+            say.failure("nothing could be measured", "check the paths")
+            return 1
+
+        # Several reels named together are one goal, not several. The bar each
+        # dimension is set at is the best any of them managed, so the target is
+        # harder than every reel in it — which is what "reach and then surpass"
+        # has to mean once there is more than one thing to reach.
+        if len(measured) > 1 and args.name:
+            benchmark = marks.add(combine(measured, name=args.name))
             for line in benchmark.describe().splitlines():
                 print(f"     {line}")
-            if index < len(args.paths) - 1:
+            if benchmark.led_by:
+                print()
+                for dimension, who in sorted(benchmark.led_by.items()):
+                    print(f"     {dimension:12} bar set by {who}")
+            return 0
+
+        for index, benchmark in enumerate(measured):
+            if args.name and len(measured) == 1:
+                benchmark.name = args.name
+            marks.add(benchmark)
+            for line in benchmark.describe().splitlines():
+                print(f"     {line}")
+            if index < len(measured) - 1:
                 print()
         return 0
 

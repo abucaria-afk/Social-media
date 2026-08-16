@@ -645,13 +645,24 @@ class Prediction:
         return "\n".join(lines)
 
 
-def timeline_of(path, *, analysis_fps: float = 8.0) -> EditDecisionList:
+def timeline_of(path, *, analysis_fps: float = 24.0) -> EditDecisionList:
     """Reconstruct a timeline from a finished video, so it can be scored.
 
     Everything in `predict` reads the *edit* — shot lengths, where the first cut
     lands, how the ends relate. A finished file has all of that in it; it just
-    has to be measured back out. Shot boundaries come from the same detector
-    that finds the cuts already inside your rushes.
+    has to be measured back out.
+
+    Sampled at 24 frames a second with a two-frame floor, for the same reason
+    `insight.reference.measure` is. It used to take the dossier's own boundary
+    list, which is built for a different question — where may this program
+    safely cut into somebody else's footage — and carries a 350ms refractory
+    period that caps any reading at under three cuts a second.
+
+    That fix was made once, in `measure`, and this second path kept the old
+    behaviour: handed two reels cutting 33 times per ten seconds, it returned a
+    single shot each, and every structural number derived from them — hook,
+    loop, the whole benchmark — was computed from a film it believed was one
+    unbroken take.
 
     What cannot be recovered: which source clip each shot came from. So the
     loop objective is judged on whether the last shot *resembles* the first —
@@ -674,7 +685,14 @@ def timeline_of(path, *, analysis_fps: float = 8.0) -> EditDecisionList:
 
     dossier = build_dossier(file.stem[:8], asset, analysis_fps=analysis_fps, analysis_width=160)
     video = dossier.video
-    cuts = [float(c) for c in video.shot_boundaries]
+
+    # The same fast path `measure` uses, rather than the dossier's own list.
+    from .reference import _cuts_at_full_rate
+    from .. import ffmpeg as _ff
+
+    cuts, _resolved = _cuts_at_full_rate(_ff, file, asset.duration, analysis_fps)
+    if not cuts:
+        cuts = [float(c) for c in video.shot_boundaries]
     edges = [0.0, *cuts, asset.duration]
 
     # Each detected scene becomes a shot. Scenes are numbered rather than named

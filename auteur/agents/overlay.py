@@ -86,6 +86,12 @@ class OverlayAgent:
         self.readings = readings or {}
         self.spec = spec
         self.stickers = list(stickers or [])
+        #: Set by the crew when a Scholar is available. This agent knows where a
+        #: subject is; it does not know what to do about footage that has no
+        #: subject in it, and that is a question worth asking rather than
+        #: silently proposing nothing.
+        self.helpdesk = None
+        self._asked = False
 
     def inspect(
         self, edl: EditDecisionList, prediction: Prediction, model: FitReport
@@ -97,6 +103,16 @@ class OverlayAgent:
         windows = _shot_windows(edl)
         runtime = edl.duration
         existing = list(edl.graphics)
+
+        # Nothing here works on footage where the eye has nowhere to land: the
+        # ring, the arrow and the sticker placement all need a subject. Rather
+        # than return an empty list and let that look like approval, ask.
+        weak = [r for r in self.readings.values() if r.focus_strength < HAS_SUBJECT]
+        if self.helpdesk is not None and not self._asked and len(weak) > len(self.readings) * 0.6:
+            self._asked = True
+            answer = self._ask_about_flat_footage(weak)
+            if answer is not None:
+                proposals.append(answer)
 
         # --- 1. The retention bar ----------------------------------------
         # Only worth it once the film is long enough for "how much is left?"
@@ -260,6 +276,41 @@ class OverlayAgent:
         # --- 5. The user's own stickers ----------------------------------
         proposals.extend(self._sticker_proposals(windows, existing))
         return proposals
+
+    def _ask_about_flat_footage(self, weak: list) -> Proposal | None:
+        """Put the problem to the Scholar and hand back whatever comesise.
+
+        The answer is advisory and binding: advisory because it changes no
+        frame, binding because the scoring model has nothing to say about a
+        sentence. It goes to the gate like everything else, which is where a
+        person can decide whether the advice is worth acting on.
+        """
+        from ..scholar.consult import Question
+
+        strengths = [r.focus_strength for r in weak]
+        question = Question(
+            agent=self.name,
+            goal="place marks that draw the eye to the subject",
+            problem=(
+                f"{len(weak)} of {len(self.readings)} frames have no subject the "
+                "reading can find, so a ring or an arrow would be pointing at nothing"
+            ),
+            evidence={
+                "mean focus strength": f"{sum(strengths) / len(strengths):.3f}",
+                "threshold": f"{HAS_SUBJECT}",
+                "compositions": ", ".join(sorted({r.composition for r in weak})),
+            },
+        )
+        answer = self.helpdesk.ask(question)
+        return Proposal(
+            agent=self.name,
+            title="Asked the Scholar about flat footage",
+            reason=f"{question.problem}. {answer.describe()}",
+            change=lambda edl: None,
+            objective=self.objective,
+            binding=True,
+            risk=Risk.LOW,
+        )
 
     def _sticker_proposals(
         self, windows: list[tuple[float, float, str]], existing: list[GraphicCue]

@@ -68,22 +68,51 @@ class CraftScore:
     exposure: float = 0.0
     #: Fraction of the picture destroyed. Not a dimension — a disqualifier.
     clipped: float = 0.0
+    clipped_black: float = 0.0
+    clipped_white: float = 0.0
+
+    @property
+    def damage(self) -> float:
+        """Clipping that reads as a mistake rather than as a choice, 0..1.
+
+        Black and white are not the same mistake. A deep black background is a
+        lighting decision with a century behind it — chiaroscuro is a *named
+        style*, and a frame that is half shadow on purpose is not a frame with
+        half its information destroyed. A blown highlight is almost always an
+        accident: there is nothing above white to recover toward.
+
+        The tolerance is taken from the reels rather than guessed. Across the
+        seven references measured here the darkest — a chiaroscuro travel edit —
+        runs 0.288 of the frame at true black, and the black and white boxing
+        reel runs 0.151. The grade a rehearsal loop produced by wrecking the
+        picture runs 0.550. So the line goes above every real film and below the
+        ruined one, and rises steeply between them.
+
+        Both halves of that matter. Set too low, deliberate chiaroscuro is
+        punished for being itself. Set too high, the loop finds its way back to
+        the magenta wash.
+        """
+        black = _clamp((self.clipped_black - 0.32) / 0.23) * 0.85
+        # Whites get almost none. There is nothing above white to recover
+        # toward, so a blown highlight is a mistake in a way a black is not.
+        white = _clamp((self.clipped_white - 0.02) / 0.20)
+        return _clamp(black + white)
 
     @property
     def intact(self) -> float:
         """How much of the picture is still there, 0..1.
 
-        Clipping multiplies the whole score rather than averaging into it,
-        because it does not trade against the other qualities: a frame with half
-        its pixels crushed to black is not two-thirds of a good frame.
+        Damage multiplies the whole score rather than averaging into it, because
+        it does not trade against the other qualities: a frame with half its
+        pixels destroyed is not two-thirds of a good frame.
 
-        A rehearsal loop found this the hard way. Given a grade that blew out
-        55% of every frame, the other three measures went *up* — a bloom makes
-        the sharp/soft ratio look like depth, and one colour smeared everywhere
+        A rehearsal loop found this the hard way. Given a grade that ruined 55%
+        of every frame, the other three measures went *up* — a bloom makes the
+        sharp/soft ratio look like depth, and one colour smeared everywhere
         looks like a disciplined palette — and it scored higher than the target
         it was chasing while being visibly the worst render of the three.
         """
-        return _clamp(1.0 - _clamp(self.clipped / 0.25) * 0.9)
+        return _clamp(1.0 - self.damage * 0.9)
 
     @property
     def overall(self) -> float:
@@ -113,6 +142,9 @@ class CraftScore:
             "palette": round(self.palette, 4),
             "exposure": round(self.exposure, 4),
             "clipped": round(self.clipped, 4),
+            "clipped_black": round(self.clipped_black, 4),
+            "clipped_white": round(self.clipped_white, 4),
+            "damage": round(self.damage, 4),
             "intact": round(self.intact, 4),
             "overall": round(self.overall, 4),
         }
@@ -122,7 +154,7 @@ class CraftScore:
             f"craft {self.overall:.2f}  "
             f"(separation {self.separation:.2f}, subject {self.subject:.2f}, "
             f"palette {self.palette:.2f}, exposure {self.exposure:.2f}"
-            + (f", {self.clipped:.0%} of the picture clipped" if self.clipped > 0.03 else "")
+            + (f", {self.damage:.0%} of the picture damaged" if self.damage > 0.02 else "")
             + ")"
         )
 
@@ -169,7 +201,9 @@ def craft_score(reading) -> CraftScore:
     # Clipping is subtracted rather than averaged in, because it is not a
     # quality that trades against the others — it is detail that no longer
     # exists. A tenth of the frame crushed or blown costs half the score.
-    ruined = _clamp(reading.clipped / 0.20)
+    # Blown highlights cost the exposure score directly; crushed blacks do not,
+    # because a low-key frame is a legitimate exposure and a blown one is not.
+    ruined = _clamp((reading.clipped_white - 0.02) / 0.15)
     exposure = _clamp((headroom * 0.6 + tonal * 0.4) * (1.0 - ruined * 0.85))
 
     return CraftScore(
@@ -178,6 +212,8 @@ def craft_score(reading) -> CraftScore:
         palette=palette,
         exposure=exposure,
         clipped=reading.clipped,
+        clipped_black=reading.clipped_black,
+        clipped_white=reading.clipped_white,
     )
 
 
@@ -200,6 +236,10 @@ class Benchmark:
     shots: int = 0
     composition: str = ""
     lighting: str = ""
+    #: When this goal is made of several reels, their names — and which one set
+    #: each bar, so "behind on separation" has an address rather than a number.
+    parts: list = field(default_factory=list)
+    led_by: dict = field(default_factory=dict)
     added_at: float = field(default_factory=time.time)
 
     def to_json(self) -> dict:
@@ -217,6 +257,8 @@ class Benchmark:
             "shots": self.shots,
             "composition": self.composition,
             "lighting": self.lighting,
+            "parts": list(self.parts),
+            "led_by": dict(self.led_by),
             "added_at": self.added_at,
         }
 
@@ -236,6 +278,8 @@ class Benchmark:
                 palette=craft.get("palette", 0.0),
                 exposure=craft.get("exposure", 0.0),
                 clipped=craft.get("clipped", 0.0),
+                clipped_black=craft.get("clipped_black", 0.0),
+                clipped_white=craft.get("clipped_white", 0.0),
             ),
             cuts_per_10s=data.get("cuts_per_10s", 0.0),
             shot_seconds=data.get("shot_seconds", 0.0),
@@ -243,6 +287,8 @@ class Benchmark:
             shots=data.get("shots", 0),
             composition=data.get("composition", ""),
             lighting=data.get("lighting", ""),
+            parts=data.get("parts", []),
+            led_by=data.get("led_by", {}),
             added_at=data.get("added_at", 0.0),
         )
 
@@ -254,7 +300,72 @@ class Benchmark:
             f"(hook {self.hook:.2f}, share {self.share:.2f}, loop {self.loop:.2f})\n"
             f"    {self.craft.describe()}\n"
             f"    {self.composition} · {self.lighting}"
+            + (
+                f"\n    made of {len(self.parts)} reels: {', '.join(self.parts)}"
+                if self.parts
+                else ""
+            )
         )
+
+
+def combine(parts: list[Benchmark], *, name: str) -> Benchmark:
+    """One goal from several reels: the best each of them managed.
+
+    Not an average. A group of references sets a bar the way a room of good
+    work does — you are not trying to be the mean of them, you are trying to
+    match the best thing each one does. So every dimension takes its maximum,
+    and the result is a composite no single reel achieves.
+
+    That is the point and it should be said plainly: this target is harder than
+    any of its parts. `led_by` records which reel set each bar, so "behind on
+    separation" can be answered with "go and look at how that one did it"
+    rather than a number with no address.
+    """
+    if not parts:
+        return Benchmark(name=name, source="")
+    if len(parts) == 1:
+        only = parts[0]
+        only.name = name
+        return only
+
+    def best(get) -> tuple[float, str]:
+        winner = max(parts, key=get)
+        return get(winner), winner.name
+
+    separation, by_separation = best(lambda b: b.craft.separation)
+    subject, by_subject = best(lambda b: b.craft.subject)
+    palette, by_palette = best(lambda b: b.craft.palette)
+    exposure, by_exposure = best(lambda b: b.craft.exposure)
+    structure, by_structure = best(lambda b: b.structure)
+
+    return Benchmark(
+        name=name,
+        source=" + ".join(part.name for part in parts),
+        structure=structure,
+        hook=max(p.hook for p in parts),
+        share=max(p.share for p in parts),
+        loop=max(p.loop for p in parts),
+        craft=CraftScore(
+            separation=separation, subject=subject, palette=palette, exposure=exposure
+        ),
+        # The pace of the *fastest* reel, because the cutting rate is the thing
+        # this program was structurally unable to reach until recently and the
+        # ambitious end of it is the interesting end.
+        cuts_per_10s=max(p.cuts_per_10s for p in parts),
+        shot_seconds=min((p.shot_seconds for p in parts if p.shot_seconds > 0), default=0.0),
+        seconds=sum(p.seconds for p in parts) / len(parts),
+        shots=max(p.shots for p in parts),
+        composition=parts[0].composition,
+        lighting=parts[0].lighting,
+        parts=[p.name for p in parts],
+        led_by={
+            "separation": by_separation,
+            "subject": by_subject,
+            "palette": by_palette,
+            "exposure": by_exposure,
+            "structure": by_structure,
+        },
+    )
 
 
 def measure_benchmark(path: str | Path, *, name: str = "", model=None) -> Benchmark:
@@ -326,7 +437,9 @@ class Standing:
             if round(gap, 2) == 0:
                 return f"    {label:10} {ours:.2f} vs {theirs:.2f}   level"
             mark = "ahead" if gap > 0 else "behind"
-            return f"    {label:10} {ours:.2f} vs {theirs:.2f}   {mark} by {abs(gap):.2f}"
+            who = self.benchmark.led_by.get(label.strip().lstrip("· "), "")
+            blame = f"  (set by {who})" if who and gap < 0 else ""
+            return f"    {label:10} {ours:.2f} vs {theirs:.2f}   {mark} by {abs(gap):.2f}{blame}"
 
         lines = [f"against {self.benchmark.name}:"]
         lines.append(line("structure", self.structure, self.benchmark.structure))

@@ -5151,10 +5151,42 @@ def test_a_destroyed_picture_cannot_score_well_however_tidy_its_palette():
     """
     from auteur.insight.benchmark import CraftScore
 
-    destroyed = CraftScore(separation=1.0, subject=1.0, palette=1.0, exposure=0.1, clipped=0.55)
-    modest = CraftScore(separation=0.39, subject=0.6, palette=0.56, exposure=0.83, clipped=0.02)
+    # The real shape of it: the ruined grade crushed 55% of the frame to black.
+    destroyed = CraftScore(
+        separation=1.0, subject=1.0, palette=1.0, exposure=0.1, clipped_black=0.55
+    )
+    modest = CraftScore(
+        separation=0.39, subject=0.6, palette=0.56, exposure=0.83, clipped_black=0.02
+    )
     assert modest.overall > destroyed.overall
-    assert destroyed.intact < 0.15
+    # Better on every dimension it can measure, and still comfortably beaten,
+    # because most of the picture is gone. Asserted as a relationship rather
+    # than a threshold: the exact multiplier is a tuning choice and moved once
+    # already, to leave room for deliberate chiaroscuro.
+    assert destroyed.overall < modest.overall * 0.5
+    assert destroyed.intact < 0.4
+
+
+def test_deep_blacks_on_purpose_are_not_the_same_as_a_destroyed_frame():
+    """Chiaroscuro is a named style, not a fault.
+
+    The thresholds come from the reels: the darkest real reference runs 0.288 of
+    the frame at true black and the black-and-white one runs 0.151, while the
+    grade a rehearsal loop produced by wrecking the picture runs 0.550.
+    """
+    from auteur.insight.benchmark import CraftScore
+
+    chiaroscuro = CraftScore(
+        separation=0.6, subject=0.8, palette=0.9, exposure=0.7, clipped_black=0.288
+    )
+    ruined = CraftScore(separation=0.6, subject=0.8, palette=0.9, exposure=0.7, clipped_black=0.550)
+    blown = CraftScore(separation=0.6, subject=0.8, palette=0.9, exposure=0.7, clipped_white=0.150)
+
+    assert chiaroscuro.damage == 0.0, "the darkest real reel must cost nothing"
+    assert ruined.damage > 0.5
+    # A blown highlight is a mistake in a way a black is not: there is nothing
+    # above white to recover toward.
+    assert blown.damage > chiaroscuro.damage
 
 
 def test_a_monochrome_wash_is_not_a_disciplined_palette():
@@ -5235,8 +5267,12 @@ def test_the_crew_turns_down_a_change_that_ruins_the_picture(tmp_path):
 
         def compare(self, before, after, *, sources=None):
             return Comparison(
-                baseline=Proof("baseline", None, craft=CraftScore(0.4, 0.6, 0.5, 0.7, 0.01)),
-                candidate=Proof("candidate", None, craft=CraftScore(1.0, 0.9, 1.0, 0.1, 0.55)),
+                baseline=Proof(
+                    "baseline", None, craft=CraftScore(0.4, 0.6, 0.5, 0.7, clipped_black=0.01)
+                ),
+                candidate=Proof(
+                    "candidate", None, craft=CraftScore(1.0, 0.9, 1.0, 0.1, clipped_black=0.55)
+                ),
             )
 
     def wreck(target):
@@ -5297,8 +5333,12 @@ def test_a_change_the_model_cannot_see_can_still_be_taken_on_looks(tmp_path):
 
         def compare(self, before, after, *, sources=None):
             return Comparison(
-                baseline=Proof("baseline", None, craft=CraftScore(0.3, 0.5, 0.3, 0.6, 0.02)),
-                candidate=Proof("candidate", None, craft=CraftScore(0.4, 0.6, 0.8, 0.8, 0.01)),
+                baseline=Proof(
+                    "baseline", None, craft=CraftScore(0.3, 0.5, 0.3, 0.6, clipped_black=0.02)
+                ),
+                candidate=Proof(
+                    "candidate", None, craft=CraftScore(0.4, 0.6, 0.8, 0.8, clipped_black=0.01)
+                ),
             )
 
     def grade(target):
@@ -5350,3 +5390,102 @@ def test_a_crew_with_no_previewer_behaves_exactly_as_before(tmp_path):
     assert isinstance(crew.previewer, NullPreviewer)
     assert not crew.previewer.enabled
     assert crew.run(_graphics_edl(tmp_path, count=3)).edl.shots
+
+
+# ----------------------------------------------- a stuck agent asks the Scholar
+
+
+def test_a_scholar_with_nothing_to_say_says_so(tmp_path):
+    """An agent acting on a confident fabrication is worse off than a stuck one."""
+    from auteur.scholar import Scholar
+    from auteur.scholar.consult import HelpDesk, Question
+
+    desk = HelpDesk(Scholar(base_dir=tmp_path))
+    answer = desk.ask(Question(agent="overlay", goal="add depth", problem="every frame reads flat"))
+    assert not answer.useful
+    assert answer.basis == "none"
+    assert answer.confidence == "none"
+    assert "not studied this yet" in answer.describe()
+    # And it remembers to go and find out, rather than forgetting the question.
+    assert len(desk.homework) == 1
+
+
+def test_confidence_counts_channels_not_notes(tmp_path):
+    """Four notes from one tutorial is one opinion written down four times."""
+    from auteur.scholar import Scholar
+    from auteur.scholar.consult import HelpDesk, Question
+    from auteur.scholar.knowledge import Discipline
+
+    scholar = Scholar(base_dir=tmp_path)
+    for index in range(4):
+        scholar.knowledge.add(
+            _learning(Discipline.CINEMATOGRAPHY, "subject separation", "Only Chan", index)
+        )
+    lone = HelpDesk(scholar).ask(
+        Question(agent="overlay", goal="subject separation", problem="frames are flat")
+    )
+    assert lone.useful
+    assert "one source" in lone.confidence
+
+    for name in ("Chan B", "Chan C"):
+        scholar.knowledge.add(_learning(Discipline.CINEMATOGRAPHY, "subject separation", name))
+    many = HelpDesk(scholar).ask(
+        Question(agent="overlay", goal="subject separation", problem="frames are flat")
+    )
+    assert "independent sources" in many.confidence
+
+
+def test_the_overlay_agent_asks_when_it_has_nothing_to_point_at(tmp_path):
+    """Returning an empty list would let 'no subject anywhere' look like approval."""
+    from auteur.agents.base import Crew, Gate, Mode
+    from auteur.agents.overlay import OverlayAgent
+    from auteur.insight import FitReport
+    from auteur.scholar import Scholar
+    from auteur.scholar.consult import HelpDesk
+    from auteur.scholar.knowledge import Discipline
+    from auteur.vision import Reading
+
+    scholar = Scholar(base_dir=tmp_path)
+    for channel in ("Chan A", "Chan B", "Chan C"):
+        scholar.knowledge.add(_learning(Discipline.CINEMATOGRAPHY, "subject separation", channel))
+
+    edl = _graphics_edl(tmp_path, count=5)
+    # Every frame is a texture: nowhere for a ring or an arrow to go.
+    flat = {shot.clip_id: Reading(focus_strength=0.04) for shot in edl.shots}
+
+    desk = HelpDesk(scholar)
+    crew = Crew(
+        [OverlayAgent(flat)],
+        FitReport(rows=0, simulated_rows=0, measured_rows=0),
+        gate=Gate(Mode.AUTONOMOUS),
+        helpdesk=desk,
+        max_rounds=1,
+    )
+    crew.run(edl)
+
+    assert len(desk.asked) == 1, "it should ask once, not once per round"
+    question = desk.asked[0]
+    assert question.agent == "overlay"
+    assert "focus strength" in " ".join(question.evidence)
+    assert desk.answered[0].useful
+
+
+def test_asking_never_blocks_on_the_network(tmp_path, monkeypatch):
+    """Research happens after the edit, so the next run is better, not this one slower."""
+    from auteur.scholar import Scholar
+    from auteur.scholar.consult import HelpDesk, Question
+    from auteur.scholar.youtube import YouTubeUnavailable
+
+    scholar = Scholar(base_dir=tmp_path)
+
+    def refuse(*args, **kwargs):
+        raise YouTubeUnavailable("no network")
+
+    monkeypatch.setattr(scholar, "study", refuse)
+    desk = HelpDesk(scholar)
+
+    # The question is answered (with a no) without ever touching the network.
+    answer = desk.ask(Question(agent="hook", goal="pace it", problem="unclear"))
+    assert not answer.useful
+    # The research pass is where the network is needed, and it fails quietly.
+    assert desk.do_the_homework() == 0
