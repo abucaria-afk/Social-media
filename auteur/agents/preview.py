@@ -97,7 +97,36 @@ class Comparison:
 
     @property
     def better(self) -> bool:
-        return self.gain > 0.0
+        return self.gain > 0.0 and not self.softened
+
+    #: How much fine detail a change may destroy before it counts as damage.
+    #: A tenth is generous — a grade that shifts colour barely moves acuity at
+    #: all, while a bloom or an over-sharpened-then-compressed pass moves it a
+    #: long way.
+    SOFTENING = 0.10
+
+    @property
+    def softened(self) -> float:
+        """How much of the source's fine detail this change destroyed, 0..1.
+
+        Acuity cannot be judged in absolute terms — across sixteen reference
+        reels it runs 0.214 to 0.431, overlapping a deliberately blurred still,
+        because compressed social video has genuinely lost its fine detail. But
+        against *the same footage* it is exact, and that is the comparison this
+        class already has.
+
+        It matters because the craft score can be raised by blurring: a
+        seven-pixel blur scored 0.785 against the sharp original's 0.688, and a
+        rehearsal loop optimising craft would find that the way it already
+        found the magenta wash. `better` refuses a change that softens the
+        picture however well it scores.
+        """
+        before = getattr(getattr(self.source, "reading", None), "acuity", 0.0)
+        after = getattr(getattr(self.candidate, "reading", None), "acuity", 0.0)
+        if before <= 0.0 or after <= 0.0:
+            return 0.0  # nothing measured: not evidence of damage
+        lost = (before - after) / before
+        return float(lost) if lost > self.SOFTENING else 0.0
 
     def describe(self) -> str:
         lines = []
@@ -107,6 +136,11 @@ class Comparison:
         if self.baseline is not None and self.candidate is not None:
             way = "better" if self.gain > 0 else "worse"
             lines.append(f"    the change makes the picture {way} by {abs(self.gain):.3f}")
+        if self.softened:
+            lines.append(
+                f"    but it softens the picture — {self.softened:.0%} of the source's "
+                "fine detail is gone, which the craft score rewards and a viewer does not"
+            )
         return "\n".join(lines)
 
     def to_json(self) -> dict:
@@ -124,6 +158,7 @@ class Comparison:
             "baseline": one(self.baseline),
             "candidate": one(self.candidate),
             "gain": round(self.gain, 4),
+            "softened": round(self.softened, 4),
         }
 
 

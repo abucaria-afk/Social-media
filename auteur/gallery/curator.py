@@ -45,6 +45,10 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# A candidate *is* a record from a collection, so it is defined with them.
+# Importing it the other way round was a genuine cycle, not a stylistic one.
+from .sources import Candidate
+
 log = logging.getLogger("auteur.gallery.curator")
 
 #: Below this much hue variety the frame has no palette. Record shots measured
@@ -63,34 +67,6 @@ ALL_OVER = 0.35
 #: A picture that will be cropped to 9:16 and shown on a phone needs pixels.
 #: Below this it is a thumbnail of a painting rather than a painting.
 LEAST_PIXELS = 700
-
-
-@dataclass
-class Candidate:
-    """One record from a collection, before anybody has looked at the picture."""
-
-    provider: str = ""
-    ref: str = ""
-    title: str = ""
-    artist: str = ""
-    date: str = ""
-    medium: str = ""
-    classification: str = ""
-    #: The largest image the collection offers, and a smaller one to judge from.
-    image_url: str = ""
-    preview_url: str = ""
-    #: The record's own page, for a person who wants to check.
-    page_url: str = ""
-    #: The provider's own rights statement. Never inferred from a search filter.
-    rights: str = ""
-    width: int = 0
-    height: int = 0
-    credit: str = ""
-
-    @property
-    def key(self) -> str:
-        """What makes two records the same work, across two collections."""
-        return f"{self.artist.strip().lower()}|{self.title.strip().lower()}"
 
 
 @dataclass

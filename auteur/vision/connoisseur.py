@@ -100,6 +100,12 @@ class Reading:
     clipped_white: float = 0.0
     contrast: float = 0.0
     luma: float = 0.0
+    #: How much of the fine detail is real, 0..1, measured at full resolution.
+    #: Everything else here is read from a 320px thumbnail, where a soft frame
+    #: and a sharp one are the same picture — and worse than the same, because
+    #: blur reads as depth separation and *raises* the craft score. See
+    #: `resolved_detail`.
+    acuity: float = 0.0
     #: Secondary places the eye goes, best first.
     secondary: tuple[tuple[float, float], ...] = ()
     notes: list[str] = field(default_factory=list)
@@ -499,8 +505,44 @@ def read_asset(path: str | Path, *, samples: int = 5) -> Reading:
     if not frames:
         raise ValueError(f"no frames could be read from {file.name}")
 
-    readings = [read_frame(frame) for frame in frames]
-    return _consensus(readings)
+    reading = _consensus([read_frame(frame) for frame in frames])
+
+    # The one question a thumbnail cannot answer. Taken from the file again at
+    # a resolution where fine detail still exists, because at 320px a soft
+    # frame and a sharp one measure the same — and the craft score prefers the
+    # soft one.
+    if asset.kind == "image":
+        reading.acuity = _acuity_of(file)
+    else:
+        try:
+            sharp = ff.read_frames(
+                file,
+                fps=max(0.2, 3.0 / max(asset.duration, 1.0)),
+                width=ACUITY_EDGE,
+                color=False,
+                max_frames=3,
+            )
+            scores = [
+                resolved_detail(sharp.frames[i].astype(np.float32) / 255.0)
+                for i in range(len(sharp))
+            ]
+            # The best frame rather than the average: a film is as sharp as its
+            # sharpest moment, and one whip-pan should not condemn the rest.
+            reading.acuity = max(scores) if scores else 0.0
+        except Exception:  # noqa: BLE001 - a film that will not re-open is not sharp
+            reading.acuity = 0.0
+    return reading
+
+
+#: The long edge the structural pass works at. Composition, palette and where
+#: the eye goes are all properties of the arrangement, and 320 resolves an
+#: arrangement perfectly well at a fraction of the cost.
+STRUCTURE_EDGE = 320
+
+#: The long edge the *acuity* pass works at. Everything above is about the
+#: shape of the picture; this is about whether the detail in it is real, and
+#: that question cannot be asked of a thumbnail — see `resolved_detail`.
+ACUITY_EDGE = 1080
 
 
 def _load_image(path: Path) -> np.ndarray:
@@ -510,8 +552,63 @@ def _load_image(path: Path) -> np.ndarray:
         # Honour the EXIF orientation: a phone photo analysed sideways gives a
         # confident reading of a composition nobody will ever see.
         image = ImageOps.exif_transpose(handle).convert("RGB")
-        image.thumbnail((320, 320))
+        image.thumbnail((STRUCTURE_EDGE, STRUCTURE_EDGE))
         return np.asarray(image, dtype=np.float32) / 255.0
+
+
+def resolved_detail(gray: np.ndarray) -> float:
+    """How much of the fine detail in this frame is real, 0..1.
+
+    **Why this exists.** The structural pass reads a thumbnail, and at 320px a
+    soft frame and a sharp one are the same picture. Worse than the same:
+    measured through the craft score, blur *wins*. A 1080x1920 frame scored
+    0.688; the same frame under a seven-pixel blur scored 0.785, and a 270px
+    version upscaled back to 1080 scored 0.807. Softness reads as depth
+    separation, because a sharp subject against a soft ground is exactly what
+    separation measures and a blur makes everything the soft ground. A training
+    loop given that score would learn to blur, the same way one already learned
+    to crush the blacks.
+
+    **Seeing further than a person, judging as one.** The measurement is taken
+    at full resolution, where detail a human could not resolve at arm's length
+    still exists as signal. What it *reports* is weighted the way a person sees:
+    the ratio of energy at the finest scale to energy at a scale anybody can
+    see. That ratio is what separates a photograph from an enlargement of one.
+    Absolute fine-scale energy would not: a noisy frame has plenty and looks
+    worse, while a clean dark frame has little and may be perfect.
+
+    Near 0 means nothing survives at the pixel scale — soft, upscaled, or
+    smeared by a compressor. Around 0.4 and up is a frame with real texture.
+    """
+    if gray.size == 0 or min(gray.shape) < 16:
+        return 0.0
+    # `_blur` takes a kernel *width*, not a radius, so 1 is the identity — the
+    # first version of this measured every frame at exactly zero.
+    #
+    # Three and nine, because that is what separates the cases. Measured on a
+    # 1080x1920 frame and three degraded copies of it: sharp 0.781, a
+    # three-pixel blur 0.379, a seven-pixel blur 0.315, and a 270px version
+    # upscaled back to full size 0.214. Narrower bands (2 and 5) put the
+    # seven-pixel blur *above* the sharp original, which is the failure this
+    # whole measurement exists to prevent.
+    fine = float(np.abs(gray - _blur(gray, 3)).mean())
+    seen = float(np.abs(gray - _blur(gray, 9)).mean())
+    if seen <= 1e-6:
+        return 0.0
+    return float(np.clip(fine / seen, 0.0, 1.0))
+
+
+def _acuity_of(path: Path) -> float:
+    """Open the file again at a resolution worth measuring detail at."""
+    from PIL import Image, ImageOps
+
+    try:
+        with Image.open(path) as handle:
+            image = ImageOps.exif_transpose(handle).convert("L")
+            image.thumbnail((ACUITY_EDGE, ACUITY_EDGE))
+            return resolved_detail(np.asarray(image, dtype=np.float32) / 255.0)
+    except Exception:  # noqa: BLE001 - an unreadable frame is not a sharp one
+        return 0.0
 
 
 def _consensus(readings: list[Reading]) -> Reading:

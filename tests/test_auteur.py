@@ -5916,15 +5916,19 @@ class _RecordedCollections:
 
     def get(self, url, *, headers=None):
         import json as _json
+        from urllib.parse import urlsplit
 
         self.fetched.append(url)
         if url.startswith("pic://"):
             return (self.folder / url[len("pic://") :]).read_bytes()
         if url.startswith("iiif/"):
             return (self.folder / (url.split("/")[1] + ".png")).read_bytes()
-        if "metmuseum" in url and "/search?" in url:
+        # Matched on the host, not on a substring of the whole URL: "artic.edu"
+        # appears in a path or a query string just as happily as in a hostname.
+        host = urlsplit(url).hostname or ""
+        if host.endswith("metmuseum.org") and "/search?" in url:
             return _json.dumps({"total": 2, "objectIDs": [101, 102]}).encode()
-        if "metmuseum" in url and "/objects/101" in url:
+        if host.endswith("metmuseum.org") and "/objects/101" in url:
             return _json.dumps(
                 {
                     "objectID": 101,
@@ -5937,7 +5941,7 @@ class _RecordedCollections:
                     "objectURL": "https://www.metmuseum.org/art/collection/search/101",
                 }
             ).encode()
-        if "metmuseum" in url and "/objects/102" in url:
+        if host.endswith("metmuseum.org") and "/objects/102" in url:
             return _json.dumps(
                 {
                     "objectID": 102,
@@ -5949,7 +5953,7 @@ class _RecordedCollections:
                     "objectURL": "x",
                 }
             ).encode()
-        if "artic.edu" in url:
+        if host.endswith("artic.edu"):
             return _json.dumps(
                 {
                     "config": {"iiif_url": "iiif"},
@@ -5965,7 +5969,7 @@ class _RecordedCollections:
                     ],
                 }
             ).encode()
-        if "clevelandart" in url:
+        if host.endswith("clevelandart.org"):
             return _json.dumps({"data": []}).encode()
         raise RuntimeError(f"unexpected url {url}")
 
@@ -5994,7 +5998,9 @@ def test_one_collection_being_down_is_a_smaller_search_not_a_failed_one(tmp_path
 
     class HalfDown(_RecordedCollections):
         def get(self, url, *, headers=None):
-            if "artic.edu" in url:
+            from urllib.parse import urlsplit
+
+            if (urlsplit(url).hostname or "").endswith("artic.edu"):
                 raise OSError("connection refused")
             return super().get(url, headers=headers)
 
@@ -6223,3 +6229,103 @@ def test_nothing_is_criticised_on_a_measurement_that_was_never_taken(tmp_path):
         )
     )
     assert critique_technique(_cut_at_rate(4, 5.0), store) == []
+
+
+# ------------------------------------------------------------------ the eye
+
+
+def _degraded(tmp_path):
+    """A detailed frame and three ways of ruining it, at real phone size."""
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    folder = tmp_path / "acuity"
+    folder.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(3)
+
+    base = np.zeros((960, 540, 3), dtype=np.float32)
+    for y in range(960):
+        base[y, :, :] = 40 + 120 * (1 - y / 960) ** 2
+    # Real fine detail, of the kind a codec and a blur both destroy.
+    detailed = np.clip(base + rng.normal(0, 14, base.shape), 0, 255).astype(np.uint8)
+    sharp = Image.fromarray(detailed)
+    sharp.save(folder / "sharp.png")
+    sharp.filter(ImageFilter.GaussianBlur(3.0)).save(folder / "soft.png")
+    sharp.resize((135, 240)).resize((540, 960), Image.BICUBIC).save(folder / "upscaled.png")
+    return folder
+
+
+def test_the_craft_score_rewards_blur_which_is_why_acuity_exists(tmp_path):
+    """Separation is a ratio, so a frame with no sharp anything satisfies it.
+
+    This is the defect the acuity measurement was added for, and the test
+    exists so that if somebody ever fixes separation properly, this fails and
+    says so rather than leaving a now-pointless measurement in place.
+    """
+    from auteur.insight.benchmark import craft_score
+    from auteur.vision import read_asset
+
+    folder = _degraded(tmp_path)
+    sharp = craft_score(read_asset(folder / "sharp.png", samples=1)).separation
+    soft = craft_score(read_asset(folder / "soft.png", samples=1)).separation
+    assert soft > sharp, "separation no longer prefers blur — acuity's gate can be reconsidered"
+
+
+def test_the_eye_sees_detail_the_thumbnail_cannot(tmp_path):
+    """Everything else is read at 320px, where a blur and a photograph match."""
+    from auteur.vision import read_asset
+    from auteur.vision.connoisseur import STRUCTURE_EDGE
+
+    assert STRUCTURE_EDGE == 320, "the acuity pass exists because of this"
+
+    folder = _degraded(tmp_path)
+    sharp = read_asset(folder / "sharp.png", samples=1).acuity
+    soft = read_asset(folder / "soft.png", samples=1).acuity
+    upscaled = read_asset(folder / "upscaled.png", samples=1).acuity
+
+    assert sharp > soft > 0.0
+    assert sharp > upscaled > 0.0
+
+
+def test_acuity_is_not_used_as_an_absolute_threshold(tmp_path):
+    """Across sixteen reference reels it runs 0.214-0.431, overlapping a blur.
+
+    Compressed social video has genuinely lost its fine detail, so a threshold
+    that catches the blur condemns the reels this project is chasing. The
+    measurement is relative to the same source or it is nothing — this test is
+    here so nobody quietly reintroduces the absolute gate.
+    """
+    from auteur.insight.benchmark import craft_score
+    from auteur.vision import read_asset
+    from auteur.vision.connoisseur import Reading
+
+    folder = _degraded(tmp_path)
+    reading = read_asset(folder / "sharp.png", samples=1)
+    with_acuity = craft_score(reading).separation
+
+    blind = Reading(**{**reading.__dict__, "acuity": 0.0})
+    assert craft_score(blind).separation == pytest.approx(with_acuity)
+
+
+def test_a_change_that_softens_the_picture_is_not_an_improvement(tmp_path):
+    """The exploit the craft score would otherwise reward."""
+    from auteur.agents.preview import Comparison, Proof
+    from auteur.insight.benchmark import craft_score
+    from auteur.vision import read_asset
+
+    folder = _degraded(tmp_path)
+
+    def proof(label, name):
+        reading = read_asset(folder / name, samples=1)
+        return Proof(label=label, path=folder / name, reading=reading, craft=craft_score(reading))
+
+    source = proof("source", "sharp.png")
+    blurred = Comparison(source=source, baseline=source, candidate=proof("after", "soft.png"))
+
+    assert blurred.softened > 0.10
+    assert not blurred.better, "a change that smears the picture scored as an improvement"
+    assert "softens the picture" in blurred.describe()
+
+    # And an honest change is not accused of it.
+    same = Comparison(source=source, baseline=source, candidate=proof("after", "sharp.png"))
+    assert same.softened == 0.0
