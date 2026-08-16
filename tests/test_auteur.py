@@ -5042,3 +5042,97 @@ def test_the_scholar_endpoint_reports_whether_it_can_study(tmp_path, monkeypatch
     assert payload["available"] is True
     assert payload["can_study"] is False, "it must say when it cannot reach YouTube"
     assert "learnings" in payload and "gaps" in payload
+
+
+# --------------------------------------------------------------- benchmarks
+
+
+def _reading(**kwargs):
+    from auteur.vision import Reading
+
+    base = {
+        "depth_separation": 0.5,
+        "focus_strength": 0.25,
+        "hue_spread": 45.0,
+        "luma": 0.30,
+        "contrast": 0.20,
+    }
+    base.update(kwargs)
+    return Reading(**base)
+
+
+def test_craft_sees_what_the_structural_score_cannot():
+    """A film can be better organised and worse to look at. That is the trap."""
+    from auteur.insight.benchmark import craft_score
+
+    cinematic = craft_score(_reading(depth_separation=0.74, focus_strength=0.29, hue_spread=28.0))
+    snapshot = craft_score(_reading(depth_separation=0.19, focus_strength=0.21, hue_spread=77.0))
+    assert cinematic.overall > snapshot.overall
+    # And it names the right weakness rather than a generic one.
+    assert snapshot.weakest[0] == "separation"
+
+
+def test_craft_penalises_crushed_and_blown_exposure():
+    from auteur.insight.benchmark import craft_score
+
+    good = craft_score(_reading(luma=0.30))
+    crushed = craft_score(_reading(luma=0.04))
+    blown = craft_score(_reading(luma=0.93))
+    assert good.exposure > crushed.exposure
+    assert good.exposure > blown.exposure
+
+
+def test_surpassing_needs_both_scores():
+    """Either alone is a failure mode, not a win."""
+    from auteur.insight.benchmark import Benchmark, CraftScore, Standing
+
+    target = Benchmark(name="t", source="", structure=0.42, craft=CraftScore(0.7, 0.8, 1.0, 0.9))
+
+    pretty_but_shapeless = Standing(target, structure=0.30, craft=CraftScore(0.9, 0.9, 1.0, 0.9))
+    assert pretty_but_shapeless.beats_craft and not pretty_but_shapeless.surpassed
+
+    tidy_but_ugly = Standing(target, structure=0.90, craft=CraftScore(0.1, 0.2, 0.3, 0.4))
+    assert tidy_but_ugly.beats_structure and not tidy_but_ugly.surpassed
+
+    both = Standing(target, structure=0.90, craft=CraftScore(0.9, 0.9, 1.0, 0.95))
+    assert both.surpassed
+
+
+def test_a_level_score_does_not_read_as_behind():
+    from auteur.insight.benchmark import Benchmark, CraftScore, Standing
+
+    target = Benchmark(name="t", source="", structure=0.5, craft=CraftScore(0.5, 0.5, 1.0, 0.5))
+    standing = Standing(target, structure=0.5, craft=CraftScore(0.5, 0.5, 1.0, 0.5))
+    text = standing.describe()
+    assert "behind by 0.00" not in text
+    assert "level" in text
+
+
+def test_benchmarks_survive_a_restart_and_pick_the_hardest(tmp_path):
+    from auteur.insight.benchmark import Benchmark, Benchmarks, CraftScore
+
+    marks = Benchmarks(tmp_path / "b.json")
+    marks.add(
+        Benchmark(name="easy", source="", structure=0.9, craft=CraftScore(0.2, 0.2, 0.2, 0.2))
+    )
+    marks.add(
+        Benchmark(name="hard", source="", structure=0.3, craft=CraftScore(0.9, 0.9, 0.9, 0.9))
+    )
+
+    # Hardest is judged on craft: structure is the half this program was already
+    # good at, craft is the half it was not measuring at all.
+    assert marks.hardest.name == "hard"
+
+    reloaded = Benchmarks(tmp_path / "b.json")
+    assert set(reloaded.entries) == {"easy", "hard"}
+    assert reloaded.hardest.name == "hard"
+
+    assert reloaded.remove("easy") and not reloaded.remove("easy")
+
+
+def test_no_benchmark_means_no_standing(tmp_path):
+    from auteur.insight.benchmark import Benchmarks
+
+    marks = Benchmarks(tmp_path / "none.json")
+    assert marks.standing(_reading(), 0.8) is None
+    assert "nothing to beat yet" in marks.describe()

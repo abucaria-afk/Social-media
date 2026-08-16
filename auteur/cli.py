@@ -62,6 +62,22 @@ chapters and captions — it never downloads video. Asking needs ANTHROPIC_API_K
 Without either it tells you so rather than reporting an empty success.
 """
 
+BENCHMARK_EXAMPLES = """examples:
+  auteur benchmark add ./thegoal.mp4 --name pulkitxx
+  auteur benchmark                          what is being chased, hardest first
+  auteur benchmark remove pulkitxx
+
+Two scores, and both have to be beaten.
+
+  structure   the same hook/share/loop model that scores your own edits
+  craft       measured off the frames: subject separation, how clear the
+              subject is, palette discipline, exposure headroom
+
+Craft exists because the first film added here scored 0.42 on structure while
+being plainly better than anything this program had made. A yardstick that
+cannot see that can be beaten by a worse-looking film, which is backwards.
+"""
+
 MEDIA_EXAMPLES = """examples:
   auteur media scan ./footage         index everything, once
   auteur media list --kind video      what is in the index
@@ -126,7 +142,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{edit,workflow,agents,scholar,insight,media,schedule,demo,serve,account,analyse,looks}",
+        metavar="{edit,workflow,benchmark,agents,scholar,insight,media,schedule,demo,serve,account,analyse,looks}",
     )
 
     edit = sub.add_parser(
@@ -338,6 +354,23 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     insight.add_argument("-o", "--out", default=None, metavar="FILE", help="where to write")
     insight.add_argument("--json", action="store_true", help="machine-readable output")
+
+    bench = sub.add_parser(
+        "benchmark",
+        help="films to reach and surpass — measured on structure and on craft",
+        epilog=BENCHMARK_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    bench.add_argument(
+        "action",
+        nargs="?",
+        default="show",
+        choices=["show", "add", "remove"],
+        help="show (default) what is being chased, add a film, or drop one",
+    )
+    bench.add_argument("paths", nargs="*", metavar="VIDEO")
+    bench.add_argument("--name", default=None, help="what to call it (default: the filename)")
+    bench.add_argument("--json", action="store_true", help="machine-readable output")
 
     agents_cmd = sub.add_parser(
         "agents", help="what the crew has learned about which changes are worth making"
@@ -993,9 +1026,41 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
         files.append(("caption and manifest", str(deliverable.folder)))
 
     say.result(headline=f"Ready for {spec.service}", facts=facts, files=files)
+    _report_standing(deliverable.video, model, say)
     if args.quiet:
         print(deliverable.video)
     return 0
+
+
+def _report_standing(video, model, say: Reporter) -> None:
+    """Where the finished film stands against the ones it is chasing.
+
+    Measured off the rendered file rather than the timeline, so it is judged on
+    what actually came out — the grade, the letterbox, the overlays and all —
+    and on the same two yardsticks the benchmark itself was measured on.
+    """
+    from .insight.benchmark import Benchmarks
+
+    marks = Benchmarks()
+    if not marks.entries or video is None:
+        return
+    try:
+        from .insight import corpus, fit
+        from .insight.score import predict, timeline_of
+        from .vision import read_asset
+
+        reading = read_asset(video, samples=9)
+        scored = predict(timeline_of(video), model or fit(corpus([], simulate_rows=800))).overall
+        standing = marks.standing(reading, scored)
+    except Exception as exc:  # noqa: BLE001 - never lose a finished film to a scoreboard
+        logging.getLogger("auteur").debug("could not score against the benchmark", exc_info=True)
+        say.detail(f"could not measure against the benchmark: {exc}")
+        return
+    if standing is None:
+        return
+    print()
+    for line in standing.describe().splitlines():
+        print(f"     {line}")
 
 
 def _read_the_footage(paths: list[str], say: Reporter) -> dict:
@@ -1138,6 +1203,51 @@ def _run_score(args: argparse.Namespace, say: Reporter) -> int:
         print("     read from the cut alone: no words on screen were read, and nothing")
         print("     here knows what the footage is of.")
         print()
+    return 0
+
+
+def _run_benchmark(args: argparse.Namespace, say: Reporter) -> int:
+    """The films the work is chasing, and what it would take to pass them."""
+    import json as _json
+
+    from .insight.benchmark import Benchmarks, measure_benchmark
+
+    marks = Benchmarks()
+
+    if args.action == "add":
+        if not args.paths:
+            say.failure("point at a video", "auteur benchmark add ./thegoal.mp4")
+            return 2
+        for index, path in enumerate(args.paths):
+            target = Path(path)
+            if not target.exists():
+                say.warn(f"{target.name} is not there")
+                continue
+            say.step(f"Watching {target.name}")
+            name = args.name if args.name and len(args.paths) == 1 else None
+            benchmark = marks.add(measure_benchmark(target, name=name or ""))
+            for line in benchmark.describe().splitlines():
+                print(f"     {line}")
+            if index < len(args.paths) - 1:
+                print()
+        return 0
+
+    if args.action == "remove":
+        for name in args.paths:
+            say.result(f"dropped {name}" if marks.remove(name) else f"no benchmark called {name}")
+        return 0
+
+    if args.json:
+        print(_json.dumps([b.to_json() for b in marks.entries.values()], indent=2))
+        return 0
+
+    for line in marks.describe().splitlines():
+        print(line)
+    if marks.entries:
+        say.detail(
+            "structure is the same model that scores your edits; craft is measured "
+            "off the frames. Both have to be beaten for it to count."
+        )
     return 0
 
 
@@ -1523,6 +1633,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_scholar(args, say)
         if args.command == "agents":
             return _run_agents(args, say)
+        if args.command == "benchmark":
+            return _run_benchmark(args, say)
     except KeyboardInterrupt:
         say.failure("stopped")
         return 130
