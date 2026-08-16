@@ -144,17 +144,32 @@ class OutputReview:
                 "opportunity": Risk.LOW,
             }.get(finding.severity, Risk.LOW)
 
-            proposals.append(
-                Proposal(
-                    agent="scholar",
-                    title=f"[Review] {finding.description}",
-                    reason=f"{finding.suggestion} (backed by {len(finding.supporting_learnings)} learnings)",
-                    change=lambda edl: None,  # Review findings are advisory
-                    objective="knowledge_application",
-                    risk=risk,
-                    binding=False,
-                )
+            proposal = Proposal(
+                agent="scholar",
+                title=f"[Review] {finding.description}",
+                reason=(
+                    f"{finding.suggestion} "
+                    f"(backed by {len(finding.supporting_learnings)} learnings)"
+                ),
+                change=lambda edl: None,  # Review findings are advisory
+                objective="knowledge_application",
+                risk=risk,
+                # Advisory, and binding for that reason rather than in spite of
+                # it. These change nothing, so the crew's "did the prediction
+                # improve?" test scores every one of them at exactly zero and
+                # drops them as *no predicted gain* — which reads as the model
+                # rejecting the Scholar's advice when it has not looked at it.
+                # Binding sends them past the model to the person, which is
+                # where a note about the work belonged in the first place.
+                binding=True,
             )
+            # Which learnings produced this, so a proposal that turns out to
+            # help can promote the study behind it. Without these the Scholar
+            # can never find out whether anything it read was any good.
+            proposal.learning_ids = [
+                learning.learning_id for learning in finding.supporting_learnings
+            ]
+            proposals.append(proposal)
 
         return proposals
 

@@ -194,12 +194,60 @@ class KnowledgeStore:
         )
 
     def add(self, learning: Learning) -> None:
-        """Record a new learning and persist it."""
+        """Record a new learning, persist it, and re-check its corroboration."""
         self._learnings.append(learning)
         self._watched_videos.add(learning.source_video_id)
         # Append rather than rewrite — cheaper for large stores.
         with self._path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(learning.to_json()) + "\n")
+        self._corroborate(learning)
+
+    #: How many *different* channels have to say the same thing before it stops
+    #: being one person's opinion. Two is the smallest number that can rule out
+    #: a single creator's house style, which is the failure this guards against.
+    CORROBORATION = 2
+
+    def _corroborate(self, learning: Learning) -> None:
+        """Raise a technique to SUPPORTED once unrelated creators agree on it.
+
+        Everything arrives TENTATIVE, because one person saying something on the
+        internet is exactly one person saying something. But every consumer of
+        this store — the teaching briefs, the review pass — asks for SUPPORTED
+        or better, and nothing in the program promoted anything. The result was
+        a learning loop with no exit: the Scholar could study indefinitely,
+        accumulate thousands of learnings, and teach precisely none of them.
+
+        Independent agreement is the cheapest honest promotion available here.
+        Same technique, different channels, means it is a convention rather than
+        one editor's habit. It is not proof the technique works — that is what
+        VALIDATED is for, and that takes a measured gain on a real edit — but it
+        is a real reason to raise confidence, and it is checked rather than
+        assumed.
+        """
+        technique = (learning.technique or "").strip().lower()
+        if not technique or learning.confidence != Confidence.TENTATIVE:
+            return
+
+        agreeing = {
+            other.source_channel
+            for other in self._learnings
+            if (other.technique or "").strip().lower() == technique and other.source_channel
+        }
+        if len(agreeing) < self.CORROBORATION:
+            return
+
+        changed = False
+        for other in self._learnings:
+            if (
+                other.technique or ""
+            ).strip().lower() == technique and other.confidence == Confidence.TENTATIVE:
+                other.confidence = Confidence.SUPPORTED
+                changed = True
+        if changed:
+            log.info(
+                "%r corroborated by %d channels — now supported", learning.technique, len(agreeing)
+            )
+            self.save()
 
     def already_watched(self, video_id: str) -> bool:
         """Has the Scholar already extracted learnings from this video?"""

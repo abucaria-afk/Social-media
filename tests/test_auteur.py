@@ -17,8 +17,11 @@ import json
 import math
 import os
 import re
+import copy
 import subprocess
 import sys
+import tempfile
+import types
 import time
 import wave
 from pathlib import Path
@@ -4366,12 +4369,293 @@ def test_a_centred_subject_does_not_send_the_mark_to_the_centre(tmp_path):
     assert off[0] > 0.5 and off[1] < 0.5
 
 
-def test_the_crew_result_carries_graphics_back_to_the_renderer(tmp_path):
-    """Every field an agent may touch has to be copied back, or it is discarded."""
+def test_the_crew_result_carries_every_field_back_to_the_renderer(tmp_path):
+    """Anything an agent changed and the copy-back missed is silently discarded.
+
+    This happened: graphics, sound cues and the grade were dropped while the run
+    still printed them as applied. So this asserts the behaviour rather than the
+    shape of the code — every field the crew could have touched arrives.
+    """
+    import dataclasses
+
+    from auteur.edl import EditDecisionList, GraphicCue, SoundCue
+    from auteur.workflows import WORKFLOW_OWNED, resolve, with_agents
+
+    edl = _graphics_edl(tmp_path)
+    changed = copy.deepcopy(edl)
+    changed.graphics = [GraphicCue(kind="circle", start=0.1, duration=0.5)]
+    changed.sfx = [SoundCue(kind="impact", at=0.4)]
+    changed.texture = 0.42
+    changed.letterbox = 0.11
+    changed.rationale = "the agents said so"
+    changed.look.exposure = 0.33
+
+    class _Result:
+        def __init__(self, edl):
+            self.edl = edl
+            self.baseline = self.final = types.SimpleNamespace(overall=0.5)
+            self.rounds = []
+
+    class _Crew:
+        def run(self, _edl):
+            return _Result(changed)
+
+    with_agents(resolve("tiktok"), _Crew())(edl)
+
+    for field in dataclasses.fields(EditDecisionList):
+        if field.name in WORKFLOW_OWNED:
+            continue
+        assert getattr(edl, field.name) == getattr(
+            changed, field.name
+        ), f"{field.name} did not survive the crew"
+
+
+def test_the_studio_and_the_cli_build_the_same_crew(tmp_path):
+    """A studio showing fewer proposals than the CLI would act on is the wrong list."""
     import inspect as _inspect
 
-    from auteur import workflows
+    from auteur.web import server
 
-    source = _inspect.getsource(workflows.with_agents)
-    for field in ("shots", "texts", "graphics", "sfx"):
-        assert f"edl.{field} = result.edl.{field}" in source
+    source = _inspect.getsource(server.Handler._agents_plan)
+    assert "build_crew(" in source
+    assert "default_crew()" not in source
+
+
+# ----------------------------------------------------------------------- scholar
+
+
+def _learning(disc, technique, channel, index=0):
+    from auteur.scholar.knowledge import Learning
+
+    return Learning(
+        learning_id=f"{technique[:6]}-{channel}-{index}",
+        disciplines=[disc],
+        insight=f"{technique}: do the thing",
+        technique=technique,
+        application="do the thing",
+        source_video_id=f"v-{channel}-{index}",
+        source_channel=channel,
+        source_title="a tutorial",
+    )
+
+
+def test_youtube_says_it_cannot_reach_rather_than_returning_nothing(tmp_path, monkeypatch):
+    """An empty result and no network are different facts.
+
+    They were the same one: a Scholar with no way to reach YouTube reported the
+    same quiet success as one that had read the whole first page.
+    """
+    from auteur.scholar import youtube
+
+    monkeypatch.setattr(youtube, "_ytdlp", lambda: None)
+    monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+
+    access = youtube.YouTubeAccess(cache_dir=tmp_path / "c", api_key="")
+    can, why = youtube.reachable()
+    assert not can and "yt-dlp" in why
+
+    with pytest.raises(youtube.YouTubeUnavailable):
+        access.search("colour grading")
+    with pytest.raises(youtube.YouTubeUnavailable):
+        access.fetch_metadata("abc123")
+    with pytest.raises(youtube.YouTubeUnavailable):
+        access.check_new_uploads()
+
+
+def test_a_transcript_is_the_words_or_it_is_empty():
+    """`has_transcript` used to be True while the transcript was a placeholder."""
+    from auteur.scholar.youtube import YouTubeAccess, _parse_json3, _parse_vtt
+
+    cues = _parse_json3(
+        json.dumps(
+            {
+                "events": [
+                    {
+                        "tStartMs": 0,
+                        "dDurationMs": 1500,
+                        "segs": [{"utf8": "lift "}, {"utf8": "the shadows"}],
+                    },
+                    {"tStartMs": 1500, "dDurationMs": 10, "segs": [{"utf8": "\n"}]},
+                    {"tStartMs": 2000, "dDurationMs": 900},
+                ]
+            }
+        )
+    )
+    assert cues == [{"text": "lift the shadows", "start": 0.0, "duration": 1.5}]
+    assert _parse_json3("not json") == []
+
+    vtt = (
+        "WEBVTT\n\n"
+        "00:00:00.120 --> 00:00:02.500\nnode based <c>grading</c>\n\n"
+        "00:00:02.500 --> 00:00:04.000\nnode based grading\n\n"
+        "00:00:04.000 --> 00:00:06.250\nset contrast\nthen saturation\n"
+    )
+    parsed = _parse_vtt(vtt)
+    # The rolling repeat auto-captions produce is dropped, not counted twice.
+    assert [cue["text"] for cue in parsed] == [
+        "node based grading",
+        "set contrast then saturation",
+    ]
+    assert _parse_vtt("") == []
+
+    # No caption track at all means no transcript — not a note about one.
+    access = YouTubeAccess(cache_dir=Path(tempfile.mkdtemp()))
+    meta = access._meta_from_dict({"id": "x", "title": "t", "duration": 10})
+    assert meta.transcript_segments == []
+    assert not meta.has_transcript
+
+
+def test_the_learning_loop_has_an_exit(tmp_path):
+    """Everything arrived tentative and every consumer wanted supported.
+
+    So the Scholar could study for ever and teach nothing. Independent
+    corroboration is what promotes a technique out of tentative.
+    """
+    from auteur.scholar.knowledge import Confidence, Discipline, KnowledgeStore
+
+    store = KnowledgeStore(tmp_path / "k.jsonl")
+    store.add(_learning(Discipline.COLOR_THEORY, "lift the shadows", "Chan A"))
+    assert store.by_confidence(Confidence.SUPPORTED) == [], "one channel is one opinion"
+
+    # The same technique from a second, unrelated channel is corroboration.
+    store.add(_learning(Discipline.COLOR_THEORY, "lift the shadows", "Chan B"))
+    assert len(store.by_confidence(Confidence.SUPPORTED)) == 2
+
+    # The same channel again is not.
+    store.add(_learning(Discipline.MUSIC_THEORY, "cut on the beat", "Chan A", 1))
+    store.add(_learning(Discipline.MUSIC_THEORY, "cut on the beat", "Chan A", 2))
+    beats = [lg for lg in store._learnings if lg.technique == "cut on the beat"]
+    assert all(lg.confidence is Confidence.TENTATIVE for lg in beats)
+
+
+def test_a_measured_gain_validates_the_study_behind_it(tmp_path):
+    """`record_validation` existed and had no caller anywhere in the program."""
+    from auteur.edl import Motion
+    from auteur.insight import FitReport
+    from auteur.insight.score import Prediction
+    from auteur.scholar import Scholar
+    from auteur.scholar.agent import ScholarAgent
+    from auteur.scholar.knowledge import Confidence, Discipline
+
+    scholar = Scholar(base_dir=tmp_path)
+    # Three channels: enough to corroborate the technique, and enough for the
+    # agent to consider itself studied at all (see ENOUGH_TO_SPEAK).
+    for channel in ("Chan A", "Chan B", "Chan C"):
+        scholar.knowledge.add(_learning(Discipline.ART_BASICS, "composition and focal", channel))
+
+    agent = ScholarAgent(scholar)
+    edl = _graphics_edl(tmp_path, count=6)
+    # Anchors jammed into the corner, so the focal weight is genuinely weak and
+    # the composition review has something real to object to.
+    for shot in edl.shots:
+        shot.motion = Motion(kind=shot.motion.kind, intensity=0.0, anchor=(0.04, 0.04))
+    prediction = Prediction(hook=0.4, share=0.4, loop=0.4)
+    model = FitReport(rows=0, simulated_rows=0, measured_rows=0)
+
+    proposals = agent.inspect(edl, prediction, model)
+    assert proposals, "a studied Scholar with a weak cut in front of it should speak"
+    assert all(
+        p.binding for p in proposals
+    ), "advice the model cannot score is not advice it rejected"
+    assert all(getattr(p, "learning_ids", None) for p in proposals)
+
+    # Said once, not once per round.
+    assert agent.inspect(edl, prediction, model) == []
+
+    for proposal in proposals:
+        proposal.applied = True
+        proposal.predicted_gain = 0.05
+    assert agent.learn_from(proposals) > 0
+    assert scholar.knowledge.by_confidence(Confidence.VALIDATED)
+
+
+def test_an_unstudied_scholar_stays_quiet(tmp_path):
+    """A review backed by nothing is the Gaze agent's opinion arriving twice."""
+    from auteur.insight import FitReport
+    from auteur.insight.score import Prediction
+    from auteur.scholar import Scholar
+    from auteur.scholar.agent import ScholarAgent
+
+    agent = ScholarAgent(Scholar(base_dir=tmp_path))
+    assert agent.studied == 0
+    edl = _graphics_edl(tmp_path, count=6)
+    assert (
+        agent.inspect(
+            edl,
+            Prediction(hook=0.4, share=0.4, loop=0.4),
+            FitReport(rows=0, simulated_rows=0, measured_rows=0),
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    "kind,expected",
+    [("speech", "dialogue"), ("music", "music"), ("noise", "ambient"), ("transients", "effects")],
+)
+def test_the_scholar_hears_what_kind_of_sound_it_is(kind, expected):
+    """This returned DIALOGUE unconditionally, so the field carried no information."""
+    from auteur.scholar.auditory import AuditorySystem
+
+    rate = 22050
+    t = np.linspace(0, 6.0, int(rate * 6), endpoint=False)
+    rng = np.random.default_rng(7)
+
+    if kind == "speech":
+        spectrum = np.fft.rfft(rng.normal(0, 1, len(t)))
+        freqs = np.fft.rfftfreq(len(t), 1 / rate)
+        spectrum[(freqs < 300) | (freqs > 3400)] = 0
+        signal = np.fft.irfft(spectrum, n=len(t))
+        signal = signal / np.abs(signal).max() * (0.55 + 0.45 * np.sin(2 * np.pi * 4.5 * t))
+    elif kind == "music":
+        signal = np.zeros_like(t)
+        for beat in range(10):
+            start = int(beat * 0.6 * rate)
+            span = min(900, len(signal) - start)
+            if span > 0:
+                decay = np.exp(-np.linspace(0, 7, span))
+                signal[start : start + span] += decay * np.sin(
+                    2 * np.pi * 70 * np.linspace(0, span / rate, span)
+                )
+        signal = signal * 0.9 + sum(0.16 * np.sin(2 * np.pi * f * t) for f in (196, 246.9, 293.7))
+    elif kind == "noise":
+        signal = rng.normal(0, 0.12, len(t))
+    else:
+        signal = np.zeros_like(t)
+        for at in (0.3, 1.42, 3.05, 4.8):
+            start = int(at * rate)
+            span = min(1500, len(signal) - start)
+            decay = np.exp(-np.linspace(0, 9, span))
+            signal[start : start + span] += decay * np.sin(
+                2 * np.pi * 900 * np.linspace(0, span / rate, span)
+            )
+
+    pcm = (np.clip(signal, -1, 1) * 32767).astype("<i2").tobytes()
+    assert AuditorySystem()._classify_channel(pcm, rate).value == expected
+
+
+def test_audio_energy_is_measured_not_approximated_from_bytes():
+    """The old version read signed 16-bit samples as unsigned bytes."""
+    from auteur.scholar.auditory import AuditorySystem
+
+    ears = AuditorySystem()
+    silence = np.zeros(22050, dtype="<i2").tobytes()
+    assert ears._measure_energy(silence, 22050) == 0.0
+    assert ears._measure_energy(b"", 22050) == 0.0
+
+    full = (np.ones(22050) * 32000).astype("<i2").tobytes()
+    quiet = (np.ones(22050) * 320).astype("<i2").tobytes()
+    assert ears._measure_energy(full, 22050) > ears._measure_energy(quiet, 22050)
+    assert ears._measure_energy(full, 22050) == pytest.approx(1.0, abs=0.01)
+
+
+def test_the_scholar_says_when_it_cannot_answer(tmp_path, monkeypatch):
+    """It used to return a string shaped like an answer."""
+    from auteur.scholar import Scholar
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+
+    reply = Scholar(base_dir=tmp_path).chat("how do I pace a montage?")
+    assert "[Scholar response" not in reply.text
+    assert "cannot answer" in reply.text.lower()

@@ -172,9 +172,14 @@ class WebReporter(Reporter):
 class Studio:
     """Holds the jobs and runs them one at a time."""
 
-    def __init__(self, workspace: Path, *, quality: str = "draft"):
+    def __init__(self, workspace: Path, *, quality: str = "draft", stickers: Path | None = None):
         self.workspace = Path(workspace)
         self.workspace.mkdir(parents=True, exist_ok=True)
+        # Somewhere to drop your own transparent PNGs. Made under the workspace
+        # by default so there is always a folder to point a phone's share sheet
+        # at, rather than a setting nobody finds.
+        self.sticker_dir = Path(stickers) if stickers else self.workspace / "stickers"
+        self.sticker_dir.mkdir(parents=True, exist_ok=True)
         self.quality = quality
         self.jobs: dict[str, Job] = {}
         self.lock = threading.Lock()
@@ -789,7 +794,9 @@ class Handler(BaseHTTPRequestHandler):
         Nothing renders here. The point of the studio is that a person sees the
         proposals *before* the machine spends three minutes acting on them.
         """
-        from ..agents import Crew, Gate, Mode, default_crew
+        from ..agents import Gate, Mode
+        from ..agents.assemble import build_crew, readings_for
+        from ..craft.graphics import find_stickers
         from ..workflows import resolve
 
         payload = self._json_body()
@@ -824,7 +831,19 @@ class Handler(BaseHTTPRequestHandler):
             held.append(proposal)
             return "reject", "waiting for you"
 
-        crew = Crew(default_crew(), self._fitted(), gate=Gate(mode, on_ask=hold), max_rounds=3)
+        # The same crew the CLI builds, from the same function. The studio's
+        # whole job is to show what the agents want *before* three minutes are
+        # spent acting on it, so a shorter list here than the CLI would act on
+        # is the one thing it must never show. Readings come off the cut's own
+        # shots, which is how the web path gets measured subjects without a
+        # folder of rushes to point at.
+        crew = build_crew(
+            self._fitted(),
+            gate=Gate(mode, on_ask=hold),
+            readings=readings_for(edl),
+            spec=spec,
+            stickers=find_stickers(self.studio.sticker_dir),
+        )
         result = crew.run(edl)
 
         type(self)._pending = {

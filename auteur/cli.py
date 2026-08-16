@@ -46,6 +46,22 @@ what a workflow does that `edit` does not:
 it does not post anything. it makes a folder you can post from.
 """
 
+SCHOLAR_EXAMPLES = """examples:
+  auteur scholar                            what it knows and what it wants next
+  auteur scholar study colour grading       watch and learn about one thing
+  auteur scholar teach --agent hook         what it would tell the hook agent
+  auteur scholar subscribe UC... Chan name  follow a channel for new uploads
+  auteur scholar ask "how do I pace a montage?"
+  auteur scholar watch --every 30           keep studying, in the foreground
+
+`auteur serve` starts the same background study loop on its own, so the
+Scholar learns whenever the app is up. Turn that off with --no-scholar.
+
+Studying needs yt-dlp (`pip install auteur[scholar]`). It reads titles,
+chapters and captions — it never downloads video. Asking needs ANTHROPIC_API_KEY.
+Without either it tells you so rather than reporting an empty success.
+"""
+
 MEDIA_EXAMPLES = """examples:
   auteur media scan ./footage         index everything, once
   auteur media list --kind video      what is in the index
@@ -110,7 +126,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{edit,workflow,insight,media,schedule,demo,serve,account,analyse,looks}",
+        metavar="{edit,workflow,scholar,insight,media,schedule,demo,serve,account,analyse,looks}",
     )
 
     edit = sub.add_parser(
@@ -196,6 +212,18 @@ def _build_parser() -> argparse.ArgumentParser:
         default="draft",
         choices=["draft", "standard", "best"],
         help="draft keeps phone renders quick (default)",
+    )
+    serve.add_argument(
+        "--no-scholar",
+        action="store_true",
+        help="do not let the study agent learn in the background while serving",
+    )
+    serve.add_argument(
+        "--scholar-every",
+        type=float,
+        default=60.0,
+        metavar="MINUTES",
+        help="how often the background study agent looks for something new (default 60)",
     )
 
     account = sub.add_parser("account", help="who can sign in to the phone app")
@@ -310,6 +338,38 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     insight.add_argument("-o", "--out", default=None, metavar="FILE", help="where to write")
     insight.add_argument("--json", action="store_true", help="machine-readable output")
+
+    scholar = sub.add_parser(
+        "scholar",
+        help="the study agent — what it has learned, and what it wants to watch next",
+        epilog=SCHOLAR_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    scholar.add_argument(
+        "action",
+        nargs="?",
+        default="status",
+        choices=["status", "study", "watch", "teach", "subscribe", "ask"],
+        help="status (default), study once, watch (keep studying), teach, subscribe, ask",
+    )
+    scholar.add_argument(
+        "--every",
+        type=float,
+        default=60.0,
+        metavar="MINUTES",
+        help="for `watch`: how often to look for something new (default 60)",
+    )
+    scholar.add_argument("words", nargs="*", metavar="TEXT", help="the topic, channel or question")
+    scholar.add_argument(
+        "--agent",
+        default=None,
+        metavar="NAME",
+        help="teach one agent rather than the whole crew (hook, share, loop, gaze, overlay)",
+    )
+    scholar.add_argument(
+        "--videos", type=int, default=5, metavar="N", help="how many videos one session watches"
+    )
+    scholar.add_argument("--json", action="store_true", help="machine-readable output")
 
     media = sub.add_parser(
         "media",
@@ -529,8 +589,49 @@ def _run_demo(args: argparse.Namespace, say: Reporter) -> int:
     return _run_edit(namespace, say)
 
 
+def _start_scholar_in_background(say: Reporter, *, minutes: float = 60.0):
+    """Let the Scholar study while the app is up.
+
+    A study agent that only runs when somebody types a command is a study agent
+    that never runs. Serving is the natural moment: the machine is already on
+    and already going to sit there.
+
+    A daemon thread, so quitting the server does not hang waiting for it, and
+    the loop swallows its own failures — the Scholar not being able to reach
+    YouTube must never be a reason the app will not serve.
+    """
+    import threading
+
+    from .scholar.youtube import reachable
+
+    can_study, how = reachable()
+    if not can_study:
+        say.detail(f"the Scholar is idle — {how}")
+        return None
+
+    from .scholar import Scholar
+
+    scholar = Scholar()
+
+    def study() -> None:
+        try:
+            scholar.run_forever(every_seconds=minutes * 60.0)
+        except Exception:  # noqa: BLE001 - a background learner never takes the app down
+            logging.getLogger("auteur.scholar").debug("the Scholar stopped", exc_info=True)
+
+    thread = threading.Thread(target=study, name="auteur-scholar", daemon=True)
+    thread.start()
+    say.detail(
+        f"the Scholar is studying in the background ({scholar.knowledge.total_learnings} learnings so far)"
+    )
+    return scholar
+
+
 def _run_serve(args: argparse.Namespace, say: Reporter) -> int:
     from .web.server import serve
+
+    if not args.no_scholar:
+        _start_scholar_in_background(say, minutes=args.scholar_every)
 
     try:
         serve(
@@ -749,41 +850,29 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
     agent_result: dict = {}
     model = None
     if args.agents != "off":
-        from .agents import Crew, StyleAgent, default_crew
+        from .agents.assemble import build_crew, crew_summary
 
         say.step("Reading what your data says")
         model = _model_for(args, say)
-        agents = list(default_crew())
         # The eye goes first. Reframing, overlay placement, joins and sound all
         # depend on knowing where the subject is, and nothing else in the crew
         # looks at a pixel.
         readings = _read_the_footage(paths, say)
-        if readings:
-            from .agents import FinishingAgent, GazeAgent, OverlayAgent
-            from .craft.graphics import find_stickers
+        from .craft.graphics import find_stickers
 
-            agents.append(FinishingAgent(readings, spec=spec))
-            stickers = find_stickers(args.stickers)
-            if stickers:
-                say.detail(f"{len(stickers)} of your stickers are available to place")
-            agents.append(OverlayAgent(readings, spec=spec, stickers=stickers))
-            # Give the curator the measured subjects too. Without them its
-            # focal judgement reads the motion anchor, which this program set,
-            # so it would be scoring its own input rather than the picture.
-            agents = [GazeAgent(readings) if a.name == "gaze" else a for a in agents]
-        if style is not None and not style.is_empty:
-            # First in the list, and deliberately: a reference outranks a
-            # correlation. The crew still scores every proposal, so a style
-            # change that wrecks the prediction is dropped like any other.
-            agents.insert(0, StyleAgent(style))
-        crew = Crew(
-            agents,
+        stickers = find_stickers(args.stickers)
+        if stickers:
+            say.detail(f"{len(stickers)} of your stickers are available to place")
+        crew = build_crew(
             model,
             gate=_terminal_gate(args.agents),
-            max_rounds=3,
+            readings=readings,
+            spec=spec,
+            style=style,
+            stickers=stickers,
         )
         say.detail(
-            f"hook, share, loop, gaze and final-check agents running {args.agents}"
+            f"{crew_summary(crew)} agents running {args.agents}"
             + (
                 " — you will be asked about anything structural"
                 if args.agents != "autonomous"
@@ -1040,6 +1129,99 @@ def _run_score(args: argparse.Namespace, say: Reporter) -> int:
     return 0
 
 
+def _run_scholar(args: argparse.Namespace, say: Reporter) -> int:
+    """The study agent: what it knows, what it wants to watch, what it teaches."""
+    import json as _json
+
+    from .scholar import Scholar
+    from .scholar.youtube import YouTubeUnavailable, reachable
+
+    scholar = Scholar()
+    text = " ".join(args.words).strip()
+
+    if args.action == "status":
+        if args.json:
+            print(_json.dumps(scholar.status(), indent=2))
+            return 0
+        for line in scholar.describe().splitlines():
+            print(line)
+        can_study, how = reachable()
+        say.detail(f"YouTube: {how}" if can_study else f"cannot study — {how}")
+        return 0
+
+    if args.action == "subscribe":
+        if len(args.words) < 1:
+            say.failure("give me a channel id", "auteur scholar subscribe UC123... Channel Name")
+            return 2
+        channel_id, *name = args.words
+        scholar.youtube.subscribe(channel_id, " ".join(name) or channel_id, ["content_creation"])
+        scholar.youtube.save_subscriptions()
+        say.result(f"following {' '.join(name) or channel_id}")
+        return 0
+
+    if args.action == "ask":
+        if not text:
+            say.failure("ask me something", 'auteur scholar ask "how do I pace a montage?"')
+            return 2
+        reply = scholar.chat(text)
+        print(reply.text)
+        return 0
+
+    if args.action == "teach":
+        brief = scholar.teach(args.agent) if args.agent else scholar.teach_all()
+        if args.json:
+            print(_json.dumps(brief.to_json(), indent=2))
+            return 0
+        print(brief.summary)
+        for learning in brief.learnings[:12]:
+            print(f"  · {learning.insight}")
+        if not brief.learnings:
+            say.detail("nothing studied yet — run `auteur scholar study <topic>`")
+        return 0
+
+    if args.action == "watch":
+        can_study, how = reachable()
+        if not can_study:
+            say.failure("the Scholar cannot reach YouTube", how)
+            return 1
+        minutes = max(1.0, args.every)
+        say.banner(f"the Scholar is studying · checking every {minutes:.0f} min · ctrl-c to stop")
+
+        def report(session) -> None:
+            say.result(
+                f"{session.videos_watched} video(s), "
+                f"{session.learnings_extracted} learning(s) — "
+                f"{scholar.knowledge.total_learnings} known"
+            )
+
+        try:
+            scholar.run_forever(
+                every_seconds=minutes * 60.0, max_videos=args.videos, on_session=report
+            )
+        except KeyboardInterrupt:
+            say.detail(f"stopped — {scholar.knowledge.total_learnings} learnings kept")
+        return 0
+
+    # study
+    can_study, how = reachable()
+    if not can_study:
+        say.failure("the Scholar cannot reach YouTube", how)
+        return 1
+    say.step(f"Studying{f' {text}' if text else ''}")
+    try:
+        session = scholar.study(max_videos=max(1, args.videos))
+    except YouTubeUnavailable as exc:
+        say.failure("the Scholar could not study", str(exc))
+        return 1
+    say.result(
+        f"{session.videos_watched} video(s) watched, "
+        f"{session.learnings_extracted} learning(s) kept"
+    )
+    if session.videos_watched == 0:
+        say.detail("nothing new — everything it found had already been watched")
+    return 0
+
+
 def _run_insight(args: argparse.Namespace, say: Reporter) -> int:
     """What the performance data says about hooks, shares and loops."""
     from .insight import corpus, fit, load, simulate, write_csv
@@ -1291,6 +1473,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_schedule(args, say)
         if args.command == "insight":
             return _run_insight(args, say)
+        if args.command == "scholar":
+            return _run_scholar(args, say)
     except KeyboardInterrupt:
         say.failure("stopped")
         return 130

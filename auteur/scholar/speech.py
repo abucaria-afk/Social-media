@@ -32,6 +32,69 @@ from dataclasses import dataclass, field
 
 log = logging.getLogger("auteur.scholar.speech")
 
+#: How many earlier turns to send back with a reply. Enough for a follow-up
+#: question to make sense, short enough that a long session stays affordable.
+_HISTORY_TURNS = 8
+
+
+def _ask_claude(user_text, lang_name, intent, context, conversation) -> str:
+    """A real reply from the model this project already talks to, or "".
+
+    Deliberately reuses the director's client rather than opening a second path
+    to the same service: one place decides whether a model is reachable, one
+    place holds the key, and a Scholar that can talk is exactly a Scholar whose
+    director could have talked too.
+    """
+    import os
+
+    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+        return ""
+    try:
+        import anthropic
+    except ImportError:
+        return ""
+
+    history = []
+    for message in list(getattr(conversation, "messages", []))[-_HISTORY_TURNS:]:
+        if not message.text:
+            continue
+        history.append(
+            {
+                "role": "assistant" if message.role == "scholar" else "user",
+                "content": message.text,
+            }
+        )
+    # The caller records the incoming message after the reply is generated, so
+    # it is not in `messages` yet and has to be appended by hand. The API also
+    # rejects two user turns in a row, which a duplicate here would create.
+    if not history or history[-1]["content"] != user_text:
+        history.append({"role": "user", "content": user_text})
+
+    system = (
+        "You are the Scholar: a study agent inside a video editing program. You "
+        "watch craft tutorials, keep what you learn, and answer questions about "
+        "editing, colour, sound and composition from what you have actually "
+        f"stored. Reply in {lang_name}, matching the register of the question. "
+        "Be concrete and brief. If the knowledge below does not cover something, "
+        "say you have not studied it yet rather than inventing a source.\n\n"
+        f"{context}"
+    )
+    try:
+        client = anthropic.Anthropic()
+        reply = client.messages.create(
+            model=os.environ.get("AUTEUR_SCHOLAR_MODEL", "claude-sonnet-4-5"),
+            max_tokens=700,
+            system=system,
+            messages=history,
+        )
+    except Exception as exc:  # noqa: BLE001 - an unreachable model is reported, not raised
+        log.info("scholar could not reach the model: %s", exc)
+        return ""
+
+    return "".join(
+        block.text for block in reply.content if getattr(block, "type", "") == "text"
+    ).strip()
+
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -202,6 +265,9 @@ class SpeechSystem:
         self._voice_style = default_voice_style
         self._conversations: dict[str, Conversation] = {}
         self._language_profiles: dict[str, LanguageProfile] = self._init_language_profiles()
+        # Once per system, not once per sentence — a warning on every reply is
+        # a warning nobody reads.
+        self._warned_no_tts = False
 
     @property
     def mode(self) -> CommunicationMode:
@@ -431,14 +497,26 @@ class SpeechSystem:
         The response is generated in the same language as the input, at a natural
         and fluent speaking level.
         """
-        # Structural placeholder — real implementation calls LLM
         lang_name = self._language_profiles.get(
             language, LanguageProfile(code=language, name=language)
         ).name
+
+        reply = _ask_claude(user_text, lang_name, intent, context, conversation)
+        if reply:
+            return reply
+
+        # No key, no anthropic package, or the call failed. Say that, in one
+        # sentence, rather than returning a sentence shaped like an answer.
+        #
+        # What was here before was `f"[Scholar response in {lang_name}] Intent:
+        # {intent.value}. Context-aware response to: {user_text[:100]}"` — a
+        # string that reads as a reply, arrives through the same field a reply
+        # would, and is indistinguishable from one to any caller that does not
+        # already know. A chatbot that cannot reach its model has to say so.
         return (
-            f"[Scholar response in {lang_name}] "
-            f"Intent: {intent.value}. "
-            f"Context-aware response to: {user_text[:100]}"
+            f"I cannot answer that right now: my language model is not reachable "
+            f"from here (set ANTHROPIC_API_KEY and install the `anthropic` package). "
+            f"I understood the question as {intent.value} in {lang_name}."
         )
 
     def _synthesise_speech(self, text: str, language: str, style: VoiceStyle) -> bytes:
@@ -450,8 +528,20 @@ class SpeechSystem:
         The synthesis produces natural prosody, pacing, and emotion appropriate
         to the language, register, and conversational context.
         """
-        # Structural placeholder — real implementation calls TTS
-        # Returns empty bytes; actual audio would be PCM/opus/mp3
+        # There is no speech synthesiser in this project and none reachable from
+        # here, so this returns nothing — and says so once, at a level somebody
+        # will see, rather than handing back silence that looks like audio.
+        #
+        # `Message.to_json` reports `has_voice: len(voice_audio) > 0`, so an
+        # empty result is at least not claimed as a voice note. That is the
+        # honest half. The dishonest half would be generating a tone, or a WAV
+        # header with nothing in it, to make the field non-empty.
+        if not self._warned_no_tts:
+            log.warning(
+                "the Scholar has no speech synthesiser wired in, so voice replies "
+                "carry text only; the words are in `.text`"
+            )
+            self._warned_no_tts = True
         return b""
 
     def _get_or_create_conversation(
