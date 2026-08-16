@@ -669,6 +669,16 @@ class Handler(BaseHTTPRequestHandler):
             log.debug("no product brief: %s", exc)
             product = {"summary": "", "learnings": []}
 
+        # What the studied films agree on. Separate from the product notes
+        # because it is about the *films*, not the app, and because it is the
+        # only thing in the store an editing agent can be held to: a median, a
+        # spread, and how many independent films it rests on.
+        try:
+            agreed = scholar.teach_all().consensus[:5]
+        except Exception as exc:  # noqa: BLE001 - a brief is not an outage
+            log.debug("no consensus: %s", exc)
+            agreed = []
+
         return {
             "available": True,
             "can_study": can_study,
@@ -681,7 +691,51 @@ class Handler(BaseHTTPRequestHandler):
             "wants_to_study": wants,
             "why": why,
             "product": product,
+            "consensus": agreed,
         }
+
+    def _scholar_ask(self) -> None:
+        """Put a question to the Scholar and hand back what it says.
+
+        It answers out of what it has actually studied, and when its language
+        model is unreachable it says so in a sentence rather than returning
+        something shaped like an answer — which is what `speech` already does,
+        so this only has to not paper over it.
+        """
+        payload = self._json_body()
+        question = str(payload.get("text") or "").strip()[:2000]
+        if not question:
+            self._json({"error": "Ask it something."}, 400)
+            return
+
+        try:
+            from ..scholar import Scholar
+
+            scholar = Scholar()
+        except Exception as exc:  # noqa: BLE001 - the app serves without a Scholar
+            self._json({"reply": f"The Scholar is not available: {exc}", "reachable": False})
+            return
+
+        # The conversation is keyed per signed-in person, so two people using
+        # the same instance do not read each other's questions back.
+        conversation = f"web:{self.current_user() or 'guest'}"
+        try:
+            answer = scholar.chat(question, conversation_id=conversation)
+        except Exception as exc:  # noqa: BLE001 - a failed reply is not an outage
+            log.info("the Scholar could not answer: %s", exc)
+            self._json({"reply": f"It could not answer that: {exc}", "reachable": False})
+            return
+
+        text = getattr(answer, "text", "") or ""
+        self._json(
+            {
+                "reply": text,
+                # `speech` returns a plain sentence when it cannot reach a
+                # model. The page shows that differently from a real answer.
+                "reachable": "not reachable from here" not in text,
+                "learnings": scholar.knowledge.total_learnings,
+            }
+        )
 
     def _allowed(self, path: str) -> bool:
         """Whether this request may proceed without signing in."""
@@ -716,6 +770,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if path in ("/", "/index.html"):
             self._static(STATIC / "index.html", "text/html; charset=utf-8")
+            return
+        if path in ("/ask", "/ask.html"):
+            self._static(STATIC / "ask.html", "text/html; charset=utf-8")
             return
         if path in ("/studio", "/studio.html"):
             self._static(STATIC / "studio.html", "text/html; charset=utf-8")
@@ -1023,6 +1080,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if not self._allowed(path):
             self._json({"error": "Please sign in."}, 401)
+            return
+        if path == "/api/scholar/ask":
+            self._scholar_ask()
             return
         if path == "/api/agents/plan":
             self._agents_plan()

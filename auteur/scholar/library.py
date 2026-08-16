@@ -309,7 +309,16 @@ def measure_film(path: Path) -> list[Learning]:
             technique=technique,
             application=application,
             source_video_id=f"file:{path.name}",
-            source_channel=f"local:{path.parent.name}",
+            # Each film is its own source. Corroboration counts *channels*, and
+            # filing every reel under the folder it happens to sit in made
+            # sixteen films by sixteen creators into one voice — so "these all
+            # cut fast" could never corroborate, and every film learning stayed
+            # TENTATIVE forever however many reels were measured.
+            #
+            # Documents are the opposite case and keep the folder: a project's
+            # own notes agreeing with a project's own notes is not two people
+            # agreeing, it is one document written twice.
+            source_channel=f"film:{fingerprint[:12]}",
             source_title=path.name,
             source_end_sec=edl.duration,
             confidence=Confidence.TENTATIVE,

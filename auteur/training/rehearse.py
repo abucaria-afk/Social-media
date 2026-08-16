@@ -38,6 +38,8 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from ..edl import MIN_SHOT
+
 log = logging.getLogger("auteur.training.rehearse")
 
 #: The knobs the loop is allowed to turn, and the range each may take. Only
@@ -51,7 +53,14 @@ KNOBS: dict[str, tuple[float, float]] = {
     "strength": (0.0, 1.0),
     "texture": (0.0, 0.6),
     "letterbox": (0.0, 0.18),
-    "shot_seconds": (0.25, 3.0),
+    # The floor is the EDL's, not a rounder number. At 0.25 the loop could not
+    # explore anything faster than four cuts a second, while the reference
+    # reels this trains against have a median shot of 0.167s and a fastest of
+    # 0.125s — so the cadence being chased was outside the search space and no
+    # number of generations would have found it. Fifth place the same ceiling
+    # has turned up: MIN_SHOT, the cut detector's refractory, MIN_SLOT, the
+    # beat grid, and here.
+    "shot_seconds": (MIN_SHOT, 3.0),
 }
 
 #: Named grades the loop may choose between. A preset moves the palette far
@@ -121,6 +130,10 @@ class Attempt:
     palette: float = 0.0
     exposure_score: float = 0.0
     beat_target: bool = False
+    #: How close the finished cut lands to the benchmark's cutting rate, 0..1.
+    #: 1.0 when there is no benchmark, so a rehearsal with nothing to chase is
+    #: scored exactly as it was before this existed.
+    cadence: float = 1.0
     seconds: float = 0.0
 
     @property
@@ -130,8 +143,28 @@ class Attempt:
         Craft leads, because structure was the half this program was already
         good at — it was ahead of the target there before the loop existed —
         and craft is the half it was losing by 0.28.
+
+        Cadence is here because without it the loop had no reason to cut at
+        the rate it was chasing. Craft measures the picture and structure
+        measures the shape; neither rewards cutting six times a second, so
+        forty generations against a 46-cuts-per-ten-seconds benchmark sat at a
+        1.4s shot and climbed craft instead. The most distinctive property of
+        the films being chased was not in the objective at all.
+
+        The weights are set by what they rank. Same footage, same grade, three
+        shot lengths, against a 46-cuts-per-ten-seconds benchmark:
+
+            shots   craft  structure  cadence   now    before
+            1.400   0.710      0.753    0.336  0.648   0.728
+            0.500   0.751      0.621    0.399  0.641   0.699
+            0.167   0.745      0.553    0.952  0.729   0.668
+
+        The old objective ranked the 1.4s cut *first* and the reference cadence
+        last. This one inverts that, which is the whole point — and note that
+        structure falls as the cutting speeds up, so cadence is carrying the
+        judgement against a model that is actively pulling the other way.
         """
-        return self.craft * 0.6 + self.structure * 0.4
+        return self.craft * 0.5 + self.structure * 0.3 + self.cadence * 0.2
 
     def to_json(self) -> dict:
         return {
@@ -144,6 +177,7 @@ class Attempt:
             "exposure_score": round(self.exposure_score, 4),
             "combined": round(self.combined, 4),
             "beat_target": self.beat_target,
+            "cadence": round(self.cadence, 4),
             "seconds": round(self.seconds, 1),
         }
 
@@ -165,7 +199,8 @@ class Progress:
         best = self.best
         lines = [
             f"generation {self.generations}  ·  best combined {best.combined:.3f} "
-            f"(craft {best.craft:.3f}, structure {best.structure:.3f})",
+            f"(craft {best.craft:.3f}, structure {best.structure:.3f}, "
+            f"cadence {best.cadence:.3f})",
             f"    grade: {best.recipe.preset} "
             f"exp{best.recipe.exposure:+.2f} temp{best.recipe.temperature:+.2f} "
             f"sat{best.recipe.saturation:+.2f} con{best.recipe.contrast:+.2f}",
@@ -209,9 +244,9 @@ class Rehearsal:
     # ------------------------------------------------------------------ recipe
 
     def load_recipe(self) -> Recipe:
-        """The best settings found so far, or the defaults."""
+        """The best settings found so far, or a sensible place to start."""
         if not self.recipe_path.exists():
-            return Recipe()
+            return self._starting_recipe()
         try:
             data = json.loads(self.recipe_path.read_text(encoding="utf-8"))
             # Only the fields a Recipe actually has, so a file written by a
@@ -221,7 +256,35 @@ class Rehearsal:
             return Recipe(**known)
         except (json.JSONDecodeError, OSError, TypeError) as exc:
             log.info("could not read the recipe (%s) — starting from the defaults", exc)
-            return Recipe()
+            return self._starting_recipe()
+
+    def _starting_recipe(self) -> Recipe:
+        """The defaults, with the shot length set from the film being chased.
+
+        Hill climbing cannot cross a valley, and there is a deep one here. From
+        a 1.4s shot every small step toward the reference cadence costs craft
+        before it pays anything back on cadence, so each one is rejected:
+        thirty-three generations against a 46-cuts-per-ten-seconds benchmark
+        climbed craft from 0.238 to 0.839 and left the shot length at 1.62s and
+        cadence at 0.334. The objective was right and the search could not get
+        there.
+
+        Starting at the target's own shot length is not cheating — it is using
+        a number already measured and written down rather than making a random
+        walk rediscover it. The search still runs; it just does not begin on
+        the wrong side of the valley.
+        """
+        recipe = Recipe()
+        rate = getattr(self.benchmark, "cuts_per_10s", 0.0) if self.benchmark else 0.0
+        if rate > 0:
+            low, high = KNOBS["shot_seconds"]
+            recipe.shot_seconds = _clamp(10.0 / rate, low, high)
+            log.info(
+                "starting from the target's own pace: %.3fs a shot (%.1f cuts per ten seconds)",
+                recipe.shot_seconds,
+                rate,
+            )
+        return recipe
 
     def save_recipe(self, attempt: Attempt) -> None:
         """Write the winner where an ordinary run will find it."""
@@ -255,7 +318,7 @@ class Rehearsal:
 
         started = time.perf_counter()
         count = max(1, len(self.footage))
-        hold = _clamp(recipe.shot_seconds, 0.25, 3.0)
+        hold = _clamp(recipe.shot_seconds, *KNOBS["shot_seconds"])
 
         shots = [
             Shot(
@@ -315,6 +378,7 @@ class Rehearsal:
             reading = read_asset(video, samples=7)
             craft = craft_score(reading)
             structure = predict(edl, fit(corpus([], simulate_rows=400))).overall
+            cadence = self._cadence_of(video)
         except Exception as exc:  # noqa: BLE001
             log.info("generation %d could not be measured: %s", generation, exc)
             return None
@@ -331,6 +395,7 @@ class Rehearsal:
             separation=craft.separation,
             palette=craft.palette,
             exposure_score=craft.exposure,
+            cadence=cadence,
             seconds=time.perf_counter() - started,
         )
 
@@ -340,6 +405,29 @@ class Rehearsal:
         # `ignore_errors` already swallows everything this could raise; the
         # try/except that used to wrap it caught nothing.
         shutil.rmtree(folder, ignore_errors=True)
+
+    def _cadence_of(self, video) -> float:
+        """How close this cut lands to the benchmark's rate, 0..1.
+
+        A ratio rather than a difference, because the same two cuts a second
+        adrift means something different at 4 cuts per ten seconds than at 40.
+        Measured off the rendered file by the same code that measured the
+        benchmark, so the two numbers are the same kind of number.
+        """
+        target = getattr(self.benchmark, "cuts_per_10s", 0.0) if self.benchmark else 0.0
+        if target <= 0:
+            return 1.0
+        from ..insight.reference import measure
+
+        try:
+            got = measure([video]).cuts_per_10s
+        except Exception as exc:  # noqa: BLE001 - unmeasurable is not fatal
+            log.debug("could not measure the cadence: %s", exc)
+            return 1.0
+        if got <= 0:
+            return 0.0
+        ratio = min(got, target) / max(got, target)
+        return float(ratio)
 
     def generation(self) -> Attempt | None:
         """Run one: mutate from the best so far, render it, keep it if better."""
@@ -363,9 +451,12 @@ class Rehearsal:
             return None
 
         if self.benchmark is not None:
+            # Cutting a quarter as fast as the film you are chasing is not
+            # beating it, however good the frames look.
             attempt.beat_target = (
                 attempt.craft > self.benchmark.craft.overall
                 and attempt.structure > self.benchmark.structure
+                and attempt.cadence > 0.75
             )
 
         self.progress.history.append(attempt)

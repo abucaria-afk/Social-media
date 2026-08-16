@@ -95,16 +95,21 @@ class ScholarAgent:
             if len(brief.learnings) < ENOUGH_TO_SPEAK:
                 continue
 
-            # Corroboration means several channels teaching the same thing, so
-            # the same sentence arrives several times. Saying it three times
-            # makes a brief look longer without making it say more.
-            distinct: list[str] = []
-            for learning in brief.learnings:
-                if learning.insight not in distinct:
-                    distinct.append(learning.insight)
-                if len(distinct) == 3:
-                    break
-            lines = "; ".join(distinct)
+            # What the films agree on, when they agree — one statement with a
+            # median and a spread, rather than one line per file naming a hash.
+            if brief.consensus:
+                lines = " ".join(brief.consensus[:3])
+            else:
+                # Corroboration means several channels teaching the same thing,
+                # so the same sentence arrives several times. Saying it three
+                # times makes a brief look longer without making it say more.
+                distinct: list[str] = []
+                for learning in brief.learnings:
+                    if learning.insight not in distinct:
+                        distinct.append(learning.insight)
+                    if len(distinct) == 3:
+                        break
+                lines = "; ".join(distinct)
             proposal = Proposal(
                 agent=self.name,
                 title=title,

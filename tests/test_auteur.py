@@ -6408,3 +6408,195 @@ def test_the_expressive_look_is_applied_once_not_twice(rushes, tmp_path):
     # The corrective pass belongs on the shot; the expressive one does not.
     assert "colortemperature" in graph, "the per-shot correction went missing"
     assert "colorbalance" not in graph, "the expressive look is still on the segment"
+
+
+def test_every_film_counts_as_its_own_source(rushes, tmp_path):
+    """Corroboration counts channels, and all the reels lived in one folder.
+
+    Filing each film under the directory it happens to sit in made sixteen
+    films by sixteen creators into one voice, so "these all cut fast" could
+    never corroborate and every measured learning stayed TENTATIVE forever.
+    """
+    from auteur.scholar.library import measure_film
+
+    one = measure_film(rushes / "a_wide.mp4")
+    other = measure_film(rushes / "c_motion.mp4")
+    assert one and other
+    assert one[0].source_channel != other[0].source_channel, "two films, one channel"
+    assert one[0].source_channel.startswith("film:")
+
+
+def test_two_films_agreeing_promotes_the_technique(tmp_path):
+    from auteur.scholar.knowledge import Confidence, Discipline, KnowledgeStore, Learning
+
+    store = KnowledgeStore(tmp_path / "k.jsonl")
+
+    def measured(channel, motion):
+        return Learning(
+            learning_id=f"{channel}-motion",
+            disciplines=[Discipline.CINEMATOGRAPHY],
+            insight=f"{channel} measures {motion}",
+            technique="camera movement",
+            application="",
+            source_video_id=channel,
+            source_channel=channel,
+            source_title=channel,
+            measurements={"motion": motion},
+        )
+
+    store.add(measured("film:aaa", 0.03))
+    assert store.all()[0].confidence is Confidence.TENTATIVE, "one source is one opinion"
+
+    store.add(measured("film:bbb", 0.05))
+    assert all(x.confidence is Confidence.SUPPORTED for x in store.all())
+
+
+def test_the_crew_is_taught_what_the_films_agree_on_not_a_list_of_filenames(tmp_path):
+    """ "abc123.mp4 measures 0.034" names a hash and generalises to nothing."""
+    from auteur.scholar.knowledge import Discipline, KnowledgeStore, Learning
+    from auteur.scholar.teach import Teacher
+
+    store = KnowledgeStore(tmp_path / "k.jsonl")
+    for index, rate in enumerate([19.4, 27.8, 39.3, 76.1]):
+        store.add(
+            Learning(
+                learning_id=f"r{index}",
+                disciplines=[Discipline.MOVIE_MAKING],
+                insight=f"reel{index}.mp4 cuts {rate} times per ten seconds",
+                technique="cutting rate",
+                application="",
+                source_video_id=f"file:reel{index}.mp4",
+                source_channel=f"film:{index:012d}",
+                source_title=f"reel{index}.mp4",
+                measurements={"cuts_per_10s": rate},
+            )
+        )
+
+    brief = Teacher(store).brief_for_all()
+    assert brief.consensus, "several films agreed and nothing was said about it"
+    line = brief.consensus[0]
+    assert "Across 4 films" in line
+    assert "27.8" in line or "39.3" in line, "the median is what several sources license"
+    assert "19.4" in line and "76.1" in line, "the spread belongs with the median"
+    assert ".mp4" not in line, "a filename is not a teaching"
+    assert "Across 4 films" in brief.describe()
+
+
+def test_one_film_alone_is_not_a_consensus(tmp_path):
+    from auteur.scholar.knowledge import Discipline, KnowledgeStore, Learning
+    from auteur.scholar.teach import Teacher
+
+    store = KnowledgeStore(tmp_path / "k.jsonl")
+    store.add(
+        Learning(
+            learning_id="only",
+            disciplines=[Discipline.MOVIE_MAKING],
+            insight="one reel cuts fast",
+            technique="cutting rate",
+            application="",
+            source_video_id="file:one.mp4",
+            source_channel="film:only",
+            source_title="one.mp4",
+            measurements={"cuts_per_10s": 40.0},
+        )
+    )
+    assert Teacher(store).brief_for_all().consensus == []
+
+
+def test_a_slow_cut_cannot_beat_a_reel_it_is_cutting_a_quarter_as_fast_as():
+    """Cadence was recorded on the benchmark and left out of the objective.
+
+    Craft measures the picture and structure measures the shape; neither
+    rewards cutting six times a second. So forty generations against a
+    46-cuts-per-ten-seconds benchmark sat at a 1.4s shot and climbed craft
+    instead — the most distinctive property of the films being chased was not
+    in the score at all.
+    """
+    from auteur.training.rehearse import Attempt, Recipe
+
+    def attempt(cadence):
+        return Attempt(generation=1, recipe=Recipe(), structure=0.75, craft=0.78, cadence=cadence)
+
+    assert attempt(0.95).combined > attempt(0.20).combined
+
+    # And "beat the target" now means matching the pace, not only the picture.
+    from auteur.insight.benchmark import Benchmark, CraftScore
+
+    target = Benchmark(
+        name="t",
+        source="t.mp4",
+        structure=0.70,
+        craft=CraftScore(separation=0.5),
+        cuts_per_10s=46.0,
+    )
+    fast, slow = attempt(0.95), attempt(0.20)
+    for candidate in (fast, slow):
+        candidate.beat_target = (
+            candidate.craft > target.craft.overall
+            and candidate.structure > target.structure
+            and candidate.cadence > 0.75
+        )
+    assert fast.beat_target and not slow.beat_target
+
+
+def test_with_nothing_to_chase_the_score_is_what_it_always_was():
+    """A rehearsal with no benchmark must not be penalised on a pace it has no target for."""
+    from auteur.training.rehearse import Attempt, Recipe
+
+    blank = Attempt(generation=1, recipe=Recipe(), structure=0.8, craft=0.6)
+    assert blank.cadence == 1.0
+    assert blank.combined == pytest.approx(0.6 * 0.5 + 0.8 * 0.3 + 0.2)
+
+
+def test_the_trainer_can_reach_the_rate_it_is_chasing():
+    """The floor was 0.25s — four cuts a second — against a 0.125s reference."""
+    from auteur.edl import MIN_SHOT
+    from auteur.training.rehearse import KNOBS
+
+    low, high = KNOBS["shot_seconds"]
+    assert low == MIN_SHOT
+    assert low <= 0.125, "the fastest reference reel is outside the search space"
+
+
+def test_the_app_can_ask_for_the_cadence_the_references_are_cut_at():
+    """The style existed and no chip offered it.
+
+    Four ceilings in the code used to make the reference cadence unreachable;
+    with those gone there was still no way to ask for it from the app.
+    """
+    from auteur.director.brief import parse_brief
+    from auteur.web import server
+
+    page = (server.STATIC / "index.html").read_text()
+    chips = page.split('id="chips"', 1)[1].split("</span>", 1)[0]
+    prompts = re.findall(r'data-prompt="([^"]+)"', chips)
+    assert prompts, "no prompt chips at all"
+
+    styles = {parse_brief(prompt).style for prompt in prompts}
+    assert "hypercut" in styles, "no chip reaches the reference cadence"
+
+
+def test_the_studio_shows_what_the_films_agree_on(web_server):
+    """The consensus is the only thing in the store an agent can be held to."""
+    import json as _json
+    from urllib.request import Request, urlopen
+
+    base, _, cookie = web_server
+    request = Request(base + "/api/scholar", headers={"Cookie": cookie})
+    with urlopen(request) as response:
+        payload = _json.loads(response.read())
+
+    # The key is served whether or not anything has been studied yet.
+    assert "consensus" in payload
+    assert isinstance(payload["consensus"], list)
+
+    page = (server_static() / "studio.html").read_text()
+    assert 'id="scholar-consensus"' in page
+    script = (server_static() / "studio.js").read_text()
+    assert "s.consensus" in script, "the page does not read what the API serves"
+
+
+def server_static():
+    from auteur.web import server
+
+    return server.STATIC
