@@ -1,0 +1,72 @@
+/* Where a film goes. Colours are tokens from theme.css, like everywhere else. */
+
+.links { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.7rem; }
+
+.link {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  padding: 0.9rem 1rem;
+}
+.link.is-on { border-color: var(--ember); box-shadow: inset 0 0 0 1px var(--ember); }
+
+.link-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; }
+.link-name { font-weight: 600; font-size: 1rem; }
+.link-who { color: var(--ember-text); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+
+.link-note {
+  display: block;
+  color: var(--text-faint);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  margin-top: 0.35rem;
+}
+
+/* Why posting through the API is unavailable, when it is. A sentence rather
+   than a button that fails. */
+.link-why {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  margin-top: 0.4rem;
+}
+
+.link-row { display: flex; gap: 0.5rem; margin-top: 0.8rem; align-items: center; }
+
+.link-row input {
+  flex: 1 1 auto;
+  min-height: 44px;
+  padding: 0 0.8rem;
+  color: var(--text);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  font-family: inherit;
+  /* 16px, or iOS zooms the page the moment the field is focused. */
+  font-size: 16px;
+}
+.link-row input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
+
+.link-go {
+  appearance: none;
+  min-height: 44px;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 0.6rem;
+  background: var(--ember);
+  color: var(--on-ember);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.link-off {
+  appearance: none;
+  min-height: 44px;
+  padding: 0 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}

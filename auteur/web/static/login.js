@@ -7,6 +7,7 @@
 
   var screens = {
     signin: $("screen-signin"),
+    signup: $("screen-signup"),
     forgot: $("screen-forgot"),
     reset: $("screen-reset")
   };
@@ -126,6 +127,63 @@
   });
 
   $("back-to-signin").addEventListener("click", function () { show("signin"); });
+
+  /* -- claiming a fresh install ------------------------------------------
+   * Offered only when there is nobody to sign in as. Before this the only
+   * way in was reading a generated password off the terminal, so the first
+   * step of the whole product needed a terminal — which is not a step most
+   * people can take on the device the footage is on.
+   */
+  fetch("/api/can-signup", { credentials: "same-origin" })
+    .then(function (r) { return r.json(); })
+    .then(function (said) {
+      if (said && said.can) {
+        $("to-signup").hidden = false;
+        $("subtitle").textContent = "Nobody has claimed this yet.";
+      }
+    })
+    .catch(function () { /* offline: the sign-in form still works */ });
+
+  $("to-signup").addEventListener("click", function () {
+    say($("signup-error"), "");
+    show("signup");
+    $("new-username").focus();
+  });
+  $("signup-back").addEventListener("click", function () { show("signin"); });
+
+  $("show-signup-password").addEventListener("click", function () {
+    var field = $("signup-password");
+    var hidden = field.type === "password";
+    field.type = hidden ? "text" : "password";
+    this.textContent = hidden ? "Hide" : "Show";
+    this.setAttribute("aria-label", hidden ? "Hide password" : "Show password");
+  });
+
+  $("signup-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    var who = $("new-username").value.trim();
+    var word = $("signup-password").value;
+    say($("signup-error"), "");
+    $("signup-go").disabled = true;
+
+    fetch("/api/signup", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: who, password: word })
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (got) {
+        if (!got.ok) {
+          say($("signup-error"), got.d.error || "That did not work.", true);
+          return;
+        }
+        // Signed in already — the cookie came back with the account.
+        window.location.href = "/";
+      })
+      .catch(function (err) { say($("signup-error"), "Could not reach it: " + err, true); })
+      .then(function () { $("signup-go").disabled = false; });
+  });
 
   // -- forgot ---------------------------------------------------------------
 

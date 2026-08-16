@@ -239,6 +239,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     serve.add_argument("--port", type=int, default=8000, help="default 8000")
     serve.add_argument(
+        "--claim",
+        action="store_true",
+        help="leave it unclaimed so the first person to open it makes the account",
+    )
+    serve.add_argument(
         "--host",
         default="0.0.0.0",
         help="0.0.0.0 lets your phone reach it; 127.0.0.1 keeps it to this computer",
@@ -801,6 +806,7 @@ def _run_serve(args: argparse.Namespace, say: Reporter) -> int:
             port=args.port,
             workspace=Path(args.out) if args.out else None,
             quality=QUALITIES.get(args.quality, args.quality),
+            claimable=bool(getattr(args, "claim", False)),
         )
     except OSError as exc:
         say.failure(

@@ -82,6 +82,10 @@ home = home.replace('href="/overlays"', 'href="#" data-goto="animation"')
 # The save link and the production notes both need files the renderer writes.
 # Stripped from the markup rather than removed at runtime, so the published
 # page never contains a download link that cannot work.
+# "Where it goes" needs the server: the link store lives beside the accounts
+# file and a published page has neither. Stripped from the markup rather than
+# left to fail, so the page never offers a tab that cannot open.
+home = re.sub(r'<a class="studio-link" href="/connect".*?</a>\s*', "", home, flags=re.S)
 home = re.sub(r'<a class="go" id="save".*?</a>\s*', "", home, flags=re.S)
 home = re.sub(r'<a class="ghost" id="notes".*?</a>\s*', "", home, flags=re.S)
 
@@ -429,8 +433,13 @@ DEMO = r"""
 })();
 """
 
-BANNER = """
+#: Bumped on every publish and shown in the banner, so a screenshot of the
+#: page is enough to know which build it is. VERSIONS.md says what each was.
+VERSION = "v5 — accounts and connections"
+
+BANNER = f"""
 <div class="demo-note" role="note">
+  <span class="demo-version">{VERSION}</span>
   <strong>This cuts a real film, here, from your camera roll.</strong>
   Video and photographs both, plus a music file if you pick one. Say what you
   want and the page frames every shot, cuts to the cadence your words ask for,
@@ -455,6 +464,14 @@ EXTRA = """
   line-height: 1.5;
 }
 .demo-note strong { color: var(--text); display: block; margin-bottom: 0.2rem; }
+.demo-version {
+  float: right;
+  color: var(--ember-text);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
 body { background: var(--ground); }
 
 /* The app reveals these with an IntersectionObserver that lives in app.js,

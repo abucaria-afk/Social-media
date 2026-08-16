@@ -76,6 +76,8 @@ PUBLIC_PATHS = frozenset(
         "/favicon.ico",
         "/api/session",
         "/api/login",
+        "/api/signup",
+        "/api/can-signup",
         "/api/forgot",
         "/api/reset",
     }
@@ -797,6 +799,10 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/login", "/login.html", "/reset"):
             self._static(STATIC / "login.html", "text/html; charset=utf-8")
             return
+        if path == "/api/can-signup":
+            self.accounts.refresh()
+            self._json({"can": self.accounts.empty})
+            return
         if path == "/api/session":
             self._json({"user": self.current_user()})
             return
@@ -809,6 +815,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path in ("/overlays", "/overlays.html", "/animation"):
             self._static(STATIC / "overlays.html", "text/html; charset=utf-8")
+            return
+        if path in ("/connect", "/connect.html", "/connections"):
+            self._static(STATIC / "connect.html", "text/html; charset=utf-8")
             return
         if path in ("/studio", "/studio.html"):
             self._static(STATIC / "studio.html", "text/html; charset=utf-8")
@@ -828,6 +837,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/overlays":
             self._json(self._overlay_rules())
+            return
+        if path == "/api/connections":
+            self._json(self._connection_state())
             return
         if path == "/api/scholar":
             self._json(self._scholar_state())
@@ -874,6 +886,116 @@ class Handler(BaseHTTPRequestHandler):
     do_HEAD = do_GET  # noqa: N815 - stdlib naming
 
     # -- signing in ------------------------------------------------------
+
+    def _connections(self):
+        """The link store, made on first use and kept beside the accounts."""
+        from ..publish import Connections
+
+        held = getattr(type(self), "_links", None)
+        if held is None:
+            held = Connections(Connections.default_path(self.studio.workspace))
+            type(self)._links = held
+        return held
+
+    def _connection_state(self) -> dict:
+        """Which platforms are linked, and what each one can actually do here.
+
+        Never includes a token. `Connection.public` is the only shape that
+        leaves this process, so there is no path from a careless response to
+        somebody's Instagram credentials in a browser's network log.
+        """
+        from ..publish import ABOUT, configured
+
+        who = self.current_user() or ""
+        out = []
+        for link in self._connections().of(who):
+            can_post, why = configured(link.platform)
+            about = ABOUT[link.platform]
+            out.append(
+                {
+                    **link.public(),
+                    "handoff": about["handoff"],
+                    "formats": list(about["formats"]),
+                    "can_post": can_post,
+                    # Said plainly. A button that cannot work is worse than a
+                    # sentence saying nobody registered a developer app.
+                    "why_not": why,
+                }
+            )
+        return {"platforms": out}
+
+    def _link_account(self) -> None:
+        """Record a link the person made.
+
+        Posting through an API needs a registered developer app, which this
+        cannot conjure; where that is not configured a link still means
+        something — it is which account the handoff is for, so the caption and
+        the composer are aimed at the right place.
+        """
+        payload = self._json_body()
+        platform = str(payload.get("platform", "")).strip().lower()
+        handle = str(payload.get("handle", "")).strip()[:64]
+        from ..publish import PLATFORMS
+
+        if platform not in PLATFORMS:
+            self._json({"error": "No such platform."}, 400)
+            return
+        if not handle:
+            self._json({"error": "Which account? Put your handle in."}, 400)
+            return
+        who = self.current_user() or ""
+        # No token: this is the handoff link, and saying so is the point.
+        self._connections().link(who, platform, handle=handle, token="")
+        self._json(self._connection_state())
+
+    def _unlink_account(self) -> None:
+        payload = self._json_body()
+        platform = str(payload.get("platform", "")).strip().lower()
+        self._connections().unlink(self.current_user() or "", platform)
+        self._json(self._connection_state())
+
+    def _sign_up(self) -> None:
+        """Make the first account, and only the first.
+
+        The app serves somebody's own camera roll over their wifi, so an open
+        sign-up is an open door. This is closed the moment an account exists —
+        after that `auteur account add` is the way, from the machine running
+        it, which is the person who owns the footage.
+        """
+        self.accounts.refresh()
+        if not self.accounts.empty:
+            self._json(
+                {
+                    "error": "This one is already claimed. "
+                    "Add more with `auteur account add` on the machine running it."
+                },
+                403,
+            )
+            return
+
+        payload = self._json_body()
+        username = str(payload.get("username", "")).strip()
+        password = str(payload.get("password", ""))
+        email = str(payload.get("email", "")).strip()
+
+        if len(username) < 3:
+            self._json({"error": "Pick a name of at least three characters."}, 400)
+            return
+        if len(password) < 10:
+            self._json({"error": "Ten characters or more, please."}, 400)
+            return
+
+        self.accounts.add(username, email, password)
+        token, message = self.accounts.sign_in(username, password)
+        if token is None:
+            self._json({"error": message}, 400)
+            return
+        self._send(
+            200,
+            json.dumps({"user": username}).encode(),
+            "application/json; charset=utf-8",
+            extra={"Set-Cookie": self._set_session_cookie(token), "Cache-Control": "no-store"},
+        )
 
     def _sign_in(self) -> None:
         self.accounts.refresh()
@@ -1098,6 +1220,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - stdlib naming
         path = self.path.split("?", 1)[0]
 
+        if path == "/api/signup":
+            self._sign_up()
+            return
+        if path == "/api/connections/link":
+            self._link_account()
+            return
+        if path == "/api/connections/unlink":
+            self._unlink_account()
+            return
         if path == "/api/login":
             self._sign_in()
             return
@@ -1233,6 +1364,7 @@ def serve(
     workspace: Path | None = None,
     quality: str = "draft",
     announce: bool = True,
+    claimable: bool = False,
 ) -> ThreadingHTTPServer:
     """Run the web app until interrupted."""
     from . import assets, seed
@@ -1242,7 +1374,12 @@ def serve(
     root = Path(workspace or Path.cwd() / "auteur-web")
     Handler.studio = Studio(root, quality=quality)
     Handler.accounts = Accounts(Accounts.default_path(root))
-    first = seed.bootstrap(Handler.accounts)
+    # Unless the first person is to claim it from their phone. `bootstrap`
+    # generates an account and prints its password to the terminal, which is
+    # fine at a desk and is the reason the first step of the whole product
+    # needed a terminal — on the device the footage is actually on, there
+    # isn't one.
+    first = None if claimable else seed.bootstrap(Handler.accounts)
 
     server = Server((host, port), Handler)
 
