@@ -110,8 +110,11 @@ def _segment_video_graph(shot: Shot, fmt: DeliveryFormat, quality: Quality) -> s
         ),
         # Guarantee the delivery size even when a filter rounded against us.
         f"scale={fmt.width}:{fmt.height}:flags=bicubic",
+        # Correction only, per shot: exposure, white balance and saturation
+        # nudged so the clips agree with each other before anything expressive
+        # touches them. The *look* goes on the finished film, once, in
+        # `_assemble` — see the note there.
         color.correction_chain(shot.look),
-        color.look_chain(shot.look),
         "setsar=1",
         "format=yuv420p",
     )
@@ -525,6 +528,18 @@ def _assemble(
 
     video_graph, video_label = _assemble_video(edl, len(segments))
 
+    # The grade, in two passes that do different jobs: each shot was corrected
+    # toward the others on its way in, and the expressive look lands here, on
+    # the assembled film, once.
+    #
+    # It used to land twice. `_match_looks` copies the film's preset and
+    # strength onto every shot, so `look_chain(shot.look)` in the segment pass
+    # and `look_chain(edl.look)` here built byte-identical filter chains and
+    # both ran. Measured on one still through a neon grade at 0.7: luma fell
+    # from 0.150 to 0.098 and the fraction of the frame crushed to true black
+    # rose from 0.331 to 0.526 — past the 0.45 line this project calls a ruined
+    # picture, and close to the 0.550 of the wrecked render a rehearsal loop
+    # produced while scoring itself perfect. Every film went out like that.
     finish = chain(
         color.look_chain(edl.look) if not edl.look.is_identity else "",
         color.texture_chain(edl.texture, width=fmt.width),

@@ -6335,3 +6335,40 @@ def test_a_change_that_softens_the_picture_is_not_an_improvement(tmp_path):
     # And an honest change is not accused of it.
     same = Comparison(source=source, baseline=source, candidate=proof("after", "sharp.png"))
     assert same.softened == 0.0
+
+
+def test_the_expressive_look_is_applied_once_not_twice(rushes, tmp_path):
+    """`_match_looks` copies the film's preset onto every shot.
+
+    So the segment pass and the finishing pass built byte-identical filter
+    chains and both ran. Measured on one still through a neon grade at 0.7,
+    luma fell 0.150 to 0.098 and the fraction of the frame crushed to true
+    black rose 0.331 to 0.526 — past the line this project calls a ruined
+    picture. Every film went out graded twice.
+    """
+    from auteur.config import FORMATS, QUALITIES, Settings
+    from auteur.craft import color
+    from auteur.edl import Look
+    from auteur.render import _segment_video_graph
+
+    # The two chains really are the same thing, which is why running both hurt.
+    film = Look(preset="neon", strength=0.7)
+    shot_look = Look(preset="neon", exposure=0.1, temperature=0.05, strength=0.7)
+    # Filter labels are numbered per call, so compare the shape rather than the text.
+    assert len(color.look_chain(shot_look)) == len(color.look_chain(film))
+
+    from auteur.edl import Shot
+
+    shot = Shot(
+        clip_id="c0",
+        source=rushes / "a_wide.mp4",
+        start=0.0,
+        end=2.0,
+        look=Look(preset="neon", exposure=0.1, temperature=0.05, strength=0.7),
+    )
+    settings = Settings(quality=QUALITIES["draft"], primary_format=FORMATS["reel"])
+    graph = _segment_video_graph(shot, FORMATS["reel"], settings.quality)
+
+    # The corrective pass belongs on the shot; the expressive one does not.
+    assert "colortemperature" in graph, "the per-shot correction went missing"
+    assert "colorbalance" not in graph, "the expressive look is still on the segment"
