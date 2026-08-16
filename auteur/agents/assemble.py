@@ -84,6 +84,8 @@ def build_crew(
     stickers: list[Path] | None = None,
     scholar=None,
     ledger=None,
+    previewer=None,
+    sources=None,
     max_rounds: int = 3,
 ) -> Crew:
     """The full crew, in the order they should speak.
@@ -131,7 +133,15 @@ def build_crew(
 
         ledger = Ledger()
 
-    return Crew(agents, model, gate=gate, max_rounds=max_rounds, ledger=ledger)
+    return Crew(
+        agents,
+        model,
+        gate=gate,
+        max_rounds=max_rounds,
+        ledger=ledger,
+        previewer=previewer,
+        sources=sources,
+    )
 
 
 def crew_summary(crew: Crew) -> str:

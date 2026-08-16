@@ -346,6 +346,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="footage to cut like — measured for pace, exposure and motion (repeatable)",
     )
     workflow.add_argument(
+        "--look",
+        action="store_true",
+        help="let the agents render and look at what they propose, not just score it",
+    )
+    workflow.add_argument(
         "--stickers",
         default=None,
         metavar="DIR",
@@ -957,6 +962,12 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
         stickers = find_stickers(args.stickers)
         if stickers:
             say.detail(f"{len(stickers)} of your stickers are available to place")
+        previewer = None
+        if getattr(args, "look", False):
+            from .agents.preview import Previewer
+
+            previewer = Previewer()
+            say.detail("the agents will render what they propose and look at it")
         crew = build_crew(
             model,
             gate=_terminal_gate(args.agents),
@@ -964,6 +975,8 @@ def _run_workflow(args: argparse.Namespace, say: Reporter) -> int:
             spec=spec,
             style=style,
             stickers=stickers,
+            previewer=previewer,
+            sources=list(paths),
         )
         say.detail(
             f"{crew_summary(crew)} agents running {args.agents}"

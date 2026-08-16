@@ -5185,3 +5185,168 @@ def test_clipping_is_measured_off_the_frame():
 
     assert crushed.clipped > intact.clipped
     assert crushed.clipped > 0.2
+
+
+# ------------------------------------------------------ the crew seeing its work
+
+
+def test_only_picture_changes_trigger_a_render(tmp_path):
+    """Retiming a shot cannot alter how a frame looks, so it must cost nothing."""
+    import copy
+
+    from auteur.agents.preview import changes_the_picture, picture_fingerprint
+    from auteur.edl import Look
+
+    edl = _graphics_edl(tmp_path, count=4)
+
+    retimed = copy.deepcopy(edl)
+    retimed.shots[0].end = retimed.shots[0].start + 0.7
+    assert not changes_the_picture(edl, retimed)
+    assert picture_fingerprint(edl) == picture_fingerprint(retimed)
+
+    graded = copy.deepcopy(edl)
+    graded.look = Look(preset="amber", strength=1.0)
+    assert changes_the_picture(edl, graded)
+
+    boxed = copy.deepcopy(edl)
+    boxed.letterbox = 0.11
+    assert changes_the_picture(edl, boxed)
+
+
+def test_the_crew_turns_down_a_change_that_ruins_the_picture(tmp_path):
+    """The structural score cannot move when a grade changes — no shot got longer.
+
+    So without an eye on it, a proposal that turns every frame magenta reads as
+    perfectly neutral and gets applied on a coin flip.
+    """
+    from auteur.agents.base import Crew, Gate, Mode, Proposal, Risk
+    from auteur.agents.preview import Comparison, Previewer, Proof
+    from auteur.edl import Look
+    from auteur.insight import FitReport
+    from auteur.insight.benchmark import CraftScore
+
+    class FakePreviewer(Previewer):
+        """Renders nothing; answers as if the change destroyed the frame."""
+
+        def __init__(self):
+            self.enabled = True
+            self.spent = 0
+            self._cache = {}
+
+        def compare(self, before, after, *, sources=None):
+            return Comparison(
+                baseline=Proof("baseline", None, craft=CraftScore(0.4, 0.6, 0.5, 0.7, 0.01)),
+                candidate=Proof("candidate", None, craft=CraftScore(1.0, 0.9, 1.0, 0.1, 0.55)),
+            )
+
+    def wreck(target):
+        target.look = Look(preset="amber", strength=1.0)
+
+    class Vandal:
+        name = "vandal"
+        objective = "hook"
+
+        def __init__(self):
+            self.said = False
+
+        def inspect(self, edl, prediction, model):
+            if self.said:
+                return []
+            self.said = True
+            return [
+                Proposal(
+                    agent="vandal",
+                    title="Grade it amber",
+                    reason="warm",
+                    change=wreck,
+                    objective="hook",
+                    binding=True,
+                    risk=Risk.LOW,
+                )
+            ]
+
+    crew = Crew(
+        [Vandal()],
+        FitReport(rows=0, simulated_rows=0, measured_rows=0),
+        gate=Gate(Mode.AUTONOMOUS),
+        previewer=FakePreviewer(),
+        max_rounds=1,
+    )
+    result = crew.run(_graphics_edl(tmp_path, count=4))
+    proposals = [p for round_ in result.rounds for p in round_.proposals]
+    assert proposals
+    # Binding means the *model* gets no veto. Visible damage is a different thing.
+    assert not proposals[0].applied
+    assert "worse" in proposals[0].decision_note
+    assert proposals[0].craft_gain < 0
+
+
+def test_a_change_the_model_cannot_see_can_still_be_taken_on_looks(tmp_path):
+    """A grade moves no shot length, so the structural score says nothing at all."""
+    from auteur.agents.base import Crew, Gate, Mode, Proposal, Risk
+    from auteur.agents.preview import Comparison, Previewer, Proof
+    from auteur.edl import Look
+    from auteur.insight import FitReport
+    from auteur.insight.benchmark import CraftScore
+
+    class Improver(Previewer):
+        def __init__(self):
+            self.enabled = True
+            self.spent = 0
+            self._cache = {}
+
+        def compare(self, before, after, *, sources=None):
+            return Comparison(
+                baseline=Proof("baseline", None, craft=CraftScore(0.3, 0.5, 0.3, 0.6, 0.02)),
+                candidate=Proof("candidate", None, craft=CraftScore(0.4, 0.6, 0.8, 0.8, 0.01)),
+            )
+
+    def grade(target):
+        target.look = Look(preset="kodak", strength=0.8)
+
+    class Colourist:
+        name = "colourist"
+        objective = "hook"
+
+        def __init__(self):
+            self.said = False
+
+        def inspect(self, edl, prediction, model):
+            if self.said:
+                return []
+            self.said = True
+            return [
+                Proposal(
+                    agent="colourist",
+                    title="Warm the grade",
+                    reason="it is cold",
+                    change=grade,
+                    objective="hook",
+                    risk=Risk.LOW,
+                )
+            ]
+
+    crew = Crew(
+        [Colourist()],
+        FitReport(rows=0, simulated_rows=0, measured_rows=0),
+        gate=Gate(Mode.AUTONOMOUS),
+        previewer=Improver(),
+        max_rounds=1,
+    )
+    result = crew.run(_graphics_edl(tmp_path, count=4))
+    proposals = [p for round_ in result.rounds for p in round_.proposals]
+    assert proposals[0].applied, "a change only the eye can judge still has to be possible"
+    assert "picture improves" in proposals[0].decision_note
+
+
+def test_a_crew_with_no_previewer_behaves_exactly_as_before(tmp_path):
+    from auteur.agents.base import Crew, Gate, Mode
+    from auteur.agents.preview import NullPreviewer
+    from auteur.insight import FitReport
+
+    crew = Crew(
+        [], FitReport(rows=0, simulated_rows=0, measured_rows=0), gate=Gate(Mode.AUTONOMOUS)
+    )
+    assert isinstance(crew.previewer, NullPreviewer)
+    assert not crew.previewer.enabled
+    assert crew.run(_graphics_edl(tmp_path, count=3)).edl.shots
