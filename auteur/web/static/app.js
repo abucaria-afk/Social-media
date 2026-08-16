@@ -15,7 +15,9 @@
     error: $("screen-error")
   };
 
-  var state = { jobId: null, timer: null, shape: "reel", seconds: "20", videoUrl: null,
+  // `seconds: ""` means "no length given" — the prompt decides. Anything else
+  // is an explicit override the person tapped.
+  var state = { jobId: null, timer: null, shape: "reel", seconds: "", videoUrl: null,
                lastStage: "", lastPercent: -1 };
 
   function show(name) {

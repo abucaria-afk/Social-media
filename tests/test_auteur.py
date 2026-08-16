@@ -924,6 +924,29 @@ def test_nothing_a_finger_lands_on_is_smaller_than_a_finger(web_server):
                 assert int(found) >= 44, f"{sheet} {selector} is {found}px"
 
 
+def test_a_length_typed_in_the_prompt_is_not_overruled_by_a_control_nobody_touched():
+    """Two controls set the length, and the invisible one used to win.
+
+    "Let it decide" sends no length, so `parse_brief` reads the number out of
+    the prompt. With 20s preselected instead, typing "fast neon montage, 10
+    seconds" produced a 20 second film and nothing said why.
+    """
+    from auteur.director.brief import parse_brief
+    from auteur.web import server
+
+    page = (server.STATIC / "index.html").read_text()
+    chips = page.split('id="seconds"', 1)[1].split("</div>", 1)[0]
+    # Exactly one is preselected, and it is the one that sends nothing.
+    selected = [line for line in chips.splitlines() if "is-on" in line]
+    assert len(selected) == 1, "more than one length is preselected"
+    assert 'data-value=""' in selected[0], "a fixed length is preselected over the prompt"
+
+    # And that empty value really does hand the decision to the words: the web
+    # handler treats "" as absent, and an absent duration lets the prompt speak.
+    assert parse_brief("fast neon montage, 10 seconds", duration=None).duration == 10.0
+    assert parse_brief("fast neon montage, 10 seconds", duration=20.0).duration == 20.0
+
+
 def test_the_first_step_looks_like_something_you_can_tap():
     """The whole card is a label, and nothing said so.
 
