@@ -139,6 +139,15 @@ STYLE_WORDS: dict[str, str] = {
     "tutorial": "explainer",
     "explainer": "explainer",
     "how to": "explainer",
+    # The cadence the reference reels are actually cut at. Named for what
+    # people call it rather than for anything technical.
+    "hypercut": "hypercut",
+    "hyper cut": "hypercut",
+    "flurry": "hypercut",
+    "rapid fire": "hypercut",
+    "rapid-fire": "hypercut",
+    "machine gun": "hypercut",
+    "reel": "hypercut",
 }
 
 
@@ -378,6 +387,13 @@ def parse_brief(prompt: str, *, duration: float | None = None) -> Brief:
             "highlights": 0.7,
             "travel": 1.4,
             "montage": 0.9,
+            # Measured, not chosen. Across seventeen reference reels — with
+            # their sign-off cards excluded, since a held card is not an edit —
+            # the median shot runs 0.167s and the median rate is 27.8 cuts per
+            # ten seconds. The fastest style before this was music-video at
+            # 0.6s, which is three and a half times slower than the thing the
+            # work is measured against.
+            "hypercut": 0.167,
         }.get(style, 0.9)
 
     brief = Brief(
@@ -409,6 +425,10 @@ def parse_brief(prompt: str, *, duration: float | None = None) -> Brief:
     if any(
         word in lowered for word in ("no transitions", "hard cuts", "straight cuts", "cuts only")
     ):
+        brief.transitions = ("cut",)
+    elif style == "hypercut":
+        # The references cut hard. At 0.167s a shot there is no room for a
+        # transition anyway — a 0.22s dissolve would outlast the shot.
         brief.transitions = ("cut",)
     elif style in ("music-video", "highlights") or base < 0.7:
         brief.transitions = ("cut", "cut", "cut", "whip-left", "whip-right", "zoom-blur", "glitch")
