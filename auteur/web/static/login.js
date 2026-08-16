@@ -62,8 +62,8 @@
 
   var savedTheme = "system";
   try { savedTheme = localStorage.getItem("auteur-theme") || "system"; } catch (e) { /* */ }
-  wireChoices($("appearance"), applyTheme);
-  Array.prototype.forEach.call($("appearance").querySelectorAll(".choice"), function (button) {
+  wireChoices(document.querySelector(".appearance"), applyTheme);
+  Array.prototype.forEach.call(document.querySelectorAll(".appearance .choice"), function (button) {
     var on = button.dataset.value === savedTheme;
     button.classList.toggle("is-on", on);
     button.setAttribute("aria-checked", on ? "true" : "false");

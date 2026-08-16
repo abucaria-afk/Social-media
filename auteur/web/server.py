@@ -694,6 +694,33 @@ class Handler(BaseHTTPRequestHandler):
             "consensus": agreed,
         }
 
+    def _overlay_rules(self) -> dict:
+        """The graphics vocabulary and the numbers the OverlayAgent places by.
+
+        Read out of the agent and the EDL rather than written out again here.
+        A studio panel that restates a constant is a second copy of it, and it
+        goes stale the first time somebody tunes the original — which is how a
+        page ends up confidently describing behaviour the program stopped
+        having.
+        """
+        from ..agents import overlay as agent
+        from ..edl import GRAPHIC_KINDS, GRAPHIC_MOVES
+
+        return {
+            "kinds": sorted(GRAPHIC_KINDS),
+            "moves": sorted(GRAPHIC_MOVES),
+            "rules": [
+                f"Up to {agent.MAX_LAYERS} on screen at once — "
+                "one is a watermark, four is a mood board.",
+                f"On every {agent.BEAT_STRIDE}{'nd' if agent.BEAT_STRIDE == 2 else 'th'} "
+                "beat off the downbeat, so it reads as rhythm rather than noise.",
+                f"No more than {agent.MOST_STICKERS} in a whole film.",
+                f"Never within {agent.TOO_CLOSE:.2f} of the frame of each other.",
+                f"{len(agent.LANES)} lanes to sit in, none of them the middle "
+                "or the caption band.",
+            ],
+        }
+
     def _scholar_ask(self) -> None:
         """Put a question to the Scholar and hand back what it says.
 
@@ -780,6 +807,9 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/ask", "/ask.html"):
             self._static(STATIC / "ask.html", "text/html; charset=utf-8")
             return
+        if path in ("/overlays", "/overlays.html", "/animation"):
+            self._static(STATIC / "overlays.html", "text/html; charset=utf-8")
+            return
         if path in ("/studio", "/studio.html"):
             self._static(STATIC / "studio.html", "text/html; charset=utf-8")
             return
@@ -795,6 +825,9 @@ class Handler(BaseHTTPRequestHandler):
         # that had the studio running a weaker crew than the CLI.
         if path == "/api/crew":
             self._json(self._crew_memory())
+            return
+        if path == "/api/overlays":
+            self._json(self._overlay_rules())
             return
         if path == "/api/scholar":
             self._json(self._scholar_state())

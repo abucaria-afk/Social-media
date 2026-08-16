@@ -41,15 +41,44 @@ def strip_scripts(html):
 
 home = strip_scripts(body_of(read("index.html")))
 studio = strip_scripts(body_of(read("studio.html")))
+animation = strip_scripts(body_of(read("overlays.html")))
 # The invariant the regex is standing in for, stated where it can fail loudly.
 # The published page loads `browser-render.js` and its own wiring; a script
 # that survived from the app would be a second copy racing the first.
-for name, markup in (("index.html", home), ("studio.html", studio)):
+for name, markup in (
+    ("index.html", home),
+    ("studio.html", studio),
+    ("overlays.html", animation),
+):
     if re.search(r"<script", markup, re.I):
         raise SystemExit(f"{name}: a <script> survived stripping — check the markup")
-# The studio's own header links back to "/" — make both screens live on one page.
+
+# Ids have to be unique across all three, because here they share a document.
+# They do not in the app, where each is its own page, so a collision is
+# invisible until it is published: `overlays.html` had a canvas called `stage`
+# and so does the edit room's progress screen, and the animation rehearsal
+# silently drew onto an <h2> — `getContext is not a function`, once, in a
+# console nobody was reading.
+_seen: dict[str, str] = {}
+for name, markup in (
+    ("index.html", home),
+    ("studio.html", studio),
+    ("overlays.html", animation),
+):
+    for found in re.findall(r'\bid="([^"]+)"', markup):
+        if found in _seen:
+            raise SystemExit(
+                f'id="{found}" is in both {_seen[found]} and {name}; '
+                "on the published page they are one document"
+            )
+        _seen[found] = name
+# Their own headers link back to "/" — make every screen live on one page.
 studio = studio.replace('href="/"', 'href="#" data-goto="home"')
+animation = animation.replace('href="/"', 'href="#" data-goto="home"')
+animation = animation.replace('href="/studio"', 'href="#" data-goto="studio"')
+animation = animation.replace('href="/ask"', 'href="#" data-goto="home"')
 home = home.replace('href="/studio"', 'href="#" data-goto="studio"')
+home = home.replace('href="/overlays"', 'href="#" data-goto="animation"')
 # The save link and the production notes both need files the renderer writes.
 # Stripped from the markup rather than removed at runtime, so the published
 # page never contains a download link that cannot work.
@@ -57,7 +86,9 @@ home = re.sub(r'<a class="go" id="save".*?</a>\s*', "", home, flags=re.S)
 home = re.sub(r'<a class="ghost" id="notes".*?</a>\s*', "", home, flags=re.S)
 
 
-css = "\n".join(read(n) for n in ("theme.css", "style.css", "animations.css", "studio.css"))
+css = "\n".join(
+    read(n) for n in ("theme.css", "style.css", "animations.css", "studio.css", "overlays.css")
+)
 
 DEMO = r"""
 /* ------------------------------------------------------------------ *
@@ -95,33 +126,46 @@ DEMO = r"""
       onPick(button.dataset.value);
     });
   }
-  wireChoices($("appearance"), applyTheme);
-  Array.prototype.forEach.call($("appearance").querySelectorAll(".choice"), function (b) {
-    var on = b.dataset.value === saved;
-    b.classList.toggle("is-on", on);
-    b.setAttribute("aria-checked", on ? "true" : "false");
+  /* Every appearance switch on the page, not the first. This build puts the
+     edit room, the studio and the animation tab in one document, so there are
+     three of them and `getElementById` only ever found one. */
+  function markAppearance(choice) {
+    Array.prototype.forEach.call(document.querySelectorAll(".appearance .choice"), function (b) {
+      var on = b.dataset.value === choice;
+      b.classList.toggle("is-on", on);
+      b.setAttribute("aria-checked", on ? "true" : "false");
+    });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll(".appearance"), function (group) {
+    wireChoices(group, function (choice) { markAppearance(choice); applyTheme(choice); });
   });
+  markAppearance(saved);
 
   var state = { shape: "reel", seconds: "", clips: 0 };
   wireChoices($("shape"), function (v) { state.shape = v; });
   wireChoices($("seconds"), function (v) { state.seconds = v; });
 
   /* -- screens ------------------------------------------------------ */
+  /* Three pages on one, since a published page has no routes: the edit room,
+     the studio and the animation tab. */
+  var PAGES = { studio: "studio-page", animation: "animation-page" };
   var screens = ["screen-start", "screen-working", "screen-done", "screen-error"];
+  function goto(to) {
+    Object.keys(PAGES).forEach(function (name) {
+      document.getElementById(PAGES[name]).hidden = name !== to;
+    });
+    document.getElementById("app").hidden = !!PAGES[to];
+    window.scrollTo(0, 0);
+  }
   function show(id) {
     screens.forEach(function (s) { $(s).hidden = s !== id; });
-    document.getElementById("studio-page").hidden = true;
-    document.getElementById("app").hidden = false;
-    window.scrollTo(0, 0);
+    goto("home");
   }
   document.addEventListener("click", function (event) {
     var link = event.target.closest("[data-goto]");
     if (!link) { return; }
     event.preventDefault();
-    var to = link.dataset.goto;
-    document.getElementById("studio-page").hidden = to !== "studio";
-    document.getElementById("app").hidden = to === "studio";
-    window.scrollTo(0, 0);
+    goto(link.dataset.goto);
   });
 
   /* -- step 1 ------------------------------------------------------- */
@@ -206,6 +250,10 @@ DEMO = r"""
       })
       .then(function (film) {
         made = film;
+        // Left where a check can read it. Nothing on the page uses it; it is
+        // here so a test can ask the renderer what it thinks it did and
+        // compare that against what came out.
+        window.__lastFilm = film;
         step(1, "Your film is ready");
         finish(film);
       })
@@ -422,11 +470,16 @@ body { background: var(--ground); }
 }
 /* `display: block` on its own beats [hidden]'s display:none, which put the
    studio underneath every other screen. */
-#studio-page { display: block; }
-#studio-page[hidden], [hidden] { display: none !important; }
+#studio-page, #animation-page { display: block; }
+#studio-page[hidden], #animation-page[hidden], [hidden] { display: none !important; }
 """
 
 RENDERER = (HERE / "browser-render.js").read_text(encoding="utf-8")
+# The graphics vocabulary. Shipped in the app and read by two callers — the
+# animation tab draws its previews with it and the renderer draws the film with
+# it — so the published page needs it before either of them runs.
+SHAPES = read("overlay-draw.js")
+ANIMATION_TAB = read("overlays.js")
 
 page = f"""<title>Auteur Edit Room</title>
 <style>
@@ -438,11 +491,20 @@ page = f"""<title>Auteur Edit Room</title>
 <div id="studio-page" hidden>
 {studio}
 </div>
+<div id="animation-page" hidden>
+{animation}
+</div>
+<script>
+{SHAPES}
+</script>
 <script>
 {RENDERER}
 </script>
 <script>
 {DEMO}
+</script>
+<script>
+{ANIMATION_TAB}
 </script>
 """
 OUT.write_text(page, encoding="utf-8")

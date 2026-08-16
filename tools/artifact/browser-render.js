@@ -29,15 +29,18 @@
    * which is most prompts, and the result was ungraded footage that looked
    * exactly like the camera roll it came from. "It made no edits" is what
    * that looks like from the outside. */
+  /* `ink` is what the graphics are drawn in. A grade and the marks over it
+   * have to belong to each other: an orange ring on a black and white film is
+   * somebody else's sticker, and a grey one on neon disappears. */
   var LOOKS = {
-    noir:      { label: "black and white", filter: "grayscale(1) contrast(1.35) brightness(0.97)", vignette: 0.55 },
-    neon:      { label: "neon",            filter: "saturate(1.5) contrast(1.2) hue-rotate(-10deg) brightness(0.96)", vignette: 0.5 },
-    warm:      { label: "warm",            filter: "saturate(1.15) contrast(1.08) sepia(0.2) brightness(1.04)", vignette: 0.3 },
-    cool:      { label: "cool",            filter: "saturate(1.05) contrast(1.12) hue-rotate(8deg) brightness(0.99)", vignette: 0.35 },
-    cinematic: { label: "cinematic",       filter: "saturate(0.94) contrast(1.24) brightness(0.94)", vignette: 0.45 },
-    punchy:    { label: "punchy",          filter: "saturate(1.32) contrast(1.28) brightness(1.02)", vignette: 0.28 },
-    faded:     { label: "faded film",      filter: "saturate(0.82) contrast(0.92) sepia(0.28) brightness(1.08)", vignette: 0.22 },
-    house:     { label: "house grade",     filter: "saturate(1.12) contrast(1.1) brightness(1.01)", vignette: 0.3 }
+    noir:      { label: "black and white", ink: "#ffffff", filter: "grayscale(1) contrast(1.35) brightness(0.97)", vignette: 0.55 },
+    neon:      { label: "neon",            ink: "#7ef0ff", filter: "saturate(1.5) contrast(1.2) hue-rotate(-10deg) brightness(0.96)", vignette: 0.5 },
+    warm:      { label: "warm",            ink: "#ffe6bd", filter: "saturate(1.15) contrast(1.08) sepia(0.2) brightness(1.04)", vignette: 0.3 },
+    cool:      { label: "cool",            ink: "#dff1ff", filter: "saturate(1.05) contrast(1.12) hue-rotate(8deg) brightness(0.99)", vignette: 0.35 },
+    cinematic: { label: "cinematic",       ink: "#f5efe4", filter: "saturate(0.94) contrast(1.24) brightness(0.94)", vignette: 0.45 },
+    punchy:    { label: "punchy",          ink: "#ffd45c", filter: "saturate(1.32) contrast(1.28) brightness(1.02)", vignette: 0.28 },
+    faded:     { label: "faded film",      ink: "#fff4e0", filter: "saturate(0.82) contrast(0.92) sepia(0.28) brightness(1.08)", vignette: 0.22 },
+    house:     { label: "house grade",     ink: "#f2ede4", filter: "saturate(1.12) contrast(1.1) brightness(1.01)", vignette: 0.3 }
   };
 
   /* Words, not five regexes. A prompt is somebody describing a feeling —
@@ -147,6 +150,58 @@
       t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
+  }
+
+  /* What the person chose on the animation tab, or a sensible default.
+   *
+   * Read from the same `auteur-overlays` key that page writes, so the two are
+   * one setting rather than two that happen to agree. */
+  function overlayChoice() {
+    var chosen = { kinds: ["circle", "bracket", "burst"], move: "pop", density: "some" };
+    try {
+      var raw = JSON.parse(localStorage.getItem("auteur-overlays") || "null");
+      if (raw && Array.isArray(raw.kinds)) {
+        chosen.kinds = raw.kinds;
+        chosen.move = raw.move || chosen.move;
+        chosen.density = raw.density || chosen.density;
+      }
+    } catch (e) { /* private mode, or nobody has been to that page */ }
+    return chosen;
+  }
+
+  /* Where the graphics land, shot by shot.
+   *
+   * Lanes rather than free positions: two shapes placed at random overlap
+   * often enough to look like a mistake, and three lanes with a shot's own
+   * jitter inside them never do. Layered up to three at once against the
+   * accents, which is what the OverlayAgent does on the downbeats.
+   */
+  var LANES = [[0.30, 0.30], [0.70, 0.52], [0.46, 0.74]];
+
+  function graphicsFor(chosen, shot, index, colour) {
+    if (chosen.density === "off" || !chosen.kinds.length) { return []; }
+    var many;
+    if (chosen.density === "busy") { many = index % 2 === 0 ? 3 : 1; }
+    else { many = index % 4 === 0 ? 2 : 0; }
+    many = Math.min(many, chosen.kinds.length, LANES.length);
+
+    var pick = rng(index + 977);
+    var cues = [];
+    for (var n = 0; n < many; n++) {
+      var lane = LANES[n];
+      cues.push({
+        kind: chosen.kinds[(index + n) % chosen.kinds.length],
+        move: chosen.move,
+        anchor: [
+          Math.min(0.88, Math.max(0.12, lane[0] + (pick() - 0.5) * 0.12)),
+          Math.min(0.88, Math.max(0.12, lane[1] + (pick() - 0.5) * 0.12))
+        ],
+        size: 0.8 + pick() * 0.45,
+        color: colour,
+        opacity: 0.92
+      });
+    }
+    return cues;
   }
 
   /* How much there is to look at in a source, 0 to 1.
@@ -537,6 +592,10 @@
        * has a shape rather than a metronome, and the median stays at `hold`,
        * which is the number the cadence words promise. */
       var PHRASE = [1, 1, 1, 1.5];
+      var overlayPlan = overlayChoice();
+      overlayPlan.progress = total >= 8
+        && overlayPlan.density !== "off"
+        && overlayPlan.kinds.indexOf("progress") !== -1;
       var strengths = sources.map(strengthOf);
       var opener = 0;
       for (var n = 1; n < strengths.length; n++) {
@@ -579,6 +638,7 @@
           dx: pick() * 1.6 - 0.8,
           dy: pick() * 1.2 - 0.6
         };
+        frame.graphics = graphicsFor(overlayPlan, frame, i, plan.look.ink);
         if (i === 0) { hookFrame = frame; }
         shots.push(frame);
         at += dur;
@@ -657,6 +717,7 @@
             shot_seconds: ran / Math.max(shots.length, 1),
             movements: movements,
             loops: !!(shots.length && shots[shots.length - 1].closes),
+            graphics: shots.reduce(function (sum, s) { return sum + s.graphics.length; }, 0),
             reading: {
               look: plan.lookName,
               cadence: plan.cadence,
@@ -713,6 +774,24 @@
             } catch (e) { /* not ready yet */ }
             ctx.filter = "none";
             ctx.drawImage(vignette, 0, 0);
+
+            // The graphics, on the cut. Drawn by the same module the
+            // animation tab previews with, so what is chosen there is what
+            // lands here.
+            for (var layer = 0; layer < shot.graphics.length; layer++) {
+              var cue = shot.graphics[layer];
+              try {
+                global.auteurOverlays.draw(ctx, cue, W, H, into);
+              } catch (e) { /* a shape this build does not have */ }
+            }
+            if (overlayPlan.progress) {
+              try {
+                global.auteurOverlays.draw(ctx, {
+                  kind: "progress", move: "none", anchor: [0.5, 0.955],
+                  size: 0.6, color: "#e9a85c", opacity: 0.85
+                }, W, H, elapsed / runFor);
+              } catch (e) { /* likewise */ }
+            }
 
             if (shot.title) {
               // In over four frames, out over the last four, so it lands.

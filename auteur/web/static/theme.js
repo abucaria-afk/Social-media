@@ -41,23 +41,37 @@
 
   apply(saved);
 
-  var group = document.getElementById("appearance");
-  if (!group) { return; }
+  /* Every switch on the document, not the one with the id.
+   *
+   * Each page has its own, which is fine while each page is its own document.
+   * The published single-page build puts three of them in one, and
+   * `getElementById` returns the first — so the studio's switch and the
+   * animation tab's did nothing at all, silently. A class says "there may be
+   * several of these" where an id says "there is exactly one". */
+  var groups = document.querySelectorAll(".appearance");
+  if (!groups.length) { return; }
 
-  Array.prototype.forEach.call(group.querySelectorAll(".choice"), function (button) {
-    var on = button.dataset.value === saved;
-    button.classList.toggle("is-on", on);
-    button.setAttribute("aria-checked", on ? "true" : "false");
-  });
-
-  group.addEventListener("click", function (event) {
-    var button = event.target.closest(".choice");
-    if (!button) { return; }
-    Array.prototype.forEach.call(group.querySelectorAll(".choice"), function (other) {
-      var on = other === button;
-      other.classList.toggle("is-on", on);
-      other.setAttribute("aria-checked", on ? "true" : "false");
+  function mark(choice) {
+    Array.prototype.forEach.call(groups, function (group) {
+      Array.prototype.forEach.call(group.querySelectorAll(".choice"), function (button) {
+        var on = button.dataset.value === choice;
+        button.classList.toggle("is-on", on);
+        button.setAttribute("aria-checked", on ? "true" : "false");
+      });
     });
-    apply(button.dataset.value);
+  }
+
+  mark(saved);
+
+  Array.prototype.forEach.call(groups, function (group) {
+    group.addEventListener("click", function (event) {
+      var button = event.target.closest(".choice");
+      if (!button) { return; }
+      // Every switch moves together: they are one setting shown in three
+      // places, and leaving the others behind is how a page ends up
+      // disagreeing with itself about what theme it is in.
+      mark(button.dataset.value);
+      apply(button.dataset.value);
+    });
   });
 })();

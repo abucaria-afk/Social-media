@@ -108,6 +108,20 @@
   </section>
 
   <!-- 4. What the Scholar is doing ----------------------------------- -->
+  <!-- What can go over the cut, and the rules the OverlayAgent places it by.
+       The numbers come from the agent itself over /api/overlays rather than
+       being restated here, because a panel that quotes a constant is a second
+       copy of it that goes stale the first time the constant is tuned. -->
+  <section class="panel" id="graphics-panel" hidden>
+    <h2 class="panel-title">Graphics over the cut</h2>
+    <p class="panel-hint" id="graphics-state">checking…</p>
+    <ul class="agreed" id="graphics-rules"></ul>
+    <a class="studio-link" href="/overlays">
+      <span class="studio-link-title">The animation tab</span>
+      <span class="studio-link-note">Watch each shape move · pick which ones · how busy</span>
+    </a>
+  </section>
+
   <!-- /api/scholar existed and no page read it, so the Scholar studied in
        total silence: no way to tell whether it was running, what it knew, or
        whether it had learned anything about this app. -->
@@ -127,8 +141,8 @@
   </section>
 
   <div class="settings">
-    <span class="settings-label" id="appearance-label">Appearance</span>
-    <div class="choices" id="appearance" role="radiogroup" aria-labelledby="appearance-label">
+    <span class="settings-label">Appearance</span>
+    <div class="choices appearance" role="radiogroup" aria-label="Appearance">
       <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
       <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
       <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
