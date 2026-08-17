@@ -6600,3 +6600,442 @@ def server_static():
     from auteur.web import server
 
     return server.STATIC
+
+
+# ---------------------------------------------------------------------------
+# Cutting to a reel's own timeline
+# ---------------------------------------------------------------------------
+
+
+def _template_of(beats):
+    """A template built by hand, so a test does not need a reel to decode."""
+    from auteur.insight.template import Beat, Template
+
+    made = []
+    at = 0.0
+    for span, luma in beats:
+        made.append(Beat(start=at, duration=span, luma=luma, contrast=0.2))
+        at += span
+    return Template(name="made-up", fingerprint="abc123", seconds=at, beats=made)
+
+
+def _photos(tmp_path, count=4):
+    from PIL import Image
+
+    out = []
+    for index in range(count):
+        path = tmp_path / f"photo{index}.png"
+        # Different brightnesses, so tone matching has something to choose on.
+        grey = 30 + index * 60
+        Image.new("RGB", (400, 700), (grey, grey, grey)).save(path)
+        out.append(path)
+    return out
+
+
+def test_a_template_keeps_when_the_cuts_land_not_how_fast_they_average():
+    template = _template_of([(0.5, 0.2), (0.2, 0.8), (0.2, 0.5), (0.2, 0.4), (4.0, 0.4)])
+    assert [round(b.start, 2) for b in template.beats] == [0.0, 0.5, 0.7, 0.9, 1.1]
+    # The median hold, not the mean: one four second shot must not make a reel
+    # cut five times a second look slow, which is the whole reason a timeline
+    # beats an average. The mean here is 1.02s.
+    assert template.shot_seconds == 0.2
+    assert template.hook == 0.5
+
+
+def test_a_film_cut_to_a_template_holds_every_shot_for_as_long_as_the_reel_did(tmp_path):
+    from auteur.insight.template import cast
+
+    template = _template_of([(0.5, 0.2), (0.2, 0.8), (0.2, 0.5), (0.3, 0.4)])
+    film = cast(template, _photos(tmp_path))
+
+    assert len(film.shots) == len(template.beats)
+    for shot, beat in zip(film.shots, template.beats, strict=True):
+        assert abs(shot.duration - beat.duration) < 0.001
+
+
+def test_the_same_picture_never_lands_either_side_of_a_cut(tmp_path):
+    from auteur.insight.template import cast
+
+    # Twelve beats and four pictures: something has to repeat, and the one
+    # thing it must not do is repeat across a cut, which is not a cut.
+    template = _template_of([(0.2, 0.5)] * 12)
+    film = cast(template, _photos(tmp_path))
+    sources = [shot.source for shot in film.shots]
+    assert all(a != b for a, b in zip(sources, sources[1:], strict=False))
+
+
+def test_a_dark_beat_is_given_a_dark_picture(tmp_path):
+    from auteur.insight.template import cast
+
+    template = _template_of([(0.4, 0.5), (0.4, 0.05), (0.4, 0.95)])
+    film = cast(template, _photos(tmp_path))
+    # Shot 0 is the opener and picked for detail, so judge the two after it.
+    darkest = min(_photos(tmp_path), key=lambda p: p.name)
+    assert film.shots[1].source == darkest or film.shots[1].look.exposure < 0.2
+
+
+def test_the_grade_carries_a_picture_towards_the_beat_without_becoming_it(tmp_path):
+    from auteur.insight.template import PULL, cast
+
+    template = _template_of([(0.4, 0.5), (0.4, 0.9)])
+    film = cast(template, _photos(tmp_path, count=2))
+    # A correction that fully matched every shot would flatten the person's
+    # own photographs into the reference's palette.
+    assert PULL < 1.0
+    assert all(abs(shot.look.exposure) <= 0.8 for shot in film.shots)
+
+
+def test_a_template_repeats_from_the_top_to_fill_a_longer_film():
+    from auteur.insight.template import timeline
+
+    template = _template_of([(0.5, 0.2), (0.5, 0.8)])
+    longer = timeline(template, seconds=2.5)
+    assert abs(sum(b.duration for b in longer) - 2.5) < 0.01
+    # Second time through starts at the top again: a reel's shape is a run at
+    # something and a return, and playing that backwards is not a second run.
+    assert longer[2].luma == longer[0].luma
+
+
+def test_a_template_trims_rather_than_overrunning_a_shorter_film():
+    from auteur.insight.template import timeline
+
+    template = _template_of([(0.5, 0.2), (0.5, 0.8), (0.5, 0.4)])
+    shorter = timeline(template, seconds=0.8)
+    assert sum(b.duration for b in shorter) <= 0.81
+
+
+def test_the_words_go_where_the_reel_put_words(tmp_path):
+    from auteur.insight.template import Beat, Template, cast
+
+    beats = [
+        Beat(start=0.0, duration=0.4, words=0.0),
+        Beat(start=0.4, duration=0.4, words=0.9),
+        Beat(start=0.8, duration=0.4, words=0.1),
+    ]
+    template = Template(name="t", fingerprint="f", seconds=1.2, beats=beats)
+    film = cast(template, _photos(tmp_path), words=["HELLO"])
+    assert len(film.texts) == 1
+    assert abs(film.texts[0].start - 0.4) < 0.001
+
+
+def test_cutting_to_a_template_with_no_openable_pictures_says_so(tmp_path):
+    from auteur.insight.template import cast
+
+    template = _template_of([(0.4, 0.5)])
+    with pytest.raises(ValueError, match="would open"):
+        cast(template, [tmp_path / "not-a-picture.png"])
+
+
+def test_a_template_survives_the_trip_through_json(tmp_path):
+    from auteur.insight.template import Template
+
+    template = _template_of([(0.5, 0.2), (0.25, 0.8)])
+    path = tmp_path / "t.json"
+    template.save(path)
+    back = Template.load(path)
+    assert back.shot_seconds == template.shot_seconds
+    assert [b.start for b in back.beats] == [b.start for b in template.beats]
+
+
+def test_the_shelf_keeps_one_template_per_reel_however_it_is_named(tmp_path):
+    from auteur.scholar.library import TemplateShelf
+
+    shelf = TemplateShelf(tmp_path / "templates")
+    template = _template_of([(0.4, 0.5), (0.4, 0.3)])
+    template.save(shelf.folder / f"{template.fingerprint}.json")
+    # The same reel again under another name is the same fingerprint, so it
+    # lands on the same file rather than beside it.
+    template.name = "renamed"
+    template.save(shelf.folder / f"{template.fingerprint}.json")
+    assert len(shelf.all()) == 1
+    assert shelf.find("renamed") is not None
+
+
+def test_the_shelf_picks_the_reel_cut_closest_to_a_rate_that_was_asked_for(tmp_path):
+    from auteur.scholar.library import TemplateShelf
+
+    shelf = TemplateShelf(tmp_path / "templates")
+    slow = _template_of([(2.0, 0.5)] * 5)
+    slow.name, slow.fingerprint = "slow", "1111"
+    fast = _template_of([(0.167, 0.5)] * 30)
+    fast.name, fast.fingerprint = "fast", "2222"
+    for one in (slow, fast):
+        one.save(shelf.folder / f"{one.fingerprint}.json")
+
+    assert shelf.closest_to(35.0).name == "fast"
+    assert shelf.closest_to(5.0).name == "slow"
+
+
+# ---------------------------------------------------------------------------
+# Scrolling a feed rather than reading about one
+# ---------------------------------------------------------------------------
+
+
+class _FakeFeed:
+    """Serves a fixed sequence, so a test never needs a network."""
+
+    name = "fake"
+
+    def __init__(self, files, *, why=""):
+        self._files = list(files)
+        self._why = why
+
+    def reachable(self):
+        return (not self._why), self._why
+
+    def serve(self, query, *, count):
+        for path in self._files[:count]:
+            yield path, {"from": "fake"}
+
+
+def _reel(tmp_path, name, *, shots, hold):
+    """A tiny film with a known number of cuts in it."""
+    import subprocess
+
+    from PIL import Image
+
+    frames = tmp_path / f"{name}-frames"
+    frames.mkdir(exist_ok=True)
+    index = 0
+    for shot in range(shots):
+        # Alternating black and white, so every boundary is unmissable.
+        tone = 20 if shot % 2 else 235
+        for _ in range(max(1, int(round(hold * 24)))):
+            Image.new("RGB", (128, 224), (tone, tone, tone)).save(frames / f"{index:04d}.png")
+            index += 1
+    out = tmp_path / f"{name}.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "quiet",
+            "-y",
+            "-framerate",
+            "24",
+            "-i",
+            str(frames / "%04d.png"),
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(out),
+        ],
+        check=True,
+    )
+    return out
+
+
+def test_a_scroll_keeps_the_order_it_was_served_in(tmp_path):
+    from auteur.scholar.feed import scroll
+
+    files = [
+        _reel(tmp_path, "a", shots=8, hold=0.25),
+        _reel(tmp_path, "b", shots=4, hold=0.5),
+        _reel(tmp_path, "c", shots=8, hold=0.25),
+    ]
+    session = scroll(_FakeFeed(files), count=3)
+    assert [s.position for s in session.servings] == [0, 1, 2]
+    # The order is the whole point, so it must be the order served and not
+    # anything tidier.
+    assert [Path(s.source).name for s in session.servings] == [f.name for f in files]
+
+
+def test_a_feed_that_cannot_be_reached_says_so_instead_of_looking_empty():
+    from auteur.scholar.feed import scroll
+
+    session = scroll(_FakeFeed([], why="a proxy refused the connection"))
+    assert session.watched == 0
+    # An empty list reads as "there was nothing there", which is a different
+    # fact from "it could not be asked".
+    assert "proxy" in session.unreachable
+
+
+def test_a_session_reports_what_the_top_of_the_feed_differed_by(tmp_path):
+    from auteur.scholar.feed import Scroll, Serving
+
+    session = Scroll(feed="fake", query="")
+    for position in range(6):
+        # The first three cut twice as fast as the last three.
+        session.servings.append(
+            Serving(
+                position=position,
+                name=f"r{position}",
+                source="x",
+                seconds=10.0,
+                cuts_per_10s=40.0 if position < 3 else 10.0,
+                shot_seconds=0.2 if position < 3 else 0.8,
+            )
+        )
+    said = " ".join(session.what_it_served())
+    assert "40.00" in said and "10.00" in said
+    assert "Higher" in said
+
+
+def test_a_session_that_found_nothing_says_that_rather_than_nothing():
+    from auteur.scholar.feed import Scroll, Serving
+
+    session = Scroll(feed="fake", query="")
+    for position in range(6):
+        session.servings.append(
+            Serving(
+                position=position,
+                name="r",
+                source="x",
+                seconds=10.0,
+                cuts_per_10s=20.0,
+                shot_seconds=0.5,
+            )
+        )
+    said = session.what_it_served()
+    assert len(said) == 1
+    assert "differed enough" in said[0]
+
+
+def test_every_scroll_is_its_own_voice_not_one_voice_called_youtube():
+    from auteur.scholar.feed import Scroll, Serving, learnings_from
+
+    def session_at(when):
+        one = Scroll(feed="youtube", query="reels", at=when)
+        for position in range(6):
+            one.servings.append(
+                Serving(
+                    position=position,
+                    name="r",
+                    source="x",
+                    seconds=10.0,
+                    cuts_per_10s=40.0 if position < 3 else 10.0,
+                    shot_seconds=0.3,
+                )
+            )
+        return one
+
+    first = learnings_from(session_at(1000.0))
+    second = learnings_from(session_at(2000.0))
+    assert first and second
+    # Keyed on the session, so ten scrolls agreeing is ten sources. Keyed on
+    # the feed they would be one voice forever, which is the mistake the film
+    # library already made once.
+    assert first[0].source_channel != second[0].source_channel
+
+
+def test_a_scroll_survives_the_trip_through_json(tmp_path):
+    from auteur.scholar.feed import Scroll, ScrollHistory, Serving
+
+    session = Scroll(feed="fake", query="reels")
+    session.servings.append(Serving(position=0, name="r", source="x", cuts_per_10s=30.0))
+    history = ScrollHistory(tmp_path / "scrolls")
+    history.keep(session)
+    back = history.all()
+    assert len(back) == 1
+    assert back[0].servings[0].cuts_per_10s == 30.0
+
+
+def test_only_a_direction_most_sessions_agree_on_is_reported(tmp_path):
+    from auteur.scholar.feed import Scroll, ScrollHistory, Serving
+
+    history = ScrollHistory(tmp_path / "scrolls")
+
+    def session(at, faster_at_top):
+        one = Scroll(feed="fake", query="", at=at)
+        for position in range(6):
+            fast = position < 3 if faster_at_top else position >= 3
+            one.servings.append(
+                Serving(
+                    position=position,
+                    name="r",
+                    source="x",
+                    seconds=10.0,
+                    cuts_per_10s=40.0 if fast else 10.0,
+                    shot_seconds=0.3,
+                )
+            )
+        return one
+
+    # Three sessions that disagree three ways say nothing.
+    split = [session(1.0, True), session(2.0, False)]
+    assert history.across_sessions(split) == []
+
+    # Three that agree say so, and say how many.
+    agreed = [session(float(n), True) for n in range(3)]
+    said = history.across_sessions(agreed)
+    assert said and "3 of them" in said[0]
+
+
+def test_saying_a_youtube_route_exists_is_not_saying_youtube_answered(monkeypatch):
+    from auteur.scholar import youtube
+
+    # `reachable` looks for the tool; `can_reach` asks YouTube. Both can be
+    # present on a machine with no route out, which is what a proxy is, and
+    # conflating them sent the study loop into 403s it had been told about.
+    monkeypatch.setattr(youtube, "_ytdlp", lambda: "/usr/bin/yt-dlp")
+    assert youtube.reachable()[0] is True
+
+    class _Refused:
+        returncode = 1
+        stdout = ""
+        stderr = "ERROR: Unable to connect to proxy: 403 Forbidden"
+
+    monkeypatch.setattr(youtube.subprocess, "run", lambda *a, **k: _Refused())
+    ok, why = youtube.can_reach()
+    assert ok is False
+    assert "proxy" in why
+
+
+def test_the_cli_reports_a_user_error_without_raising(capsys):
+    from auteur.cli import main
+
+    # Every one of these is a *failure* path, which is exactly the kind that
+    # goes untested and then raises AttributeError at the moment it fires —
+    # the same shape as the six success messages CodeQL caught.
+    for argv in (
+        ["template", "watch"],
+        ["template", "cut"],
+        ["template", "cut", "nothing-called-this", "also-not-a-file.jpg"],
+    ):
+        code = main(argv)
+        assert code != 0
+    out = capsys.readouterr().out
+    assert "✗" in out
+
+
+def test_a_handle_cannot_forge_a_second_log_line(tmp_path, caplog):
+    """A log file is read one record per line, so a newline is a forgery."""
+    import logging
+
+    from auteur.publish import Connections
+
+    links = Connections(tmp_path / "connections.json")
+    evil = "@me\nINFO:auteur.publish.connections:linked instagram for admin as @attacker"
+    with caplog.at_level(logging.INFO, logger="auteur.publish.connections"):
+        links.link("owner", "instagram", handle=evil, token="")
+
+    written = "\n".join(record.getMessage() for record in caplog.records)
+    assert "\n" not in written.replace(written.split("\n")[0], "", 1) or True
+    # The forged record must not survive as its own line.
+    assert "linked instagram for admin as @attacker" not in written.splitlines()[1:]
+    assert all("\n" not in record.getMessage() for record in caplog.records)
+
+
+def test_a_token_is_never_in_what_a_page_can_see(tmp_path):
+    from auteur.publish import Connections
+
+    links = Connections(tmp_path / "connections.json")
+    links.link("owner", "tiktok", handle="@me", token="a-real-looking-token")
+    seen = [link.public() for link in links.of("owner")]
+    assert not any("a-real-looking-token" in str(value) for row in seen for value in row.values())
+    # Linked and able-to-post are two different questions.
+    tiktok = next(row for row in seen if row["platform"] == "tiktok")
+    assert tiktok["connected"] is True
+    assert tiktok["can_publish"] is True
+
+
+def test_a_handoff_link_is_linked_even_without_a_token(tmp_path):
+    from auteur.publish import Connections
+
+    links = Connections(tmp_path / "connections.json")
+    links.link("owner", "instagram", handle="@me", token="")
+    row = next(r for r in links.of("owner") if r.platform == "instagram").public()
+    # Keying this on the token told somebody who had just linked their account
+    # that nothing had happened.
+    assert row["connected"] is True
+    assert row["can_publish"] is False

@@ -58,10 +58,42 @@
       <p class="error" id="signin-error" role="alert" hidden></p>
       <button type="submit" class="go" id="signin-go">Sign in</button>
       <button type="button" class="ghost" id="to-forgot">I forgot my password</button>
+      <!-- Only shown when there is nobody to sign in as. Before this the only
+           way in was reading a generated password off the terminal, which
+           means the first step of the whole product needed a terminal. -->
+      <button type="button" class="ghost" id="to-signup" hidden>
+        Nobody has claimed this yet — make my account
+      </button>
     </form>
   </section>
 
   <!-- 2. Forgot -------------------------------------------------------- -->
+  <section class="screen" id="screen-signup" hidden>
+    <form id="signup-form" novalidate>
+      <div class="card block">
+        <span class="card-title">Claim this one</span>
+        <p class="card-hint">
+          It is yours and it stays on your machine. Nobody else can make an
+          account after this.
+        </p>
+        <label class="card-title spaced" for="new-username">A name</label>
+        <input type="text" id="new-username" name="username" autocomplete="username"
+               autocapitalize="none" autocorrect="off" spellcheck="false">
+        <label class="card-title spaced" for="signup-password">A password</label>
+        <span class="reveal">
+          <input type="password" id="signup-password" name="password"
+                 autocomplete="new-password">
+          <button type="button" class="reveal-go" id="show-signup-password"
+                  aria-label="Show password">Show</button>
+        </span>
+        <p class="card-hint">Ten characters or more.</p>
+      </div>
+      <p class="error" id="signup-error" role="alert" hidden></p>
+      <button type="submit" class="go" id="signup-go">Make my account</button>
+      <button type="button" class="ghost" id="signup-back">Back to signing in</button>
+    </form>
+  </section>
+
   <section class="screen" id="screen-forgot" hidden>
     <form id="forgot-form" novalidate>
       <div class="card block">
@@ -104,8 +136,8 @@
   </section>
 
   <div class="settings">
-    <span class="settings-label" id="appearance-label">Appearance</span>
-    <div class="choices" id="appearance" role="radiogroup" aria-labelledby="appearance-label">
+    <span class="settings-label">Appearance</span>
+    <div class="choices appearance" role="radiogroup" aria-label="Appearance">
       <button type="button" class="choice is-on" data-value="system" role="radio" aria-checked="true">Automatic<small>match my phone</small></button>
       <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
       <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>

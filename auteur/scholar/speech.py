@@ -216,6 +216,15 @@ class SpeechResponse:
     voice_audio: bytes = field(default=b"", repr=False)
     voice_style: VoiceStyle = VoiceStyle.NEUTRAL
     confidence: float = 1.0
+    #: Whether a language model actually wrote this. False means the text is
+    #: the apology below, or whatever the caller substituted for it. Carried as
+    #: a flag rather than left for callers to detect by matching the apology's
+    #: wording, which is a sentence, and sentences get rewritten.
+    reachable: bool = True
+    #: Whether this was assembled out of the knowledge store instead of
+    #: written. A real answer and a reading-back of notes are different things
+    #: and the page says so.
+    from_study: bool = False
 
     @property
     def has_voice(self) -> bool:
@@ -228,6 +237,8 @@ class SpeechResponse:
             "has_voice": self.has_voice,
             "voice_style": self.voice_style.value,
             "confidence": self.confidence,
+            "reachable": self.reachable,
+            "from_study": self.from_study,
         }
 
 
@@ -336,7 +347,9 @@ class SpeechSystem:
         conv.messages.append(user_msg)
 
         # Generate response (integration point for LLM)
-        response_text = self._generate_response(user_text, language, intent, context, conv)
+        response_text, reachable = self._generate_response(
+            user_text, language, intent, context, conv
+        )
 
         # Record scholar message
         scholar_msg = Message(role="scholar", text=response_text, language=language)
@@ -345,7 +358,9 @@ class SpeechSystem:
         log.info(
             "chatbot response [%s] (%d turns): %s", language, conv.turn_count, response_text[:80]
         )
-        return SpeechResponse(text=response_text, language=language, confidence=1.0)
+        return SpeechResponse(
+            text=response_text, language=language, confidence=1.0, reachable=reachable
+        )
 
     # ------------------------------------------------------------------
     # Speaking — voice bot interface
@@ -376,7 +391,9 @@ class SpeechSystem:
         conv.messages.append(user_msg)
 
         # Generate text response first
-        response_text = self._generate_response(user_text, language, intent, context, conv)
+        response_text, reachable = self._generate_response(
+            user_text, language, intent, context, conv
+        )
 
         # Synthesise voice (integration point for TTS model)
         voice_audio = self._synthesise_speech(response_text, language, style)
@@ -396,6 +413,7 @@ class SpeechSystem:
             voice_audio=voice_audio,
             voice_style=style,
             confidence=1.0,
+            reachable=reachable,
         )
 
     # ------------------------------------------------------------------
@@ -487,8 +505,8 @@ class SpeechSystem:
         intent: SpeechIntent,
         context: str,
         conversation: Conversation,
-    ) -> str:
-        """Generate a natural-language response.
+    ) -> tuple[str, bool]:
+        """Generate a natural-language response, and whether a model wrote it.
 
         Integration point: in production this calls the Scholar's LLM backbone
         with full conversation history, knowledge store context, and Gaze/Auditory
@@ -503,7 +521,7 @@ class SpeechSystem:
 
         reply = _ask_claude(user_text, lang_name, intent, context, conversation)
         if reply:
-            return reply
+            return reply, True
 
         # No key, no anthropic package, or the call failed. Say that, in one
         # sentence, rather than returning a sentence shaped like an answer.
@@ -516,7 +534,8 @@ class SpeechSystem:
         return (
             f"I cannot answer that right now: my language model is not reachable "
             f"from here (set ANTHROPIC_API_KEY and install the `anthropic` package). "
-            f"I understood the question as {intent.value} in {lang_name}."
+            f"I understood the question as {intent.value} in {lang_name}.",
+            False,
         )
 
     def _synthesise_speech(self, text: str, language: str, style: VoiceStyle) -> bytes:

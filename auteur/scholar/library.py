@@ -526,3 +526,79 @@ def critique_technique(edl, store) -> list:
             )
 
     return findings
+
+
+# ---------------------------------------------------------------------------
+# Reels it has watched shot by shot
+# ---------------------------------------------------------------------------
+
+
+class TemplateShelf:
+    """The reels the Scholar has read frame by frame, kept as timelines.
+
+    Separate from the knowledge store on purpose. A learning is a sentence
+    somebody could argue with; a template is a measurement of one film's
+    timing, and the two are not the same kind of thing — corroborating a
+    timeline across sources would be averaging away the very thing that makes
+    it worth keeping.
+    """
+
+    def __init__(self, folder: Path | None = None):
+        self._folder = Path(folder or Path.home() / ".auteur" / "scholar" / "templates")
+        self._folder.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def folder(self) -> Path:
+        return self._folder
+
+    def watch(self, path: str | Path, *, name: str = "") -> object | None:
+        """Read a reel and keep its timeline. Returns the template, or None.
+
+        Keyed on the reel's content, so watching the same file twice under two
+        names keeps one template rather than two.
+        """
+        from ..insight.template import read
+
+        template = read(path, name=name)
+        if template is None:
+            return None
+        template.save(self._folder / f"{template.fingerprint}.json")
+        log.info("kept a template: %s", template.describe())
+        return template
+
+    def all(self) -> list:
+        """Every template on the shelf, longest film first."""
+        from ..insight.template import Template
+
+        out = []
+        for file in sorted(self._folder.glob("*.json")):
+            try:
+                out.append(Template.load(file))
+            except Exception as exc:  # noqa: BLE001 - one bad file is not fatal
+                log.info("skipping unreadable template %s: %s", file.name, exc)
+        out.sort(key=lambda t: t.seconds, reverse=True)
+        return out
+
+    def find(self, wanted: str):
+        """A template by name, fingerprint, or a unique fragment of either."""
+        wanted = (wanted or "").strip().lower()
+        if not wanted:
+            return None
+        held = self.all()
+        for template in held:
+            if wanted in (template.fingerprint.lower(), template.name.lower()):
+                return template
+        near = [t for t in held if wanted in t.name.lower() or wanted in t.fingerprint.lower()]
+        return near[0] if len(near) == 1 else None
+
+    def closest_to(self, cuts_per_10s: float):
+        """The template cut nearest to a rate somebody asked for.
+
+        What "cut it like a hypercut" resolves to when nobody named a reel: the
+        shelf already holds films cut at every rate the references use, so the
+        pace words pick one instead of inventing a timeline.
+        """
+        held = [t for t in self.all() if t.beats]
+        if not held:
+            return None
+        return min(held, key=lambda t: abs(t.cuts_per_10s - cuts_per_10s))

@@ -103,12 +103,52 @@ def _ytdlp() -> str | None:
 
 
 def reachable() -> tuple[bool, str]:
-    """Can this machine reach YouTube, and if not, what is missing?"""
+    """Is there a *route* to YouTube installed — a tool or a key?
+
+    Deliberately not named for what it was documented as. It used to say "can
+    this machine reach YouTube", which it never asked: it looks for yt-dlp on
+    PATH and an API key in the environment, and both can be present on a
+    machine with no route out. That is exactly the case behind a proxy, and
+    the study loop spent whole sessions being told it could search and then
+    failing on a 403 it had already been told about.
+
+    `can_reach` below actually asks. This stays because deciding whether the
+    feature is *configured* is a real question too, and it is cheap.
+    """
     if _ytdlp() is not None:
         return True, "yt-dlp"
     if os.environ.get("YOUTUBE_API_KEY"):
         return True, "YouTube Data API key"
     return False, "yt-dlp is not installed and YOUTUBE_API_KEY is not set"
+
+
+def can_reach(*, timeout: float = 25.0) -> tuple[bool, str]:
+    """Ask YouTube for one thing, and report what actually happened.
+
+    Costs a few seconds and is worth them: everything downstream of a wrong
+    answer here is a long download that was never going to work.
+    """
+    tool = _ytdlp()
+    if tool is None:
+        return False, "yt-dlp is not installed"
+    try:
+        got = subprocess.run(
+            [tool, "--no-warnings", "--flat-playlist", "-J", "ytsearch1:test"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"YouTube did not answer within {timeout:.0f}s"
+    except OSError as exc:
+        return False, f"could not run yt-dlp: {exc}"
+    if got.returncode == 0:
+        return True, ""
+    why = (got.stderr or "").strip().splitlines()
+    last = why[-1] if why else "yt-dlp failed"
+    if "403" in last or "proxy" in last.lower():
+        return False, "blocked on the way out — a proxy refused the connection"
+    return False, last[:200]
 
 
 class SearchStrategy(enum.Enum):

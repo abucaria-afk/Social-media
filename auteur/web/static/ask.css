@@ -28,6 +28,16 @@
   line-height: 1.5;
 }
 .says p { margin: 0; }
+
+/* The Scholar's own line breaks are kept — but only on the paragraphs the
+   script writes. It answers in bullets when it is reading measurements back,
+   and collapsing single newlines ran three separate findings into one
+   sentence with bullet characters loose in the middle of it.
+   Scoped to `.said` rather than every `.says p`, because the greeting is
+   static markup indented to fit the file, and `pre-wrap` faithfully
+   reproduced that indentation as ragged line breaks on the screen. The text
+   arrives through textContent either way, so nothing is read as markup. */
+.says p.said { white-space: pre-wrap; }
 .says p + p { margin-top: 0.6rem; }
 
 .says.scholar {
@@ -52,6 +62,20 @@
 }
 
 .says.thinking { color: var(--text-faint); font-style: italic; }
+
+/* Notes read back out of the knowledge store. Not a refusal — it is the
+   Scholar answering from what it measured, with no model to think with — so
+   it reads as an answer, with the label saying which kind. */
+.says.from-study { border-left: 3px solid var(--ember); }
+.says-tag {
+  display: block;
+  margin-bottom: 0.45rem;
+  color: var(--ember-text);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
 
 .openers {
   display: flex;

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c0b0a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f1e6" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="The graphics the crew can put over your film, moving.">
+<script>
+  (function () {
+    try {
+      var mode = localStorage.getItem("auteur-theme");
+      if (mode === "light" || mode === "dark") {
+        document.documentElement.setAttribute("data-theme", mode);
+      }
+    } catch (e) { /* private mode: fall through to the system setting */ }
+  })();
+</script>
+<link rel="icon" href="/icon-192.png">
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/studio.css">
+<link rel="stylesheet" href="/static/overlays.css">
+<title>Auteur — animation</title>
+</head>
+<body>
+
+<header class="sbar">
+  <a class="sbar-back" href="/" aria-label="Back to the edit room">←</a>
+  <span class="sbar-title">Animation</span>
+  <span class="sbar-note" id="overlay-state">what can go over the film</span>
+</header>
+
+<main class="studio-wrap">
+
+  <section class="panel">
+    <h2 class="panel-title">On the beat</h2>
+    <p class="panel-hint">
+      These are the eight shapes the crew can put over a cut, drawn here by the
+      same code that draws them onto the film — not pictures of them. Tap one to
+      change how it arrives.
+    </p>
+    <div class="overlay-grid" id="kinds"></div>
+  </section>
+
+  <section class="panel">
+    <h2 class="panel-title">How it arrives</h2>
+    <p class="panel-hint">
+      A graphic that fades up reads as a caption. One that overshoots and settles
+      reads as something that landed. It is the difference between a watermark
+      and an edit.
+    </p>
+    <div class="modes" id="moves" role="radiogroup" aria-label="Movement"></div>
+  </section>
+
+  <section class="panel">
+    <h2 class="panel-title">How busy</h2>
+    <p class="panel-hint">
+      Layered against the downbeats, up to three at once. Nothing sits still for
+      long: the reference reels never leave a graphic on screen for more than
+      about a second.
+    </p>
+    <div class="choices" id="density" role="radiogroup" aria-label="How busy">
+      <button type="button" class="choice" data-value="off" role="radio" aria-checked="false">None<small>clean</small></button>
+      <button type="button" class="choice is-on" data-value="some" role="radio" aria-checked="true">Some<small>on accents</small></button>
+      <button type="button" class="choice" data-value="busy" role="radio" aria-checked="false">Busy<small>every other beat</small></button>
+    </div>
+
+    <h3 class="panel-sub">Over a cut</h3>
+    <p class="panel-hint">
+      A rehearsal at the cadence a hypercut runs at, with the graphics landing
+      where the crew would land them.
+    </p>
+    <div class="stage-wrap">
+      <canvas id="overlay-stage" width="540" height="960" aria-label="A rehearsal of the graphics over a moving frame"></canvas>
+    </div>
+    <button type="button" class="studio-go" id="replay">Play it again</button>
+  </section>
+
+  <p class="studio-foot">
+    The same shapes the renderer composites. — <a href="/">the edit room</a> ·
+    <a href="/studio">the studio</a> · <a href="/ask">ask the Scholar</a>
+  </p>
+</main>
+
+<script src="/static/theme.js"></script>
+<script src="/static/overlay-draw.js"></script>
+<script src="/static/overlays.js"></script>
+</body>
+</html>

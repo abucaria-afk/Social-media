@@ -1,0 +1,87 @@
+/* The animation tab.
+ *
+ * Every colour is a token from theme.css. The chips are canvases rather than
+ * images because what they show is a running animation, and a still of a
+ * movement tells you nothing about the movement.
+ */
+
+.overlay-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.6rem;
+}
+
+.overlay-chip {
+  appearance: none;
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  padding: 0.6rem;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  /* 44px is the floor everywhere in this app; these are far above it, but the
+     rule is the rule and a chip that shrinks on a narrow phone must not go
+     under it. */
+  min-height: 44px;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.overlay-chip:hover { border-color: var(--ember); }
+.overlay-chip:active { transform: scale(0.985); }
+.overlay-chip.is-on {
+  border-color: var(--ember);
+  box-shadow: inset 0 0 0 1px var(--ember);
+}
+
+.overlay-chip canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  border-radius: 0.5rem;
+  /* A mid ground behind the shape, so a white graphic is legible in light
+     mode and a dark one in dark mode. The film underneath is rarely either
+     extreme, and previewing on the page background lies about both. */
+  background: linear-gradient(145deg, #2b2724, #4a423a);
+}
+
+.overlay-chip-name {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-top: 0.45rem;
+}
+
+.overlay-chip-note {
+  display: block;
+  color: var(--text-faint);
+  font-size: 0.76rem;
+  line-height: 1.35;
+  margin-top: 0.1rem;
+}
+
+.stage-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 0.8rem 0;
+}
+
+#overlay-stage {
+  width: 100%;
+  max-width: 15rem;
+  height: auto;
+  border-radius: 0.9rem;
+  border: 1px solid var(--line);
+  background: var(--ground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The animations are the subject of this page, so they are not removed —
+     but nothing here should move unasked. The chips hold their settled frame
+     and the rehearsal waits for the button. */
+  .overlay-chip { transition: none; }
+}

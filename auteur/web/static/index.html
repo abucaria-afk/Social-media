@@ -138,6 +138,20 @@
       </span>
     </a>
 
+    <a class="studio-link" href="/connect">
+      <span class="studio-link-title">Where it goes</span>
+      <span class="studio-link-note">
+        Link Instagram and TikTok · cut to the right shape · caption ready
+      </span>
+    </a>
+
+    <a class="studio-link" href="/overlays">
+      <span class="studio-link-title">Animation</span>
+      <span class="studio-link-note">
+        The shapes that go over the cut · how they arrive · how busy
+      </span>
+    </a>
+
     <a class="studio-link" href="/ask">
       <span class="studio-link-title">Ask the Scholar</span>
       <span class="studio-link-note">
@@ -146,8 +160,8 @@
     </a>
 
     <div class="settings">
-      <span class="settings-label" id="appearance-label">Appearance</span>
-      <div class="choices" id="appearance" role="radiogroup" aria-labelledby="appearance-label">
+      <span class="settings-label">Appearance</span>
+      <div class="choices appearance" role="radiogroup" aria-label="Appearance">
         <button type="button" class="choice is-on" data-value="system" role="radio" aria-checked="true">Automatic<small>match my phone</small></button>
         <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
         <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
@@ -179,6 +193,11 @@
     <h2 class="done-title">Your film is ready</h2>
     <!-- playsinline is what stops iOS from hijacking into fullscreen. -->
     <video id="player" controls playsinline preload="metadata"></video>
+    <!-- What it heard in your words, said back. A prompt whose effect you
+         cannot see is indistinguishable from a prompt that was ignored, and
+         that is exactly how it read: people typed a sentence, got a film, and
+         had no way to tell which part of the sentence did anything. -->
+    <p class="heard" id="heard" hidden></p>
     <ul class="facts" id="facts"></ul>
     <a class="go" id="save" download="film.mp4">Save to my phone</a>
     <a class="ghost" id="notes" target="_blank" rel="noopener">What it did, and why</a>

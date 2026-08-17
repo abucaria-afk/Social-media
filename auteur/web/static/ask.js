@@ -13,12 +13,22 @@
   var field = $("question");
   var send = $("send");
 
-  function say(who, text, unreachable) {
+  function say(who, text, unreachable, fromStudy) {
     var li = document.createElement("li");
-    li.className = "says " + who + (unreachable ? " unreachable" : "");
+    li.className = "says " + who + (unreachable ? " unreachable" : "")
+      + (fromStudy ? " from-study" : "");
+    if (fromStudy) {
+      // An answer somebody thought about and a reading-back of notes are
+      // different things, and only the label distinguishes them.
+      var tag = document.createElement("span");
+      tag.className = "says-tag";
+      tag.textContent = "read out of what it has studied";
+      li.appendChild(tag);
+    }
     // Blank lines become paragraphs; nothing else is interpreted.
     String(text).split(/\n\s*\n/).forEach(function (part) {
       var p = document.createElement("p");
+      p.className = "said";
       p.textContent = part.trim();
       li.appendChild(p);
     });
@@ -45,8 +55,11 @@
       .then(function (r) { return r.json(); })
       .then(function (payload) {
         waiting.remove();
+        // Notes read back are not an outage — they are the Scholar working
+        // without a model, so they are not greyed out as unreachable.
         say("scholar", payload.reply || payload.error || "It said nothing.",
-            payload.reachable === false);
+            payload.reachable === false && !payload.from_study,
+            payload.from_study === true);
         if (typeof payload.learnings === "number") {
           $("knows").textContent = payload.learnings + " learnings";
         }

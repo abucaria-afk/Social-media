@@ -302,4 +302,24 @@
   });
   // Never fatal: the studio works with no Scholar at all.
   get("/api/scholar").then(drawScholar).catch(function () {});
+
+  /* What can go over the cut, straight from the agent that places it. */
+  function drawGraphics(state) {
+    if (!state || !state.kinds) { return; }
+    var chosen = null;
+    try { chosen = JSON.parse(localStorage.getItem("auteur-overlays") || "null"); } catch (e) {}
+    var picked = chosen && chosen.kinds ? chosen.kinds.length : 0;
+    var busy = chosen && chosen.density ? chosen.density : "some";
+    $("graphics-state").textContent =
+      state.kinds.length + " shapes and " + state.moves.length + " ways to arrive"
+      + (chosen ? "  ·  you have " + picked + " on, " + busy : "  ·  nothing chosen yet");
+    var list = $("graphics-rules");
+    state.rules.forEach(function (rule) {
+      var item = document.createElement("li");
+      item.textContent = rule;
+      list.appendChild(item);
+    });
+    $("graphics-panel").hidden = false;
+  }
+  get("/api/overlays").then(drawGraphics).catch(function () {});
 })();

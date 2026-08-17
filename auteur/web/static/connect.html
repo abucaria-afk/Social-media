@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c0b0a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f1e6" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="Link Instagram and TikTok so a finished film knows where it is going.">
+<script>
+  (function () {
+    try {
+      var mode = localStorage.getItem("auteur-theme");
+      if (mode === "light" || mode === "dark") {
+        document.documentElement.setAttribute("data-theme", mode);
+      }
+    } catch (e) { /* private mode: fall through to the system setting */ }
+  })();
+</script>
+<link rel="icon" href="/icon-192.png">
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/studio.css">
+<link rel="stylesheet" href="/static/connect.css">
+<title>Auteur — where it goes</title>
+</head>
+<body>
+
+<header class="sbar">
+  <a class="sbar-back" href="/" aria-label="Back to the edit room">←</a>
+  <span class="sbar-title">Where it goes</span>
+  <span class="sbar-note" id="connect-state">checking…</span>
+</header>
+
+<main class="studio-wrap">
+
+  <section class="panel">
+    <h2 class="panel-title">Your accounts</h2>
+    <p class="panel-hint">
+      Linking one tells a finished film where it is headed, so it is cut to the
+      right shape and the caption is ready for the right place.
+    </p>
+    <ul class="links" id="links"></ul>
+  </section>
+
+  <!-- The rule the crew already works under, said where somebody is about to
+       link an account and would reasonably want to know. -->
+  <section class="panel">
+    <h2 class="panel-title">What this does not do</h2>
+    <p class="panel-hint">
+      It never posts. The agents may re-cut a film without being asked; nothing
+      here leaves your phone unless you send it. Linking an account records
+      which one is yours — it does not hand anything over.
+    </p>
+  </section>
+
+  <p class="studio-foot">
+    <a href="/">the edit room</a> · <a href="/studio">the studio</a> ·
+    <a href="/overlays">animation</a> · <a href="/ask">ask the Scholar</a>
+  </p>
+</main>
+
+<script src="/static/theme.js"></script>
+<script src="/static/connect.js"></script>
+</body>
+</html>
