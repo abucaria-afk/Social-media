@@ -17,8 +17,8 @@
 
   // `seconds: ""` means "no length given" — the prompt decides. Anything else
   // is an explicit override the person tapped.
-  var state = { jobId: null, timer: null, shape: "reel", seconds: "", videoUrl: null,
-               lastStage: "", lastPercent: -1 };
+  var state = { jobId: null, timer: null, shape: "reel", seconds: "", era: "",
+               videoUrl: null, lastStage: "", lastPercent: -1 };
 
   function show(name) {
     Object.keys(screens).forEach(function (key) {
@@ -43,6 +43,7 @@
 
   wireChoices($("shape"), function (value) { state.shape = value; });
   wireChoices($("seconds"), function (value) { state.seconds = value; });
+  wireChoices($("era"), function (value) { state.era = value; });
 
   // -- who is signed in -----------------------------------------------------
 
@@ -117,6 +118,11 @@
     form.append("prompt", prompt);
     form.append("shape", state.shape);
     form.append("seconds", state.seconds);
+    /* Sent even when empty, so the server always knows the answer rather than
+       inferring it from the prompt when the field happens to be missing. A
+       control that sets a variable nobody transmits is a control that does
+       nothing, which is worse than not offering one. */
+    form.append("era", state.era);
     for (var i = 0; i < clips.files.length; i++) {
       form.append("clips", clips.files[i], clips.files[i].name);
     }

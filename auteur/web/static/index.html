@@ -121,6 +121,27 @@
         </span>
       </div>
 
+      <div class="card scroll-reveal zoom-hover" data-delay="4">
+        <span class="step-number">4</span>
+        <span class="card-body">
+          <span class="card-title">Which decade should it look like</span>
+          <!-- Separate from the look on purpose. "Warm" is a decision about
+               colour; "1990s" is a decision about what recorded it — the tone
+               curve, the grain, the halation, the lifted blacks. A person can
+               want either, both, or neither, and folding them together would
+               make half the combinations unreachable. -->
+          <div class="choices decades" id="era" role="radiogroup" aria-label="Decade">
+            <button type="button" class="choice is-on" data-value="" role="radio" aria-checked="true">None<small>as shot</small></button>
+            <button type="button" class="choice" data-value="seventies" role="radio" aria-checked="false">70s<small>Super 8</small></button>
+            <button type="button" class="choice" data-value="eighties" role="radio" aria-checked="false">80s<small>VHS</small></button>
+            <button type="button" class="choice" data-value="nineties" role="radio" aria-checked="false">90s<small>Kodak</small></button>
+            <button type="button" class="choice" data-value="y2k" role="radio" aria-checked="false">00s<small>flash</small></button>
+            <button type="button" class="choice" data-value="tens" role="radio" aria-checked="false">10s<small>faded</small></button>
+          </div>
+          <span class="card-hint" id="era-hint">Photos get the real thing — tone curves, grain, halation. Clips get the colour but not the texture.</span>
+        </span>
+      </div>
+
       <p class="error" id="start-error" role="alert" hidden></p>
 
       <button type="submit" class="go press" id="go">Make my film</button>

@@ -230,11 +230,17 @@
   /* What it understood, in the person's own terms. Returned with the film so
    * the page can say it back — a prompt that changes nothing visible and is
    * never acknowledged is indistinguishable from a prompt that was ignored. */
-  function read(prompt, fallbackSeconds) {
+  function read(prompt, fallbackSeconds, wanted) {
     var look = lookFor(prompt);
     var cadence = cadenceFor(prompt);
     var style = global.auteurStyle.styleFor(prompt);
-    var era = global.auteurEra.eraFor(prompt);
+    /* A decade chosen on the form beats one inferred from the words. Somebody
+       who picked "80s" and then wrote "sunny afternoon" has said which one
+       they meant; reading the sentence back over the top of an explicit
+       control is the same fault as the length control that used to silently
+       beat the number typed in the prompt. */
+    var era = wanted || global.auteurEra.eraFor(prompt);
+    if (!global.auteurEra.about(era)) { era = null; }
     var lookKey = "house";
     for (var k in LOOKS) {
       if (LOOKS[k] === look) { lookKey = k; break; }
@@ -679,7 +685,7 @@
     var onProgress = options.onProgress || function () {};
 
     var W = shape[0], H = shape[1];
-    var plan = read(prompt, options.seconds || 10);
+    var plan = read(prompt, options.seconds || 10, options.era);
     var hold = plan.hold;
     var total = plan.seconds;
     /* What a *clip* gets, per frame, and it is less than a photograph gets.
@@ -960,7 +966,12 @@
               seconds: total,
               titles: plan.titles.slice(),
               style: plan.styleName,
-              styleNote: plan.styleNote
+              styleNote: plan.styleNote,
+              // Carried through to the page. It was applied and not reported,
+              // which is the same class of fault as a grade too faint to see:
+              // the film changed and nothing told the person why.
+              era: plan.era,
+              eraName: plan.eraName
             }
           });
         };

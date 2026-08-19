@@ -444,3 +444,17 @@ input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   margin-top: 0.15rem;
   line-height: 1.4;
 }
+
+
+/* The decade picker. Six options do not fit across a 390px phone in one row
+   the way three shapes do, and letting them squeeze produces six unreadable
+   slivers — so it wraps into a grid of three. */
+.choices.decades {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.choices.decades .choice {
+  flex: none;
+  min-height: 56px;
+}

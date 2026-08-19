@@ -1319,6 +1319,18 @@ class Handler(BaseHTTPRequestHandler):
         self._json(job.snapshot(), 202)
 
 
+#: What each decade is called in words, for folding a picked era back into the
+#: prompt. Keys match the values the front end sends.
+ERA_WORDS = {
+    "seventies": "1970s super 8",
+    "eighties": "1980s VHS",
+    "nineties": "1990s film",
+    "y2k": "2000s digital",
+    "tens": "2010s faded",
+    "now": "2020s clean digital",
+}
+
+
 class Server(ThreadingHTTPServer):
     """The stdlib server, minus the shouting.
 

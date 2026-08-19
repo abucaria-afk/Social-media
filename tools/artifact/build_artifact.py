@@ -145,9 +145,10 @@ DEMO = r"""
   });
   markAppearance(saved);
 
-  var state = { shape: "reel", seconds: "", clips: 0 };
+  var state = { shape: "reel", seconds: "", era: "", clips: 0 };
   wireChoices($("shape"), function (v) { state.shape = v; });
   wireChoices($("seconds"), function (v) { state.seconds = v; });
+  wireChoices($("era"), function (v) { state.era = v; });
 
   /* -- screens ------------------------------------------------------ */
   /* Three pages on one, since a published page has no routes: the edit room,
@@ -250,6 +251,7 @@ DEMO = r"""
         prompt: $("prompt").value || "",
         shape: state.shape,
         seconds: state.seconds ? parseFloat(state.seconds) : 10,
+        era: state.era || null,
         onProgress: step,
       })
       .then(function (film) {
@@ -300,6 +302,7 @@ DEMO = r"""
     var heard = "It read that as " + film.reading.cadence
       + ", graded " + film.reading.look
       + ", cut " + film.reading.style
+      + (film.reading.era ? ", shot like the " + film.reading.eraName : "")
       + ", " + Math.round(film.reading.seconds) + " seconds long.";
     if (film.reading.titles.length) {
       heard += " On screen: " + film.reading.titles.map(function (t) {
