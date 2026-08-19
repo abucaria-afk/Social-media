@@ -36,3 +36,8 @@ dist/
 # Performance exports: your account's data, not the project's.
 auteur-exports/
 auteur-practice-data.csv
+
+# The published page, assembled by tools/artifact/build_artifact.py from the
+# app's own markup plus the browser renderer. Generated, 190KB, and changes on
+# every build — the sources are what is worth reviewing.
+tools/artifact/auteur-app.html

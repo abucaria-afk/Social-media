@@ -271,14 +271,35 @@ DEMO = r"""
     $("cancel").onclick = function () { show("screen-start"); };
   }
 
+  /* How a transition reads in a sentence. The tally counts by internal name
+     because that is what the code uses; a person should be told what the film
+     did, not which identifier it used. */
+  var JOIN_WORDS = {
+    cut: "straight cuts",
+    portal: "portals opened on the subject",
+    carry: "subjects carried across",
+    whip: "whip pans",
+    push: "pushes",
+    luma: "dissolves through the light",
+    slice: "sliced joins",
+    flash: "flash frames",
+    match: "matched framings"
+  };
+
   function finish(film) {
     show("screen-done");
+
+    /* What the edit is made of, left on the window so a check can read it.
+       The alternative is parsing it back out of the sentence below, which
+       means the check passes or fails on the wording. */
+    window.auteurLastEdit = film.edit;
 
     /* Say back what it heard. Everything below changed because of the words
        you typed, so if none of it matches what you meant, the mismatch is
        visible instead of silent. */
     var heard = "It read that as " + film.reading.cadence
       + ", graded " + film.reading.look
+      + ", cut " + film.reading.style
       + ", " + Math.round(film.reading.seconds) + " seconds long.";
     if (film.reading.titles.length) {
       heard += " On screen: " + film.reading.titles.map(function (t) {
@@ -291,12 +312,28 @@ DEMO = r"""
     heard += " Built in " + film.movements + " movements, opening on the frame with"
       + " the most in it and tightening as it goes";
     heard += film.loops ? ", and it ends back on that frame so it loops." : ".";
+
+    /* The joins it made, in the order it made most of them. This is the part
+       that was invisible: the film had one transition — a hard cut — on every
+       join of every edit, and nothing anywhere said so, so "it made no edits"
+       was both what it looked like and impossible to check. */
+    var joins = Object.keys(film.edit.transitions).sort(function (a, b) {
+      return film.edit.transitions[b] - film.edit.transitions[a];
+    });
+    if (joins.length > 1) {
+      heard += " The joins: " + joins.slice(0, 4).map(function (kind) {
+        return film.edit.transitions[kind] + " " + (JOIN_WORDS[kind] || kind);
+      }).join(", ") + ".";
+    }
     $("heard").textContent = heard;
     $("heard").hidden = false;
 
     var facts = [
       film.seconds.toFixed(1) + " seconds",
       film.shots + " shots, a median " + film.shot_seconds.toFixed(2) + "s each",
+      film.edit.kinds + " kinds of join, " + film.edit.carrying
+        + " carrying the last picture over",
+      film.edit.moves + " camera moves, " + film.edit.held + " shots held still",
       { reel: "vertical, for phones", square: "square", wide: "widescreen" }[state.shape],
       Math.max(1, Math.round(film.bytes / 1048576)) + " MB",
     ];
@@ -492,6 +529,17 @@ body { background: var(--ground); }
 """
 
 RENDERER = (HERE / "browser-render.js").read_text(encoding="utf-8")
+# What a cut is made of, and which of those moves this film makes. Two files
+# rather than one because they answer different questions: `cutting.js` knows
+# what a portal is, `style.js` decides whether this film uses one. Both have to
+# be defined before the renderer runs — it calls into them while building the
+# shot list, not just while painting.
+VOCABULARY = (HERE / "cutting.js").read_text(encoding="utf-8")
+# The grading engine. Real tone curves, split toning, halation and grain, run
+# once per photograph — the base looks go through it too, because as CSS
+# filter strings two of them moved the picture by less than the eye can see.
+GRADING = (HERE / "era.js").read_text(encoding="utf-8")
+TASTE = (HERE / "style.js").read_text(encoding="utf-8")
 # The graphics vocabulary. Shipped in the app and read by two callers — the
 # animation tab draws its previews with it and the renderer draws the film with
 # it — so the published page needs it before either of them runs.
@@ -513,6 +561,15 @@ page = f"""<title>Auteur Edit Room</title>
 </div>
 <script>
 {SHAPES}
+</script>
+<script>
+{GRADING}
+</script>
+<script>
+{VOCABULARY}
+</script>
+<script>
+{TASTE}
 </script>
 <script>
 {RENDERER}
