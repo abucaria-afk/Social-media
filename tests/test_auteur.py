@@ -49,7 +49,9 @@ from auteur.edl import (
     TextCue,
     Transition,
 )
+from auteur.agents import GazeAgent
 from auteur.ingest import ingest, probe_asset
+from auteur.insight import FitReport, Prediction
 
 # ---------------------------------------------------------------------------
 # Fixtures — synthesised, so the suite carries no media
@@ -197,6 +199,142 @@ def test_dossier_finds_usable_takes(rushes):
 
 def _shot(clip="C01", start=0.0, end=2.0, **kwargs) -> Shot:
     return Shot(clip_id=clip, source=Path("/dev/null"), start=start, end=end, **kwargs)
+
+
+def _monotone_edl(count: int = 12) -> EditDecisionList:
+    """A timeline that has stopped making decisions.
+
+    Every shot the same length, the same move and the same join — which is
+    precisely what the browser renderer produced before it had a transition
+    vocabulary, and precisely what the Gaze agent used to score as flawless.
+    """
+    return EditDecisionList(
+        shots=[
+            _shot(
+                clip=f"C{i:02d}",
+                end=1.0,
+                motion=Motion(kind="ken-burns", intensity=0.35),
+                transition_in=Transition("cut", 0.0),
+            )
+            for i in range(count)
+        ]
+    )
+
+
+def _gaze_notes(edl: EditDecisionList) -> list[str]:
+    return [
+        p.title
+        for p in GazeAgent().inspect(
+            edl,
+            Prediction(hook=0.5, share=0.5, loop=0.5),
+            FitReport(rows=0, simulated_rows=0, measured_rows=0),
+        )
+    ]
+
+
+def test_the_gaze_agent_calls_out_a_film_that_only_made_one_decision():
+    """The failure it was built unable to see.
+
+    Its five original proposals all reduced variance, so a film where every
+    shot is graded, framed and moved identically was its perfect score — the
+    agent responsible for taste was the one enforcing the monotony.
+    """
+    notes = _gaze_notes(_monotone_edl())
+    assert "Give the cut more than one kind of join" in notes
+    assert "Stop every shot moving the same way" in notes
+    assert "Let the rhythm breathe" in notes
+
+
+def test_the_gaze_agent_does_not_flatten_a_film_that_is_already_flat():
+    """Homogenising a collapsed timeline is the exact wrong move.
+
+    The grades here are deliberately far enough apart that the old
+    thresholds — 0.25 exposure, 0.30 temperature, 0.35 contrast — would every
+    one of them have fired. The cut is still one join, one move and one shot
+    length, so pulling the colour spread in as well would take away the last
+    thing distinguishing one shot from the next. That is how an agent makes
+    the fault it was asked to fix worse.
+    """
+    edl = _monotone_edl(12)
+    for i, shot in enumerate(edl.shots):
+        swing = 0.9 if i % 2 else -0.9
+        shot.look = Look(exposure=swing, temperature=swing, contrast=swing * 0.5)
+    notes = _gaze_notes(edl)
+    for reducing in (
+        "Match exposure across the cut",
+        "Unify colour temperature",
+        "Even out the contrast across shots",
+    ):
+        assert reducing not in notes
+    # It still says the real thing about the same timeline.
+    assert "Give the cut more than one kind of join" in notes
+
+
+def test_the_gaze_agent_still_matches_exposure_on_a_cut_that_is_otherwise_varied():
+    """The homogenisers are gated, not deleted.
+
+    Mixed daylight and tungsten across a real edit is still a fault, and
+    suppressing the proposal everywhere would trade one blindness for
+    another.
+    """
+    joins = ["cut", "dissolve", "whip-left", "cut", "glitch", "cut", "light-leak", "cut"]
+    moves = ["none", "punch-in", "none", "drift-left", "none", "pull-out", "float", "none"]
+    lengths = [0.4, 0.4, 1.1, 0.3, 0.8, 0.5, 1.4, 0.6]
+    edl = EditDecisionList(
+        shots=[
+            _shot(
+                clip=f"C{i:02d}",
+                end=lengths[i],
+                look=Look(exposure=0.9 if i % 2 else -0.9),
+                motion=Motion(kind=moves[i], intensity=0.3),
+                transition_in=Transition(joins[i], 0.0 if joins[i] == "cut" else 0.25),
+            )
+            for i in range(len(joins))
+        ]
+    )
+    assert "Match exposure across the cut" in _gaze_notes(edl)
+
+
+def test_the_gaze_agent_leaves_a_varied_cut_alone():
+    """Variety is not a fault. It must not propose evening out a real edit."""
+    joins = ["cut", "dissolve", "whip-left", "cut", "glitch", "cut", "light-leak"]
+    moves = ["none", "punch-in", "none", "drift-left", "none", "pull-out", "float"]
+    lengths = [0.4, 0.4, 1.1, 0.3, 0.8, 0.5, 1.4]
+    edl = EditDecisionList(
+        shots=[
+            _shot(
+                clip=f"C{i:02d}",
+                end=lengths[i],
+                motion=Motion(kind=moves[i], intensity=0.3),
+                transition_in=Transition(joins[i], 0.0 if joins[i] == "cut" else 0.25),
+            )
+            for i in range(len(joins))
+        ]
+    )
+    notes = _gaze_notes(edl)
+    assert "Give the cut more than one kind of join" not in notes
+    assert "Stop every shot moving the same way" not in notes
+    assert "Let the rhythm breathe" not in notes
+
+
+def test_varying_the_joins_leaves_most_of_them_hard_cuts():
+    """A reel that transitions every join is mush.
+
+    The proposal exists to break a run, not to decorate every edit — the
+    measured reference reels hard-cut the large majority of theirs, and what
+    makes them read as rich is that the remainder is varied.
+    """
+    edl = _monotone_edl(20)
+    proposals = GazeAgent().inspect(
+        edl,
+        Prediction(hook=0.5, share=0.5, loop=0.5),
+        FitReport(rows=0, simulated_rows=0, measured_rows=0),
+    )
+    change = next(p for p in proposals if p.title.startswith("Give the cut"))
+    change.change(edl)
+    joins = [shot.transition_in.kind for shot in edl.shots[1:]]
+    assert joins.count("cut") > len(joins) * 0.6
+    assert len(set(joins)) >= 3
 
 
 def test_screen_time_follows_speed():

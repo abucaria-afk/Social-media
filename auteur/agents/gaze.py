@@ -10,10 +10,23 @@ numbers already measured (luma, contrast, sharpness, edges, subject position,
 colour, motion) but reads them the way a curator reads a gallery wall — as
 *relationships* between shots, not as absolute values.
 
-Its objective is visual coherence: how consistently the film's frames read as
-a single authored piece rather than a shuffled stack of footage. It proposes
-changes that improve composition flow, colour continuity, exposure matching,
-and focal weight — the things a gallerist would notice before a viewer does.
+Its objective is visual coherence — but coherence is not sameness, and the
+first version of this agent could not tell the difference.
+
+Every one of its five proposals reduced variance: match the exposure, unify
+the temperature, even out the contrast, pull every anchor to a power point,
+soften a hard cut. A film in which every shot is graded identically, framed
+identically and moves identically was therefore its *perfect score*. The
+agent whose entire job is taste was the one enforcing the monotony, and it
+could not have reported the problem because the problem was its objective
+function.
+
+So it now measures both directions. A wall of clashing exposures is
+incoherent; so is a wall of forty identical frames, and a curator would walk
+past the second one faster. The homogenisers below fire only when the spread
+is genuinely broken, and a separate set of proposals fires when the timeline
+has collapsed into one repeated decision — which is the far commoner failure
+for a program, because sameness is what a program does by default.
 """
 
 from __future__ import annotations
@@ -68,6 +81,44 @@ def _focal_weight(edl: EditDecisionList, readings=None) -> list[float]:
     return weights
 
 
+def _variety(values: list) -> float:
+    """How spread out a set of choices is, 0 (all identical) to 1 (all different).
+
+    Deliberately not entropy. What matters here is not how evenly the choices
+    are distributed but how much of the timeline is one repeated decision, and
+    the honest statement of that is "how many distinct choices, against how
+    many chances there were to make one".
+    """
+    if not values:
+        return 0.0
+    if len(values) == 1:
+        return 0.0
+    return (len(set(values)) - 1) / (len(values) - 1)
+
+
+def _longest_run(values: list) -> int:
+    """The longest stretch of the same choice repeated back to back."""
+    longest = run = 1
+    for i in range(1, len(values)):
+        run = run + 1 if values[i] == values[i - 1] else 1
+        longest = max(longest, run)
+    return longest
+
+
+def _metronome(edl: EditDecisionList) -> float:
+    """How close the cut is to a fixed interval, 0 (varied) to 1 (a metronome).
+
+    A reel wants a *median* shot length, not a constant one. Every shot the
+    same length is the difference between a rhythm and a click track, and it
+    is audible to a viewer who could not tell you why.
+    """
+    lengths = [round(shot.duration, 3) for shot in edl.shots]
+    if len(lengths) < 3:
+        return 0.0
+    commonest = max(lengths.count(value) for value in set(lengths))
+    return commonest / len(lengths)
+
+
 class GazeAgent:
     """Owns visual coherence — the curator's eye across the whole cut.
 
@@ -95,9 +146,145 @@ class GazeAgent:
 
         proposals: list[Proposal] = []
 
+        # What the timeline actually consists of. Read once, because half the
+        # judgements below depend on whether this cut is too varied or not
+        # varied enough, and answering that question twice is how an agent
+        # ends up proposing both at once.
+        joins = [shot.transition_in.kind for shot in edl.shots[1:]]
+        moves = [shot.motion.kind for shot in edl.shots]
+        join_variety = _variety(joins)
+        move_variety = _variety(moves)
+        # A timeline is "collapsed" when it has stopped making decisions: one
+        # join, one move, one shot length. Every homogenising proposal below
+        # is suppressed in that state — pulling the spread in further is the
+        # exact wrong move, and it is what this agent used to do.
+        collapsed = (
+            (join_variety < 0.12 or not joins) and move_variety < 0.12 and _metronome(edl) > 0.7
+        )
+
+        # --- 0. Monotony -------------------------------------------------
+        #  The failure this agent was blind to, and the commoner one: a film
+        #  that is perfectly consistent because it only ever made one choice.
+
+        if len(joins) >= 6 and join_variety < 0.18:
+            worst = max(set(joins), key=joins.count)
+
+            def vary_joins(target: EditDecisionList, repeated: str = worst) -> None:
+                """Give a fifth of the joins somewhere else to be.
+
+                Every fifth one, not a random selection: a loud transition
+                wants to land on a beat, and scattering them evenly is a
+                closer approximation to that than scattering them randomly.
+                Deliberately not *all* of them — most cuts in a good reel are
+                hard cuts, and a film that transitions every join is mush.
+                """
+                relief = ["whip-left", "light-leak", "glitch", "zoom-blur", "dissolve"]
+                picked = 0
+                for i, shot in enumerate(target.shots[1:], 1):
+                    if shot.transition_in.kind != repeated or i % 5:
+                        continue
+                    kind = relief[picked % len(relief)]
+                    shot.transition_in = Transition(
+                        kind=kind, duration=0.0 if kind == "cut" else 0.22
+                    )
+                    picked += 1
+
+            proposals.append(
+                Proposal(
+                    agent=self.name,
+                    title="Give the cut more than one kind of join",
+                    reason=(
+                        f"{joins.count(worst)} of {len(joins)} joins are "
+                        f"'{worst}', and the longest unbroken run is "
+                        f"{_longest_run(joins)}. One join repeated is not a style, "
+                        "it is the absence of a decision — the viewer stops reading "
+                        "the edit and starts waiting it out."
+                    ),
+                    change=vary_joins,
+                    objective=self.objective,
+                    risk=Risk.MEDIUM,
+                )
+            )
+
+        if len(moves) >= 6 and move_variety < 0.18:
+            worst_move = max(set(moves), key=moves.count)
+
+            def vary_moves(target: EditDecisionList, repeated: str = worst_move) -> None:
+                """Break the uniform move, and let some shots hold still.
+
+                `none` is first in the rotation and it matters most. A film
+                where every frame drifts has no cuts in it, only dissolves
+                between wobbles — the measured reference reels hold nearly
+                dead still and put their energy in the join.
+                """
+                relief = ["none", "punch-in", "none", "pull-out", "drift-left"]
+                picked = 0
+                for i, shot in enumerate(target.shots):
+                    if shot.motion.kind != repeated or i % 3:
+                        continue
+                    shot.motion = Motion(
+                        kind=relief[picked % len(relief)],
+                        intensity=shot.motion.intensity,
+                        anchor=shot.motion.anchor,
+                    )
+                    picked += 1
+
+            proposals.append(
+                Proposal(
+                    agent=self.name,
+                    title="Stop every shot moving the same way",
+                    reason=(
+                        f"{moves.count(worst_move)} of {len(moves)} shots use "
+                        f"'{worst_move}'. Constant low-grade movement on every frame "
+                        "reads as a slideshow with a wobble on it, and it costs every "
+                        "cut its edge — a cut only lands against something still."
+                    ),
+                    change=vary_moves,
+                    objective=self.objective,
+                    risk=Risk.MEDIUM,
+                )
+            )
+
+        beat = _metronome(edl)
+        if len(edl.shots) >= 8 and beat > 0.75:
+
+            def breathe(target: EditDecisionList) -> None:
+                """Three on the beat and one held, rather than a click track.
+
+                The median stays where it was, so the cadence the director
+                asked for survives; what changes is that it is now a median
+                rather than a constant.
+                """
+                for i, shot in enumerate(target.shots):
+                    if i % 4 == 3:
+                        shot.duration = round(shot.duration * 1.6, 3)
+                    elif i % 4 == 1:
+                        shot.duration = round(max(0.1, shot.duration * 0.7), 3)
+
+            proposals.append(
+                Proposal(
+                    agent=self.name,
+                    title="Let the rhythm breathe",
+                    reason=(
+                        f"{beat:.0%} of the shots are exactly the same length. That is "
+                        "a click track, not a cadence — a reel wants a median shot "
+                        "length with accents and rests around it, which is what the "
+                        "reference reels measure as."
+                    ),
+                    change=breathe,
+                    objective=self.objective,
+                    risk=Risk.MEDIUM,
+                )
+            )
+
         # --- 1. Exposure matching ----------------------------------------
+        #  Everything from here down pulls the spread *in*, so it is gated on
+        #  the timeline not having already collapsed, and on the drift being
+        #  bad enough to be a fault rather than merely present. The old
+        #  threshold of 0.25 fired on almost every real film — footage shot on
+        #  a phone across an afternoon drifts more than that by lunchtime.
         drift = _exposure_balance(edl)
-        if drift > 0.25:
+        if drift > 0.55 and not collapsed:
             target_exposure = sum(s.look.exposure for s in edl.shots) / len(edl.shots)
 
             def match_exposure(target: EditDecisionList, mid: float = target_exposure) -> None:
@@ -121,7 +308,7 @@ class GazeAgent:
 
         # --- 2. Colour temperature continuity ----------------------------
         temp_drift = _palette_drift(edl)
-        if temp_drift > 0.30:
+        if temp_drift > 0.60 and not collapsed:
             target_temp = sum(s.look.temperature for s in edl.shots) / len(edl.shots)
 
             def unify_temperature(target: EditDecisionList, mid: float = target_temp) -> None:
@@ -146,7 +333,7 @@ class GazeAgent:
         # --- 3. Focal anchor — lead the eye, do not scatter it -----------
         weights = _focal_weight(edl, self.readings)
         weak = [i for i, w in enumerate(weights) if w < 0.35]
-        if len(weak) > len(edl.shots) * 0.4:
+        if len(weak) > len(edl.shots) * 0.6 and not collapsed:
 
             def anchor_focus(target: EditDecisionList) -> None:
                 for _i, shot in enumerate(target.shots):
@@ -187,7 +374,7 @@ class GazeAgent:
         # --- 4. Contrast coherence — the tonal voice of the piece --------
         contrasts = [shot.look.contrast for shot in edl.shots]
         contrast_range = max(contrasts) - min(contrasts)
-        if contrast_range > 0.35:
+        if contrast_range > 0.70 and not collapsed:
             target_contrast = sum(contrasts) / len(contrasts)
 
             def match_contrast(target: EditDecisionList, mid: float = target_contrast) -> None:
