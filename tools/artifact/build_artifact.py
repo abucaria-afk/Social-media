@@ -42,6 +42,7 @@ def strip_scripts(html):
 home = strip_scripts(body_of(read("index.html")))
 studio = strip_scripts(body_of(read("studio.html")))
 animation = strip_scripts(body_of(read("overlays.html")))
+templates = strip_scripts(body_of(read("templates.html")))
 # The invariant the regex is standing in for, stated where it can fail loudly.
 # The published page loads `browser-render.js` and its own wiring; a script
 # that survived from the app would be a second copy racing the first.
@@ -49,6 +50,7 @@ for name, markup in (
     ("index.html", home),
     ("studio.html", studio),
     ("overlays.html", animation),
+    ("templates.html", templates),
 ):
     if re.search(r"<script", markup, re.I):
         raise SystemExit(f"{name}: a <script> survived stripping — check the markup")
@@ -64,6 +66,7 @@ for name, markup in (
     ("index.html", home),
     ("studio.html", studio),
     ("overlays.html", animation),
+    ("templates.html", templates),
 ):
     for found in re.findall(r'\bid="([^"]+)"', markup):
         if found in _seen:
@@ -79,6 +82,19 @@ animation = animation.replace('href="/studio"', 'href="#" data-goto="studio"')
 animation = animation.replace('href="/ask"', 'href="#" data-goto="home"')
 home = home.replace('href="/studio"', 'href="#" data-goto="studio"')
 home = home.replace('href="/overlays"', 'href="#" data-goto="animation"')
+home = home.replace('href="/templates"', 'href="#" data-goto="templates"')
+templates = templates.replace('href="/"', 'href="#" data-goto="home"')
+templates = templates.replace('href="/studio"', 'href="#" data-goto="studio"')
+# Uploading a reel needs the measurement only the Python side makes, so the
+# published page cannot offer it. Stripped rather than left to fail: a page
+# that shows a file picker which cannot work is worse than one that does not
+# mention the feature.
+templates = re.sub(
+    r'<section class="panel">\s*<h2 class="panel-title">Add a reel of your own</h2>.*?</section>',
+    "",
+    templates,
+    flags=re.S,
+)
 # The save link and the production notes both need files the renderer writes.
 # Stripped from the markup rather than removed at runtime, so the published
 # page never contains a download link that cannot work.
@@ -91,7 +107,15 @@ home = re.sub(r'<a class="ghost" id="notes".*?</a>\s*', "", home, flags=re.S)
 
 
 css = "\n".join(
-    read(n) for n in ("theme.css", "style.css", "animations.css", "studio.css", "overlays.css")
+    read(n)
+    for n in (
+        "theme.css",
+        "style.css",
+        "animations.css",
+        "studio.css",
+        "overlays.css",
+        "templates.css",
+    )
 )
 
 DEMO = r"""
@@ -150,34 +174,97 @@ DEMO = r"""
   wireChoices($("seconds"), function (v) { state.seconds = v; });
   wireChoices($("era"), function (v) { state.era = v; });
 
-  /* The template chips, built from whatever templates shipped rather than
-     written into the markup — static markup would go stale the moment a reel
-     is added or dropped, and it would offer a choice that does nothing. */
+  /* The templates, on their own screen.
+     Nineteen chips on the first screen was a wall you had to scroll past to
+     reach the button that makes the film, and every chip said roughly the same
+     thing. Given a page, each one can show the shape of its cutting — which is
+     the only part a person can actually judge at a glance, because two reels
+     with the same median hold can be completely different edits. */
   (function () {
     var all = window.auteurTemplates || [];
-    var host = $("template");
-    if (!host || !all.length) { return; }
-    var chips = [{ id: "", label: "Its own", note: "let it decide" }].concat(all);
-    host.innerHTML = "";
-    chips.forEach(function (entry, n) {
-      var button = document.createElement("button");
-      button.type = "button";
-      button.className = "choice" + (n === 0 ? " is-on" : "");
-      button.dataset.value = entry.id;
-      button.setAttribute("role", "radio");
-      button.setAttribute("aria-checked", n === 0 ? "true" : "false");
-      button.innerHTML = entry.label + "<small>"
-        + (n === 0 ? entry.note : entry.shots + " shots") + "</small>";
-      host.appendChild(button);
-    });
-    $("template-card").hidden = false;
-    wireChoices(host, function (v) { state.template = v; });
+    var host = $("templates");
+    if (!host) { return; }
+
+    function drawShape(canvas, beats) {
+      var width = canvas.clientWidth || 300;
+      var scale = window.devicePixelRatio || 1;
+      canvas.width = Math.round(width * scale);
+      canvas.height = Math.round(22 * scale);
+      var g = canvas.getContext("2d");
+      g.scale(scale, scale);
+      var total = 0, i;
+      for (i = 0; i < beats.length; i++) { total += beats[i][0]; }
+      if (total <= 0) { return; }
+      var accent = (getComputedStyle(canvas).getPropertyValue("--ember") || "#e9a85c").trim();
+      var at = 0;
+      for (i = 0; i < beats.length; i++) {
+        var x = (at / total) * width;
+        var share = Math.min(1, beats[i][0] / (total / beats.length) / 3);
+        var high = 6 + share * 14;
+        g.fillStyle = accent;
+        g.globalAlpha = 0.45 + share * 0.55;
+        g.fillRect(x, 22 - high, Math.max(1, width / Math.max(beats.length, 1) * 0.34), high);
+        at += beats[i][0];
+      }
+    }
+
+    function paint() {
+      host.innerHTML = "";
+      var rows = [{ id: "", label: "Its own", note: "let the film decide its own timing",
+                    hold: 0, beats: [] }].concat(all);
+      rows.forEach(function (entry) {
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "template" + (entry.id === state.template ? " is-on" : "");
+        button.dataset.value = entry.id;
+
+        var name = document.createElement("span");
+        name.className = "template-name";
+        name.textContent = entry.label;
+        button.appendChild(name);
+
+        var hold = document.createElement("span");
+        hold.className = "template-hold";
+        hold.textContent = entry.hold ? entry.hold.toFixed(2) + "s" : "\u2014";
+        button.appendChild(hold);
+
+        var note = document.createElement("span");
+        note.className = "template-note";
+        note.textContent = entry.note || "";
+        button.appendChild(note);
+
+        if (entry.beats && entry.beats.length) {
+          var shape = document.createElement("canvas");
+          shape.className = "template-shape";
+          button.appendChild(shape);
+          setTimeout(function () { drawShape(shape, entry.beats); }, 0);
+        }
+
+        button.addEventListener("click", function () {
+          state.template = entry.id;
+          Array.prototype.forEach.call(host.querySelectorAll(".template"), function (other) {
+            other.classList.toggle("is-on", other === button);
+          });
+          var link = $("template-link-note");
+          if (link) {
+            link.textContent = entry.id
+              ? "Cutting to " + entry.label + " \u00b7 " + entry.note
+              : "Cut your pictures to a real reel's timing";
+          }
+        });
+        host.appendChild(button);
+      });
+      var count = $("template-state");
+      if (count) { count.textContent = all.length + " reels"; }
+    }
+    paint();
   })();
 
   /* -- screens ------------------------------------------------------ */
-  /* Three pages on one, since a published page has no routes: the edit room,
-     the studio and the animation tab. */
-  var PAGES = { studio: "studio-page", animation: "animation-page" };
+  /* Four pages on one, since a published page has no routes: the edit room,
+     the studio, the animation tab and the templates. */
+  var PAGES = { studio: "studio-page", animation: "animation-page",
+                templates: "templates-page" };
   var screens = ["screen-start", "screen-working", "screen-done", "screen-error"];
   function goto(to) {
     Object.keys(PAGES).forEach(function (name) {
@@ -501,7 +588,7 @@ DEMO = r"""
 
 #: Bumped on every publish and shown in the banner, so a screenshot of the
 #: page is enough to know which build it is. VERSIONS.md says what each was.
-VERSION = "v6 — real cuts, real grades, 18 reel templates"
+VERSION = "v7 — a templates tab, 23 reels"
 
 BANNER = f"""
 <div class="demo-note" role="note">
@@ -553,8 +640,9 @@ body { background: var(--ground); }
 }
 /* `display: block` on its own beats [hidden]'s display:none, which put the
    studio underneath every other screen. */
-#studio-page, #animation-page { display: block; }
-#studio-page[hidden], #animation-page[hidden], [hidden] { display: none !important; }
+#studio-page, #animation-page, #templates-page { display: block; }
+#studio-page[hidden], #animation-page[hidden], #templates-page[hidden],
+[hidden] { display: none !important; }
 """
 
 RENDERER = (HERE / "browser-render.js").read_text(encoding="utf-8")
@@ -590,6 +678,9 @@ page = f"""<title>Auteur Edit Room</title>
 </div>
 <div id="animation-page" hidden>
 {animation}
+</div>
+<div id="templates-page" hidden>
+{templates}
 </div>
 <script>
 {SHAPES}

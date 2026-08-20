@@ -45,40 +45,30 @@
   wireChoices($("seconds"), function (value) { state.seconds = value; });
   wireChoices($("era"), function (value) { state.era = value; });
 
-  /* The reference reels, as timelines to cut to.
+  /* The template lives on its own tab now.
    *
-   * Built from what the server has rather than written into the markup: a
-   * static list goes stale the moment a reel is added or dropped, and it
-   * would offer a choice that does nothing. The card stays hidden when there
-   * are none, which is the honest state for an install with no reels read.
-   */
-  fetch("/api/templates", { credentials: "same-origin" })
-    .then(function (r) { return r.json(); })
-    .then(function (said) {
-      var all = (said && said.templates) || [];
-      var host = $("template");
-      var card = $("template-card");
-      if (!host || !card || !all.length) { return; }
-      var chips = [{ id: "", label: "Its own", note: "let it decide" }].concat(all);
-      host.innerHTML = "";
-      chips.forEach(function (entry, n) {
-        var button = document.createElement("button");
-        button.type = "button";
-        button.className = "choice" + (n === 0 ? " is-on" : "");
-        button.dataset.value = entry.id;
-        button.setAttribute("role", "radio");
-        button.setAttribute("aria-checked", n === 0 ? "true" : "false");
-        button.innerHTML = "";
-        button.appendChild(document.createTextNode(entry.label));
-        var note = document.createElement("small");
-        note.textContent = entry.note;
-        button.appendChild(note);
-        host.appendChild(button);
-      });
-      card.hidden = false;
-      wireChoices(host, function (value) { state.template = value; });
-    })
-    .catch(function () { /* offline: the film still gets made */ });
+   * Nineteen chips on this screen was a wall you had to scroll past to reach
+   * the button that makes the film, and every chip said roughly the same
+   * thing. The tab writes the choice to `auteur-template`; this reads it, the
+   * same one-setting-two-readers arrangement the animation tab uses. */
+  try { state.template = localStorage.getItem("auteur-template") || ""; } catch (e) {}
+
+  (function () {
+    var note = $("template-link-note");
+    if (!note || !state.template) { return; }
+    fetch("/api/templates", { credentials: "same-origin" })
+      .then(function (r) { return r.json(); })
+      .then(function (said) {
+        var all = (said && said.templates) || [];
+        for (var i = 0; i < all.length; i++) {
+          if (all[i].id === state.template) {
+            note.textContent = "Cutting to " + all[i].label + " · " + all[i].note;
+            return;
+          }
+        }
+      })
+      .catch(function () { /* the link still works */ });
+  })();
 
   // -- who is signed in -----------------------------------------------------
 

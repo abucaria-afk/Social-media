@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c0b0a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f1e6" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="Reels read shot by shot, so your pictures can be cut to their timing.">
+<script>
+  (function () {
+    try {
+      var mode = localStorage.getItem("auteur-theme");
+      if (mode === "light" || mode === "dark") {
+        document.documentElement.setAttribute("data-theme", mode);
+      }
+    } catch (e) { /* private mode: fall through to the system setting */ }
+  })();
+</script>
+<link rel="icon" href="/icon-192.png">
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/studio.css">
+<link rel="stylesheet" href="/static/templates.css">
+<title>Auteur — templates</title>
+</head>
+<body>
+
+<header class="sbar">
+  <a class="sbar-back" href="/" aria-label="Back to the edit room">←</a>
+  <span class="sbar-title">Templates</span>
+  <span class="sbar-note" id="template-state">reading…</span>
+</header>
+
+<main class="studio-wrap">
+
+  <section class="panel">
+    <h2 class="panel-title">Cut it like one of these</h2>
+    <p class="panel-hint">
+      Each of these is a real reel, read shot by shot: where every cut falls
+      across its whole runtime, and how bright and saturated it was at each
+      one. Choosing one cuts <em>your</em> pictures to <em>its</em> timing —
+      not to an average of its speed. None of the footage is here; a template
+      is a list of numbers.
+    </p>
+    <div class="template-list" id="templates"></div>
+  </section>
+
+  <!-- Adding your own. Deliberately below the list rather than above it: the
+       shipped templates are what most people will use, and a file picker at
+       the top of a page reads as the thing you are meant to do first. -->
+  <section class="panel">
+    <h2 class="panel-title">Add a reel of your own</h2>
+    <p class="panel-hint">
+      Hand it a reel and it will watch it and write down the timing. The reel
+      itself is measured and then deleted — what is kept is the list of cut
+      positions, which is what you cut to. It needs a few seconds of footage
+      and at least eight cuts in it to be worth copying.
+    </p>
+    <label class="card picker block" for="reel">
+      <span class="card-body">
+        <span class="card-title">Choose a reel</span>
+        <span class="card-hint" id="reel-hint">An mp4 or a mov, straight from your camera roll.</span>
+        <span class="card-action" id="reel-action" aria-hidden="true">Choose a reel</span>
+      </span>
+      <input type="file" id="reel" name="reel" accept="video/*">
+    </label>
+    <p class="notice" id="reel-said" hidden></p>
+  </section>
+
+  <div class="settings">
+    <span class="settings-label">Appearance</span>
+    <div class="choices appearance" role="radiogroup" aria-label="Appearance">
+      <button type="button" class="choice is-on" data-value="system" role="radio" aria-checked="true">Automatic<small>match my phone</small></button>
+      <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
+      <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
+    </div>
+  </div>
+
+  <p class="studio-foot">
+    Your choice is remembered for the next film. — <a href="/">the edit room</a> · <a href="/studio">the studio</a>
+  </p>
+
+</main>
+
+<script src="/static/theme.js"></script>
+<script src="/static/templates.js"></script>
+</body>
+</html>

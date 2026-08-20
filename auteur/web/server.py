@@ -19,6 +19,7 @@ import logging
 import mimetypes
 import os
 import shutil
+import tempfile
 import socket
 import sys
 import threading
@@ -885,6 +886,9 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/studio", "/studio.html"):
             self._static(STATIC / "studio.html", "text/html; charset=utf-8")
             return
+        if path in ("/templates", "/templates.html"):
+            self._static(STATIC / "templates.html", "text/html; charset=utf-8")
+            return
         if path == "/api/platforms":
             self._json({"platforms": self._platforms()})
             return
@@ -902,7 +906,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(self._overlay_rules())
             return
         if path == "/api/templates":
-            self._json({"templates": _templates()})
+            self._json({"templates": _templates() + self._my_templates()})
             return
         if path == "/api/connections":
             self._json(self._connection_state())
@@ -1283,11 +1287,120 @@ class Handler(BaseHTTPRequestHandler):
             }
         )
 
+    def _read_upload(self) -> tuple[list[tuple[str, bytes]], dict[str, str]]:
+        """The posted multipart body, as (files, fields).
+
+        Read in blocks: a phone posting a minute of 4K over wifi is a long,
+        interruptible transfer, and one giant read() hides that it stalled.
+        Raises on anything malformed; every caller turns that into a 400.
+        """
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0:
+            raise ValueError("nothing was sent")
+        if length > MAX_UPLOAD:
+            raise MemoryError("larger than MAX_UPLOAD")
+        chunks: list[bytes] = []
+        remaining = length
+        while remaining > 0:
+            block = self.rfile.read(min(CHUNK, remaining))
+            if not block:
+                raise ValueError("the upload stopped part way")
+            chunks.append(block)
+            remaining -= len(block)
+        fields, files = _parse_multipart(b"".join(chunks), self.headers.get("Content-Type", ""))
+        return files, fields
+
+    # ------------------------------------------------------------ templates
+
+    def _my_templates(self) -> list[dict]:
+        """The reels this person has added, newest first."""
+        who = self.current_user() or ""
+        if not who:
+            return []
+        store = self.studio.workspace / "templates" / f"{_safe_name(who)}.json"
+        if not store.exists():
+            return []
+        try:
+            mine = json.loads(store.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001 - a corrupt file is not a crash
+            log.warning("could not read %s's templates: %s", _for_log(who), exc)
+            return []
+        for entry in mine:
+            entry["mine"] = True
+        return list(reversed(mine))
+
+    def _read_a_reel(self) -> None:
+        """Watch an uploaded reel, write down its timing, and throw the reel away.
+
+        The footage is measured and deleted. What is kept is where the cuts
+        fall, which is the only part anybody cuts to — and it means the app
+        never becomes a place other people's video is stored, which is a
+        promise worth being able to make.
+        """
+        who = self.current_user()
+        if not who:
+            self._json({"error": "Please sign in."}, 401)
+            return
+        try:
+            files, _fields = self._read_upload()
+        except Exception:  # noqa: BLE001 - a malformed post is the client's problem
+            self._json({"error": "I could not read that upload."}, 400)
+            return
+        if not files:
+            self._json({"error": "Pick a reel first."}, 400)
+            return
+
+        from ..insight.template import read as read_template
+
+        name, payload = files[0]
+        safe = "".join(ch for ch in Path(name).name if ch.isalnum() or ch in "._- ")[-80:]
+        holding = Path(tempfile.mkdtemp(prefix="auteur-reel-"))
+        reel = holding / (safe or "reel.mp4")
+        try:
+            reel.write_bytes(payload)
+            measured = read_template(reel, name=Path(safe).stem[:24] or "your reel")
+            if measured is None:
+                self._json({"error": "That file did not open as video."}, 400)
+                return
+            if measured.shots < LEAST_TEMPLATE_SHOTS or measured.seconds < LEAST_TEMPLATE_SECONDS:
+                self._json(
+                    {
+                        "error": (
+                            f"That reel is {measured.seconds:.0f}s with "
+                            f"{measured.shots} cut(s) in it. A template needs at least "
+                            f"{LEAST_TEMPLATE_SHOTS} cuts to be worth copying."
+                        )
+                    },
+                    400,
+                )
+                return
+            entry = _template_json(measured)
+        finally:
+            # Always, including when the measurement raised.
+            shutil.rmtree(holding, ignore_errors=True)
+
+        store = self.studio.workspace / "templates" / f"{_safe_name(who)}.json"
+        store.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            mine = json.loads(store.read_text(encoding="utf-8")) if store.exists() else []
+        except Exception:  # noqa: BLE001
+            mine = []
+        # One template per reel, however many times it is uploaded.
+        mine = [e for e in mine if e.get("id") != entry["id"]]
+        mine.append(entry)
+        store.write_text(json.dumps(mine[-40:], indent=1), encoding="utf-8")
+        log.info("read a reel for %s: %s", _for_log(who), _for_log(entry["label"]))
+        entry["mine"] = True
+        self._json({"template": entry}, 201)
+
     def do_POST(self) -> None:  # noqa: N802 - stdlib naming
         path = self.path.split("?", 1)[0]
 
         if path == "/api/signup":
             self._sign_up()
+            return
+        if path == "/api/templates":
+            self._read_a_reel()
             return
         if path == "/api/connections/link":
             self._link_account()
@@ -1330,29 +1443,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "not found"}, 404)
             return
 
-        length = int(self.headers.get("Content-Length") or 0)
-        if length <= 0:
-            self._json({"error": "Nothing was sent."}, 400)
-            return
-        if length > MAX_UPLOAD:
+        try:
+            files, fields = self._read_upload()
+        except MemoryError:
             self._json({"error": "That is more footage than this can take at once."}, 413)
             return
-
-        # Read in blocks: a phone posting a minute of 4K over wifi is a long,
-        # interruptible transfer, and one giant read() hides that it stalled.
-        chunks: list[bytes] = []
-        remaining = length
-        while remaining > 0:
-            block = self.rfile.read(min(CHUNK, remaining))
-            if not block:
-                self._json({"error": "The upload stopped part way."}, 400)
-                return
-            chunks.append(block)
-            remaining -= len(block)
-        body = b"".join(chunks)
-
-        try:
-            fields, files = _parse_multipart(body, self.headers.get("Content-Type", ""))
         except Exception:  # noqa: BLE001 - a malformed post is the client's problem
             self._json({"error": "I could not read that upload."}, 400)
             return
@@ -1465,6 +1560,78 @@ def _templates() -> list[dict]:
             log.warning("no reel templates to offer: %s", exc)
             _TEMPLATES = []
     return _TEMPLATES
+
+
+#: The least a reel can be and still be worth copying. Under this there is not
+#: enough timeline to cut anything else to — it is a cadence, not a shape.
+LEAST_TEMPLATE_SHOTS = 8
+LEAST_TEMPLATE_SECONDS = 4.0
+
+
+def _for_log(text: str, limit: int = 64) -> str:
+    """A value from a page, made safe to put in a log line.
+
+    Same containment as `auteur.publish.connections`: a username or a filename
+    carrying a newline writes a second record that looks exactly like a real
+    one, which is a way to hide something in a log under convincing forgeries.
+    """
+    clean = "".join(ch for ch in str(text) if ch.isprintable())
+    return repr(clean[:limit])
+
+
+def _safe_name(who: str) -> str:
+    """A filename from a username. Never a path, never empty."""
+    kept = "".join(ch for ch in who if ch.isalnum() or ch in "-_")[:64]
+    return kept or "someone"
+
+
+def _template_json(template) -> dict:
+    """A measured reel, in the shape the page reads.
+
+    Beats are flat arrays rather than objects: fifty shots times six named
+    fields is most of the file size and none of the information, and the page
+    reads them back by position. Same shape `make_templates.py` writes, because
+    a template a person uploaded and one that shipped have to be the same kind
+    of thing.
+    """
+    hold = template.shot_seconds
+    if hold <= 0.14:
+        name = "Razor"
+    elif hold <= 0.20:
+        name = "Hypercut"
+    elif hold <= 0.40:
+        name = "Quick"
+    else:
+        name = "Held"
+    # A camera roll hands over names like `7b74c759-766cb232d76f4810`, which is
+    # not a name. When the stem is mostly hex and has no words in it, the
+    # character and the shot count say more than the filename does.
+    given = (template.name or "").strip()
+    hexish = sum(ch in "0123456789abcdefABCDEF-" for ch in given)
+    if not given or (len(given) > 8 and hexish / len(given) > 0.85):
+        title = f"{name} · your reel"
+    else:
+        title = f"{name} · {given}"
+
+    return {
+        "id": template.fingerprint[:10],
+        "label": title[:40],
+        "note": f"{template.shots} shots · {hold:.2f}s each",
+        "seconds": round(template.seconds, 3),
+        "shots": template.shots,
+        "hold": round(hold, 4),
+        "beats": [
+            [
+                round(b.duration, 4),
+                round(b.luma, 3),
+                round(b.contrast, 3),
+                round(b.saturation, 3),
+                round(b.warmth, 3),
+                round(b.motion, 3),
+            ]
+            for b in template.beats
+        ],
+    }
 
 
 def _fit_to_template(edl, beats: list, seconds: float | None) -> None:

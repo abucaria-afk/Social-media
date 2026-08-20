@@ -1,0 +1,100 @@
+/* The templates tab.
+ *
+ * A list rather than a grid of chips. Nineteen chips on the first screen was
+ * a wall you had to scroll past to reach the button that makes the film, and
+ * every one of them said roughly the same thing in a slightly different way.
+ * Given a page of its own, each template can show what actually distinguishes
+ * it — how many cuts, how long it holds, and the shape of its cutting — and a
+ * person can compare them instead of picking the first one they can reach.
+ */
+
+.template-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.template {
+  appearance: none;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.2rem 0.8rem;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  padding: 0.75rem 0.85rem;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  /* 44px is the floor for anything a thumb hits, and these are well above it;
+     the rule is stated so a future tightening cannot quietly go under. */
+  min-height: 44px;
+  transition: border-color 0.14s, transform 0.14s;
+}
+
+/* Hover and chosen must not look the same.
+ *
+ * Both were an ember border, so on a phone — where a hover can stick after a
+ * tap and never clear — two rows appeared chosen at once and there was no way
+ * to tell which one the film would use. Hover only warms the edge; chosen
+ * fills, which nothing else on the page does. */
+.template:hover { border-color: color-mix(in srgb, var(--ember) 55%, var(--line)); }
+.template:active { transform: scale(0.99); }
+.template.is-on {
+  border-color: var(--ember);
+  box-shadow: inset 0 0 0 1px var(--ember);
+  /* Flat fill first for anything older than Chrome 111 / Safari 16.2. */
+  background: var(--surface);
+  background: color-mix(in srgb, var(--ember) 14%, var(--raised));
+}
+.template.is-on .template-name::before {
+  content: "✓ ";
+  color: var(--ember-text);
+}
+
+.template-name { font-weight: 600; font-size: 0.98rem; }
+
+.template-hold {
+  justify-self: end;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.86rem;
+  color: var(--ember-text);
+  font-weight: 600;
+}
+
+.template-note {
+  grid-column: 1 / -1;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+/* The cutting, drawn.
+ *
+ * One tick per cut, spaced by where it actually falls. Two templates with the
+ * same median hold can be completely different edits — a steady pulse and a
+ * burst-then-rest read identically as a number and not at all as a picture —
+ * and this is the only part of a template a person can judge at a glance. */
+.template-shape {
+  grid-column: 1 / -1;
+  display: block;
+  width: 100%;
+  height: 22px;
+  margin-top: 0.35rem;
+  border-radius: 3px;
+  background: var(--surface);
+}
+
+.template.is-mine .template-name::after {
+  content: " yours";
+  color: var(--ember-text);
+  font-weight: 400;
+  font-size: 0.78rem;
+}
+
+/* The file picker on this page is a block, not the flex row the edit room
+   uses for its numbered steps — there is no step number beside it. */
+.card.picker.block { display: block; }
+.card.picker.block .card-body { display: block; }
