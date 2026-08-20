@@ -47,6 +47,16 @@ body {
     calc(var(--safe-left) + 18px);
 }
 
+/* `hidden` has to beat the class on the same element.
+ *
+ * The attribute's own rule is `display: none` at the user-agent level, which
+ * any class with a `display` in it silently outranks. Measured on the sign-in
+ * screen: `#to-signup` carried `hidden`, `.ghost` set `display: block`, and
+ * every visitor to an already-claimed app was shown a 96px button reading
+ * "Nobody has claimed this yet — make my account" that led to a form which
+ * could only fail. The narrow `.screen[hidden]` rule below was the same bug
+ * found once and patched where it was found. */
+[hidden] { display: none !important; }
 .screen[hidden] { display: none; }
 
 /* -- masthead ------------------------------------------------------------ */

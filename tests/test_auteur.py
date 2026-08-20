@@ -7177,3 +7177,54 @@ def test_a_handoff_link_is_linked_even_without_a_token(tmp_path):
     # that nothing had happened.
     assert row["connected"] is True
     assert row["can_publish"] is False
+
+
+def test_choosing_a_reel_template_gives_the_edit_that_reels_rhythm():
+    """A template is where the cuts fall, so it has to change the shot count.
+
+    Keeping the planned shots and only stretching each one would preserve the
+    film's length and lose the thing being copied — a reel cut at 0.125s has
+    five times the shots of one cut at 0.6s, and that difference *is* the
+    template.
+    """
+    from auteur.edl import EditDecisionList, Shot
+    from auteur.web.server import _fit_to_template
+
+    planned = EditDecisionList(
+        shots=[
+            Shot(clip_id=f"c{n}", source=Path(f"/tmp/{n}.jpg"), start=0.0, end=0.6, is_still=True)
+            for n in range(4)
+        ]
+    )
+    assert len(planned.shots) == 4
+
+    # A hypercut's beats: [duration, luma, contrast, saturation, warmth, motion]
+    beats = [[0.125, 0.5, 0.2, 0.3, 0.0, 0.1] for _ in range(8)]
+    _fit_to_template(planned, beats, seconds=6.0)
+
+    assert len(planned.shots) == 48, "six seconds at 0.125s is forty-eight shots"
+    assert all(abs(shot.duration - 0.125) < 1e-6 for shot in planned.shots)
+    # The pictures are the director's, reused in order rather than invented.
+    assert [s.clip_id for s in planned.shots[:5]] == ["c0", "c1", "c2", "c3", "c0"]
+    # Nothing dissolves into the first frame of the film.
+    assert planned.shots[0].transition_in.is_cut
+
+
+def test_a_template_never_extends_a_clip_past_the_footage_the_director_chose():
+    """A still can be held for any length. A clip cannot.
+
+    Stretching a two-second selection to four seconds runs the render into
+    frames nobody looked at, which is how a template turns into a bug report
+    about footage that should not be in the film.
+    """
+    from auteur.edl import EditDecisionList, Shot
+    from auteur.web.server import _fit_to_template
+
+    planned = EditDecisionList(
+        shots=[Shot(clip_id="clip", source=Path("/tmp/a.mp4"), start=2.0, end=2.4)]
+    )
+    _fit_to_template(planned, [[3.0, 0.5, 0.2, 0.3, 0.0, 0.1]], seconds=3.0)
+
+    assert planned.shots, "the template produced no shots at all"
+    for shot in planned.shots:
+        assert shot.end <= 2.4 + 1e-6, "a clip was extended past its selection"

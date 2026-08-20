@@ -58,16 +58,24 @@ def cuts_of(film: Path, into: Path) -> tuple[list[float], float]:
     """When the picture changed, in seconds, and the film's length."""
     into.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        ["ffmpeg", "-v", "quiet", "-i", str(film), "-vf", "scale=96:-1,fps=30",
-         "-vsync", "0", str(into / "%04d.png")],
+        [
+            "ffmpeg",
+            "-v",
+            "quiet",
+            "-i",
+            str(film),
+            "-vf",
+            "scale=96:-1,fps=30",
+            "-vsync",
+            "0",
+            str(into / "%04d.png"),
+        ],
         check=False,
     )
     shots = sorted(into.glob("*.png"))
     if len(shots) < 4:
         return [], 0.0
-    frames = np.stack(
-        [np.asarray(Image.open(s).convert("L"), dtype=np.float32) for s in shots]
-    )
+    frames = np.stack([np.asarray(Image.open(s).convert("L"), dtype=np.float32) for s in shots])
     diff = np.abs(np.diff(frames, axis=0)).mean(axis=(1, 2))
     floor = max(6.0, float(np.median(diff)) * 3.0)
     found: list[float] = []
@@ -134,10 +142,12 @@ def main() -> int:
             drift = [min(abs(w - g) for g in got) for w in want]
             near = sum(1 for d in drift if d <= SLACK)
             median = float(np.median(drift))
-            print(f"{template['label']:9s} template median {template['hold']:.3f}s  "
-                  f"film {ran:.1f}s  {len(want)} template cuts, {len(got)} edges in the film  "
-                  f"median drift {median * 1000:.0f}ms  {near}/{len(want)} within "
-                  f"{SLACK * 1000:.0f}ms")
+            print(
+                f"{template['label']:9s} template median {template['hold']:.3f}s  "
+                f"film {ran:.1f}s  {len(want)} template cuts, {len(got)} edges in the film  "
+                f"median drift {median * 1000:.0f}ms  {near}/{len(want)} within "
+                f"{SLACK * 1000:.0f}ms"
+            )
             print(f"          heard: {heard[:120]}")
             if median > SLACK:
                 print(f"FAIL {template['label']}: the cutting does not follow the template")

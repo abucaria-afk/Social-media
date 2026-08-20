@@ -18,7 +18,7 @@
   // `seconds: ""` means "no length given" — the prompt decides. Anything else
   // is an explicit override the person tapped.
   var state = { jobId: null, timer: null, shape: "reel", seconds: "", era: "",
-               videoUrl: null, lastStage: "", lastPercent: -1 };
+               template: "", videoUrl: null, lastStage: "", lastPercent: -1 };
 
   function show(name) {
     Object.keys(screens).forEach(function (key) {
@@ -44,6 +44,41 @@
   wireChoices($("shape"), function (value) { state.shape = value; });
   wireChoices($("seconds"), function (value) { state.seconds = value; });
   wireChoices($("era"), function (value) { state.era = value; });
+
+  /* The reference reels, as timelines to cut to.
+   *
+   * Built from what the server has rather than written into the markup: a
+   * static list goes stale the moment a reel is added or dropped, and it
+   * would offer a choice that does nothing. The card stays hidden when there
+   * are none, which is the honest state for an install with no reels read.
+   */
+  fetch("/api/templates", { credentials: "same-origin" })
+    .then(function (r) { return r.json(); })
+    .then(function (said) {
+      var all = (said && said.templates) || [];
+      var host = $("template");
+      var card = $("template-card");
+      if (!host || !card || !all.length) { return; }
+      var chips = [{ id: "", label: "Its own", note: "let it decide" }].concat(all);
+      host.innerHTML = "";
+      chips.forEach(function (entry, n) {
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "choice" + (n === 0 ? " is-on" : "");
+        button.dataset.value = entry.id;
+        button.setAttribute("role", "radio");
+        button.setAttribute("aria-checked", n === 0 ? "true" : "false");
+        button.innerHTML = "";
+        button.appendChild(document.createTextNode(entry.label));
+        var note = document.createElement("small");
+        note.textContent = entry.note;
+        button.appendChild(note);
+        host.appendChild(button);
+      });
+      card.hidden = false;
+      wireChoices(host, function (value) { state.template = value; });
+    })
+    .catch(function () { /* offline: the film still gets made */ });
 
   // -- who is signed in -----------------------------------------------------
 
@@ -123,6 +158,7 @@
        control that sets a variable nobody transmits is a control that does
        nothing, which is worse than not offering one. */
     form.append("era", state.era);
+    form.append("template", state.template);
     for (var i = 0; i < clips.files.length; i++) {
       form.append("clips", clips.files[i], clips.files[i].name);
     }

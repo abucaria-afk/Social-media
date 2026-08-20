@@ -195,13 +195,22 @@ class Studio:
         #: the agents argue about a cut that already exists, not about a prompt.
         self.recent_edls: dict[str, Any] = {}
 
-    def create(self, prompt: str, shape: str, seconds: float | None, owner: str = "") -> Job:
+    def create(
+        self,
+        prompt: str,
+        shape: str,
+        seconds: float | None,
+        owner: str = "",
+        template: str = "",
+    ) -> Job:
         self.sweep()
         job_id = uuid.uuid4().hex[:12]
         folder = self.workspace / job_id
         (folder / "clips").mkdir(parents=True, exist_ok=True)
         job = Job(id=job_id, prompt=prompt, folder=folder, owner=owner)
-        job.thread = threading.Thread(target=self._run, args=(job, shape, seconds), daemon=True)
+        job.thread = threading.Thread(
+            target=self._run, args=(job, shape, seconds, template), daemon=True
+        )
         with self.lock:
             self.jobs[job_id] = job
         return job
@@ -237,7 +246,7 @@ class Studio:
             edl = self.recent_edls.get(owner or "")
         return copy.deepcopy(edl) if edl is not None else None
 
-    def _run(self, job: Job, shape: str, seconds: float | None) -> None:
+    def _run(self, job: Job, shape: str, seconds: float | None, template: str = "") -> None:
         from ..agent import direct
 
         with self.queue_lock:
@@ -253,6 +262,23 @@ class Studio:
                     revision_rounds=1,
                 )
                 reporter = WebReporter(job, self.lock)
+
+                # A chosen reel's timeline, imposed after the edit is planned
+                # and before a frame is rendered. `on_plan` is documented as
+                # the last honest place to intervene and this is exactly that
+                # kind of intervention: the director still decides which
+                # picture goes where, the reference decides when to cut.
+                beats: list = []
+                if template:
+                    for entry in _templates():
+                        if entry.get("id") == template:
+                            beats = entry.get("beats") or []
+                            break
+
+                def on_plan(edl, _beats=beats, _seconds=seconds):
+                    if _beats:
+                        _fit_to_template(edl, _beats, _seconds)
+
                 production = direct(
                     [job.folder / "clips"],
                     job.prompt,
@@ -261,6 +287,7 @@ class Studio:
                     formats=(fmt,),
                     duration=seconds,
                     reporter=reporter,
+                    on_plan=on_plan,
                 )
 
                 critique = production.final_critique
@@ -838,6 +865,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/overlays":
             self._json(self._overlay_rules())
             return
+        if path == "/api/templates":
+            self._json({"templates": _templates()})
+            return
         if path == "/api/connections":
             self._json(self._connection_state())
             return
@@ -1307,7 +1337,11 @@ class Handler(BaseHTTPRequestHandler):
             seconds = None
 
         job = self.studio.create(
-            prompt, fields.get("shape", "reel"), seconds, owner=self.current_user() or ""
+            prompt,
+            fields.get("shape", "reel"),
+            seconds,
+            owner=self.current_user() or "",
+            template=fields.get("template", "").strip(),
         )
         clips = job.folder / "clips"
         for index, (filename, payload) in enumerate(files):
@@ -1367,6 +1401,81 @@ def local_address() -> str:
         return "127.0.0.1"
     finally:
         probe.close()
+
+
+#: The measured timelines of the reference reels, read once and kept.
+#:
+#: The markup for the template card has shipped in `index.html` for a while and
+#: nothing ever filled it: `window.auteurTemplates` is injected by the artifact
+#: builder, so the published page had templates and the app people actually run
+#: had a card that stayed hidden forever. Dead markup is worse than no markup —
+#: it looks like a feature in the source and is not one on the screen.
+_TEMPLATES: list[dict] | None = None
+
+
+def _templates() -> list[dict]:
+    global _TEMPLATES
+    if _TEMPLATES is None:
+        source = (
+            Path(__file__).resolve().parent.parent.parent
+            / "tools"
+            / "artifact"
+            / ("templates.json")
+        )
+        try:
+            _TEMPLATES = json.loads(source.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001 - a missing file is not a crash
+            log.warning("no reel templates to offer: %s", exc)
+            _TEMPLATES = []
+    return _TEMPLATES
+
+
+def _fit_to_template(edl, beats: list, seconds: float | None) -> None:
+    """Give a planned edit the rhythm of a reference reel.
+
+    A template is where a reel's cuts actually fall, so imposing one means
+    replacing the planned shot *lengths* with the reference's, and repeating
+    the planned shots until the runtime is full. Keeping the director's shot
+    count and only stretching each one would keep the film's length and lose
+    the thing being copied; a reel cut at 0.125s has five times the shots of
+    one cut at 0.6s, and that difference is the template.
+
+    Which pictures go where stays the director's decision. This changes when
+    the cuts land, not what is on either side of them.
+    """
+    import copy
+
+    from ..edl import Transition
+
+    holds = [float(b[0]) for b in beats if b and float(b[0]) > 0.02]
+    if not holds or not edl.shots:
+        return
+    target = seconds or edl.duration or sum(holds)
+
+    wanted: list[float] = []
+    at = 0.0
+    while at < target and len(wanted) < 600:
+        hold = holds[len(wanted) % len(holds)]
+        wanted.append(hold)
+        at += hold
+    if not wanted:
+        return
+
+    out = []
+    for index, hold in enumerate(wanted):
+        base = edl.shots[index % len(edl.shots)]
+        shot = copy.deepcopy(base)
+        # A still can be held for any length. A clip cannot be extended past
+        # the footage the director chose without running into frames nobody
+        # looked at, so it is only ever shortened.
+        span = base.end - base.start
+        shot.end = shot.start + (hold if base.is_still else min(hold, span))
+        # Every shot after the first inherits its neighbour's join; the first
+        # one opens the film and cannot dissolve from anything.
+        if index == 0:
+            shot.transition_in = Transition()
+        out.append(shot)
+    edl.shots = out
 
 
 def serve(

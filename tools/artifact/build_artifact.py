@@ -501,7 +501,7 @@ DEMO = r"""
 
 #: Bumped on every publish and shown in the banner, so a screenshot of the
 #: page is enough to know which build it is. VERSIONS.md says what each was.
-VERSION = "v5 — accounts and connections"
+VERSION = "v6 — real cuts, real grades, 18 reel templates"
 
 BANNER = f"""
 <div class="demo-note" role="note">
