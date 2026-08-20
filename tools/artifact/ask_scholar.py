@@ -93,6 +93,19 @@ def main() -> int:
 
         shrugs = 0
         for n, (question, wanted) in enumerate(QUESTIONS):
+            # Count the blocks *now* rather than assuming one per exchange.
+            # Indexing by question number assumed each round adds exactly one
+            # `.said`, and when it adds two the wait passes instantly on the
+            # previous round's answer — which is how this tool reported the app
+            # giving wrong answers that the API, asked the same questions in the
+            # same order, answered correctly.
+            # Messages, not paragraphs. `say()` splits an answer on blank
+            # lines into one `.said` per part, so counting `.said` counts
+            # paragraphs — and taking the last one hands back the *final
+            # bullet* of an answer rather than its first. That is why this
+            # tool reported the tab giving different answers from the API,
+            # asked the same questions in the same order.
+            before = page.evaluate("() => document.querySelectorAll('li.says.scholar').length")
             page.fill("#question", question)
             page.keyboard.press("Enter")
             # The answer arrives asynchronously; wait for the count of said
@@ -104,18 +117,18 @@ def main() -> int:
             # real answers when it had read none.
             try:
                 page.wait_for_function(
-                    "n => document.querySelectorAll('.said').length > n",
-                    arg=n,
+                    "n => document.querySelectorAll('li.says.scholar').length > n",
+                    arg=before,
                     timeout=30000,
                 )
                 page.wait_for_function(
                     """() => {
-                        const all = document.querySelectorAll('.said');
+                        const all = document.querySelectorAll('li.says.scholar');
                         if (!all.length) { return false; }
                         const last = all[all.length - 1].innerText.trim().toLowerCase();
                         return last && !last.startsWith('thinking');
                     }""",
-                    timeout=60000,
+                    timeout=90000,
                 )
             except Exception:
                 answers = page.query_selector_all(".said")
@@ -123,7 +136,7 @@ def main() -> int:
                 print(f"  Q: {question}\n  A: (still {stuck!r} after 90s)\n")
                 shrugs += 1
                 continue
-            answers = page.query_selector_all(".said")
+            answers = page.query_selector_all("li.says.scholar")
             said = answers[-1].inner_text().strip()
             flat = said.lower()
             if any(mark in flat for mark in EMPTY):

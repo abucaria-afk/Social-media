@@ -485,6 +485,15 @@ class KnowledgeStore:
             # and the tie broke arbitrarily. Asked how fast the reels cut, it
             # answered with a note about autonomy and posting.
             score = sum(math.log(1.0 + held / (1.0 + seen.get(term, 0))) for term in matched)
+            # A word in the title counts double. "How long should a reel be?"
+            # matched both `how long a reel runs` and `the hook — how long the
+            # first shot is held` on the same two words and tied, so the answer
+            # came down to list order and gave the hook one. What a learning is
+            # *called* is the closest thing it has to a statement of subject.
+            titled = {_plainly(w) for w in re.findall(r"[a-z0-9']+", learning.technique.lower())}
+            score += sum(
+                math.log(1.0 + held / (1.0 + seen.get(term, 0))) for term in (set(terms) & titled)
+            )
             # Something with a number in it beats prose about the same subject.
             # A person asking how fast the reels cut wants 0.17s, not a
             # sentence containing the word "fast".

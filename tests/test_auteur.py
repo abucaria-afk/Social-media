@@ -7278,3 +7278,109 @@ def test_picking_a_decade_grades_the_whole_film_to_it():
     assert offered <= set(
         ERA_LOOKS
     ), f"the page offers {offered - set(ERA_LOOKS)}, which is unwired"
+
+
+def test_the_scholar_names_what_it_measures_not_just_the_files(tmp_path):
+    """Per-film learnings describe moments; none of them describes the form.
+
+    The store held twenty-three measured timelines and could not answer "how
+    fast do the reels cut?", because every learning was about one reel and the
+    word "hypercut" appeared in none of them — while the app offered a Hypercut
+    chip on its first screen.
+    """
+    from auteur.scholar.knowledge import Confidence, Discipline, KnowledgeStore, Learning
+    from auteur.scholar.library import conclude
+
+    store = KnowledgeStore(tmp_path / "knowledge.jsonl")
+    for n in range(9):
+        store.add(
+            Learning(
+                learning_id=f"film-{n}",
+                disciplines=[Discipline.MOVIE_MAKING],
+                insight=f"reel-{n}.mp4 cuts fast",
+                technique="cutting rate",
+                application="hold the crew to this",
+                source_video_id=f"file:reel-{n}.mp4",
+                source_channel=f"film:{n:012d}",
+                source_title=f"reel-{n}.mp4",
+                source_end_sec=12.0 + n,
+                confidence=Confidence.TENTATIVE,
+                measurements={
+                    "shot_seconds": 0.167,
+                    "cuts_per_10s": 30.0,
+                    "first_cut": 0.2,
+                    "luma": 0.28,
+                    "motion": 0.03,
+                },
+            )
+        )
+
+    drawn = {learning.technique: learning for learning in conclude(store)}
+    assert drawn, "nine measured films produced no conclusion about the form"
+
+    named = " ".join(drawn).lower()
+    for word in ("hypercut", "hook", "pacing", "grading", "long"):
+        assert word in named, f"nothing the Scholar concluded is called {word!r}"
+
+    # Nine films agreeing is not a tentative guess. That is what the ladder is
+    # for, and per-film learnings can never climb it on their own.
+    fast = drawn["hypercut — how fast a fast cut is"]
+    assert fast.confidence is Confidence.VALIDATED
+    assert fast.measurements["shot_seconds"] == 0.167
+
+    # And the words are reachable: asking in plain English finds them.
+    for learning in drawn.values():
+        store.add(learning)
+    found = store.recall("how fast do the reels cut?", limit=1)
+    assert found, "the conclusion is in the store and cannot be recalled"
+    assert "hypercut" in found[0].technique
+
+
+def test_a_conclusion_about_the_shelf_is_not_dropped_as_a_repeat(tmp_path):
+    """The de-duplicator was throwing away the best answers it had.
+
+    Measured learnings arrive one per film, so a consensus is built and the
+    per-film copies are dropped as repeats of it. Conclusions drawn *across*
+    the shelf carry measurements too, and were being dropped by the same rule —
+    asked how fast the reels cut, the Scholar skipped its own validated
+    hypercut finding and answered with a note about runtime.
+    """
+    from auteur.scholar.knowledge import Confidence, Discipline, KnowledgeStore, Learning
+    from auteur.scholar.scholar import Scholar
+
+    store = KnowledgeStore(tmp_path / "knowledge.jsonl")
+    for n in range(6):
+        store.add(
+            Learning(
+                learning_id=f"one-film-{n}",
+                disciplines=[Discipline.MOVIE_MAKING],
+                insight=f"reel-{n}.mp4 cuts 30.0 times per ten seconds",
+                technique="cutting rate",
+                application="hold the crew to this",
+                source_video_id=f"file:reel-{n}.mp4",
+                source_channel=f"film:{n:012d}",
+                source_title=f"reel-{n}.mp4",
+                confidence=Confidence.TENTATIVE,
+                measurements={"cuts_per_10s": 30.0, "shot_seconds": 0.167},
+            )
+        )
+    store.add(
+        Learning(
+            learning_id="across-the-shelf",
+            disciplines=[Discipline.MOVIE_MAKING],
+            insight="Of 6 reels measured, all hold each shot 0.2s or less — a hypercut.",
+            technique="hypercut — how fast a fast cut is",
+            application="cut at the measured median",
+            source_video_id="across:the-shelf",
+            source_channel="across:the-shelf",
+            source_title="6 films measured",
+            confidence=Confidence.VALIDATED,
+            measurements={"shot_seconds": 0.167},
+        )
+    )
+
+    scholar = Scholar(store=store)
+    said = scholar.answer_from_study("how fast do the reels cut?", limit=3)
+    assert (
+        "hypercut" in said.lower()
+    ), "the conclusion drawn across every film was dropped as a repeat of itself"
