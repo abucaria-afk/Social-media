@@ -230,9 +230,18 @@
   /* What it understood, in the person's own terms. Returned with the film so
    * the page can say it back — a prompt that changes nothing visible and is
    * never acknowledged is indistinguishable from a prompt that was ignored. */
-  function read(prompt, fallbackSeconds, wanted) {
+  function read(prompt, fallbackSeconds, wanted, wantedTemplate) {
     var look = lookFor(prompt);
     var cadence = cadenceFor(prompt);
+    /* A chosen template sets the cadence, because that is most of what
+       choosing one means: "cut it like that reel" is a statement about how
+       fast it cuts before it is a statement about anything else. The words
+       still decide the look, the style and the length. */
+    var template = wantedTemplate ? templateFor(wantedTemplate) : null;
+    if (template) {
+      cadence = { hold: template.hold, label: template.label.toLowerCase()
+        + " — " + template.note };
+    }
     var style = global.auteurStyle.styleFor(prompt);
     /* A decade chosen on the form beats one inferred from the words. Somebody
        who picked "80s" and then wrote "sunny afternoon" has said which one
@@ -265,7 +274,9 @@
       // cannot see it made is a decision they will assume it did not make.
       style: style,
       styleName: style.label,
-      styleNote: style.note
+      styleNote: style.note,
+      template: template,
+      templateName: template ? template.label : ""
     };
   }
 
@@ -344,6 +355,57 @@
    * hole opens over the subject of the picture rather than over the middle of
    * the rectangle. */
   function readSource(source) { return global.auteurCutting.readSource(source); }
+
+  /* A reference reel's timeline, if one was chosen.
+   *
+   * `auteur.insight.template` has been able to measure a reel shot by shot
+   * since it was written and nothing could use the result — it was a library
+   * function with a CLI in front of it, so the measurements existed and the
+   * app cut to a generic cadence anyway. `templates.json` is those
+   * measurements, and this is what reaches them. */
+  function templateFor(id) {
+    var all = global.auteurTemplates || [];
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].id === id || all[i].label === id) { return all[i]; }
+    }
+    return null;
+  }
+
+  //: Beat fields, by position. The file stores flat arrays — fifty shots by
+  //: seven names is most of its size and none of its information.
+  var DUR = 0, LUMA = 1, CONTRAST = 2, SATURATION = 3, WARMTH = 4;
+
+  /* The tonal arc of a template, applied to a shot cut from somebody else's
+   * photograph.
+   *
+   * Not a filter. `ctx.filter` costs 60ms a frame at this size — the
+   * measurement that forced photographs to be graded once — and this has to
+   * be paid every frame, because it differs per shot and the shots share
+   * sources. Two composited fills cost microseconds and get most of the way:
+   * a reel's arc is largely *this shot is brighter than the one before it,
+   * this one is colder*, and that is a brightness and a temperature.
+   */
+  function toneToBeat(ctx, W, H, beat, middle) {
+    var dl = beat[LUMA] - middle.luma;
+    if (Math.abs(dl) > 0.03) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(0.40, Math.abs(dl) * 0.85);
+      ctx.globalCompositeOperation = dl > 0 ? "lighter" : "multiply";
+      ctx.fillStyle = dl > 0 ? "#2e2b27" : "#9a968f";
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+    var dw = beat[WARMTH] - middle.warmth;
+    if (Math.abs(dw) > 0.06) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(0.28, Math.abs(dw) * 0.30);
+      ctx.globalCompositeOperation = "overlay";
+      ctx.fillStyle = dw > 0 ? "#ff9a4a" : "#4aa8ff";
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+  }
+
 
   /* One visiting order per movement, each a different tour of every source.
    *
@@ -685,7 +747,7 @@
     var onProgress = options.onProgress || function () {};
 
     var W = shape[0], H = shape[1];
-    var plan = read(prompt, options.seconds || 10, options.era);
+    var plan = read(prompt, options.seconds || 10, options.era, options.template);
     var hold = plan.hold;
     var total = plan.seconds;
     /* What a *clip* gets, per frame, and it is less than a photograph gets.
@@ -789,7 +851,46 @@
        * of a long film, which is the repetition this replaced. */
       var roll = rng(Math.round(total * 97) + sources.length * 31 + plan.titles.length);
       var wanted = Math.max(4, Math.ceil((total / hold) * 1.6));
-      var bars = global.auteurStyle.arrange(style, movements, wanted, roll);
+      var bars;
+      var beats = null;
+      var middle = null;
+
+      if (plan.template) {
+        /* Cut to a reel's measured timeline instead of to a generated one.
+         *
+         * The durations are the reference's own, cycled rather than scaled:
+         * scaling them to fit the requested length would preserve the ratios
+         * and throw away the thing that matters, which is that this reel cuts
+         * at 0.167s. A rhythm stretched to fit is a different rhythm.
+         *
+         * Roles still come from the beat lengths, because a role is what a
+         * shot is *for* and the template does not carry that — only how long
+         * each shot held and what it looked like. */
+        beats = plan.template.beats;
+        var span = 0;
+        for (var q = 0; q < beats.length; q++) { span += beats[q][DUR]; }
+        middle = { luma: 0, warmth: 0 };
+        for (q = 0; q < beats.length; q++) {
+          middle.luma += beats[q][LUMA] / beats.length;
+          middle.warmth += beats[q][WARMTH] / beats.length;
+        }
+        bars = [];
+        var m = 0;
+        while (m < total && bars.length < 400) {
+          var beat = beats[bars.length % beats.length];
+          var beatFor = Math.max(0.05, beat[DUR]);
+          bars.push({
+            beats: beatFor / hold,
+            role: bars.length === 0 ? "hook"
+              : beatFor > hold * 1.6 ? "rest"
+                : beatFor < hold * 0.7 ? "run" : "accent",
+            tone: beat
+          });
+          m += beatFor;
+        }
+      } else {
+        bars = global.auteurStyle.arrange(style, movements, wanted, roll);
+      }
 
       var shots = [];
       var at = 0;
@@ -840,6 +941,7 @@
             ink: plan.look.ink
           }
         };
+        frame.tone = bar.tone || null;
         frame.transitionFor = global.auteurCutting.transitionSeconds(frame.transition, dur);
         frame.graphics = graphicsFor(overlayPlan, frame, i, plan.look.ink);
         if (i === 0) { hookFrame = frame; }
@@ -971,7 +1073,8 @@
               // which is the same class of fault as a grade too faint to see:
               // the film changed and nothing told the person why.
               era: plan.era,
-              eraName: plan.eraName
+              eraName: plan.eraName,
+              template: plan.templateName
             }
           });
         };
@@ -1082,6 +1185,14 @@
             } catch (e) { /* not ready yet */ }
             ctx.filter = "none";
             ctx.drawImage(vignette, 0, 0);
+
+            /* The reference reel's tonal arc for this shot, if the film is
+             * being cut to a template. Two composited fills rather than a
+             * filter, because this differs per shot and the shots share
+             * sources, so it is paid every frame. */
+            if (shot.tone && middle) {
+              toneToBeat(ctx, W, H, shot.tone, middle);
+            }
 
             // The graphics, on the cut. Drawn by the same module the
             // animation tab previews with, so what is chosen there is what

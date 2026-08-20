@@ -145,10 +145,34 @@ DEMO = r"""
   });
   markAppearance(saved);
 
-  var state = { shape: "reel", seconds: "", era: "", clips: 0 };
+  var state = { shape: "reel", seconds: "", era: "", template: "", clips: 0 };
   wireChoices($("shape"), function (v) { state.shape = v; });
   wireChoices($("seconds"), function (v) { state.seconds = v; });
   wireChoices($("era"), function (v) { state.era = v; });
+
+  /* The template chips, built from whatever templates shipped rather than
+     written into the markup — static markup would go stale the moment a reel
+     is added or dropped, and it would offer a choice that does nothing. */
+  (function () {
+    var all = window.auteurTemplates || [];
+    var host = $("template");
+    if (!host || !all.length) { return; }
+    var chips = [{ id: "", label: "Its own", note: "let it decide" }].concat(all);
+    host.innerHTML = "";
+    chips.forEach(function (entry, n) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "choice" + (n === 0 ? " is-on" : "");
+      button.dataset.value = entry.id;
+      button.setAttribute("role", "radio");
+      button.setAttribute("aria-checked", n === 0 ? "true" : "false");
+      button.innerHTML = entry.label + "<small>"
+        + (n === 0 ? entry.note : entry.shots + " shots") + "</small>";
+      host.appendChild(button);
+    });
+    $("template-card").hidden = false;
+    wireChoices(host, function (v) { state.template = v; });
+  })();
 
   /* -- screens ------------------------------------------------------ */
   /* Three pages on one, since a published page has no routes: the edit room,
@@ -252,6 +276,7 @@ DEMO = r"""
         shape: state.shape,
         seconds: state.seconds ? parseFloat(state.seconds) : 10,
         era: state.era || null,
+        template: state.template || null,
         onProgress: step,
       })
       .then(function (film) {
@@ -303,6 +328,7 @@ DEMO = r"""
       + ", graded " + film.reading.look
       + ", cut " + film.reading.style
       + (film.reading.era ? ", shot like the " + film.reading.eraName : "")
+      + (film.reading.template ? ", to the " + film.reading.template + " reel's timeline" : "")
       + ", " + Math.round(film.reading.seconds) + " seconds long.";
     if (film.reading.titles.length) {
       heard += " On screen: " + film.reading.titles.map(function (t) {
@@ -542,6 +568,9 @@ VOCABULARY = (HERE / "cutting.js").read_text(encoding="utf-8")
 # once per photograph — the base looks go through it too, because as CSS
 # filter strings two of them moved the picture by less than the eye can see.
 GRADING = (HERE / "era.js").read_text(encoding="utf-8")
+# The reference reels' measured timelines, from make_templates.py. Numbers
+# only — no footage travels with them.
+TEMPLATES = (HERE / "templates.json").read_text(encoding="utf-8")
 TASTE = (HERE / "style.js").read_text(encoding="utf-8")
 # The graphics vocabulary. Shipped in the app and read by two callers — the
 # animation tab draws its previews with it and the renderer draws the film with
@@ -567,6 +596,9 @@ page = f"""<title>Auteur Edit Room</title>
 </script>
 <script>
 {GRADING}
+</script>
+<script>
+window.auteurTemplates = {TEMPLATES};
 </script>
 <script>
 {VOCABULARY}
