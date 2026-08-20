@@ -588,7 +588,7 @@ DEMO = r"""
 
 #: Bumped on every publish and shown in the banner, so a screenshot of the
 #: page is enough to know which build it is. VERSIONS.md says what each was.
-VERSION = "v7 — a templates tab, 23 reels"
+VERSION = "v8 — a tab bar, and a manager that plans"
 
 BANNER = f"""
 <div class="demo-note" role="note">
@@ -605,6 +605,11 @@ BANNER = f"""
 
 EXTRA = """
 .demo-note {
+  /* A grid, not `float: right` on the version. Floating it put the eyebrow
+     inside the first line of the headline, and on a narrow screen the two
+     printed on top of each other. */
+  display: grid;
+  gap: 0.2rem;
   max-width: 34rem;
   margin: 0 auto 1.25rem;
   padding: 0.85rem 1rem;
@@ -616,9 +621,8 @@ EXTRA = """
   font-size: 0.9rem;
   line-height: 1.5;
 }
-.demo-note strong { color: var(--text); display: block; margin-bottom: 0.2rem; }
+.demo-note strong { color: var(--text); display: block; }
 .demo-version {
-  float: right;
   color: var(--ember-text);
   font-size: 0.72rem;
   letter-spacing: 0.06em;
