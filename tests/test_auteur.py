@@ -7253,3 +7253,28 @@ def test_a_decade_in_the_prompt_is_not_a_runtime():
     assert _extract_duration("fast montage, 12 seconds") == 12.0
     assert _extract_duration("15s punchy") == 15.0
     assert _extract_duration("half a minute") == 30.0
+
+
+def test_picking_a_decade_grades_the_whole_film_to_it():
+    """The chooser sent a value nobody read, so picking 90s changed nothing.
+
+    A decade is the film's stock. Applying it to some shots and not others is
+    a continuity error rather than a style, so it goes on all of them.
+    """
+    from auteur.craft.color import LOOKS
+    from auteur.web.server import ERA_LOOKS
+
+    # Every value the chooser can send names a look that actually exists.
+    for sent, preset in ERA_LOOKS.items():
+        assert preset in LOOKS, f"{sent} maps to {preset}, which is not a look"
+
+    # And the front end's options are all covered, so none of them is dead.
+    markup = Path("auteur/web/static/index.html").read_text(encoding="utf-8")
+    import re
+
+    block = re.search(r'id="era".*?</div>', markup, re.S)
+    assert block, "the decade chooser is gone from the markup"
+    offered = set(re.findall(r'data-value="([^"]*)"', block.group(0))) - {""}
+    assert offered <= set(
+        ERA_LOOKS
+    ), f"the page offers {offered - set(ERA_LOOKS)}, which is unwired"

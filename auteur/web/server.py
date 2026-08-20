@@ -208,6 +208,7 @@ class Studio:
         seconds: float | None,
         owner: str = "",
         template: str = "",
+        era: str = "",
     ) -> Job:
         self.sweep()
         job_id = uuid.uuid4().hex[:12]
@@ -215,7 +216,7 @@ class Studio:
         (folder / "clips").mkdir(parents=True, exist_ok=True)
         job = Job(id=job_id, prompt=prompt, folder=folder, owner=owner)
         job.thread = threading.Thread(
-            target=self._run, args=(job, shape, seconds, template), daemon=True
+            target=self._run, args=(job, shape, seconds, template, era), daemon=True
         )
         with self.lock:
             self.jobs[job_id] = job
@@ -252,7 +253,14 @@ class Studio:
             edl = self.recent_edls.get(owner or "")
         return copy.deepcopy(edl) if edl is not None else None
 
-    def _run(self, job: Job, shape: str, seconds: float | None, template: str = "") -> None:
+    def _run(
+        self,
+        job: Job,
+        shape: str,
+        seconds: float | None,
+        template: str = "",
+        era: str = "",
+    ) -> None:
         from ..agent import direct
 
         with self.queue_lock:
@@ -281,9 +289,18 @@ class Studio:
                             beats = entry.get("beats") or []
                             break
 
-                def on_plan(edl, _beats=beats, _seconds=seconds):
+                wanted_look = ERA_LOOKS.get(era, "")
+
+                def on_plan(edl, _beats=beats, _seconds=seconds, _look=wanted_look):
                     if _beats:
                         _fit_to_template(edl, _beats, _seconds)
+                    if _look:
+                        # The whole film, not a shot here and there: a decade
+                        # is the film's stock, and half a reel shot on Kodak
+                        # is a continuity error rather than a style.
+                        for shot in edl.shots:
+                            shot.look.preset = _look
+                            shot.look.strength = 1.0
 
                 production = direct(
                     [job.folder / "clips"],
@@ -1361,6 +1378,7 @@ class Handler(BaseHTTPRequestHandler):
             seconds,
             owner=self.current_user() or "",
             template=fields.get("template", "").strip(),
+            era=fields.get("era", "").strip(),
         )
         clips = job.folder / "clips"
         for index, (filename, payload) in enumerate(files):
@@ -1495,6 +1513,23 @@ def _fit_to_template(edl, beats: list, seconds: float | None) -> None:
             shot.transition_in = Transition()
         out.append(shot)
     edl.shots = out
+
+
+#: What the decade chooser sends, and the look preset it means.
+#:
+#: The chooser has been on the first screen sending a value nobody read: the
+#: server never looked at the field and the director has no notion of a decade,
+#: so picking 90s changed nothing about the film. A control that sets a
+#: variable nobody transmits does nothing, which is worse than not offering
+#: one — the same rule the length control is already held to.
+ERA_LOOKS = {
+    "seventies": "1970s",
+    "eighties": "1980s",
+    "nineties": "1990s",
+    "y2k": "2000s",
+    "tens": "2010s",
+    "now": "2020s",
+}
 
 
 def _said_back(edl, *, prompt: str, template: str, shape) -> str:  # noqa: ARG001
