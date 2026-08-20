@@ -202,6 +202,12 @@ def _smooth_track(track: np.ndarray, window: int = 5) -> np.ndarray:
     ).astype(np.float32)
 
 
+#: The lowest a shot boundary can score and still be one. Below this the
+#: difference between two frames is grain, exposure drift or a camera move —
+#: not a cut — whatever the rest of the clip's distribution looks like.
+FLOOR = 0.28
+
+
 def _detect_shots(
     frames: np.ndarray, motion: np.ndarray, fps: float, *, min_gap: float = 0.35
 ) -> list[float]:
@@ -243,15 +249,53 @@ def _detect_shots(
     score = hist_delta * 0.6 + pixel_delta * 0.4
     median = float(np.median(score))
     mad = float(np.median(np.abs(score - median))) or 1e-6
-    threshold = max(median + 4.0 * mad * 1.4826, 0.28)
 
-    boundaries: list[float] = []
-    last = -1e9
-    for index in np.flatnonzero(score > threshold):
-        time = float(index + 1) / fps
-        if time - last > min_gap:
-            boundaries.append(round(time, 3))
-            last = time
+    def crossings(threshold: float) -> list[float]:
+        found: list[float] = []
+        last = -1e9
+        for index in np.flatnonzero(score > threshold):
+            time = float(index + 1) / fps
+            if time - last > min_gap:
+                found.append(round(time, 3))
+                last = time
+        return found
+
+    boundaries = crossings(max(median + 4.0 * mad * 1.4826, FLOOR))
+
+    # The derived threshold has to be sanity-checked against the floor.
+    #
+    # A median plus a MAD is robust to a *few* outliers and this is not that
+    # case: on a montage a large minority of frame pairs are boundaries, so
+    # they enter the spread estimate and push the threshold above the very
+    # population it is meant to select. Measured on three of the reference
+    # reels, the derivation landed at 0.85 — above their 99th percentile —
+    # and reported a fifteen-second montage as two shots.
+    #
+    # One-sided estimators do not fix it, because on those reels the quiet bed
+    # is genuinely high: their cuts fall between shots that share a palette,
+    # so the histogram barely moves and the floor is doing the real work.
+    #
+    # So the test is on the outcome rather than on the distribution: if
+    # raising the threshold above the floor costs more than three quarters of
+    # the boundaries, the derivation overshot and the floor is the better
+    # answer. On unedited footage both counts are zero and nothing fires,
+    # which is the case this whole function exists to protect.
+    plain = crossings(FLOOR)
+    # Dense enough to be a montage at all. A ratio test on its own fires on a
+    # continuous take that happens to produce one floor crossing from a camera
+    # move — 0 is less than a quarter of 1 — and reports a cut in footage with
+    # none in it, which is the mistake in the opposite direction and the more
+    # damaging of the two. Eight boundaries and at least one a second is the
+    # bar; the reels this was written for clear it by a factor of two.
+    span = len(score) / fps
+    montage = len(plain) >= 8 and span > 0 and len(plain) / span >= 1.0
+    if montage and len(boundaries) < 0.25 * len(plain):
+        log.debug(
+            "shot threshold overshot (%d cuts against %d at the floor), using the floor",
+            len(boundaries),
+            len(plain),
+        )
+        boundaries = plain
     return boundaries
 
 

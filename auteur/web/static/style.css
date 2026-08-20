@@ -47,6 +47,16 @@ body {
     calc(var(--safe-left) + 18px);
 }
 
+/* `hidden` has to beat the class on the same element.
+ *
+ * The attribute's own rule is `display: none` at the user-agent level, which
+ * any class with a `display` in it silently outranks. Measured on the sign-in
+ * screen: `#to-signup` carried `hidden`, `.ghost` set `display: block`, and
+ * every visitor to an already-claimed app was shown a 96px button reading
+ * "Nobody has claimed this yet — make my account" that led to a form which
+ * could only fail. The narrow `.screen[hidden]` rule below was the same bug
+ * found once and patched where it was found. */
+[hidden] { display: none !important; }
 .screen[hidden] { display: none; }
 
 /* -- masthead ------------------------------------------------------------ */
@@ -443,4 +453,18 @@ input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   font-size: 0.82rem;
   margin-top: 0.15rem;
   line-height: 1.4;
+}
+
+
+/* The decade picker. Six options do not fit across a 390px phone in one row
+   the way three shapes do, and letting them squeeze produces six unreadable
+   slivers — so it wraps into a grid of three. */
+.choices.decades {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.choices.decades .choice {
+  flex: none;
+  min-height: 56px;
 }

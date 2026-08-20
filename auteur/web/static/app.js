@@ -17,8 +17,8 @@
 
   // `seconds: ""` means "no length given" — the prompt decides. Anything else
   // is an explicit override the person tapped.
-  var state = { jobId: null, timer: null, shape: "reel", seconds: "", videoUrl: null,
-               lastStage: "", lastPercent: -1 };
+  var state = { jobId: null, timer: null, shape: "reel", seconds: "", era: "",
+               template: "", videoUrl: null, lastStage: "", lastPercent: -1 };
 
   function show(name) {
     Object.keys(screens).forEach(function (key) {
@@ -43,6 +43,32 @@
 
   wireChoices($("shape"), function (value) { state.shape = value; });
   wireChoices($("seconds"), function (value) { state.seconds = value; });
+  wireChoices($("era"), function (value) { state.era = value; });
+
+  /* The template lives on its own tab now.
+   *
+   * Nineteen chips on this screen was a wall you had to scroll past to reach
+   * the button that makes the film, and every chip said roughly the same
+   * thing. The tab writes the choice to `auteur-template`; this reads it, the
+   * same one-setting-two-readers arrangement the animation tab uses. */
+  try { state.template = localStorage.getItem("auteur-template") || ""; } catch (e) {}
+
+  (function () {
+    var note = $("template-link-note");
+    if (!note || !state.template) { return; }
+    fetch("/api/templates", { credentials: "same-origin" })
+      .then(function (r) { return r.json(); })
+      .then(function (said) {
+        var all = (said && said.templates) || [];
+        for (var i = 0; i < all.length; i++) {
+          if (all[i].id === state.template) {
+            note.textContent = "Cutting to " + all[i].label + " · " + all[i].note;
+            return;
+          }
+        }
+      })
+      .catch(function () { /* the link still works */ });
+  })();
 
   // -- who is signed in -----------------------------------------------------
 
@@ -117,6 +143,12 @@
     form.append("prompt", prompt);
     form.append("shape", state.shape);
     form.append("seconds", state.seconds);
+    /* Sent even when empty, so the server always knows the answer rather than
+       inferring it from the prompt when the field happens to be missing. A
+       control that sets a variable nobody transmits is a control that does
+       nothing, which is worse than not offering one. */
+    form.append("era", state.era);
+    form.append("template", state.template);
     for (var i = 0; i < clips.files.length; i++) {
       form.append("clips", clips.files[i], clips.files[i].name);
     }

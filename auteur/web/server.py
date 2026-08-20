@@ -19,6 +19,7 @@ import logging
 import mimetypes
 import os
 import shutil
+import tempfile
 import socket
 import sys
 import threading
@@ -109,6 +110,11 @@ class Job:
     error: str = ""
     video: Path | None = None
     facts: list[str] = field(default_factory=list)
+    #: What it understood from the words, said back. The page has had a
+    #: panel for this the whole time and the server never filled it, so a
+    #: prompt whose effect you cannot see was indistinguishable from one
+    #: that was ignored — which is exactly what people reported.
+    heard: str = ""
     notes: Path | None = None
     created: float = field(default_factory=time.time)
     thread: threading.Thread | None = None
@@ -123,6 +129,7 @@ class Job:
             "lines": self.lines[-40:],
             "error": self.error,
             "facts": self.facts,
+            "heard": self.heard,
             "video": f"/api/jobs/{self.id}/video" if self.video else None,
             "notes": f"/api/jobs/{self.id}/notes" if self.notes else None,
         }
@@ -195,13 +202,23 @@ class Studio:
         #: the agents argue about a cut that already exists, not about a prompt.
         self.recent_edls: dict[str, Any] = {}
 
-    def create(self, prompt: str, shape: str, seconds: float | None, owner: str = "") -> Job:
+    def create(
+        self,
+        prompt: str,
+        shape: str,
+        seconds: float | None,
+        owner: str = "",
+        template: str = "",
+        era: str = "",
+    ) -> Job:
         self.sweep()
         job_id = uuid.uuid4().hex[:12]
         folder = self.workspace / job_id
         (folder / "clips").mkdir(parents=True, exist_ok=True)
         job = Job(id=job_id, prompt=prompt, folder=folder, owner=owner)
-        job.thread = threading.Thread(target=self._run, args=(job, shape, seconds), daemon=True)
+        job.thread = threading.Thread(
+            target=self._run, args=(job, shape, seconds, template, era), daemon=True
+        )
         with self.lock:
             self.jobs[job_id] = job
         return job
@@ -237,7 +254,14 @@ class Studio:
             edl = self.recent_edls.get(owner or "")
         return copy.deepcopy(edl) if edl is not None else None
 
-    def _run(self, job: Job, shape: str, seconds: float | None) -> None:
+    def _run(
+        self,
+        job: Job,
+        shape: str,
+        seconds: float | None,
+        template: str = "",
+        era: str = "",
+    ) -> None:
         from ..agent import direct
 
         with self.queue_lock:
@@ -253,6 +277,32 @@ class Studio:
                     revision_rounds=1,
                 )
                 reporter = WebReporter(job, self.lock)
+
+                # A chosen reel's timeline, imposed after the edit is planned
+                # and before a frame is rendered. `on_plan` is documented as
+                # the last honest place to intervene and this is exactly that
+                # kind of intervention: the director still decides which
+                # picture goes where, the reference decides when to cut.
+                beats: list = []
+                if template:
+                    for entry in _templates():
+                        if entry.get("id") == template:
+                            beats = entry.get("beats") or []
+                            break
+
+                wanted_look = ERA_LOOKS.get(era, "")
+
+                def on_plan(edl, _beats=beats, _seconds=seconds, _look=wanted_look):
+                    if _beats:
+                        _fit_to_template(edl, _beats, _seconds)
+                    if _look:
+                        # The whole film, not a shot here and there: a decade
+                        # is the film's stock, and half a reel shot on Kodak
+                        # is a continuity error rather than a style.
+                        for shot in edl.shots:
+                            shot.look.preset = _look
+                            shot.look.strength = 1.0
+
                 production = direct(
                     [job.folder / "clips"],
                     job.prompt,
@@ -261,6 +311,7 @@ class Studio:
                     formats=(fmt,),
                     duration=seconds,
                     reporter=reporter,
+                    on_plan=on_plan,
                 )
 
                 critique = production.final_critique
@@ -272,11 +323,24 @@ class Studio:
                 if critique is not None:
                     facts.append(f"it rates itself {critique.score:.0%}")
 
+                # Said back in the person's own terms. Built from the edit that
+                # was actually made rather than from the prompt, so it reports
+                # what happened rather than what was asked for — the two differ
+                # whenever a word was not understood, and that difference is
+                # the only thing worth showing.
+                heard = _said_back(
+                    production.edl,
+                    prompt=job.prompt,
+                    template=template,
+                    shape=fmt,
+                )
+
                 with self.lock:
                     self.recent_edls[job.owner] = production.edl
                     job.video = production.primary
                     job.notes = production.workspace.root / "production-notes.md"
                     job.facts = facts
+                    job.heard = heard
                     job.status = "done"
                     job.stage = "Your film is ready"
                     job.percent = 100.0
@@ -822,6 +886,9 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/studio", "/studio.html"):
             self._static(STATIC / "studio.html", "text/html; charset=utf-8")
             return
+        if path in ("/templates", "/templates.html"):
+            self._static(STATIC / "templates.html", "text/html; charset=utf-8")
+            return
         if path == "/api/platforms":
             self._json({"platforms": self._platforms()})
             return
@@ -837,6 +904,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/overlays":
             self._json(self._overlay_rules())
+            return
+        if path == "/api/templates":
+            self._json({"templates": _templates() + self._my_templates()})
             return
         if path == "/api/connections":
             self._json(self._connection_state())
@@ -1217,11 +1287,120 @@ class Handler(BaseHTTPRequestHandler):
             }
         )
 
+    def _read_upload(self) -> tuple[list[tuple[str, bytes]], dict[str, str]]:
+        """The posted multipart body, as (files, fields).
+
+        Read in blocks: a phone posting a minute of 4K over wifi is a long,
+        interruptible transfer, and one giant read() hides that it stalled.
+        Raises on anything malformed; every caller turns that into a 400.
+        """
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0:
+            raise ValueError("nothing was sent")
+        if length > MAX_UPLOAD:
+            raise MemoryError("larger than MAX_UPLOAD")
+        chunks: list[bytes] = []
+        remaining = length
+        while remaining > 0:
+            block = self.rfile.read(min(CHUNK, remaining))
+            if not block:
+                raise ValueError("the upload stopped part way")
+            chunks.append(block)
+            remaining -= len(block)
+        fields, files = _parse_multipart(b"".join(chunks), self.headers.get("Content-Type", ""))
+        return files, fields
+
+    # ------------------------------------------------------------ templates
+
+    def _my_templates(self) -> list[dict]:
+        """The reels this person has added, newest first."""
+        who = self.current_user() or ""
+        if not who:
+            return []
+        store = self.studio.workspace / "templates" / f"{_safe_name(who)}.json"
+        if not store.exists():
+            return []
+        try:
+            mine = json.loads(store.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001 - a corrupt file is not a crash
+            log.warning("could not read %s's templates: %s", _for_log(who), exc)
+            return []
+        for entry in mine:
+            entry["mine"] = True
+        return list(reversed(mine))
+
+    def _read_a_reel(self) -> None:
+        """Watch an uploaded reel, write down its timing, and throw the reel away.
+
+        The footage is measured and deleted. What is kept is where the cuts
+        fall, which is the only part anybody cuts to — and it means the app
+        never becomes a place other people's video is stored, which is a
+        promise worth being able to make.
+        """
+        who = self.current_user()
+        if not who:
+            self._json({"error": "Please sign in."}, 401)
+            return
+        try:
+            files, _fields = self._read_upload()
+        except Exception:  # noqa: BLE001 - a malformed post is the client's problem
+            self._json({"error": "I could not read that upload."}, 400)
+            return
+        if not files:
+            self._json({"error": "Pick a reel first."}, 400)
+            return
+
+        from ..insight.template import read as read_template
+
+        name, payload = files[0]
+        safe = "".join(ch for ch in Path(name).name if ch.isalnum() or ch in "._- ")[-80:]
+        holding = Path(tempfile.mkdtemp(prefix="auteur-reel-"))
+        reel = holding / (safe or "reel.mp4")
+        try:
+            reel.write_bytes(payload)
+            measured = read_template(reel, name=Path(safe).stem[:24] or "your reel")
+            if measured is None:
+                self._json({"error": "That file did not open as video."}, 400)
+                return
+            if measured.shots < LEAST_TEMPLATE_SHOTS or measured.seconds < LEAST_TEMPLATE_SECONDS:
+                self._json(
+                    {
+                        "error": (
+                            f"That reel is {measured.seconds:.0f}s with "
+                            f"{measured.shots} cut(s) in it. A template needs at least "
+                            f"{LEAST_TEMPLATE_SHOTS} cuts to be worth copying."
+                        )
+                    },
+                    400,
+                )
+                return
+            entry = _template_json(measured)
+        finally:
+            # Always, including when the measurement raised.
+            shutil.rmtree(holding, ignore_errors=True)
+
+        store = self.studio.workspace / "templates" / f"{_safe_name(who)}.json"
+        store.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            mine = json.loads(store.read_text(encoding="utf-8")) if store.exists() else []
+        except Exception:  # noqa: BLE001
+            mine = []
+        # One template per reel, however many times it is uploaded.
+        mine = [e for e in mine if e.get("id") != entry["id"]]
+        mine.append(entry)
+        store.write_text(json.dumps(mine[-40:], indent=1), encoding="utf-8")
+        log.info("read a reel for %s: %s", _for_log(who), _for_log(entry["label"]))
+        entry["mine"] = True
+        self._json({"template": entry}, 201)
+
     def do_POST(self) -> None:  # noqa: N802 - stdlib naming
         path = self.path.split("?", 1)[0]
 
         if path == "/api/signup":
             self._sign_up()
+            return
+        if path == "/api/templates":
+            self._read_a_reel()
             return
         if path == "/api/connections/link":
             self._link_account()
@@ -1264,29 +1443,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "not found"}, 404)
             return
 
-        length = int(self.headers.get("Content-Length") or 0)
-        if length <= 0:
-            self._json({"error": "Nothing was sent."}, 400)
-            return
-        if length > MAX_UPLOAD:
+        try:
+            files, fields = self._read_upload()
+        except MemoryError:
             self._json({"error": "That is more footage than this can take at once."}, 413)
             return
-
-        # Read in blocks: a phone posting a minute of 4K over wifi is a long,
-        # interruptible transfer, and one giant read() hides that it stalled.
-        chunks: list[bytes] = []
-        remaining = length
-        while remaining > 0:
-            block = self.rfile.read(min(CHUNK, remaining))
-            if not block:
-                self._json({"error": "The upload stopped part way."}, 400)
-                return
-            chunks.append(block)
-            remaining -= len(block)
-        body = b"".join(chunks)
-
-        try:
-            fields, files = _parse_multipart(body, self.headers.get("Content-Type", ""))
         except Exception:  # noqa: BLE001 - a malformed post is the client's problem
             self._json({"error": "I could not read that upload."}, 400)
             return
@@ -1307,7 +1468,12 @@ class Handler(BaseHTTPRequestHandler):
             seconds = None
 
         job = self.studio.create(
-            prompt, fields.get("shape", "reel"), seconds, owner=self.current_user() or ""
+            prompt,
+            fields.get("shape", "reel"),
+            seconds,
+            owner=self.current_user() or "",
+            template=fields.get("template", "").strip(),
+            era=fields.get("era", "").strip(),
         )
         clips = job.folder / "clips"
         for index, (filename, payload) in enumerate(files):
@@ -1317,6 +1483,18 @@ class Handler(BaseHTTPRequestHandler):
 
         self.studio.start(job)
         self._json(job.snapshot(), 202)
+
+
+#: What each decade is called in words, for folding a picked era back into the
+#: prompt. Keys match the values the front end sends.
+ERA_WORDS = {
+    "seventies": "1970s super 8",
+    "eighties": "1980s VHS",
+    "nineties": "1990s film",
+    "y2k": "2000s digital",
+    "tens": "2010s faded",
+    "now": "2020s clean digital",
+}
 
 
 class Server(ThreadingHTTPServer):
@@ -1355,6 +1533,209 @@ def local_address() -> str:
         return "127.0.0.1"
     finally:
         probe.close()
+
+
+#: The measured timelines of the reference reels, read once and kept.
+#:
+#: The markup for the template card has shipped in `index.html` for a while and
+#: nothing ever filled it: `window.auteurTemplates` is injected by the artifact
+#: builder, so the published page had templates and the app people actually run
+#: had a card that stayed hidden forever. Dead markup is worse than no markup —
+#: it looks like a feature in the source and is not one on the screen.
+_TEMPLATES: list[dict] | None = None
+
+
+def _templates() -> list[dict]:
+    global _TEMPLATES
+    if _TEMPLATES is None:
+        source = (
+            Path(__file__).resolve().parent.parent.parent
+            / "tools"
+            / "artifact"
+            / ("templates.json")
+        )
+        try:
+            _TEMPLATES = json.loads(source.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001 - a missing file is not a crash
+            log.warning("no reel templates to offer: %s", exc)
+            _TEMPLATES = []
+    return _TEMPLATES
+
+
+#: The least a reel can be and still be worth copying. Under this there is not
+#: enough timeline to cut anything else to — it is a cadence, not a shape.
+LEAST_TEMPLATE_SHOTS = 8
+LEAST_TEMPLATE_SECONDS = 4.0
+
+
+def _for_log(text: str, limit: int = 64) -> str:
+    """A value from a page, made safe to put in a log line.
+
+    Same containment as `auteur.publish.connections`: a username or a filename
+    carrying a newline writes a second record that looks exactly like a real
+    one, which is a way to hide something in a log under convincing forgeries.
+    """
+    clean = "".join(ch for ch in str(text) if ch.isprintable())
+    return repr(clean[:limit])
+
+
+def _safe_name(who: str) -> str:
+    """A filename from a username. Never a path, never empty."""
+    kept = "".join(ch for ch in who if ch.isalnum() or ch in "-_")[:64]
+    return kept or "someone"
+
+
+def _template_json(template) -> dict:
+    """A measured reel, in the shape the page reads.
+
+    Beats are flat arrays rather than objects: fifty shots times six named
+    fields is most of the file size and none of the information, and the page
+    reads them back by position. Same shape `make_templates.py` writes, because
+    a template a person uploaded and one that shipped have to be the same kind
+    of thing.
+    """
+    hold = template.shot_seconds
+    if hold <= 0.14:
+        name = "Razor"
+    elif hold <= 0.20:
+        name = "Hypercut"
+    elif hold <= 0.40:
+        name = "Quick"
+    else:
+        name = "Held"
+    # A camera roll hands over names like `7b74c759-766cb232d76f4810`, which is
+    # not a name. When the stem is mostly hex and has no words in it, the
+    # character and the shot count say more than the filename does.
+    given = (template.name or "").strip()
+    hexish = sum(ch in "0123456789abcdefABCDEF-" for ch in given)
+    if not given or (len(given) > 8 and hexish / len(given) > 0.85):
+        title = f"{name} · your reel"
+    else:
+        title = f"{name} · {given}"
+
+    return {
+        "id": template.fingerprint[:10],
+        "label": title[:40],
+        "note": f"{template.shots} shots · {hold:.2f}s each",
+        "seconds": round(template.seconds, 3),
+        "shots": template.shots,
+        "hold": round(hold, 4),
+        "beats": [
+            [
+                round(b.duration, 4),
+                round(b.luma, 3),
+                round(b.contrast, 3),
+                round(b.saturation, 3),
+                round(b.warmth, 3),
+                round(b.motion, 3),
+            ]
+            for b in template.beats
+        ],
+    }
+
+
+def _fit_to_template(edl, beats: list, seconds: float | None) -> None:
+    """Give a planned edit the rhythm of a reference reel.
+
+    A template is where a reel's cuts actually fall, so imposing one means
+    replacing the planned shot *lengths* with the reference's, and repeating
+    the planned shots until the runtime is full. Keeping the director's shot
+    count and only stretching each one would keep the film's length and lose
+    the thing being copied; a reel cut at 0.125s has five times the shots of
+    one cut at 0.6s, and that difference is the template.
+
+    Which pictures go where stays the director's decision. This changes when
+    the cuts land, not what is on either side of them.
+    """
+    import copy
+
+    from ..edl import Transition
+
+    holds = [float(b[0]) for b in beats if b and float(b[0]) > 0.02]
+    if not holds or not edl.shots:
+        return
+    target = seconds or edl.duration or sum(holds)
+
+    wanted: list[float] = []
+    at = 0.0
+    while at < target and len(wanted) < 600:
+        hold = holds[len(wanted) % len(holds)]
+        wanted.append(hold)
+        at += hold
+    if not wanted:
+        return
+
+    out = []
+    for index, hold in enumerate(wanted):
+        base = edl.shots[index % len(edl.shots)]
+        shot = copy.deepcopy(base)
+        # A still can be held for any length. A clip cannot be extended past
+        # the footage the director chose without running into frames nobody
+        # looked at, so it is only ever shortened.
+        span = base.end - base.start
+        shot.end = shot.start + (hold if base.is_still else min(hold, span))
+        # Every shot after the first inherits its neighbour's join; the first
+        # one opens the film and cannot dissolve from anything.
+        if index == 0:
+            shot.transition_in = Transition()
+        out.append(shot)
+    edl.shots = out
+
+
+#: What the decade chooser sends, and the look preset it means.
+#:
+#: The chooser has been on the first screen sending a value nobody read: the
+#: server never looked at the field and the director has no notion of a decade,
+#: so picking 90s changed nothing about the film. A control that sets a
+#: variable nobody transmits does nothing, which is worse than not offering
+#: one — the same rule the length control is already held to.
+ERA_LOOKS = {
+    "seventies": "1970s",
+    "eighties": "1980s",
+    "nineties": "1990s",
+    "y2k": "2000s",
+    "tens": "2010s",
+    "now": "2020s",
+}
+
+
+def _said_back(edl, *, prompt: str, template: str, shape) -> str:  # noqa: ARG001
+    """One sentence describing the edit that was made.
+
+    A prompt whose effect you cannot see is indistinguishable from a prompt
+    that was ignored, which is what people reported about this app. The page
+    has had a panel for this the whole time; the server simply never sent
+    anything to put in it.
+    """
+    import re
+
+    shots = len(edl.shots)
+    if not shots:
+        return ""
+    holds = sorted(shot.duration for shot in edl.shots)
+    median = holds[len(holds) // 2]
+    joins = {}
+    for shot in edl.shots[1:]:
+        kind = "cut" if shot.transition_in.is_cut else shot.transition_in.kind
+        joins[kind] = joins.get(kind, 0) + 1
+    looks = {shot.look.preset for shot in edl.shots if shot.look.preset}
+
+    parts = [
+        f"{shots} shots over {edl.duration:.0f} seconds, a median {median:.2f}s each",
+    ]
+    if looks:
+        parts.append("graded " + ", ".join(sorted(looks)))
+    if template:
+        parts.append("cut to a reference reel's timeline")
+    if joins:
+        best = sorted(joins.items(), key=lambda kv: -kv[1])[:3]
+        parts.append("joins: " + ", ".join(f"{n} {kind}" for kind, n in best))
+    quoted = re.findall(
+        r'["\u201c\u2018\']([^"\u201c\u201d\u2018\u2019\']{1,48})["\u201d\u2019\']', prompt
+    )
+    if quoted:
+        parts.append("on screen: " + ", ".join(f"\u201c{q}\u201d" for q in quoted[:4]))
+    return "It made " + "; ".join(parts) + "."
 
 
 def serve(

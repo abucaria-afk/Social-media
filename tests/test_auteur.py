@@ -49,7 +49,9 @@ from auteur.edl import (
     TextCue,
     Transition,
 )
+from auteur.agents import GazeAgent
 from auteur.ingest import ingest, probe_asset
+from auteur.insight import FitReport, Prediction
 
 # ---------------------------------------------------------------------------
 # Fixtures — synthesised, so the suite carries no media
@@ -197,6 +199,142 @@ def test_dossier_finds_usable_takes(rushes):
 
 def _shot(clip="C01", start=0.0, end=2.0, **kwargs) -> Shot:
     return Shot(clip_id=clip, source=Path("/dev/null"), start=start, end=end, **kwargs)
+
+
+def _monotone_edl(count: int = 12) -> EditDecisionList:
+    """A timeline that has stopped making decisions.
+
+    Every shot the same length, the same move and the same join — which is
+    precisely what the browser renderer produced before it had a transition
+    vocabulary, and precisely what the Gaze agent used to score as flawless.
+    """
+    return EditDecisionList(
+        shots=[
+            _shot(
+                clip=f"C{i:02d}",
+                end=1.0,
+                motion=Motion(kind="ken-burns", intensity=0.35),
+                transition_in=Transition("cut", 0.0),
+            )
+            for i in range(count)
+        ]
+    )
+
+
+def _gaze_notes(edl: EditDecisionList) -> list[str]:
+    return [
+        p.title
+        for p in GazeAgent().inspect(
+            edl,
+            Prediction(hook=0.5, share=0.5, loop=0.5),
+            FitReport(rows=0, simulated_rows=0, measured_rows=0),
+        )
+    ]
+
+
+def test_the_gaze_agent_calls_out_a_film_that_only_made_one_decision():
+    """The failure it was built unable to see.
+
+    Its five original proposals all reduced variance, so a film where every
+    shot is graded, framed and moved identically was its perfect score — the
+    agent responsible for taste was the one enforcing the monotony.
+    """
+    notes = _gaze_notes(_monotone_edl())
+    assert "Give the cut more than one kind of join" in notes
+    assert "Stop every shot moving the same way" in notes
+    assert "Let the rhythm breathe" in notes
+
+
+def test_the_gaze_agent_does_not_flatten_a_film_that_is_already_flat():
+    """Homogenising a collapsed timeline is the exact wrong move.
+
+    The grades here are deliberately far enough apart that the old
+    thresholds — 0.25 exposure, 0.30 temperature, 0.35 contrast — would every
+    one of them have fired. The cut is still one join, one move and one shot
+    length, so pulling the colour spread in as well would take away the last
+    thing distinguishing one shot from the next. That is how an agent makes
+    the fault it was asked to fix worse.
+    """
+    edl = _monotone_edl(12)
+    for i, shot in enumerate(edl.shots):
+        swing = 0.9 if i % 2 else -0.9
+        shot.look = Look(exposure=swing, temperature=swing, contrast=swing * 0.5)
+    notes = _gaze_notes(edl)
+    for reducing in (
+        "Match exposure across the cut",
+        "Unify colour temperature",
+        "Even out the contrast across shots",
+    ):
+        assert reducing not in notes
+    # It still says the real thing about the same timeline.
+    assert "Give the cut more than one kind of join" in notes
+
+
+def test_the_gaze_agent_still_matches_exposure_on_a_cut_that_is_otherwise_varied():
+    """The homogenisers are gated, not deleted.
+
+    Mixed daylight and tungsten across a real edit is still a fault, and
+    suppressing the proposal everywhere would trade one blindness for
+    another.
+    """
+    joins = ["cut", "dissolve", "whip-left", "cut", "glitch", "cut", "light-leak", "cut"]
+    moves = ["none", "punch-in", "none", "drift-left", "none", "pull-out", "float", "none"]
+    lengths = [0.4, 0.4, 1.1, 0.3, 0.8, 0.5, 1.4, 0.6]
+    edl = EditDecisionList(
+        shots=[
+            _shot(
+                clip=f"C{i:02d}",
+                end=lengths[i],
+                look=Look(exposure=0.9 if i % 2 else -0.9),
+                motion=Motion(kind=moves[i], intensity=0.3),
+                transition_in=Transition(joins[i], 0.0 if joins[i] == "cut" else 0.25),
+            )
+            for i in range(len(joins))
+        ]
+    )
+    assert "Match exposure across the cut" in _gaze_notes(edl)
+
+
+def test_the_gaze_agent_leaves_a_varied_cut_alone():
+    """Variety is not a fault. It must not propose evening out a real edit."""
+    joins = ["cut", "dissolve", "whip-left", "cut", "glitch", "cut", "light-leak"]
+    moves = ["none", "punch-in", "none", "drift-left", "none", "pull-out", "float"]
+    lengths = [0.4, 0.4, 1.1, 0.3, 0.8, 0.5, 1.4]
+    edl = EditDecisionList(
+        shots=[
+            _shot(
+                clip=f"C{i:02d}",
+                end=lengths[i],
+                motion=Motion(kind=moves[i], intensity=0.3),
+                transition_in=Transition(joins[i], 0.0 if joins[i] == "cut" else 0.25),
+            )
+            for i in range(len(joins))
+        ]
+    )
+    notes = _gaze_notes(edl)
+    assert "Give the cut more than one kind of join" not in notes
+    assert "Stop every shot moving the same way" not in notes
+    assert "Let the rhythm breathe" not in notes
+
+
+def test_varying_the_joins_leaves_most_of_them_hard_cuts():
+    """A reel that transitions every join is mush.
+
+    The proposal exists to break a run, not to decorate every edit — the
+    measured reference reels hard-cut the large majority of theirs, and what
+    makes them read as rich is that the remainder is varied.
+    """
+    edl = _monotone_edl(20)
+    proposals = GazeAgent().inspect(
+        edl,
+        Prediction(hook=0.5, share=0.5, loop=0.5),
+        FitReport(rows=0, simulated_rows=0, measured_rows=0),
+    )
+    change = next(p for p in proposals if p.title.startswith("Give the cut"))
+    change.change(edl)
+    joins = [shot.transition_in.kind for shot in edl.shots[1:]]
+    assert joins.count("cut") > len(joins) * 0.6
+    assert len(set(joins)) >= 3
 
 
 def test_screen_time_follows_speed():
@@ -7039,3 +7177,210 @@ def test_a_handoff_link_is_linked_even_without_a_token(tmp_path):
     # that nothing had happened.
     assert row["connected"] is True
     assert row["can_publish"] is False
+
+
+def test_choosing_a_reel_template_gives_the_edit_that_reels_rhythm():
+    """A template is where the cuts fall, so it has to change the shot count.
+
+    Keeping the planned shots and only stretching each one would preserve the
+    film's length and lose the thing being copied — a reel cut at 0.125s has
+    five times the shots of one cut at 0.6s, and that difference *is* the
+    template.
+    """
+    from auteur.edl import EditDecisionList, Shot
+    from auteur.web.server import _fit_to_template
+
+    planned = EditDecisionList(
+        shots=[
+            Shot(clip_id=f"c{n}", source=Path(f"/tmp/{n}.jpg"), start=0.0, end=0.6, is_still=True)
+            for n in range(4)
+        ]
+    )
+    assert len(planned.shots) == 4
+
+    # A hypercut's beats: [duration, luma, contrast, saturation, warmth, motion]
+    beats = [[0.125, 0.5, 0.2, 0.3, 0.0, 0.1] for _ in range(8)]
+    _fit_to_template(planned, beats, seconds=6.0)
+
+    assert len(planned.shots) == 48, "six seconds at 0.125s is forty-eight shots"
+    assert all(abs(shot.duration - 0.125) < 1e-6 for shot in planned.shots)
+    # The pictures are the director's, reused in order rather than invented.
+    assert [s.clip_id for s in planned.shots[:5]] == ["c0", "c1", "c2", "c3", "c0"]
+    # Nothing dissolves into the first frame of the film.
+    assert planned.shots[0].transition_in.is_cut
+
+
+def test_a_template_never_extends_a_clip_past_the_footage_the_director_chose():
+    """A still can be held for any length. A clip cannot.
+
+    Stretching a two-second selection to four seconds runs the render into
+    frames nobody looked at, which is how a template turns into a bug report
+    about footage that should not be in the film.
+    """
+    from auteur.edl import EditDecisionList, Shot
+    from auteur.web.server import _fit_to_template
+
+    planned = EditDecisionList(
+        shots=[Shot(clip_id="clip", source=Path("/tmp/a.mp4"), start=2.0, end=2.4)]
+    )
+    _fit_to_template(planned, [[3.0, 0.5, 0.2, 0.3, 0.0, 0.1]], seconds=3.0)
+
+    assert planned.shots, "the template produced no shots at all"
+    for shot in planned.shots:
+        assert shot.end <= 2.4 + 1e-6, "a clip was extended past its selection"
+
+
+def test_a_decade_in_the_prompt_is_not_a_runtime():
+    """`90s` is the nineties. Read as ninety seconds it wrecks the whole film.
+
+    Measured before the fix: "a 90s hypercut, 12 seconds" planned 324 shots
+    across 90 seconds — the bare-`s` branch matched `90s` first and never
+    reached the words the person actually wrote. The film then took so long to
+    render that it never finished, from a prompt asking for twelve seconds.
+    """
+    from auteur.director.brief import _extract_duration
+
+    assert _extract_duration('a 90s hypercut, "SUMMER", 12 seconds') == 12.0
+    assert _extract_duration("80s vhs montage, 15 seconds") == 15.0
+    assert _extract_duration("a 70s super 8 film 20 seconds") == 20.0
+    assert _extract_duration("2010s look, 8 seconds") == 8.0
+
+    # A decade on its own is a look, not a length.
+    assert _extract_duration("make it 90s") is None
+    assert _extract_duration("1980s energy") is None
+
+    # And the ordinary forms still work.
+    assert _extract_duration("fast montage, 12 seconds") == 12.0
+    assert _extract_duration("15s punchy") == 15.0
+    assert _extract_duration("half a minute") == 30.0
+
+
+def test_picking_a_decade_grades_the_whole_film_to_it():
+    """The chooser sent a value nobody read, so picking 90s changed nothing.
+
+    A decade is the film's stock. Applying it to some shots and not others is
+    a continuity error rather than a style, so it goes on all of them.
+    """
+    from auteur.craft.color import LOOKS
+    from auteur.web.server import ERA_LOOKS
+
+    # Every value the chooser can send names a look that actually exists.
+    for sent, preset in ERA_LOOKS.items():
+        assert preset in LOOKS, f"{sent} maps to {preset}, which is not a look"
+
+    # And the front end's options are all covered, so none of them is dead.
+    markup = Path("auteur/web/static/index.html").read_text(encoding="utf-8")
+    import re
+
+    block = re.search(r'id="era".*?</div>', markup, re.S)
+    assert block, "the decade chooser is gone from the markup"
+    offered = set(re.findall(r'data-value="([^"]*)"', block.group(0))) - {""}
+    assert offered <= set(
+        ERA_LOOKS
+    ), f"the page offers {offered - set(ERA_LOOKS)}, which is unwired"
+
+
+def test_the_scholar_names_what_it_measures_not_just_the_files(tmp_path):
+    """Per-film learnings describe moments; none of them describes the form.
+
+    The store held twenty-three measured timelines and could not answer "how
+    fast do the reels cut?", because every learning was about one reel and the
+    word "hypercut" appeared in none of them — while the app offered a Hypercut
+    chip on its first screen.
+    """
+    from auteur.scholar.knowledge import Confidence, Discipline, KnowledgeStore, Learning
+    from auteur.scholar.library import conclude
+
+    store = KnowledgeStore(tmp_path / "knowledge.jsonl")
+    for n in range(9):
+        store.add(
+            Learning(
+                learning_id=f"film-{n}",
+                disciplines=[Discipline.MOVIE_MAKING],
+                insight=f"reel-{n}.mp4 cuts fast",
+                technique="cutting rate",
+                application="hold the crew to this",
+                source_video_id=f"file:reel-{n}.mp4",
+                source_channel=f"film:{n:012d}",
+                source_title=f"reel-{n}.mp4",
+                source_end_sec=12.0 + n,
+                confidence=Confidence.TENTATIVE,
+                measurements={
+                    "shot_seconds": 0.167,
+                    "cuts_per_10s": 30.0,
+                    "first_cut": 0.2,
+                    "luma": 0.28,
+                    "motion": 0.03,
+                },
+            )
+        )
+
+    drawn = {learning.technique: learning for learning in conclude(store)}
+    assert drawn, "nine measured films produced no conclusion about the form"
+
+    named = " ".join(drawn).lower()
+    for word in ("hypercut", "hook", "pacing", "grading", "long"):
+        assert word in named, f"nothing the Scholar concluded is called {word!r}"
+
+    # Nine films agreeing is not a tentative guess. That is what the ladder is
+    # for, and per-film learnings can never climb it on their own.
+    fast = drawn["hypercut — how fast a fast cut is"]
+    assert fast.confidence is Confidence.VALIDATED
+    assert fast.measurements["shot_seconds"] == 0.167
+
+    # And the words are reachable: asking in plain English finds them.
+    for learning in drawn.values():
+        store.add(learning)
+    found = store.recall("how fast do the reels cut?", limit=1)
+    assert found, "the conclusion is in the store and cannot be recalled"
+    assert "hypercut" in found[0].technique
+
+
+def test_a_conclusion_about_the_shelf_is_not_dropped_as_a_repeat(tmp_path):
+    """The de-duplicator was throwing away the best answers it had.
+
+    Measured learnings arrive one per film, so a consensus is built and the
+    per-film copies are dropped as repeats of it. Conclusions drawn *across*
+    the shelf carry measurements too, and were being dropped by the same rule —
+    asked how fast the reels cut, the Scholar skipped its own validated
+    hypercut finding and answered with a note about runtime.
+    """
+    from auteur.scholar.knowledge import Confidence, Discipline, KnowledgeStore, Learning
+    from auteur.scholar.scholar import Scholar
+
+    store = KnowledgeStore(tmp_path / "knowledge.jsonl")
+    for n in range(6):
+        store.add(
+            Learning(
+                learning_id=f"one-film-{n}",
+                disciplines=[Discipline.MOVIE_MAKING],
+                insight=f"reel-{n}.mp4 cuts 30.0 times per ten seconds",
+                technique="cutting rate",
+                application="hold the crew to this",
+                source_video_id=f"file:reel-{n}.mp4",
+                source_channel=f"film:{n:012d}",
+                source_title=f"reel-{n}.mp4",
+                confidence=Confidence.TENTATIVE,
+                measurements={"cuts_per_10s": 30.0, "shot_seconds": 0.167},
+            )
+        )
+    store.add(
+        Learning(
+            learning_id="across-the-shelf",
+            disciplines=[Discipline.MOVIE_MAKING],
+            insight="Of 6 reels measured, all hold each shot 0.2s or less — a hypercut.",
+            technique="hypercut — how fast a fast cut is",
+            application="cut at the measured median",
+            source_video_id="across:the-shelf",
+            source_channel="across:the-shelf",
+            source_title="6 films measured",
+            confidence=Confidence.VALIDATED,
+            measurements={"shot_seconds": 0.167},
+        )
+    )
+
+    scholar = Scholar(store=store)
+    said = scholar.answer_from_study("how fast do the reels cut?", limit=3)
+    assert (
+        "hypercut" in said.lower()
+    ), "the conclusion drawn across every film was dropped as a repeat of itself"

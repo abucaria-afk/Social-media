@@ -792,6 +792,21 @@ class Scholar:
             session.videos_watched += 1
             session.learnings_extracted += kept
 
+        # And then say what the shelf as a whole shows.
+        #
+        # Every learning above describes one moment in one reel. None of them
+        # describes the form, so the store held twenty-three measured timelines
+        # and could not answer "how fast do the reels cut?" — the words a
+        # person uses were nowhere in it, and the app was offering a Hypercut
+        # chip while the Scholar had never written the word down. Generalising
+        # is arithmetic over measurements already taken, so it costs nothing
+        # and it is the step that turns filed observations into craft.
+        from .library import conclude
+
+        session.learnings_extracted += sum(
+            1 for learning in conclude(self._store) if self._store.add(learning)
+        )
+
         session.duration_sec = time.time() - started
         self._sessions.append(session)
         log.info(
@@ -909,8 +924,13 @@ class Scholar:
             if learning.technique in covered:
                 continue
             # A measured learning whose numbers are already in the consensus
-            # above would be that fact a second time, named after one file.
-            if measured and learning.measurements:
+            # above would be that fact a second time, named after one file —
+            # but only if it *is* about one file. A conclusion drawn across the
+            # whole shelf carries measurements too, and dropping those threw
+            # away the best answers the Scholar had: asked how fast the reels
+            # cut, it skipped the validated hypercut finding and replied with a
+            # note about runtime. Recall ranked it first; this discarded it.
+            if measured and learning.measurements and learning.source_channel.startswith("film:"):
                 continue
             covered.add(learning.technique)
             found.append(learning)

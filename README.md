@@ -8,9 +8,13 @@ Point it at a pile of unsorted clips, give it a sentence of direction, and it
 returns a finished, graded, beat-cut, sound-designed short film — from the
 command line, or from your phone.
 
-> An earlier README described a C++ Social Media Manager. That project is not in
-> this repository; what is here is the Python package **auteur** and a demo that
-> synthesises its own test footage.
+**Try it without installing anything:**
+<https://claude.ai/code/artifact/f399bd38-1934-4fff-a04d-d73b21af1ece>
+
+That link is the app's own front end with a browser renderer standing in for
+ffmpeg, so it cuts a real film from your own camera roll on your own phone.
+[VERSIONS.md](VERSIONS.md) says which build is behind the link, what changed in
+each one, and — just as importantly — what the published page cannot do.
 
 ---
 
@@ -58,6 +62,62 @@ gets made.
 
 See **[AUTEUR.md](AUTEUR.md)** for the full documentation: every command, how
 the edit is planned, what the critic measures, and the limitations.
+
+---
+
+## How it cuts
+
+A cut is a decision, and for a long time this program made the same one every
+time: every join in every film was a hard cut and every shot got the same slow
+zoom. Both are defensible once and neither is a choice when it happens on all
+of them.
+
+The reference reels say otherwise, measurably. They hold each frame almost
+perfectly still — a median frame-to-frame difference of 0.15 to 2.0 out of 255
+— and put their energy into the join, which spikes to 100-200. So there are
+now eight ways one picture becomes the next:
+
+| join | what it does |
+| --- | --- |
+| `cut` | nothing, and it stays the commonest — the loud moves mean nothing without it |
+| `portal` | an aperture opens in the outgoing frame over its own subject, and the next picture is behind it |
+| `carry` | a soft-edged patch of the outgoing subject stays on top of the incoming picture and drifts off |
+| `whip` | both frames thrown sideways with a smear, the incoming overshooting |
+| `push` | one slides out as the other slides in |
+| `luma` | the outgoing frame dissolves through its own highlights |
+| `slice` | horizontal bands of the two shear apart |
+| `flash` | a frame or two of blown white, or of the outgoing frame inverted |
+| `match` | the incoming shot starts at the outgoing framing and eases to its own |
+
+and seven things a shot can do while it is on screen — including **hold**,
+which does nothing at all and is the most common answer in the references.
+
+### The decades
+
+`--era 1990s`, or the decade chooser in the app. Real per-pixel work rather
+than a CSS filter string: tone curves, split toning, halation, grain, chroma
+bleed and scanlines, in six recipes from Super 8 to phone HDR. Affordable
+because a photograph is graded once — a clip pays per frame and gets the colour
+but not the texture, which is stated where it happens rather than quietly
+delivered as a different look.
+
+This mattered more than it sounds. Measured against the ungraded photograph,
+the look every unmatched prompt used to fall through to moved the picture by
+6.6 parts in 255, which is below the threshold where anybody would call it
+graded. `tools/artifact/check_grade.py` measures that rather than asserting it.
+
+### Templates
+
+Every reference reel is read shot by shot — where each cut falls across the
+whole runtime, and how bright and saturated it was at each one. Choosing one
+cuts *your* pictures to *its* timing rather than to an average of its speed,
+which matters because two reels with the same median hold can be a steady pulse
+and a burst-then-rest. The app draws that shape so you can tell them apart.
+
+`auteur template ./a-reel.mp4 ./my-photos` from the command line; a tab of
+their own in the app, where you can also hand it a reel of your own. An
+uploaded reel is measured and then deleted — what is kept is where the cuts
+fall, which is the only part anybody cuts to.
 
 ---
 
@@ -148,9 +208,23 @@ hands it to the crew. A technique arrives *tentative*, reaches *supported* when
 an unrelated channel teaches the same thing, and *validated* only once advice
 derived from it was applied to a real edit and the prediction moved.
 
-`auteur serve` studies in the background while the app is up. Needs
-`pip install auteur[scholar]`; without it, it says so rather than reporting an
-empty success.
+It also reads reels directly, and then says what the shelf as a whole shows.
+That second step is the one that matters: per-film learnings describe a moment
+inside one reel — *this one holds 0.08s before its first cut* — and none of
+them describes the form. With a hundred and twenty of those filed it still
+could not answer "how fast do the reels cut?", because the word *hypercut*
+appeared in none of them. It now generalises over its own measurements and
+writes the result down in the words people type: hypercut, the hook, pacing,
+grading, holding still, how long a reel runs. Twenty-three reels agreeing makes
+those *validated* where each source alone was tentative.
+
+Ask it from the phone at **/ask**. Every answer carries where it came from and
+how many films stand behind it, and when nothing it has studied touches the
+question it says so rather than returning the nearest paragraph.
+
+`auteur serve` studies in the background while the app is up. Studying from
+YouTube needs `pip install auteur[scholar]`; without it, it says so rather than
+reporting an empty success.
 
 ### Overlays and stickers
 
@@ -187,10 +261,37 @@ auteur/            the package
   insight/         performance schemas, the loader, the simulator, the scorer
   agents/          the crew, the shared builder, the ledger, the approval gate
   scholar/         the study agent: what it watches, keeps, and teaches
+  publish/         linking an account, and what that does and does not mean
+  gallery/         public-domain footage: search, curate, fetch
   training/        a generator for practice data with knowable ground truth
   web/             the phone app: stdlib-only server and static front end
   theme.py         the one palette, read by the app, the icons and the terminal
+tools/artifact/    the published page, and the checks that measure it
 demo/              make_footage.py — synthetic clips for a first run
 tests/             test_auteur.py (pytest) and fuzz.py (property campaign)
 .github/workflows/ CI: tests, python-ci, lint, coverage, CodeQL, pip-audit
 ```
+
+`insight/template.py` reads a reel shot by shot. `tools/artifact/` builds the
+published page and holds the checks that measure it against real footage rather
+than asserting it works — the grade against the ungraded photograph, the cut
+against the frames that came out, both renderers against each other, and every
+attachment against the part of the program meant to read it:
+
+```bash
+python3 tools/artifact/build_artifact.py            # the published page
+python3 tools/artifact/check_grade.py ./photos      # does the grade change anything
+python3 tools/artifact/check_cutting.py page ./pics # are the joins real
+python3 tools/artifact/check_eras_match.py ./photos # do both renderers agree
+python3 tools/artifact/check_attachments.py ./stuff # can it still read all of it
+python3 tools/artifact/walkthrough.py URL ./photos  # the whole app, photographed
+python3 tools/artifact/ask_scholar.py URL           # what the Scholar says back
+```
+
+### Known gaps
+
+Stated here rather than discovered: the transition vocabulary and the levelling
+pass are in the browser renderer only, so a desktop `auteur edit` still hard-cuts
+every join and grades a decade slightly darker than the app does.
+`check_eras_match.py` fails on purpose until that is fixed, and names the cause
+in its own output.

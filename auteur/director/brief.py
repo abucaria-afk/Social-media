@@ -261,10 +261,28 @@ def clamp_duration(value: float | None) -> float | None:
     return min(max(value, MIN_RUNTIME), MAX_RUNTIME)
 
 
+#: Decades. `90s` in "a 90s hypercut" is the nineties, not ninety seconds.
+#:
+#: Read as a runtime it produced a 324-shot, 90-second film from a prompt that
+#: also said "12 seconds" — the bare-`s` branch matched `90s` first and never
+#: reached the words the person actually wrote. Every era this program offers
+#: is spelled this way, so the token is claimed by the era vocabulary and the
+#: runtime parser must not claim it a second time.
+#:
+#: This does cost "make it 30s" as a bare runtime, which is a real if small
+#: loss. It is the right trade: `30s` is equally the 1930s, "30 seconds" still
+#: parses, and reading a decade as a minute of footage is the louder failure.
+_DECADE = re.compile(r"\b(?:19|20)?\d0s\b")
+
+
 def _extract_duration(text: str) -> float | None:
     """Pull a runtime out of the prompt: '30 seconds', '15s', 'a minute and a half'."""
     lowered = text.lower()
-    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:seconds?|secs?|s)\b", lowered)
+    # An explicit unit beats a bare `s`, always — and it is how anyone naming
+    # both a decade and a length writes the length.
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:seconds?|secs?)\b", lowered)
+    if not match:
+        match = re.search(r"(\d+(?:\.\d+)?)\s*s\b", _DECADE.sub(" ", lowered))
     if match:
         value = float(match.group(1))
         if MIN_RUNTIME <= value <= MAX_RUNTIME:

@@ -602,3 +602,192 @@ class TemplateShelf:
         if not held:
             return None
         return min(held, key=lambda t: abs(t.cuts_per_10s - cuts_per_10s))
+
+
+# ---------------------------------------------------------------------------
+# What the whole shelf says, rather than what one reel said
+# ---------------------------------------------------------------------------
+
+#: A shot at or under this is a hypercut, in the sense people use the word.
+#: Taken from the references themselves rather than chosen: their median hold
+#: sits at 0.167s, which is three cuts to a beat at 120bpm.
+HYPERCUT_HOLD = 0.20
+
+
+#: The named things a corpus of measured reels can be asked about, and the key
+#: each is measured on. The names matter as much as the numbers: this program
+#: measured every reference reel it was given and never once wrote down the
+#: word "hypercut", so a person typing the word — a word the app itself offers
+#: as a chip — was told nothing had been studied about it. Sixty-eight
+#: learnings, twenty-three measured timelines, and no vocabulary in common with
+#: the person asking.
+def conclude(store) -> list[Learning]:
+    """Form learnings about the corpus from the learnings about each film.
+
+    Everything here is a generalisation over measurements already taken, so it
+    is arithmetic rather than opinion, and it carries the numbers it is drawn
+    from. Confidence comes from how many films agree — which is what the ladder
+    is for, and what per-file learnings can never reach on their own.
+    """
+    import statistics
+
+    def gather(key: str) -> list[float]:
+        return [
+            float(learning.measurements[key])
+            for learning in store._learnings
+            if key in (learning.measurements or {})
+        ]
+
+    holds = gather("shot_seconds")
+    rates = gather("cuts_per_10s")
+    opens = gather("first_cut")
+    lumas = gather("luma")
+    motions = gather("motion")
+
+    def standing(n: int) -> Confidence:
+        if n >= 8:
+            return Confidence.VALIDATED
+        if n >= 3:
+            return Confidence.SUPPORTED
+        return Confidence.TENTATIVE
+
+    def across(technique, insight, application, disciplines, n, **numbers) -> Learning:
+        return Learning(
+            learning_id=_stable_id("across", "the-shelf", technique),
+            disciplines=list(disciplines),
+            insight=insight,
+            technique=technique,
+            application=application,
+            source_video_id="across:the-shelf",
+            source_channel="across:the-shelf",
+            source_title=f"{n} films measured",
+            confidence=standing(n),
+            measurements={k: round(float(v), 4) for k, v in numbers.items()},
+        )
+
+    out: list[Learning] = []
+
+    if len(holds) >= 3:
+        median = statistics.median(holds)
+        fast = [h for h in holds if h <= HYPERCUT_HOLD]
+        out.append(
+            across(
+                "hypercut — how fast a fast cut is",
+                f"Of {len(holds)} reels measured, {len(fast)} hold each shot "
+                f"{HYPERCUT_HOLD}s or less — a hypercut. The median across all of them is "
+                f"{median:.3f}s a shot, which is about three cuts to a beat at 120bpm. "
+                f"The fastest holds {min(holds):.3f}s.",
+                "when somebody asks for a hypercut, cut at the measured median rather "
+                "than at whatever 'fast' suggests",
+                [Discipline.MOVIE_MAKING, Discipline.PATTERN_RECOGNITION],
+                len(holds),
+                shot_seconds=median,
+                hypercut_share=len(fast) / len(holds),
+                fastest=min(holds),
+            )
+        )
+
+    if len(opens) >= 3:
+        median = statistics.median(opens)
+        quick = [o for o in opens if o <= 0.5]
+        out.append(
+            across(
+                "the hook — how long the first shot is held",
+                f"Across {len(opens)} reels the opening shot is held {median:.2f}s before "
+                f"the first cut, and {len(quick)} of them cut inside half a second. The "
+                "opening hold is the hook's entire budget: whatever the first frame has to "
+                "do, it does in that time or not at all.",
+                "open on the strongest frame available and cut off it fast — a hook that "
+                "needs explaining has already been scrolled past",
+                [Discipline.PSYCHOLOGY, Discipline.CONTENT_CREATION, Discipline.MOVIE_MAKING],
+                len(opens),
+                first_cut=median,
+                cut_inside_half_a_second=len(quick) / len(opens),
+            )
+        )
+
+    if len(rates) >= 3:
+        median = statistics.median(rates)
+        out.append(
+            across(
+                "pacing — cuts per ten seconds",
+                f"Across {len(rates)} reels the cutting rate runs at {median:.1f} cuts every "
+                f"ten seconds, from {min(rates):.1f} to {max(rates):.1f}. A reel that cuts "
+                "slower than the bottom of that range is not a slower version of this "
+                "form, it is a different form.",
+                "hold a cut against this range rather than against a preference for pace",
+                [Discipline.MOVIE_MAKING],
+                len(rates),
+                cuts_per_10s=median,
+                slowest=min(rates),
+                fastest=max(rates),
+            )
+        )
+
+    if len(lumas) >= 3:
+        median = statistics.median(lumas)
+        out.append(
+            across(
+                "grading — where these reels sit",
+                f"Across {len(lumas)} reels the picture sits at luma {median:.2f}, ranging "
+                f"{min(lumas):.2f} to {max(lumas):.2f}. They are darker than an untouched "
+                "phone photograph, which lands near 0.5.",
+                "grade towards the measured middle rather than towards a preset name",
+                [Discipline.COLOR_THEORY, Discipline.CINEMATOGRAPHY],
+                len(lumas),
+                luma=median,
+            )
+        )
+
+    # How long the whole thing runs, which is the one question the per-film
+    # learnings could never answer: each of them describes a moment inside a
+    # reel, and none of them describes the reel. Asked "how long should a reel
+    # be?", the store returned a note about how long the *first shot* is held,
+    # because that was the only learning with the word "long" in it.
+    runtimes = sorted(
+        {
+            (learning.source_channel, round(float(learning.source_end_sec), 2))
+            for learning in store._learnings
+            if learning.source_end_sec and learning.source_channel.startswith("film:")
+        }
+    )
+    lengths = [seconds for _channel, seconds in runtimes if seconds > 0]
+    if len(lengths) >= 3:
+        median = statistics.median(lengths)
+        out.append(
+            across(
+                "how long a reel runs",
+                f"Across {len(lengths)} reels the runtime is {median:.0f}s, from "
+                f"{min(lengths):.0f}s to {max(lengths):.0f}s. Most of them are over "
+                "before a viewer has decided whether to keep watching, which is the "
+                "point rather than a limitation.",
+                "aim at the measured middle unless the footage genuinely needs longer — "
+                "length is not a quality and a longer reel is not a better one",
+                [Discipline.CONTENT_CREATION, Discipline.MOVIE_MAKING],
+                len(lengths),
+                seconds=median,
+                shortest=min(lengths),
+                longest=max(lengths),
+            )
+        )
+
+    if len(motions) >= 3:
+        median = statistics.median(motions)
+        still = [m for m in motions if m <= 0.12]
+        out.append(
+            across(
+                "holding still — motion inside a shot",
+                f"Of {len(motions)} reels measured, {len(still)} are largely locked off "
+                f"(median inter-frame motion {median:.3f}). At this cutting rate there is "
+                "no room for a camera move inside a shot, so the cut carries all of the "
+                "energy and the frame carries none.",
+                "hold the frame still and let the cut do the work — a drift inside a "
+                "0.17s shot is invisible motion that costs the cut its edge",
+                [Discipline.CINEMATOGRAPHY, Discipline.MOVIE_MAKING],
+                len(motions),
+                motion=median,
+                share_locked_off=len(still) / max(len(motions), 1),
+            )
+        )
+
+    return out

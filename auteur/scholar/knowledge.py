@@ -15,6 +15,7 @@ from __future__ import annotations
 import enum
 import json
 import logging
+import math
 import re
 import time
 from dataclasses import dataclass, field
@@ -31,7 +32,17 @@ _NOT_WORTH_MATCHING = frozenset("""
     about into onto than then them they their there here just very really
     something anything nothing some any all most more much many way ways
     make makes made get gets got give gives tell tells say says
+    work works working use uses used using need needs want wants
+    know knows think thinks thing things good bad better best help helps
     """.split())
+
+#: Weighting a term by how rare it is only tells you something when the term
+#: carries subject matter. `work` appears in exactly one of the sixty-eight
+#: learnings this store holds — in the sentence "a system ffmpeg works" — so by
+#: rarity alone it looked like the most informative word in the question "why
+#: does a hypercut work?", and that README line about installing binaries came
+#: back as the answer. `hypercut` appears in none of them, which means the
+#: honest answer to that question is that it has not studied one.
 
 #: This project is written in British English and its disciplines are named in
 #: American English — `color_theory`, `grayscale`. So a person typing "colour
@@ -452,24 +463,73 @@ class KnowledgeStore:
             Confidence.SUPPORTED: 2.0,
             Confidence.TENTATIVE: 1.0,
         }
-        scored: list[tuple[float, float, Learning]] = []
-        for learning in self._learnings:
-            haystack = " ".join(
-                [
-                    learning.insight,
-                    learning.technique,
-                    learning.application,
-                    learning.tool,
-                    " ".join(d.value.replace("_", " ") for d in learning.disciplines),
-                ]
-            ).lower()
-            words = {_plainly(word) for word in re.findall(r"[a-z0-9']+", haystack)}
-            hits = float(len(set(terms) & words))
-            if hits:
-                scored.append((hits, standing.get(learning.confidence, 1.0), learning))
 
+        bags = [(learning, self._words_of(learning)) for learning in self._learnings]
+
+        # How many learnings each term appears in. A term in most of them
+        # carries no information about which one to return.
+        seen: dict[str, int] = {}
+        for _learning, words in bags:
+            for word in words:
+                seen[word] = seen.get(word, 0) + 1
+        held = max(len(bags), 1)
+
+        scored: list[tuple[float, float, Learning]] = []
+        for learning, words in bags:
+            matched = set(terms) & words
+            if not matched:
+                continue
+            # Rarity, not count. "cut" is in almost every learning this store
+            # holds, so counting it as one hit made a README line about
+            # restructuring a cut score the same as a measured cutting rate,
+            # and the tie broke arbitrarily. Asked how fast the reels cut, it
+            # answered with a note about autonomy and posting.
+            score = sum(math.log(1.0 + held / (1.0 + seen.get(term, 0))) for term in matched)
+            # A word in the title counts double. "How long should a reel be?"
+            # matched both `how long a reel runs` and `the hook — how long the
+            # first shot is held` on the same two words and tied, so the answer
+            # came down to list order and gave the hook one. What a learning is
+            # *called* is the closest thing it has to a statement of subject.
+            titled = {_plainly(w) for w in re.findall(r"[a-z0-9']+", learning.technique.lower())}
+            score += sum(
+                math.log(1.0 + held / (1.0 + seen.get(term, 0))) for term in (set(terms) & titled)
+            )
+            # Something with a number in it beats prose about the same subject.
+            # A person asking how fast the reels cut wants 0.17s, not a
+            # sentence containing the word "fast".
+            if learning.measurements:
+                score *= 1.35
+            scored.append((score, standing.get(learning.confidence, 1.0), learning))
+
+        if not scored:
+            return []
         scored.sort(key=lambda row: (row[0], row[1]), reverse=True)
-        return [learning for _, _, learning in scored[:limit]]
+
+        # Better to say nothing than to say something irrelevant confidently.
+        # One common word in common is not an answer; the store already knows
+        # how to admit it has not studied something, and this is what decides
+        # when it should. The floor is the weight a term appearing in a third
+        # of everything would carry, so a match has to be rarer than that.
+        floor = math.log(1.0 + 3.0)
+        best = scored[0][0]
+        if best < floor:
+            return []
+        # And nothing far behind the best match rides along on its coat-tails.
+        return [learning for score, _, learning in scored[:limit] if score >= best * 0.45]
+
+    @staticmethod
+    def _words_of(learning: Learning) -> set[str]:
+        """Every word a learning can be matched on, stemmed once."""
+        haystack = " ".join(
+            [
+                learning.insight,
+                learning.technique,
+                learning.application,
+                learning.tool,
+                " ".join(d.value.replace("_", " ") for d in learning.disciplines),
+            ]
+        ).lower()
+        return {_plainly(word) for word in re.findall(r"[a-z0-9']+", haystack)}
 
     def gaps(self) -> list[Discipline]:
         """Disciplines with fewer than 5 learnings — knowledge gaps to fill."""

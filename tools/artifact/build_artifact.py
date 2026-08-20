@@ -42,6 +42,7 @@ def strip_scripts(html):
 home = strip_scripts(body_of(read("index.html")))
 studio = strip_scripts(body_of(read("studio.html")))
 animation = strip_scripts(body_of(read("overlays.html")))
+templates = strip_scripts(body_of(read("templates.html")))
 # The invariant the regex is standing in for, stated where it can fail loudly.
 # The published page loads `browser-render.js` and its own wiring; a script
 # that survived from the app would be a second copy racing the first.
@@ -49,6 +50,7 @@ for name, markup in (
     ("index.html", home),
     ("studio.html", studio),
     ("overlays.html", animation),
+    ("templates.html", templates),
 ):
     if re.search(r"<script", markup, re.I):
         raise SystemExit(f"{name}: a <script> survived stripping — check the markup")
@@ -64,6 +66,7 @@ for name, markup in (
     ("index.html", home),
     ("studio.html", studio),
     ("overlays.html", animation),
+    ("templates.html", templates),
 ):
     for found in re.findall(r'\bid="([^"]+)"', markup):
         if found in _seen:
@@ -79,6 +82,19 @@ animation = animation.replace('href="/studio"', 'href="#" data-goto="studio"')
 animation = animation.replace('href="/ask"', 'href="#" data-goto="home"')
 home = home.replace('href="/studio"', 'href="#" data-goto="studio"')
 home = home.replace('href="/overlays"', 'href="#" data-goto="animation"')
+home = home.replace('href="/templates"', 'href="#" data-goto="templates"')
+templates = templates.replace('href="/"', 'href="#" data-goto="home"')
+templates = templates.replace('href="/studio"', 'href="#" data-goto="studio"')
+# Uploading a reel needs the measurement only the Python side makes, so the
+# published page cannot offer it. Stripped rather than left to fail: a page
+# that shows a file picker which cannot work is worse than one that does not
+# mention the feature.
+templates = re.sub(
+    r'<section class="panel">\s*<h2 class="panel-title">Add a reel of your own</h2>.*?</section>',
+    "",
+    templates,
+    flags=re.S,
+)
 # The save link and the production notes both need files the renderer writes.
 # Stripped from the markup rather than removed at runtime, so the published
 # page never contains a download link that cannot work.
@@ -91,7 +107,15 @@ home = re.sub(r'<a class="ghost" id="notes".*?</a>\s*', "", home, flags=re.S)
 
 
 css = "\n".join(
-    read(n) for n in ("theme.css", "style.css", "animations.css", "studio.css", "overlays.css")
+    read(n)
+    for n in (
+        "theme.css",
+        "style.css",
+        "animations.css",
+        "studio.css",
+        "overlays.css",
+        "templates.css",
+    )
 )
 
 DEMO = r"""
@@ -145,14 +169,102 @@ DEMO = r"""
   });
   markAppearance(saved);
 
-  var state = { shape: "reel", seconds: "", clips: 0 };
+  var state = { shape: "reel", seconds: "", era: "", template: "", clips: 0 };
   wireChoices($("shape"), function (v) { state.shape = v; });
   wireChoices($("seconds"), function (v) { state.seconds = v; });
+  wireChoices($("era"), function (v) { state.era = v; });
+
+  /* The templates, on their own screen.
+     Nineteen chips on the first screen was a wall you had to scroll past to
+     reach the button that makes the film, and every chip said roughly the same
+     thing. Given a page, each one can show the shape of its cutting — which is
+     the only part a person can actually judge at a glance, because two reels
+     with the same median hold can be completely different edits. */
+  (function () {
+    var all = window.auteurTemplates || [];
+    var host = $("templates");
+    if (!host) { return; }
+
+    function drawShape(canvas, beats) {
+      var width = canvas.clientWidth || 300;
+      var scale = window.devicePixelRatio || 1;
+      canvas.width = Math.round(width * scale);
+      canvas.height = Math.round(22 * scale);
+      var g = canvas.getContext("2d");
+      g.scale(scale, scale);
+      var total = 0, i;
+      for (i = 0; i < beats.length; i++) { total += beats[i][0]; }
+      if (total <= 0) { return; }
+      var accent = (getComputedStyle(canvas).getPropertyValue("--ember") || "#e9a85c").trim();
+      var at = 0;
+      for (i = 0; i < beats.length; i++) {
+        var x = (at / total) * width;
+        var share = Math.min(1, beats[i][0] / (total / beats.length) / 3);
+        var high = 6 + share * 14;
+        g.fillStyle = accent;
+        g.globalAlpha = 0.45 + share * 0.55;
+        g.fillRect(x, 22 - high, Math.max(1, width / Math.max(beats.length, 1) * 0.34), high);
+        at += beats[i][0];
+      }
+    }
+
+    function paint() {
+      host.innerHTML = "";
+      var rows = [{ id: "", label: "Its own", note: "let the film decide its own timing",
+                    hold: 0, beats: [] }].concat(all);
+      rows.forEach(function (entry) {
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "template" + (entry.id === state.template ? " is-on" : "");
+        button.dataset.value = entry.id;
+
+        var name = document.createElement("span");
+        name.className = "template-name";
+        name.textContent = entry.label;
+        button.appendChild(name);
+
+        var hold = document.createElement("span");
+        hold.className = "template-hold";
+        hold.textContent = entry.hold ? entry.hold.toFixed(2) + "s" : "\u2014";
+        button.appendChild(hold);
+
+        var note = document.createElement("span");
+        note.className = "template-note";
+        note.textContent = entry.note || "";
+        button.appendChild(note);
+
+        if (entry.beats && entry.beats.length) {
+          var shape = document.createElement("canvas");
+          shape.className = "template-shape";
+          button.appendChild(shape);
+          setTimeout(function () { drawShape(shape, entry.beats); }, 0);
+        }
+
+        button.addEventListener("click", function () {
+          state.template = entry.id;
+          Array.prototype.forEach.call(host.querySelectorAll(".template"), function (other) {
+            other.classList.toggle("is-on", other === button);
+          });
+          var link = $("template-link-note");
+          if (link) {
+            link.textContent = entry.id
+              ? "Cutting to " + entry.label + " \u00b7 " + entry.note
+              : "Cut your pictures to a real reel's timing";
+          }
+        });
+        host.appendChild(button);
+      });
+      var count = $("template-state");
+      if (count) { count.textContent = all.length + " reels"; }
+    }
+    paint();
+  })();
 
   /* -- screens ------------------------------------------------------ */
-  /* Three pages on one, since a published page has no routes: the edit room,
-     the studio and the animation tab. */
-  var PAGES = { studio: "studio-page", animation: "animation-page" };
+  /* Four pages on one, since a published page has no routes: the edit room,
+     the studio, the animation tab and the templates. */
+  var PAGES = { studio: "studio-page", animation: "animation-page",
+                templates: "templates-page" };
   var screens = ["screen-start", "screen-working", "screen-done", "screen-error"];
   function goto(to) {
     Object.keys(PAGES).forEach(function (name) {
@@ -250,6 +362,8 @@ DEMO = r"""
         prompt: $("prompt").value || "",
         shape: state.shape,
         seconds: state.seconds ? parseFloat(state.seconds) : 10,
+        era: state.era || null,
+        template: state.template || null,
         onProgress: step,
       })
       .then(function (film) {
@@ -271,14 +385,37 @@ DEMO = r"""
     $("cancel").onclick = function () { show("screen-start"); };
   }
 
+  /* How a transition reads in a sentence. The tally counts by internal name
+     because that is what the code uses; a person should be told what the film
+     did, not which identifier it used. */
+  var JOIN_WORDS = {
+    cut: "straight cuts",
+    portal: "portals opened on the subject",
+    carry: "subjects carried across",
+    whip: "whip pans",
+    push: "pushes",
+    luma: "dissolves through the light",
+    slice: "sliced joins",
+    flash: "flash frames",
+    match: "matched framings"
+  };
+
   function finish(film) {
     show("screen-done");
+
+    /* What the edit is made of, left on the window so a check can read it.
+       The alternative is parsing it back out of the sentence below, which
+       means the check passes or fails on the wording. */
+    window.auteurLastEdit = film.edit;
 
     /* Say back what it heard. Everything below changed because of the words
        you typed, so if none of it matches what you meant, the mismatch is
        visible instead of silent. */
     var heard = "It read that as " + film.reading.cadence
       + ", graded " + film.reading.look
+      + ", cut " + film.reading.style
+      + (film.reading.era ? ", shot like the " + film.reading.eraName : "")
+      + (film.reading.template ? ", to the " + film.reading.template + " reel's timeline" : "")
       + ", " + Math.round(film.reading.seconds) + " seconds long.";
     if (film.reading.titles.length) {
       heard += " On screen: " + film.reading.titles.map(function (t) {
@@ -291,12 +428,28 @@ DEMO = r"""
     heard += " Built in " + film.movements + " movements, opening on the frame with"
       + " the most in it and tightening as it goes";
     heard += film.loops ? ", and it ends back on that frame so it loops." : ".";
+
+    /* The joins it made, in the order it made most of them. This is the part
+       that was invisible: the film had one transition — a hard cut — on every
+       join of every edit, and nothing anywhere said so, so "it made no edits"
+       was both what it looked like and impossible to check. */
+    var joins = Object.keys(film.edit.transitions).sort(function (a, b) {
+      return film.edit.transitions[b] - film.edit.transitions[a];
+    });
+    if (joins.length > 1) {
+      heard += " The joins: " + joins.slice(0, 4).map(function (kind) {
+        return film.edit.transitions[kind] + " " + (JOIN_WORDS[kind] || kind);
+      }).join(", ") + ".";
+    }
     $("heard").textContent = heard;
     $("heard").hidden = false;
 
     var facts = [
       film.seconds.toFixed(1) + " seconds",
       film.shots + " shots, a median " + film.shot_seconds.toFixed(2) + "s each",
+      film.edit.kinds + " kinds of join, " + film.edit.carrying
+        + " carrying the last picture over",
+      film.edit.moves + " camera moves, " + film.edit.held + " shots held still",
       { reel: "vertical, for phones", square: "square", wide: "widescreen" }[state.shape],
       Math.max(1, Math.round(film.bytes / 1048576)) + " MB",
     ];
@@ -435,7 +588,7 @@ DEMO = r"""
 
 #: Bumped on every publish and shown in the banner, so a screenshot of the
 #: page is enough to know which build it is. VERSIONS.md says what each was.
-VERSION = "v5 — accounts and connections"
+VERSION = "v7 — a templates tab, 23 reels"
 
 BANNER = f"""
 <div class="demo-note" role="note">
@@ -487,11 +640,26 @@ body { background: var(--ground); }
 }
 /* `display: block` on its own beats [hidden]'s display:none, which put the
    studio underneath every other screen. */
-#studio-page, #animation-page { display: block; }
-#studio-page[hidden], #animation-page[hidden], [hidden] { display: none !important; }
+#studio-page, #animation-page, #templates-page { display: block; }
+#studio-page[hidden], #animation-page[hidden], #templates-page[hidden],
+[hidden] { display: none !important; }
 """
 
 RENDERER = (HERE / "browser-render.js").read_text(encoding="utf-8")
+# What a cut is made of, and which of those moves this film makes. Two files
+# rather than one because they answer different questions: `cutting.js` knows
+# what a portal is, `style.js` decides whether this film uses one. Both have to
+# be defined before the renderer runs — it calls into them while building the
+# shot list, not just while painting.
+VOCABULARY = (HERE / "cutting.js").read_text(encoding="utf-8")
+# The grading engine. Real tone curves, split toning, halation and grain, run
+# once per photograph — the base looks go through it too, because as CSS
+# filter strings two of them moved the picture by less than the eye can see.
+GRADING = (HERE / "era.js").read_text(encoding="utf-8")
+# The reference reels' measured timelines, from make_templates.py. Numbers
+# only — no footage travels with them.
+TEMPLATES = (HERE / "templates.json").read_text(encoding="utf-8")
+TASTE = (HERE / "style.js").read_text(encoding="utf-8")
 # The graphics vocabulary. Shipped in the app and read by two callers — the
 # animation tab draws its previews with it and the renderer draws the film with
 # it — so the published page needs it before either of them runs.
@@ -511,8 +679,23 @@ page = f"""<title>Auteur Edit Room</title>
 <div id="animation-page" hidden>
 {animation}
 </div>
+<div id="templates-page" hidden>
+{templates}
+</div>
 <script>
 {SHAPES}
+</script>
+<script>
+{GRADING}
+</script>
+<script>
+window.auteurTemplates = {TEMPLATES};
+</script>
+<script>
+{VOCABULARY}
+</script>
+<script>
+{TASTE}
 </script>
 <script>
 {RENDERER}
