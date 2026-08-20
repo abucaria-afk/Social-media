@@ -12,6 +12,7 @@ Everything is 390x844 at 2x, which is an iPhone, because that is the only
 screen this app has ever been designed for.
 """
 
+import os
 import secrets
 import sys
 import tempfile
@@ -129,25 +130,30 @@ def main() -> int:
             era.scroll_into_view_if_needed()
             shot(page, "era-choices", "which decade it should look like")
 
-        # 5. Making it.
-        page.click("#go")
-        page.wait_for_timeout(2500)
-        shot(page, "making-the-film", "it says what it is doing while it works")
+        # 5. Making it. Skippable, because re-checking the tabs should not cost
+        # four minutes of ffmpeg every time — the render is the slowest thing
+        # here by two orders of magnitude and is not what most walks are for.
+        if os.environ.get("WALK_SKIP_FILM"):
+            print("  (skipping the film — WALK_SKIP_FILM is set)")
+        else:
+            page.click("#go")
+            page.wait_for_timeout(2500)
+            shot(page, "making-the-film", "it says what it is doing while it works")
 
-        # The ffmpeg renderer is slow enough that waiting for it can outlast the
-        # walk. Photograph what there is and carry on to the rest of the app
-        # rather than abandoning eight screens because one of them is still
-        # working — a walkthrough that stops at the slowest step tells you
-        # nothing about the steps after it.
-        try:
-            page.wait_for_selector("#screen-done:not([hidden])", timeout=240000)
-            shot(page, "film-is-ready", "the film, and what it decided")
-            heard = page.inner_text("#heard")
-            facts = page.inner_text("#facts").replace("\n", " · ")
-            print(f"\n    heard: {heard}\n    facts: {facts}\n")
-        except Exception:
-            shot(page, "still-rendering", "still rendering when the walk moved on")
-            print("\n    the render had not finished — see the note above\n")
+            # The ffmpeg renderer is slow enough that waiting for it can outlast
+            # the walk. Photograph what there is and carry on to the rest of the
+            # app rather than abandoning eight screens because one of them is
+            # still working — a walkthrough that stops at the slowest step tells
+            # you nothing about the steps after it.
+            try:
+                page.wait_for_selector("#screen-done:not([hidden])", timeout=240000)
+                shot(page, "film-is-ready", "the film, and what it decided")
+                heard = page.inner_text("#heard")
+                facts = page.inner_text("#facts").replace("\n", " · ")
+                print(f"\n    heard: {heard}\n    facts: {facts}\n")
+            except Exception:
+                shot(page, "still-rendering", "still rendering when the walk moved on")
+                print("\n    the render had not finished — see the note above\n")
 
         # 6. Every tab.
         for name, path, ready, note in [
@@ -170,13 +176,22 @@ def main() -> int:
         # markup does not carry. Guessing selectors is how the first run of
         # this reported "connect-tab: never became ready" about a page that
         # had rendered perfectly.
-        boxes = page.query_selector_all('input[placeholder*="handle"]')
-        buttons = [b for b in page.query_selector_all("button") if b.inner_text().strip() == "Link"]
-        for n, name in enumerate(("instagram", "tiktok")):
-            if n < len(boxes) and n < len(buttons):
-                boxes[n].fill("@" + WHO)
-                buttons[n].click()
-                page.wait_for_timeout(1400)
+        # Re-queried on every pass. Linking one account re-renders the whole
+        # list, so handles captured before the loop point at elements that no
+        # longer exist — Instagram linked, and TikTok died on a detached node.
+        # Always the first remaining card, never the nth. A linked account
+        # swaps its handle box for an Unlink button and leaves the list, so
+        # after Instagram is linked TikTok sits at index 0 — indexing by
+        # position linked one account and silently skipped the other.
+        for name in ("instagram", "tiktok"):
+            boxes = page.query_selector_all('input[placeholder*="handle"]')
+            buttons = [
+                b for b in page.query_selector_all("button") if b.inner_text().strip() == "Link"
+            ]
+            if boxes and buttons:
+                boxes[0].fill("@" + WHO)
+                buttons[0].click()
+                page.wait_for_timeout(1600)
                 shot(page, f"linked-{name}", f"{name} linked to the account")
         shot(page, "connections", "both platforms, and what linking does and does not mean")
 
