@@ -56,7 +56,16 @@
       </div>
 
       <p class="error" id="signin-error" role="alert" hidden></p>
+
       <button type="submit" class="go" id="signin-go">Sign in</button>
+
+      <!-- Filled from /api/sign-in-with. Providers that are not set up are
+           still listed, saying what they need: a button that is simply absent
+           reads as a feature this app does not have, which is not the case. -->
+      <div class="providers" id="providers" hidden>
+        <p class="providers-or"><span>or</span></p>
+        <div id="provider-list"></div>
+      </div>
       <button type="button" class="ghost" id="to-forgot">I forgot my password</button>
       <!-- Only shown when there is nobody to sign in as. Before this the only
            way in was reading a generated password off the terminal, which
@@ -79,6 +88,19 @@
         <label class="card-title spaced" for="new-username">A name</label>
         <input type="text" id="new-username" name="username" autocomplete="username"
                autocapitalize="none" autocorrect="off" spellcheck="false">
+        <!-- The server has read this field since the day sign-up was written;
+             the form never had it, so every first account was made with no
+             address on it — which is what a password reset is sent to, what
+             "continue with Google" matches on, and where a calendar invite
+             would go. -->
+        <label class="card-title spaced" for="new-email">Your email</label>
+        <input type="email" id="new-email" name="email" autocomplete="email"
+               inputmode="email" autocapitalize="none" autocorrect="off" spellcheck="false"
+               placeholder="you@example.com">
+        <p class="card-hint">
+          Used to sign you back in, to reset a password, and to match a Google
+          or Apple account to this one. It stays on this machine.
+        </p>
         <label class="card-title spaced" for="signup-password">A password</label>
         <span class="reveal">
           <input type="password" id="signup-password" name="password"

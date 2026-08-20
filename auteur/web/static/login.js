@@ -162,6 +162,7 @@
   $("signup-form").addEventListener("submit", function (event) {
     event.preventDefault();
     var who = $("new-username").value.trim();
+    var mail = $("new-email").value.trim();
     var word = $("signup-password").value;
     say($("signup-error"), "");
     $("signup-go").disabled = true;
@@ -170,7 +171,7 @@
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: who, password: word })
+      body: JSON.stringify({ username: who, email: mail, password: word })
     })
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (got) {
@@ -252,4 +253,63 @@
         $("reset-go").disabled = false;
       });
   });
+})();
+
+
+/* Which identity providers this copy offers.
+ *
+ * Every provider is listed, set up or not. One that is missing says what it
+ * needs rather than disappearing, because a button that is simply absent reads
+ * as "this app cannot do that" and the truth is usually "nobody has pasted a
+ * client id into this copy yet".
+ */
+(function () {
+  var box = document.getElementById("providers");
+  var list = document.getElementById("provider-list");
+  if (!box || !list) { return; }
+
+  function escaped(text) {
+    var span = document.createElement("span");
+    span.textContent = text == null ? "" : String(text);
+    return span.innerHTML;
+  }
+
+  var MARKS = { google: "G", apple: "A" };
+
+  fetch("/api/sign-in-with", { cache: "no-store" })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (said) {
+      var rows = (said && said.providers) || [];
+      if (!rows.length) { return; }
+      list.innerHTML = rows.map(function (p) {
+        if (p.ready) {
+          return '<a class="provider" href="/auth/' + escaped(p.key) + '/start">' +
+            '<span class="provider-mark" data-mark="' + escaped(MARKS[p.key] || "?") +
+            '" aria-hidden="true"></span>' + escaped(p.label) + "</a>";
+        }
+        return '<div class="provider is-off" aria-disabled="true">' +
+          '<span class="provider-mark" data-mark="' + escaped(MARKS[p.key] || "?") +
+          '" aria-hidden="true"></span>' +
+          '<span><span class="provider-label">' + escaped(p.label) + "</span>" +
+          '<span class="provider-why">' + escaped(p.why) + "</span></span></div>";
+      }).join("");
+      box.hidden = false;
+    })
+    .catch(function () { /* offline: the password form still works */ });
+
+  /* Anything the round trip could not finish, said in a sentence. */
+  var TROUBLE = {
+    unconfigured: "That way of signing in is not set up on this copy.",
+    refused: "That sign-in was cancelled.",
+    stale: "That sign-in took too long. Try again.",
+    failed: "The provider would not complete the sign-in.",
+    unverified: "That account's email address has not been verified, so it cannot be matched.",
+    nomatch: "No account here uses that email address. Sign in with a password, " +
+             "or add the address to your account first."
+  };
+  var why = new URLSearchParams(location.search).get("trouble");
+  if (why && TROUBLE[why]) {
+    var slot = document.getElementById("signin-error");
+    if (slot) { slot.textContent = TROUBLE[why]; slot.hidden = false; }
+  }
 })();

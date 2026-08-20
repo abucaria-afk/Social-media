@@ -83,9 +83,16 @@ PUBLIC_PATHS = frozenset(
         "/api/can-signup",
         "/api/forgot",
         "/api/reset",
+        "/api/sign-in-with",
     }
 )
-PUBLIC_PREFIXES = ("/static/",)
+
+#: Prefixes reachable before signing in. `/auth/` is the round trip to an
+#: identity provider and back, which by definition happens while signed out.
+PUBLIC_AUTH_PREFIX = "/auth/"
+#: The calendar feed carries its own credential in the path, because a
+#: calendar app has no cookie to send. See `_calendar_feed`.
+PUBLIC_PREFIXES = ("/static/", PUBLIC_AUTH_PREFIX, "/calendar/")
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +459,8 @@ class Handler(BaseHTTPRequestHandler):
     films: Any = None  # a social.Films once serve() has run
     messages: Any = None  # a social.Messages once serve() has run
     board: Any = None  # a manager.Board once serve() has run
+    sign_in_with: Any = None  # provider settings once serve() has run
+    attempts: Any = None  # an oidc.Attempts once serve() has run
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quieter than the default
         log.debug("%s - %s", self.address_string(), fmt % args)
@@ -1047,6 +1056,27 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/login", "/login.html", "/reset"):
             self._static(STATIC / "login.html", "text/html; charset=utf-8")
             return
+        if path.startswith("/calendar/") and path.endswith(".ics"):
+            self._calendar_feed(path[len("/calendar/") : -len(".ics")])
+            return
+        if path == "/api/calendar":
+            self._calendar_link()
+            return
+        if path == "/api/sign-in-with":
+            self._sign_in_options()
+            return
+        if path.startswith("/auth/"):
+            parts = path.strip("/").split("/")
+            provider_key = parts[1] if len(parts) > 1 else ""
+            what = parts[2] if len(parts) > 2 else ""
+            if what == "start":
+                self._oidc_start(provider_key)
+            elif what == "return":
+                query = parse_qs(self.path.partition("?")[2])
+                self._oidc_return(provider_key, {k: v[0] for k, v in query.items() if v})
+            else:
+                self._json({"error": "not found"}, 404)
+            return
         if path == "/api/can-signup":
             self.accounts.refresh()
             self._json({"can": self.accounts.empty})
@@ -1504,6 +1534,133 @@ class Handler(BaseHTTPRequestHandler):
             }
         )
 
+    # ------------------------------------------------------------- calendar
+
+    def _calendar_feed(self, token: str) -> None:
+        """The subscribable calendar for whoever holds this token.
+
+        Deliberately outside the session gate: a calendar app is not a browser,
+        has no cookie, and will not sign in. The URL is the credential, which
+        is why it is long, unguessable, per person and rollable — and why this
+        answers exactly the same way for a wrong token as for a right one
+        belonging to somebody with no plans.
+        """
+        from .. import calendar as ics
+
+        self.accounts.refresh()
+        account = self.accounts.by_calendar_token(token)
+        plans = [p.public() for p in self.board.by(account.username)] if account else []
+        body = ics.feed(plans).encode("utf-8")
+        self._send(
+            200,
+            body,
+            "text/calendar; charset=utf-8",
+            extra={
+                # Named so it lands in the calendar rather than in downloads.
+                "Content-Disposition": 'inline; filename="auteur.ics"',
+                # A calendar that caches this would show a stale shoot, which
+                # is the one failure that makes a reminder worse than none.
+                "Cache-Control": "no-store, max-age=0",
+            },
+        )
+
+    def _calendar_link(self) -> None:
+        """The URL to subscribe to, and the words to explain it."""
+        who = self.current_user() or ""
+        token = self.accounts.calendar_token(who) if who else ""
+        self._json(
+            {
+                "path": f"/calendar/{token}.ics" if token else "",
+                "refresh_minutes": __import__(
+                    "auteur.calendar", fromlist=["REFRESH_MINUTES"]
+                ).REFRESH_MINUTES,
+                # Said in the payload as well as on screen: the link is a
+                # secret, and anybody who has it can read the board.
+                "secret": True,
+            }
+        )
+
+    def _calendar_roll(self) -> None:
+        who = self.current_user() or ""
+        token = self.accounts.calendar_token(who, roll=True) if who else ""
+        log.info("%s rolled their calendar link", _for_log(who))
+        self._json({"path": f"/calendar/{token}.ics" if token else ""})
+
+    # ------------------------------------------------------- signing in with
+
+    def _sign_in_options(self) -> None:
+        """Which providers this copy offers, and why any of them is missing."""
+        from . import oidc
+
+        self._json({"providers": oidc.offered(self.sign_in_with)})
+
+    def _oidc_start(self, provider_key: str) -> None:
+        from . import oidc
+
+        settings = self.sign_in_with.get(provider_key)
+        if provider_key not in oidc.PROVIDERS or settings is None or not settings.usable:
+            self._redirect("/login?trouble=unconfigured")
+            return
+        attempt = self.attempts.begin(provider_key)
+        try:
+            where = oidc.begin(provider_key, settings, attempt)
+        except Exception as exc:  # noqa: BLE001 - a misconfiguration is not a crash
+            log.warning("could not start %s sign-in: %s", provider_key, exc)
+            self._redirect("/login?trouble=unconfigured")
+            return
+        self._redirect(where)
+
+    def _oidc_return(self, provider_key: str, fields: dict[str, str]) -> None:
+        """Back from the provider. Signs in an account that already exists.
+
+        Never creates one. Sign-up on this app closes after the first account
+        because it is serving somebody's own footage over their own wifi, and
+        an identity provider is a way to prove who you are rather than a way in
+        — so an unrecognised address is told plainly that it is unrecognised.
+        """
+        from . import oidc
+
+        if fields.get("error"):
+            self._redirect("/login?trouble=refused")
+            return
+        attempt = self.attempts.claim(fields.get("state", ""))
+        if attempt is None or attempt.provider != provider_key:
+            self._redirect("/login?trouble=stale")
+            return
+        settings = self.sign_in_with.get(provider_key)
+        code = fields.get("code", "")
+        if settings is None or not settings.usable or not code:
+            self._redirect("/login?trouble=unconfigured")
+            return
+
+        try:
+            claims = oidc.finish(provider_key, settings, attempt, code)
+        except Exception as exc:  # noqa: BLE001 - a failed exchange is a message
+            log.info("%s sign-in did not complete: %s", provider_key, exc)
+            self._redirect("/login?trouble=failed")
+            return
+
+        email = oidc.email_of(claims)
+        if not email:
+            self._redirect("/login?trouble=unverified")
+            return
+
+        self.accounts.refresh()
+        account = self.accounts.get(email)
+        if account is None:
+            log.info("%s sign-in for an address with no account here", provider_key)
+            self._redirect("/login?trouble=nomatch")
+            return
+
+        token = self.accounts.open_session(account.username)
+        log.info("%s signed in with %s", _for_log(account.username), provider_key)
+        self.send_response(303)
+        self.send_header("Location", "/")
+        self.send_header("Set-Cookie", self._set_session_cookie(token))
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
     # -------------------------------------------------------------- manager
 
     def _hold_and_open(self) -> tuple[float, float]:
@@ -1545,7 +1702,7 @@ class Handler(BaseHTTPRequestHandler):
             from ..workflows.platforms import resolve
 
             spec = resolve(plan.platform)
-            out["platform_name"] = spec.name
+            out["platform_name"] = spec.title
             out["platform_spec"] = spec.describe()
         except Exception:  # noqa: BLE001 - an unknown surface is the check's problem
             out["platform_name"] = plan.platform
@@ -1579,7 +1736,7 @@ class Handler(BaseHTTPRequestHandler):
                 "platforms": [
                     {
                         "id": key,
-                        "name": spec.name,
+                        "name": spec.title,
                         "service": spec.service,
                         "spec": spec.describe(),
                         "ideal": spec.ideal_seconds,
@@ -1899,6 +2056,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - stdlib naming
         path = self.path.split("?", 1)[0]
 
+        if path.startswith("/auth/") and path.endswith("/return"):
+            # Apple replies with a POST form rather than a redirect, because it
+            # may carry the person's name the first time they authorise.
+            provider_key = path.strip("/").split("/")[1]
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(min(length, 16384)).decode("utf-8", "replace")
+            posted = {k: v[0] for k, v in parse_qs(raw).items() if v}
+            self._oidc_return(provider_key, posted)
+            return
         if path == "/share":
             # Before the sign-in gate reads it as an API call: this is a
             # navigation from the operating system, so it answers with a
@@ -1950,6 +2116,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/messages/send":
             self._send_message()
+            return
+        if path == "/api/calendar/roll":
+            self._calendar_roll()
             return
         if path == "/api/shared/clear":
             self._clear_shared(self.current_user() or "")
@@ -2299,6 +2468,7 @@ def serve(
     from . import assets, seed
     from .auth import Accounts
     from ..manager import Board
+    from . import oidc
     from .social import Films, Messages
 
     assets.ensure(STATIC)
@@ -2311,6 +2481,12 @@ def serve(
     Handler.studio.films = Handler.films
     Handler.messages = Messages(Messages.default_path(root))
     Handler.board = Board(Board.default_path(root))
+    # Credentials from the workspace or the environment, never the repo.
+    Handler.sign_in_with = oidc.load(root)
+    Handler.attempts = oidc.Attempts()
+    ready = [row["key"] for row in oidc.offered(Handler.sign_in_with) if row["ready"]]
+    if ready:
+        log.info("signing in with %s is available", ", ".join(ready))
     # A film points at a file inside a job folder, and job folders are swept
     # after a few hours. Checked once at start-up rather than on every feed
     # request, so a long-running instance does not stat the whole library to

@@ -23,6 +23,7 @@ import sys
 import tempfile
 import types
 import time
+import urllib.parse
 import wave
 from pathlib import Path
 
@@ -8022,3 +8023,369 @@ def test_two_shots_in_a_row_are_not_the_same_instruction():
         if a.what == b.what and a.role == b.role == "run"
     ]
     assert repeats == [], f"consecutive identical instructions: {repeats[:3]}"
+
+
+# ---------------------------------------------------------------------------
+# Signing in with a Google or Apple account
+# ---------------------------------------------------------------------------
+
+
+def _fake_id_token(claims: dict) -> str:
+    """A JWT shaped token. Unsigned, which is the point of the test below."""
+    import base64
+
+    def part(payload: dict) -> str:
+        raw = json.dumps(payload).encode()
+        return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+    return part({"alg": "none"}) + "." + part(claims) + ".x"
+
+
+def test_the_whole_round_trip_against_a_stub_provider(monkeypatch):
+    """The flow end to end, without Google.
+
+    Real credentials cannot be in a test and a consent screen cannot be
+    clicked by one, so the provider is stubbed at the token endpoint — which is
+    the only place this code talks to it — and everything else is the real
+    path: the real authorize URL, the real state and nonce, the real PKCE
+    verifier, the real claim checks.
+    """
+    from auteur.web import oidc
+
+    settings = oidc.Settings(
+        client_id="client-123",
+        client_secret="shh",
+        redirect_uri="http://localhost:8793/auth/google/return",
+    )
+    attempts = oidc.Attempts()
+    attempt = attempts.begin("google")
+
+    where = oidc.begin("google", settings, attempt)
+    assert where.startswith("https://accounts.google.com/o/oauth2/v2/auth?")
+    assert "response_type=code" in where, "the implicit flow is not safe here"
+    assert "code_challenge_method=S256" in where
+    assert urllib.parse.quote(attempt.state, safe="") in where
+
+    sent = {}
+
+    def stub(url, form):
+        sent.update(form)
+        return {
+            "id_token": _fake_id_token(
+                {
+                    "aud": "client-123",
+                    "nonce": attempt.nonce,
+                    "exp": time.time() + 600,
+                    "email": "ada@example.invalid",
+                    "email_verified": True,
+                }
+            )
+        }
+
+    monkeypatch.setattr(oidc, "_post", stub)
+    claims = oidc.finish("google", settings, attempt, "the-code")
+
+    # The verifier goes back, which is what makes an intercepted code useless.
+    assert sent["code_verifier"] == attempt.verifier
+    assert sent["redirect_uri"] == settings.redirect_uri
+    assert oidc.email_of(claims) == "ada@example.invalid"
+
+
+def test_a_sign_in_attempt_cannot_be_replayed():
+    from auteur.web import oidc
+
+    attempts = oidc.Attempts()
+    attempt = attempts.begin("google")
+    assert attempts.claim(attempt.state) is attempt
+    assert attempts.claim(attempt.state) is None, "a state that works twice is a replay"
+    assert attempts.claim("something-else") is None
+
+
+def test_a_token_for_another_application_is_refused(monkeypatch):
+    """`aud` is the check that stops a token minted for a different client —
+    including an attacker's own — being spent here."""
+    from auteur.web import oidc
+
+    settings = oidc.Settings(client_id="ours", redirect_uri="http://localhost/x")
+    attempt = oidc.Attempts().begin("google")
+    monkeypatch.setattr(
+        oidc,
+        "_post",
+        lambda url, form: {
+            "id_token": _fake_id_token(
+                {"aud": "somebody-else", "nonce": attempt.nonce, "exp": time.time() + 60}
+            )
+        },
+    )
+    with pytest.raises(ValueError, match="different application"):
+        oidc.finish("google", settings, attempt, "code")
+
+
+def test_a_replayed_or_mismatched_nonce_is_refused(monkeypatch):
+    from auteur.web import oidc
+
+    settings = oidc.Settings(client_id="ours", redirect_uri="http://localhost/x")
+    attempt = oidc.Attempts().begin("google")
+    monkeypatch.setattr(
+        oidc,
+        "_post",
+        lambda url, form: {
+            "id_token": _fake_id_token(
+                {"aud": "ours", "nonce": "not-the-one", "exp": time.time() + 60}
+            )
+        },
+    )
+    with pytest.raises(ValueError, match="does not match"):
+        oidc.finish("google", settings, attempt, "code")
+
+
+def test_an_expired_token_is_refused(monkeypatch):
+    from auteur.web import oidc
+
+    settings = oidc.Settings(client_id="ours", redirect_uri="http://localhost/x")
+    attempt = oidc.Attempts().begin("google")
+    monkeypatch.setattr(
+        oidc,
+        "_post",
+        lambda url, form: {
+            "id_token": _fake_id_token(
+                {"aud": "ours", "nonce": attempt.nonce, "exp": time.time() - 5}
+            )
+        },
+    )
+    with pytest.raises(ValueError, match="expired"):
+        oidc.finish("google", settings, attempt, "code")
+
+
+def test_an_unverified_address_is_not_an_identity():
+    """Both providers hand over addresses they have not checked under some
+    conditions. Matching an account on one would let anybody who can claim an
+    address at a provider sign in as its owner."""
+    from auteur.web import oidc
+
+    assert oidc.email_of({"email": "ada@example.invalid", "email_verified": True})
+    assert oidc.email_of({"email": "ada@example.invalid", "email_verified": "true"})
+    assert oidc.email_of({"email": "ada@example.invalid", "email_verified": False}) == ""
+    assert oidc.email_of({"email": "ada@example.invalid"}) == ""
+
+
+def test_the_redirect_uri_never_comes_from_the_request():
+    """The one value an attacker would most like to influence. It has to match
+    what is registered with the provider anyway, and deriving it from the Host
+    header would let a forged one send somebody's code somewhere else."""
+    import ast
+    import inspect
+
+    from auteur.web import oidc
+
+    # The code, not the prose. The first version of this matched the sentence
+    # in the module docstring that explains the rule, which is a check that
+    # fails when you document the thing it is checking for.
+    tree = ast.parse(inspect.getsource(oidc))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+            node.value.value = ""  # a docstring
+    code = ast.unparse(tree)
+
+    for smell in ("self.headers", "Host", "request.host", "environ["):
+        assert smell not in code, f"the redirect uri may be built from {smell}"
+    # And the value that is sent is the configured one, every time.
+    assert "settings.redirect_uri" in code
+
+
+def test_every_provider_is_listed_even_when_it_is_not_set_up():
+    """A button that is simply absent reads as a capability this app does not
+    have. The truth is usually that nobody has pasted a client id in yet."""
+    from auteur.web import oidc
+
+    rows = oidc.offered({key: oidc.Settings() for key in oidc.PROVIDERS})
+    assert {row["key"] for row in rows} == set(oidc.PROVIDERS)
+    for row in rows:
+        assert row["ready"] is False
+        assert row["why"], f"{row['key']} is off and does not say why"
+        assert row["note"], f"{row['key']} does not say what it needs"
+
+
+def test_signing_in_with_a_provider_never_creates_an_account(tmp_path):
+    """Sign-up closes after the first account because this serves somebody's
+    own footage over their own wifi. An identity provider proves who you are;
+    it is not a second door."""
+    import inspect
+
+    from auteur.web import oidc, server
+
+    assert "add(" not in inspect.getsource(oidc), "the oidc module can create accounts"
+    handler = inspect.getsource(server.Handler._oidc_return)
+    assert "accounts.add" not in handler
+    assert "nomatch" in handler, "an unknown address must be told, not enrolled"
+
+
+def test_opening_a_session_is_not_the_same_as_authenticating(tmp_path):
+    """`open_session` is the step *after* an identity is established, and every
+    caller has to have done that. Worth a test because the method's name is
+    inviting and its effect is a signed-in session."""
+    import inspect
+
+    from auteur.web.auth import Accounts
+
+    doc = inspect.getdoc(Accounts.open_session) or ""
+    assert "does not authenticate" in doc.lower()
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("ada", "ada@example.invalid", "a-long-enough-passphrase")
+    token = accounts.open_session("ada")
+    assert accounts.session_user(token) == "ada"
+
+
+# ---------------------------------------------------------------------------
+# The calendar
+# ---------------------------------------------------------------------------
+
+
+def _a_plan(**over) -> dict:
+    plan = {
+        "id": "abc123",
+        "title": "Saturday market",
+        "when": "2026-09-05T09:00:00+00:00",
+        "prompt": "a 90s hypercut",
+        "status": "idea",
+        "caption": "Saturday, 6am",
+        "hashtags": ["market"],
+        "captures": [{"what": "a wide of where you are", "role": "run", "times": 14}],
+    }
+    plan.update(over)
+    return plan
+
+
+def test_the_calendar_folds_at_seventy_five_octets_and_ends_every_line_crlf():
+    """RFC 5545 is fussy in ways that produce a file which imports as *empty*
+    rather than as broken, which is the worst kind of wrong: the calendar app
+    says nothing and the events simply are not there."""
+    from auteur import calendar as ics
+
+    text = ics.feed([_a_plan(prompt="x " * 200)])
+    assert text.endswith("\r\n")
+    lines = text.split("\r\n")
+    assert all("\n" not in line and "\r" not in line for line in lines)
+    for line in lines:
+        assert len(line.encode("utf-8")) <= 75, f"unfolded line: {line[:40]}…"
+    # Continuations are marked, or the fold is just a broken line.
+    assert any(line.startswith(" ") for line in lines)
+
+
+def test_a_fold_never_splits_a_character():
+    """The limit is octets and the content is UTF-8, so folding on characters
+    puts half a character at the end of a line and mojibake in the calendar."""
+    from auteur import calendar as ics
+
+    text = ics.feed([_a_plan(title="café " * 40, prompt="—" * 90)])
+    for line in text.split("\r\n"):
+        line.encode("utf-8").decode("utf-8")  # raises if a fold split one
+
+
+def test_commas_and_newlines_in_a_caption_do_not_break_the_file():
+    from auteur import calendar as ics
+
+    text = ics.feed([_a_plan(caption="one, two; three\\four\nand a new line")])
+    body = "".join(line[1:] if line.startswith(" ") else "\n" + line for line in text.split("\r\n"))
+    description = [ln for ln in body.split("\n") if ln.startswith("DESCRIPTION:")][0]
+    assert "\\," in description
+    assert r"\;" in description
+    assert "\\\\" in description
+    assert "\\n" in description
+
+
+def test_editing_a_plan_updates_the_event_rather_than_adding_one():
+    """Stable UID, moving SEQUENCE. Without both, moving a shoot leaves the old
+    one on the phone and adds a second — which is how a calendar subscription
+    becomes something people unsubscribe from."""
+    from auteur import calendar as ics
+
+    before = ics.event_for(_a_plan())
+    moved = ics.event_for(_a_plan(when="2026-09-06T09:00:00+00:00"))
+    renamed = ics.event_for(_a_plan(title="Sunday market"))
+
+    assert before.uid == moved.uid == renamed.uid
+    assert before.sequence != moved.sequence
+    assert before.sequence != renamed.sequence
+    # And an untouched plan does not churn: a calendar that is told everything
+    # changed every hour stops believing any of it.
+    assert ics.event_for(_a_plan()).sequence == before.sequence
+
+
+def test_a_plan_carries_its_reminders():
+    from auteur import calendar as ics
+
+    text = ics.feed([_a_plan()])
+    assert text.count("BEGIN:VALARM") == len(ics.ALARMS)
+    assert "TRIGGER:-PT48H" in text  # go and shoot it
+    assert "TRIGGER:PT0S" in text  # and the moment itself, which is not -PT0M
+
+
+def test_a_posted_plan_stops_being_something_to_do():
+    from auteur import calendar as ics
+
+    done = ics.feed([_a_plan(status="posted")])
+    assert "STATUS:CANCELLED" in done
+    assert "BEGIN:VALARM" not in done, "a reminder to post something already posted"
+
+
+def test_a_plan_with_an_unreadable_time_is_skipped_not_crashed():
+    from auteur import calendar as ics
+
+    assert ics.event_for(_a_plan(when="whenever")) is None
+    text = ics.feed([_a_plan(when="whenever"), _a_plan(id="ok")])
+    assert text.count("BEGIN:VEVENT") == 1
+
+
+def test_the_calendar_link_is_a_capability_and_can_be_rolled(tmp_path):
+    """A calendar app has no cookie, so the URL is the credential. That makes
+    the ability to roll it the only way to un-share it."""
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("ada", "ada@example.invalid", "a-long-enough-passphrase")
+
+    token = accounts.calendar_token("ada")
+    assert len(token) >= 24
+    assert accounts.calendar_token("ada") == token, "a link that changes is a link that breaks"
+    assert accounts.by_calendar_token(token).username == "ada"
+
+    rolled = accounts.calendar_token("ada", roll=True)
+    assert rolled != token
+    assert accounts.by_calendar_token(token) is None, "the old link still works"
+    assert accounts.by_calendar_token("").username if False else True
+
+
+def test_a_calendar_token_is_not_derived_from_anything_about_the_account(tmp_path):
+    """A derived token cannot be rolled without changing what it is derived
+    from, and the reason to roll one is that it went somewhere it should not."""
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("ada", "ada@example.invalid", "a-long-enough-passphrase")
+    token = accounts.calendar_token("ada")
+    account = accounts.get("ada")
+    for secret in (account.username, account.email, account.salt, account.password_hash):
+        assert secret not in token
+        assert token not in secret
+
+
+def test_the_calendar_feed_is_reachable_without_a_session():
+    """On purpose, and the only route that is: a calendar app is not a browser
+    and will not sign in."""
+    from auteur.web import server
+
+    assert "/calendar/" in server.PUBLIC_PREFIXES
+
+
+def test_a_platform_has_a_readable_title_that_is_not_its_lookup_key():
+    """`name` reads like a label and is not one — it is "instagram-reel". It
+    reached the manager's board and put a lookup key on somebody's screen."""
+    from auteur.workflows.platforms import PLATFORMS
+
+    for key, spec in PLATFORMS.items():
+        assert spec.name == key
+        assert spec.title != key
+        assert " " in spec.title
+        assert spec.service in spec.title

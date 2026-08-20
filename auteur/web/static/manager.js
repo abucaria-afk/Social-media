@@ -274,5 +274,53 @@
       });
   });
 
+  /* -- the calendar --------------------------------------------------------
+   *
+   * A subscription rather than a download. `webcal:` is what both phone
+   * calendar apps register themselves for, so the link opens straight into
+   * "subscribe to this calendar" rather than downloading a file that is a
+   * snapshot and wrong the moment a plan moves. */
+  (function () {
+    var state = $("cal-state");
+    var opener = $("cal-open");
+    if (!state || !opener) { return; }
+
+    function webcal(path) {
+      return "webcal://" + location.host + path;
+    }
+
+    function fill(path) {
+      if (!path) { state.textContent = "not available"; return; }
+      opener.href = webcal(path);
+      state.textContent = "ready";
+      opener.dataset.plain = location.origin + path;
+    }
+
+    fetch("/api/calendar", { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (said) { if (said) { fill(said.path); } })
+      .catch(function () { state.textContent = "not available"; });
+
+    $("cal-copy").addEventListener("click", function () {
+      var url = opener.dataset.plain;
+      if (!url || !navigator.clipboard) { return; }
+      navigator.clipboard.writeText(url).then(function () {
+        state.textContent = "copied";
+        setTimeout(function () { state.textContent = "ready"; }, 1800);
+      }).catch(function () {});
+    });
+
+    $("cal-roll").addEventListener("click", function () {
+      fetch("/api/calendar/roll", { method: "POST", credentials: "same-origin" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (said) {
+          if (!said) { return; }
+          fill(said.path);
+          state.textContent = "new link";
+        })
+        .catch(function () {});
+    });
+  })();
+
   loadBoard();
 })();

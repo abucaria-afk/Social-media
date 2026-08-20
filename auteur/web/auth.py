@@ -85,6 +85,11 @@ class Account:
     #: sha256 of the outstanding reset token, and when it expires.
     reset_hash: str = ""
     reset_expires: float = 0.0
+    #: The secret in this person's calendar subscription URL. A calendar app is
+    #: not a browser and will not sign in, so the link *is* the credential —
+    #: which makes it a capability: long, unguessable, per person, and
+    #: rollable. Empty until somebody asks for their calendar.
+    calendar_token: str = ""
 
     def check(self, password: str) -> bool:
         _, candidate = hash_password(password, bytes.fromhex(self.salt))
@@ -207,6 +212,37 @@ class Accounts:
             self._save()
         return account
 
+    def calendar_token(self, username: str, *, roll: bool = False) -> str:
+        """This person's calendar secret, made on first ask.
+
+        Not derived from the username or the password — a derived token cannot
+        be rolled without changing the thing it is derived from, and the reason
+        to roll one is that it has been shared with somebody it should not have
+        been.
+        """
+        with self.lock:
+            account = self.accounts.get(username.lower())
+            if account is None:
+                return ""
+            if roll or not account.calendar_token:
+                account.calendar_token = secrets.token_urlsafe(24)
+                self._save()
+            return account.calendar_token
+
+    def by_calendar_token(self, token: str) -> Account | None:
+        """Whose calendar this is. Compared in constant time.
+
+        A short-circuiting comparison over a set of secrets leaks how much of a
+        guess was right, one character at a time.
+        """
+        if not token:
+            return None
+        with self.lock:
+            for account in self.accounts.values():
+                if account.calendar_token and hmac.compare_digest(account.calendar_token, token):
+                    return account
+        return None
+
     def set_password(self, account: Account, password: str) -> None:
         salt, digest = hash_password(password)
         with self.lock:
@@ -259,12 +295,26 @@ class Accounts:
                 self._save()
             return None, "That username and password do not match."
 
-        token = secrets.token_urlsafe(32)
         with self.lock:
             account.failures, account.locked_until = 0, 0.0
-            self.sessions[_token_hash(token)] = (account.username, time.time() + SESSION_LIFETIME)
             self._save()
-        return token, "Signed in."
+        return self.open_session(account.username), "Signed in."
+
+    def open_session(self, username: str) -> str:
+        """A session for somebody whose identity has already been established.
+
+        Extracted from `sign_in` rather than copied so there is one place a
+        session comes into existence. **This does not authenticate anybody** —
+        it is the step *after* authentication, and every caller is responsible
+        for having done that first: `sign_in` checks a password, and the
+        identity-provider route checks a verified email against an account that
+        already exists. A third caller that skips that is an open door.
+        """
+        token = secrets.token_urlsafe(32)
+        with self.lock:
+            self.sessions[_token_hash(token)] = (username, time.time() + SESSION_LIFETIME)
+            self._save()
+        return token
 
     def session_user(self, token: str | None) -> str | None:
         if not token:

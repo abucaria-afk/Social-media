@@ -90,6 +90,10 @@ class SafeArea:
 class PlatformSpec:
     """One destination, and everything the edit needs to know about it."""
 
+    #: The key this is looked up by. Not a label — `name` reads like one and is
+    #: not: it is "instagram-reel", and showing it to somebody puts a lookup key
+    #: on their screen, which is exactly what happened on the manager's board.
+    #: `title` below is the readable one.
     name: str
     service: str
     surface: str
@@ -110,6 +114,11 @@ class PlatformSpec:
     #: Story-style surfaces cut a long film into cards of this length.
     card_seconds: float = 0.0
     note: str = ""
+
+    @property
+    def title(self) -> str:
+        """What to show a person: "Instagram Reels", not "instagram-reel"."""
+        return f"{self.service} {self.surface}".strip()
 
     @property
     def is_vertical(self) -> bool:
