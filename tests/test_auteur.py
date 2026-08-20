@@ -7228,3 +7228,28 @@ def test_a_template_never_extends_a_clip_past_the_footage_the_director_chose():
     assert planned.shots, "the template produced no shots at all"
     for shot in planned.shots:
         assert shot.end <= 2.4 + 1e-6, "a clip was extended past its selection"
+
+
+def test_a_decade_in_the_prompt_is_not_a_runtime():
+    """`90s` is the nineties. Read as ninety seconds it wrecks the whole film.
+
+    Measured before the fix: "a 90s hypercut, 12 seconds" planned 324 shots
+    across 90 seconds — the bare-`s` branch matched `90s` first and never
+    reached the words the person actually wrote. The film then took so long to
+    render that it never finished, from a prompt asking for twelve seconds.
+    """
+    from auteur.director.brief import _extract_duration
+
+    assert _extract_duration('a 90s hypercut, "SUMMER", 12 seconds') == 12.0
+    assert _extract_duration("80s vhs montage, 15 seconds") == 15.0
+    assert _extract_duration("a 70s super 8 film 20 seconds") == 20.0
+    assert _extract_duration("2010s look, 8 seconds") == 8.0
+
+    # A decade on its own is a look, not a length.
+    assert _extract_duration("make it 90s") is None
+    assert _extract_duration("1980s energy") is None
+
+    # And the ordinary forms still work.
+    assert _extract_duration("fast montage, 12 seconds") == 12.0
+    assert _extract_duration("15s punchy") == 15.0
+    assert _extract_duration("half a minute") == 30.0

@@ -203,9 +203,22 @@
   // Kept as the old name so anything calling it still works.
   function shotSecondsFor(prompt) { return cadenceFor(prompt).hold; }
 
+  /* Decades are not durations.
+   *
+   * `90s` in "a 90s hypercut, 12 seconds" is the nineties. Matched by the
+   * bare-`s` branch it became ninety seconds — clamped to sixty — so every
+   * prompt that named a decade produced a sixty second film whatever length
+   * the person asked for, and the length they typed was never reached.
+   *
+   * An explicit unit is tried first, because that is how anyone naming both a
+   * decade and a length writes the length. The bare form still works, with
+   * decade-shaped tokens removed before it runs. */
+  var DECADE = /\b(?:19|20)?\d0s\b/gi;
+
   function secondsFrom(prompt, fallback) {
     var p = prompt || "";
-    var m = /(\d+(?:\.\d+)?)\s*(?:s\b|sec|secs|second|seconds)/i.exec(p);
+    var m = /(\d+(?:\.\d+)?)\s*(?:seconds?|secs?)\b/i.exec(p);
+    if (!m) { m = /(\d+(?:\.\d+)?)\s*s\b/i.exec(p.replace(DECADE, " ")); }
     if (m) { return Math.max(3, Math.min(60, parseFloat(m[1]))); }
     if (/half\s*a?\s*minute/i.test(p)) { return 30; }
     if (/a?\s*minute/i.test(p)) { return 60; }
