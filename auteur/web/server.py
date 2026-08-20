@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, unquote
 
 from ..config import FORMATS, QUALITIES, Settings
 from ..ui import Reporter, describe_count, describe_duration, describe_shape
@@ -198,6 +199,9 @@ class Studio:
         self.lock = threading.Lock()
         # Rendering is CPU-bound; running two at once just makes both slower.
         self.queue_lock = threading.Lock()
+        #: Where finished films are published so they outlive their job.
+        #: Set by serve(); left None by the tests that only want a render.
+        self.films: Any = None
         #: owner -> the last edit they planned. The studio page works on this:
         #: the agents argue about a cut that already exists, not about a prompt.
         self.recent_edls: dict[str, Any] = {}
@@ -345,6 +349,23 @@ class Studio:
                     job.stage = "Your film is ready"
                     job.percent = 100.0
                     job.detail = ""
+
+                # Into the feed. Outside the lock because publishing writes a
+                # file, and holding the studio's lock across a disk write makes
+                # every other phone polling this server wait on it.
+                if self.films is not None and job.owner:
+                    try:
+                        self.films.add(
+                            owner=job.owner,
+                            prompt=job.prompt,
+                            video=str(production.primary),
+                            facts=facts,
+                            heard=heard,
+                            template=template,
+                            era=era,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - the film is made
+                        log.warning("could not publish %s to the feed: %s", job.id, exc)
             except FileNotFoundError as exc:
                 self._fail(job, "I could not find any footage in what you sent.", exc)
             except Exception as exc:  # noqa: BLE001 - the page must always hear back
@@ -427,6 +448,8 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     studio: Studio
     accounts: Any = None  # an auth.Accounts once serve() has run
+    films: Any = None  # a social.Films once serve() has run
+    messages: Any = None  # a social.Messages once serve() has run
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quieter than the default
         log.debug("%s - %s", self.address_string(), fmt % args)
@@ -787,6 +810,165 @@ class Handler(BaseHTTPRequestHandler):
             ],
         }
 
+    # -- the feed and the inbox ------------------------------------------
+
+    def _poster_for(self, film) -> Path | None:
+        """A still to show before the video loads, made once and kept.
+
+        A feed of eight video elements with no poster is eight black rectangles
+        until each one has buffered, which on a phone is most of a second per
+        film. One frame pulled at a tenth of the way in — far enough past the
+        first cut that it is not the title card, early enough to be the hook.
+        """
+        source = Path(film.video)
+        if not source.is_file():
+            return None
+        poster = source.with_suffix(".poster.jpg")
+        if poster.is_file():
+            return poster
+        try:
+            from ..ffmpeg import probe, run
+
+            seconds = float((probe(source).get("format") or {}).get("duration") or 0.0)
+            at = max(0.1, seconds * 0.1)
+            run(
+                [
+                    "-ss",
+                    f"{at:.2f}",
+                    "-i",
+                    str(source),
+                    "-frames:v",
+                    "1",
+                    "-q:v",
+                    "4",
+                    "-y",
+                    str(poster),
+                ]
+            )
+        except Exception as exc:  # noqa: BLE001 - a missing poster is not an outage
+            log.debug("no poster for %s: %s", film.id, exc)
+            return None
+        return poster if poster.is_file() else None
+
+    def _feed(self) -> None:
+        """Films, newest first. `?mine=1` for only your own, `?before=` to page."""
+        who = self.current_user() or ""
+        query = parse_qs(self.path.partition("?")[2])
+        before = None
+        try:
+            before = float(query["before"][0]) if query.get("before") else None
+        except (TypeError, ValueError):
+            before = None
+        if query.get("mine"):
+            films = self.films.by(who)
+        else:
+            films = self.films.feed(who, before=before)
+        self._json({"films": [f.public(who) for f in films], "me": who})
+
+    def _film_media(self, path: str) -> None:
+        """The video or the poster for one film, by film id.
+
+        Unlike a job, a film is public to everybody signed in — that is what a
+        feed is. The check that matters is that the id names a film this
+        instance published, so a path cannot be walked in from the address bar.
+        """
+        parts = path.strip("/").split("/")
+        film = self.films.get(parts[2]) if len(parts) > 2 else None
+        if film is None:
+            self._json({"error": "no such film"}, 404)
+            return
+        want = parts[3] if len(parts) > 3 else "video"
+        if want == "poster":
+            poster = self._poster_for(film)
+            if poster is None:
+                self._json({"error": "no poster"}, 404)
+                return
+            self._file(poster, "image/jpeg")
+            return
+        source = Path(film.video)
+        if not source.is_file():
+            self._json({"error": "that film's file has been swept"}, 410)
+            return
+        self._file(source, "video/mp4")
+
+    def _like(self, film_id: str) -> None:
+        who = self.current_user() or ""
+        film = self.films.like(film_id, who)
+        if film is None:
+            self._json({"error": "no such film"}, 404)
+            return
+        self._json({"likes": len(film.liked_by), "liked": who in film.liked_by})
+
+    def _unpublish(self, film_id: str) -> None:
+        """Take your own film out of the feed. The file on disk is left alone."""
+        who = self.current_user() or ""
+        if not self.films.forget(film_id, who):
+            self._json({"error": "that is not yours to remove"}, 403)
+            return
+        self._json({"ok": True})
+
+    def _people(self) -> None:
+        """Everyone else with an account here, so there is somebody to write to.
+
+        Names only. An account list is not a secret on an instance where you
+        have to be signed in to ask, and without it the message screen is a
+        text field with nowhere to send anything.
+        """
+        who = self.current_user() or ""
+        self.accounts.refresh()
+        names = sorted(n for n in self.accounts.accounts if n != who)
+        counts = {n: len(self.films.by(n, limit=999)) for n in names}
+        self._json(
+            {
+                "people": [{"who": n, "films": counts.get(n, 0)} for n in names],
+                "me": who,
+            }
+        )
+
+    def _inbox(self) -> None:
+        who = self.current_user() or ""
+        rows = self.messages.conversations(who)
+        self._json({"conversations": rows, "unread": sum(r["unread"] for r in rows), "me": who})
+
+    def _thread(self, other: str) -> None:
+        who = self.current_user() or ""
+        other = other.strip()
+        if not other:
+            self._json({"error": "who with?"}, 400)
+            return
+        notes = self.messages.thread(who, other)
+        # Reading a conversation is what marks it read. Doing it on a separate
+        # "seen" call means a badge that clears only when the page remembers to
+        # say so, which it eventually will not.
+        self.messages.mark_read(who, other)
+        films = {}
+        for note in notes:
+            if note.film and note.film not in films:
+                found = self.films.get(note.film)
+                if found is not None:
+                    films[note.film] = found.public(who)
+        self._json({"who": other, "messages": [n.public() for n in notes], "films": films})
+
+    def _send_message(self) -> None:
+        who = self.current_user() or ""
+        payload = self._json_body()
+        to = str(payload.get("to") or "").strip()
+        self.accounts.refresh()
+        if to not in self.accounts.accounts:
+            self._json({"error": "no one here by that name"}, 404)
+            return
+        note = self.messages.send(
+            who,
+            to,
+            text=str(payload.get("text") or ""),
+            film=str(payload.get("film") or ""),
+        )
+        if note is None:
+            self._json({"error": "there was nothing in that to send"}, 400)
+            return
+        log.info("message from %s to %s", _for_log(who), _for_log(to))
+        self._json({"message": note.public()}, 201)
+
     def _scholar_ask(self) -> None:
         """Put a question to the Scholar and hand back what it says.
 
@@ -889,6 +1071,12 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/templates", "/templates.html"):
             self._static(STATIC / "templates.html", "text/html; charset=utf-8")
             return
+        if path in ("/feed", "/feed.html"):
+            self._static(STATIC / "feed.html", "text/html; charset=utf-8")
+            return
+        if path in ("/inbox", "/inbox.html", "/messages"):
+            self._static(STATIC / "inbox.html", "text/html; charset=utf-8")
+            return
         if path == "/api/platforms":
             self._json({"platforms": self._platforms()})
             return
@@ -913,6 +1101,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/scholar":
             self._json(self._scholar_state())
+            return
+        if path == "/api/feed":
+            self._feed()
+            return
+        if path == "/api/people":
+            self._people()
+            return
+        if path == "/api/messages":
+            self._inbox()
+            return
+        if path.startswith("/api/messages/"):
+            self._thread(unquote(path[len("/api/messages/") :]))
+            return
+        if path.startswith("/api/films/"):
+            self._film_media(path)
             return
         if path.startswith("/static/"):
             self._static(STATIC / Path(path).name)
@@ -1439,6 +1642,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/agents/decide":
             self._agents_decide()
             return
+        if path == "/api/messages/send":
+            self._send_message()
+            return
+        if path.startswith("/api/films/") and path.endswith("/like"):
+            self._like(path.split("/")[3])
+            return
+        if path.startswith("/api/films/") and path.endswith("/delete"):
+            self._unpublish(path.split("/")[3])
+            return
         if path != "/api/jobs":
             self._json({"error": "not found"}, 404)
             return
@@ -1750,11 +1962,24 @@ def serve(
     """Run the web app until interrupted."""
     from . import assets, seed
     from .auth import Accounts
+    from .social import Films, Messages
 
     assets.ensure(STATIC)
     root = Path(workspace or Path.cwd() / "auteur-web")
     Handler.studio = Studio(root, quality=quality)
     Handler.accounts = Accounts(Accounts.default_path(root))
+    # The feed and the inbox. Both outlive the jobs that fill them, which is
+    # the whole difference between a renderer and an app you come back to.
+    Handler.films = Films(Films.default_path(root))
+    Handler.studio.films = Handler.films
+    Handler.messages = Messages(Messages.default_path(root))
+    # A film points at a file inside a job folder, and job folders are swept
+    # after a few hours. Checked once at start-up rather than on every feed
+    # request, so a long-running instance does not stat the whole library to
+    # answer a scroll.
+    gone = Handler.films.drop_missing()
+    if gone:
+        log.info("dropped %d film(s) whose file had been swept", gone)
     # Unless the first person is to claim it from their phone. `bootstrap`
     # generates an account and prints its password to the terminal, which is
     # fine at a desk and is the reason the first step of the whole product

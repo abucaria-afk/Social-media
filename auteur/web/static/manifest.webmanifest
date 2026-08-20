@@ -8,8 +8,8 @@
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
-  "background_color": "#0c0b0a",
-  "theme_color": "#0c0b0a",
+  "background_color": "#19181b",
+  "theme_color": "#19181b",
   "categories": ["photo", "video", "productivity"],
   "launch_handler": { "client_mode": "focus-existing" },
   "icons": [

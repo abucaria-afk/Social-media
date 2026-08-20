@@ -115,15 +115,23 @@ def main() -> int:
         page.wait_for_timeout(300)
         shot(page, "said-what-i-want", "the prompt, with a decade and a word on screen")
 
-        card = page.query_selector("#template-card")
-        if card and not card.is_hidden():
-            card.scroll_into_view_if_needed()
-            shot(page, "template-choices", "the reference reels, as timelines to cut to")
-            chip = page.query_selector("#template .choice:not([data-value=''])")
-            if chip:
-                chip.click()
-                page.wait_for_timeout(300)
+        # Templates live on a tab now, not on this screen. Looking for the old
+        # card here found nothing and silently skipped the step — a
+        # walkthrough that quietly stops covering a feature is worse than one
+        # that fails, because the screenshots still look complete.
+        page.goto(BASE + "/templates")
+        try:
+            page.wait_for_selector(".template", timeout=20000)
+            shot(page, "template-choices", "the reference reels, each drawing its own cutting")
+            rows = page.query_selector_all(".template")
+            if len(rows) > 3:
+                rows[3].click()
+                page.wait_for_timeout(400)
                 shot(page, "template-chosen", "cutting to one reel's actual timeline")
+        except Exception:
+            print("    templates: the tab never listed anything")
+        page.goto(BASE + "/")
+        page.wait_for_selector("#go", timeout=15000)
 
         era = page.query_selector("#era")
         if era:

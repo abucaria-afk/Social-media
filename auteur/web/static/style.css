@@ -11,8 +11,51 @@
  * palette the icons and the terminal read. Nothing here hard-codes a hex. */
 
 :root {
-  --radius: 18px;
-  --radius-sm: 14px;
+  /* Type.
+   *
+   * One family at three sizes is not a hierarchy, it is a paragraph with some
+   * bold in it. Three jobs, three treatments: a tight grotesque for anything
+   * that is a *name*, the system text face for anything that is a *sentence*,
+   * and a monospace for numbers — this app is full of measured values in
+   * columns, and proportional digits make 0.167 and 0.125 the wrong widths to
+   * compare at a glance.
+   *
+   * All three are stacks the device already has. A webfont would be one
+   * network request between somebody and their own camera roll, on the screen
+   * where the app is meant to feel like it is already installed. */
+  --font-display: ui-sans-serif, -apple-system, "SF Pro Display", "Segoe UI Variable Display",
+                  "Helvetica Neue", Inter, system-ui, sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
+               "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* A ratio rather than a list of sizes somebody picked: 1.2 on a 15px base.
+     15, not the 17 this used to sit at. Instagram sets its captions and its
+     names at 14 and its section headers at 16, and the reason is not that
+     small type is fashionable — it is that a feed is a list of *many* things
+     and 17px body copy fits four of them on a phone. At 17 this app read like
+     a document about video editing. */
+  --step--2: 0.6667rem;
+  --step--1: 0.8rem;
+  --step-0: 1rem;
+  --step-1: 1.1333rem;
+  --step-2: 1.4rem;
+  --step-3: 1.7333rem;
+  --step-4: 2.1333rem;
+
+  /* Corners, tightened for the same reason. An 18px radius on a 44px control
+     is most of the way to a pill and reads as soft where these apps read as
+     crisp; the pill is kept deliberately, for pills. */
+  --radius: 14px;
+  --radius-sm: 10px;
+
+  /* The bar along the bottom. Everything that scrolls has to clear it. */
+  --tabbar: 52px;
+
+  /* The page gutter. Named because the sticky top bar has to cancel it to run
+     edge to edge, and a bar that is 16px narrower than the page it sits on is
+     the kind of wrong nobody can name but everybody sees. */
+  --pad: 16px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
@@ -26,7 +69,7 @@ html, body {
   padding: 0;
   background: var(--ground);
   color: var(--text);
-  font: 17px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font: 15px/1.45 var(--font-body);
   -webkit-text-size-adjust: 100%;
   overscroll-behavior-y: none;
 }
@@ -64,11 +107,20 @@ body {
 .masthead { margin: 8px 0 22px; }
 .masthead h1 {
   margin: 0;
-  font-size: 34px;
-  letter-spacing: -0.5px;
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-size: var(--step-2);
+  /* Tight, because a name set at display size with default tracking reads as
+     a heading in a document rather than as the thing the app is called. */
+  letter-spacing: -0.03em;
+  font-weight: 800;
+  line-height: 1.02;
 }
-.masthead .sub { margin: 6px 0 0; color: var(--text-muted); font-size: 16px; }
+.masthead .sub {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: var(--step--1);
+  max-width: 34ch;
+}
 
 /* -- cards --------------------------------------------------------------- */
 
@@ -79,8 +131,8 @@ body {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 16px;
-  margin-bottom: 14px;
+  padding: 13px 14px;
+  margin-bottom: 10px;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -116,12 +168,13 @@ body {
 .card.picker.has-files .card-action { border-style: dashed; }
 
 .step-number {
-  flex: 0 0 26px;
-  height: 26px;
+  flex: 0 0 21px;
+  height: 21px;
+  margin-top: 1px;
   border-radius: 50%;
   background: var(--line);
-  color: var(--text);
-  font-size: 14px;
+  color: var(--text-muted);
+  font-size: var(--step--2);
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -129,8 +182,21 @@ body {
 }
 
 .card-body { flex: 1 1 auto; min-width: 0; display: block; }
-.card-title { display: block; font-weight: 600; font-size: 17px; margin-bottom: 4px; }
-.card-hint { display: block; color: var(--text-muted); font-size: 14px; margin-top: 8px; }
+.card-title {
+  display: block;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--step-0);
+  letter-spacing: -0.012em;
+  margin-bottom: 3px;
+}
+.card-hint {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--step--1);
+  line-height: 1.45;
+  margin-top: 8px;
+}
 
 textarea {
   width: 100%;
@@ -203,17 +269,19 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
 .go {
   display: block;
   width: 100%;
-  min-height: 56px;
-  margin-top: 18px;
+  min-height: 48px;
+  margin-top: 14px;
   border: 0;
   border-radius: var(--radius);
   background: var(--ember);
   color: var(--on-ember);
-  font-size: 18px;
+  font-family: var(--font-display);
+  font-size: var(--step-0);
   font-weight: 700;
+  letter-spacing: -0.01em;
   text-align: center;
   text-decoration: none;
-  line-height: 56px;
+  line-height: 48px;
 }
 .go:disabled { opacity: 0.45; }
 .go:active { transform: scale(0.99); }
@@ -260,7 +328,13 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   .ring-fill { animation: none; border-color: var(--ember); opacity: 0.5; }
 }
 
-#stage { margin: 0; font-size: 22px; font-weight: 700; }
+#stage {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--step-2);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
 .detail { margin: 6px 0 18px; color: var(--text-muted); font-size: 15px; min-height: 22px; }
 
 .bar {
@@ -291,10 +365,24 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
 
 /* -- done ---------------------------------------------------------------- */
 
-.done-title { font-size: 26px; margin: 10px 0 16px; color: var(--moss); }
+.done-title {
+  font-family: var(--font-display);
+  font-size: var(--step-2);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 10px 0 16px;
+  color: var(--moss);
+}
 .done-title.bad { color: var(--rust); }
 
-video {
+/* The player on the "your film is ready" screen, and only that one. This was a
+   bare `video` selector, which is fine while there is one video in the app and
+   wrong the moment there is a feed: `max-height: 62vh` silently capped every
+   film in the feed at 523px on an 844px screen, and the black band under it
+   read as a fault in the render rather than as a stylesheet reaching too far.
+   A tag selector is a claim about every element of that kind that will ever
+   exist in this app. */
+#player {
   width: 100%;
   max-height: 62vh;
   background: var(--ground);
@@ -307,7 +395,10 @@ video {
   margin: 16px 0 0;
   padding: 0;
   color: var(--text-muted);
-  font-size: 15px;
+  font-size: var(--step--1);
+  /* These are measurements — shot counts, seconds, medians — and they are read
+     down the column rather than across the line. */
+  font-variant-numeric: tabular-nums;
 }
 .facts li { padding: 4px 0; }
 .facts li::before { content: "·  "; color: var(--ember-text); }
@@ -419,40 +510,91 @@ input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   font-size: 14px;
 }
 
-/* The link through to the studio. Sits under the main form on the first
-   screen: visible, and not competing with the one button that matters. */
-.studio-link {
-  display: block;
+/* The rooms.
+   Five stacked full-width cards that all looked the same and said nothing
+   about their own contents — fine at two, useless at five, because the only
+   way to find out what was in a room was to go there. A grid instead: two
+   across on the narrowest phone, each tile naming what it holds and carrying
+   a live count filled in by app.js. */
+.rooms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 1.25rem 0;
+}
+
+.room {
+  display: grid;
+  /* The mark sits in its own column so the three lines of text share one left
+     edge. Aligning the name to the glyph instead left the note and the state
+     hanging off a ragged margin. */
+  grid-template-columns: 1.6rem minmax(0, 1fr);
+  grid-template-areas:
+    "mark name"
+    ".    note"
+    ".    state";
+  align-content: start;
+  gap: 0.1rem 0.5rem;
+  min-height: 104px;
+  padding: 0.8rem 0.85rem;
   text-decoration: none;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--ember);
-  border-radius: 0.85rem;
-  padding: 0.85rem 1rem;
-  margin: 1rem 0;
-  transition: border-color 0.15s;
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s, background 0.15s, transform 0.12s;
 }
 
-.studio-link:hover { border-color: var(--ember); }
+.room:hover,
+.room:focus-visible { border-color: var(--ember); background: var(--raised); }
+.room:active { transform: scale(0.985); }
 
-.studio-link-title {
-  display: block;
-  color: var(--text);
-  font-weight: 600;
-  font-size: 0.98rem;
+/* Spans the grid, because "where it goes" is the one room that is about
+   leaving rather than about a library, and a half-width tile put it in a
+   row of one. */
+.room-wide {
+  grid-column: 1 / -1;
+  min-height: 0;
+  grid-template-areas:
+    "mark name"
+    ".    note";
 }
+.room-wide .room-state { display: none; }
 
-.studio-link-title::after {
-  content: " →";
+.room-mark {
+  grid-area: mark;
   color: var(--ember-text);
+  font-size: var(--step-1);
+  line-height: 1.15;
 }
 
-.studio-link-note {
-  display: block;
+.room-name {
+  grid-area: name;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: var(--step-0);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.room-note {
+  grid-area: note;
   color: var(--text-faint);
-  font-size: 0.82rem;
-  margin-top: 0.15rem;
-  line-height: 1.4;
+  font-size: var(--step--1);
+  line-height: 1.35;
+}
+
+/* The count. Tabular so two rooms sitting side by side line their numbers
+   up instead of drifting by a digit. */
+.room-state {
+  grid-area: state;
+  align-self: end;
+  margin-top: 0.4rem;
+  color: var(--ember-text);
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  font-variant-numeric: tabular-nums;
+  min-height: 1.1em;
 }
 
 
@@ -468,3 +610,165 @@ input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   flex: none;
   min-height: 56px;
 }
+
+/* ===========================================================================
+   The tab bar
+   ---------------------------------------------------------------------------
+   Fixed to the bottom on every page, five slots, create in the middle. This is
+   the one piece of this app nobody should have to read: it is the bar both the
+   apps on the same home screen already use, in the same place, at the same
+   height, with the same filled-when-selected icons. Anything clever here is a
+   cost paid by every person who opens this.
+   ========================================================================= */
+
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  align-items: center;
+  height: calc(var(--tabbar) + var(--safe-bottom));
+  padding: 0 4px var(--safe-bottom);
+  background: color-mix(in srgb, var(--ground) 86%, transparent);
+  /* Frosted, like the two bars this is modelled on. Falls back to the flat
+     colour above wherever backdrop-filter is not supported, which is fine —
+     the bar is still opaque enough to read against a moving film. */
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-top: 1px solid var(--line);
+}
+
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 44px;
+  text-decoration: none;
+  color: var(--text-faint);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tab.is-on { color: var(--text); }
+
+.tab-icon {
+  display: block;
+  line-height: 0;
+  position: relative;
+}
+
+.tab-label {
+  font-size: var(--step--2);
+  letter-spacing: 0.01em;
+}
+
+/* Create. A filled slab rather than a fifth outline, because on both apps this
+   is the one control that is not a place you go — it is the thing you make. */
+.tab-big .tab-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 29px;
+  border-radius: 9px;
+  background: var(--ember);
+  color: var(--on-ember);
+}
+
+.tab-big { color: var(--text-muted); }
+.tab-big.is-on { color: var(--text); }
+
+.tab-badge {
+  position: absolute;
+  top: -3px;
+  right: -8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--rust);
+  color: var(--ground);
+  font: 600 var(--step--2)/16px var(--font-display);
+  text-align: center;
+}
+
+/* Everything that scrolls has to end above the bar. */
+body.has-tabbar #app,
+body.has-tabbar .page {
+  padding-bottom: calc(var(--tabbar) + var(--safe-bottom) + 16px);
+}
+
+/* ===========================================================================
+   The top bar
+   ---------------------------------------------------------------------------
+   Compact, sticky, one line. Replaces the tall mastheads: a 40px title and a
+   subtitle is a book jacket, and it cost a third of the screen on every page.
+   ========================================================================= */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  margin: 0 calc(-1 * var(--pad));
+  padding: calc(var(--safe-top) + 6px) 16px 6px;
+  background: color-mix(in srgb, var(--ground) 88%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
+.topbar h1 {
+  margin: 0;
+  font: 700 var(--step-1)/1.2 var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+.topbar .topbar-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+/* An identity, without an avatar upload flow. The hue is the name's own hash,
+   so the same person is the same colour on every screen they appear on — which
+   is most of what an avatar is doing in a list of eight rows. */
+.avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  /* Both from the name's own hue, so the disc stays inside the palette's
+     logic instead of reaching for a hard-coded white. */
+  --hue: 28;
+  background: hsl(var(--hue) 40% 44%);
+  color: hsl(var(--hue) 55% 97%);
+  font: 600 var(--step-0)/1 var(--font-display);
+  text-transform: uppercase;
+}
+
+.avatar-sm { width: 30px; height: 30px; font-size: var(--step--1); }
+
+
+/* One row for the one room that is not in the bar. */
+.onward {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+}
+
+.onward-mark { color: var(--ember-text); font-size: var(--step-1); line-height: 1; }
+.onward-lines { min-width: 0; flex: 1; }
+.onward-name { display: block; font: 600 var(--step-0)/1.3 var(--font-display); }
+.onward-note { display: block; color: var(--text-faint); font-size: var(--step--1); }
+.onward-state { color: var(--text-faint); font: var(--step--1) var(--font-mono); }

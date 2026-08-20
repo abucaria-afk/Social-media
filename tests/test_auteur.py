@@ -1448,9 +1448,9 @@ def test_every_token_the_stylesheet_uses_actually_exists():
     style = (server.STATIC / "style.css").read_text()
     generated = (server.STATIC / "theme.css").read_text()
 
-    defined = set(re.findall(r"(--[a-z-]+):", generated))
-    local = set(re.findall(r"(--[a-z-]+):", style))  # radius, safe areas
-    used = set(re.findall(r"var\((--[a-z-]+)", style))
+    defined = set(re.findall(r"(--[a-z0-9-]+):", generated))
+    local = set(re.findall(r"(--[a-z0-9-]+):", style))  # radius, type scale, safe areas
+    used = set(re.findall(r"var\((--[a-z0-9-]+)", style))
 
     missing = used - defined - local
     assert missing == set(), f"style.css uses undefined tokens: {sorted(missing)}"
@@ -1487,6 +1487,34 @@ def test_the_icon_and_the_page_use_the_same_palette():
     manifest = _json.loads((server.STATIC / "manifest.webmanifest").read_text())
     assert manifest["theme_color"] == theme.THEME_COLOR
     assert manifest["background_color"] == theme.THEME_COLOR
+
+
+def test_no_page_paints_a_status_bar_the_palette_no_longer_uses():
+    """<meta theme-color> is a hand-written copy of the ground colour.
+
+    Seven pages carry it, theme.js carries both grounds again so it can
+    repaint the tag when somebody overrides the system setting, and the
+    manifest carries the dark one a ninth time. Recolouring the palette left
+    every one of them the old warm brown behind a blue page, and nothing
+    failed — the status bar is the one part of the app no assertion looked at.
+    """
+    import re
+    from auteur import theme
+    from auteur.web import server
+
+    grounds = {theme.THEME_COLOR.lower(), theme.LIGHT_THEME_COLOR.lower()}
+    seen = 0
+    for page in sorted(server.STATIC.glob("*.html")):
+        for colour in re.findall(
+            r'name="theme-color" content="(#[0-9a-fA-F]{6})"', page.read_text()
+        ):
+            seen += 1
+            assert colour.lower() in grounds, f"{page.name} paints {colour}, not a ground"
+    assert seen >= 7, f"only {seen} theme-color tags found — did the pages lose them?"
+
+    script = (server.STATIC / "theme.js").read_text()
+    for colour in re.findall(r"(#[0-9a-fA-F]{6})", script):
+        assert colour.lower() in grounds, f"theme.js repaints to {colour}, not a ground"
 
 
 def test_the_terminal_reads_the_same_palette():
@@ -7384,3 +7412,147 @@ def test_a_conclusion_about_the_shelf_is_not_dropped_as_a_repeat(tmp_path):
     assert (
         "hypercut" in said.lower()
     ), "the conclusion drawn across every film was dropped as a repeat of itself"
+
+
+# ---------------------------------------------------------------------------
+# The feed and the inbox
+# ---------------------------------------------------------------------------
+
+
+def test_a_finished_film_outlives_the_job_that_made_it(tmp_path):
+    """The whole reason the feed exists: jobs are swept, films are not."""
+    from auteur.web.social import Films
+
+    films = Films(tmp_path / "films.json")
+    clip = tmp_path / "one.mp4"
+    clip.write_bytes(b"not really an mp4, but it is a file")
+    films.add(owner="ada", prompt="a hypercut", video=str(clip), facts=["12 shots"])
+
+    # A second process, reading the same file.
+    again = Films(tmp_path / "films.json")
+    assert [f.prompt for f in again.feed()] == ["a hypercut"]
+
+
+def test_a_film_never_hands_its_path_on_disk_to_a_browser(tmp_path):
+    from auteur.web.social import Films
+
+    films = Films(tmp_path / "films.json")
+    clip = tmp_path / "secret-place" / "one.mp4"
+    clip.parent.mkdir()
+    clip.write_bytes(b"x")
+    film = films.add(owner="ada", prompt="p", video=str(clip))
+
+    said = film.public("ada")
+    assert "secret-place" not in json.dumps(said)
+    assert said["video"] == f"/api/films/{film.id}/video"
+
+
+def test_the_feed_forgets_films_whose_file_has_been_swept(tmp_path):
+    """A feed of rows that play nothing looks busy and is empty."""
+    from auteur.web.social import Films
+
+    films = Films(tmp_path / "films.json")
+    kept = tmp_path / "kept.mp4"
+    kept.write_bytes(b"x")
+    films.add(owner="ada", prompt="kept", video=str(kept))
+    films.add(owner="ada", prompt="swept", video=str(tmp_path / "gone.mp4"))
+
+    assert films.drop_missing() == 1
+    assert [f.prompt for f in films.feed()] == ["kept"]
+
+
+def test_only_a_films_own_author_can_take_it_out_of_the_feed(tmp_path):
+    from auteur.web.social import Films
+
+    films = Films(tmp_path / "films.json")
+    clip = tmp_path / "one.mp4"
+    clip.write_bytes(b"x")
+    film = films.add(owner="ada", prompt="p", video=str(clip))
+
+    assert films.forget(film.id, "grace") is False
+    assert films.get(film.id) is not None
+    assert films.forget(film.id, "ada") is True
+    assert films.get(film.id) is None
+
+
+def test_liking_a_film_twice_unlikes_it(tmp_path):
+    from auteur.web.social import Films
+
+    films = Films(tmp_path / "films.json")
+    clip = tmp_path / "one.mp4"
+    clip.write_bytes(b"x")
+    film = films.add(owner="ada", prompt="p", video=str(clip))
+
+    assert films.like(film.id, "grace").liked_by == ["grace"]
+    assert films.like(film.id, "grace").liked_by == []
+
+
+def test_a_conversation_reads_the_same_from_either_end(tmp_path):
+    """Sorting the pair is the whole trick, and it is worth a test: keyed by
+    sender-then-recipient, a reply would open a second, empty thread."""
+    from auteur.web.social import Messages
+
+    box = Messages(tmp_path / "messages.json")
+    box.send("ada", "grace", text="did you see this")
+    box.send("grace", "ada", text="the 90s one?")
+
+    assert [n.text for n in box.thread("ada", "grace")] == ["did you see this", "the 90s one?"]
+    assert [n.text for n in box.thread("grace", "ada")] == ["did you see this", "the 90s one?"]
+
+
+def test_reading_a_conversation_is_what_clears_its_unread_count(tmp_path):
+    from auteur.web.social import Messages
+
+    box = Messages(tmp_path / "messages.json")
+    box.send("ada", "grace", text="one")
+    box.send("ada", "grace", text="two")
+
+    assert box.unread("grace") == 2
+    assert box.unread("ada") == 0  # your own messages are not news to you
+    box.mark_read("grace", "ada")
+    assert box.unread("grace") == 0
+
+
+def test_a_message_with_nothing_in_it_is_not_sent(tmp_path):
+    from auteur.web.social import Messages
+
+    box = Messages(tmp_path / "messages.json")
+    assert box.send("ada", "grace", text="   ") is None
+    assert box.send("ada", "ada", text="hello") is None  # no talking to yourself
+    assert box.send("ada", "", text="hello") is None
+    assert box.conversations("ada") == []
+
+
+def test_an_inbox_row_carries_enough_to_draw_itself(tmp_path):
+    """A list view that fetches per row is how a phone makes forty requests."""
+    from auteur.web.social import Messages
+
+    box = Messages(tmp_path / "messages.json")
+    box.send("ada", "grace", text="first")
+    box.send("grace", "ada", film="abc123")
+
+    row = box.conversations("ada")[0]
+    assert row["who"] == "grace"
+    assert row["last"] == "sent a film"
+    assert row["mine"] is False
+    assert row["unread"] == 1
+
+
+def test_the_tab_bar_is_on_every_page_behind_the_sign_in():
+    """Five slots, same place, every screen. A bar that vanishes on one page
+    is a bar people stop trusting to be there."""
+    from auteur.web import server
+
+    for page in ("index", "feed", "inbox", "templates", "studio", "ask", "overlays", "connect"):
+        text = (server.STATIC / f"{page}.html").read_text()
+        assert "chrome.js" in text, f"{page}.html has no tab bar"
+    # Except the one page you are not signed in on.
+    assert "chrome.js" not in (server.STATIC / "login.html").read_text()
+
+
+def test_the_feed_and_inbox_are_behind_the_sign_in():
+    from auteur.web import server
+
+    for path in ("/feed", "/inbox", "/api/feed", "/api/messages", "/api/people"):
+        assert path not in server.PUBLIC_PATHS
+        assert not path.startswith(server.PUBLIC_PREFIXES)

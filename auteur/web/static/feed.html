@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#19181b">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="Every film made here, one screen at a time.">
+<link rel="icon" href="/icon-192.png">
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/feed.css">
+<title>Auteur — feed</title>
+</head>
+<!-- The feed is dark whatever the rest of the app is set to. A film is a
+     picture on a black surround everywhere it is ever watched, and a bone-white
+     page around a 1080x1920 video is a light leak into the only screen here
+     whose whole job is the footage. -->
+<body class="feed-body" data-theme="dark">
+
+<div class="feed-top">
+  <span class="feed-top-title" id="feed-scope">Everyone</span>
+  <button type="button" class="feed-switch" id="feed-toggle">Just mine</button>
+</div>
+
+<main class="reels" id="reels" aria-label="Films made here">
+  <div class="feed-empty" id="feed-empty" hidden>
+    <p class="feed-empty-line">Nothing here yet.</p>
+    <p class="feed-empty-sub">Films you finish show up here, newest first.</p>
+    <a class="go" href="/">Make the first one</a>
+  </div>
+</main>
+
+<!-- Sending a film to somebody. A sheet from the bottom, which is where every
+     share sheet on this phone comes from. -->
+<div class="sheet" id="share-sheet" hidden>
+  <div class="sheet-scrim" id="sheet-scrim"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Send to">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Send to</h2>
+    <ul class="people" id="share-people"></ul>
+    <p class="sheet-note" id="share-note" hidden></p>
+    <button type="button" class="ghost" id="sheet-close">Close</button>
+  </div>
+</div>
+
+<script src="/static/chrome.js"></script>
+<script src="/static/feed.js"></script>
+</body>
+</html>

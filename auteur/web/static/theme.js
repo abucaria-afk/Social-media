@@ -11,7 +11,7 @@
 (function () {
   "use strict";
 
-  var GROUNDS = { dark: "#0c0b0a", light: "#f6f1e6" };
+  var GROUNDS = { dark: "#19181b", light: "#f7f5f2" };
 
   function apply(choice) {
     if (choice === "light" || choice === "dark") {

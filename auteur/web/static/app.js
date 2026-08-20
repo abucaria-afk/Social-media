@@ -53,21 +53,62 @@
    * same one-setting-two-readers arrangement the animation tab uses. */
   try { state.template = localStorage.getItem("auteur-template") || ""; } catch (e) {}
 
+  /* What is actually in each room.
+   *
+   * The five tiles used to be five identical cards whose only content was
+   * their own name, so the only way to learn that the library held 29 reels
+   * or that the Scholar had 400 learnings was to open the room. Each count
+   * comes from the same endpoint the room itself reads — never restated
+   * here, which is how a tile ends up confidently naming a number the
+   * program stopped having. A room whose endpoint is down keeps its blank
+   * line rather than showing a zero that is not true. */
   (function () {
-    var note = $("template-link-note");
-    if (!note || !state.template) { return; }
-    fetch("/api/templates", { credentials: "same-origin" })
-      .then(function (r) { return r.json(); })
-      .then(function (said) {
-        var all = (said && said.templates) || [];
+    function say(id, text) {
+      var slot = $(id);
+      if (slot) { slot.textContent = text; }
+    }
+
+    function count(n, one, many) {
+      return n + " " + (n === 1 ? one : (many || one + "s"));
+    }
+
+    function room(id, url, read) {
+      if (!$(id)) { return; }
+      fetch(url, { credentials: "same-origin", cache: "no-store" })
+        .then(function (r) { return r.json(); })
+        .then(function (said) { say(id, read(said || {}) || ""); })
+        .catch(function () { /* the tile still links through */ });
+    }
+
+    room("room-templates", "/api/templates", function (said) {
+      var all = said.templates || [];
+      // Two readers of one setting, the way the animation tab does it: the
+      // templates tab writes `auteur-template`, this reads it back and says
+      // which reel the next film will be cut to.
+      var note = $("template-link-note");
+      if (note && state.template) {
         for (var i = 0; i < all.length; i++) {
           if (all[i].id === state.template) {
-            note.textContent = "Cutting to " + all[i].label + " · " + all[i].note;
-            return;
+            note.textContent = "cutting to " + all[i].label;
+            break;
           }
         }
-      })
-      .catch(function () { /* the link still works */ });
+      }
+      return count(all.length, "reel");
+    });
+
+    room("room-scholar", "/api/scholar", function (said) {
+      if (!said.available) { return "not running"; }
+      return count(said.learnings || 0, "learning");
+    });
+
+    room("room-overlays", "/api/overlays", function (said) {
+      return count((said.kinds || []).length, "shape");
+    });
+
+    room("room-studio", "/api/crew", function (said) {
+      return count(said.kinds || 0, "proposal");
+    });
   })();
 
   // -- who is signed in -----------------------------------------------------

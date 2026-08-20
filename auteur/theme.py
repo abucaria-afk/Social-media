@@ -4,19 +4,28 @@ Every surface the program shows — the terminal, the web app, the home-screen
 icon — reads from this module. Colours defined twice drift apart, and a phone
 app that does not look like the tool it fronts reads as a different product.
 
-Both palettes are sampled from the footage this editor was built for: torchlit
-night photography, where a warm subject sits in a near-black frame. The dark
-palette is that frame — the shadow clusters (#080808–#282828), the cream-amber
-subject at hue 30–36, low-saturation forest green, a silver highlight. The
-light palette is the *lit side* of the same photographs: the torch-struck cream
-at hue 30–40 (#f6ead2, #ead2ae, #d2ae8a). One scene, two exposures, rather than
-a dark theme and an unrelated white one.
+Both palettes are taken from the reels this editor is built to make. Sampling
+the coloured pixels of thirty of them — dropping anything under 18% saturation,
+which is most of the frame — gives a strongly bimodal distribution: a warm lobe
+across 0-50 degrees holding 37% of them, and a teal lobe across 170-220 holding
+42%. What matters more than either hue is the *saturation*: the median coloured
+pixel sits at 0.40, nowhere near the neon these films are usually assumed to
+be. They are muted, and they are bright — mean luma 0.249 on frames that are
+mostly dark, which means the colour that is there carries.
+
+So the palette is muted and bright rather than saturated and dark. `ember` is
+the warm lobe at the lightness it reads at, an apricot rather than the amber it
+used to be; `moss` is the teal lobe, doing the work a green usually does; the
+grounds are a soft ink and a bone paper, neither of them the black-and-white
+the palette reached for before. A near-black ground and a pure-white one are
+the two easiest colours to pick and the two that look least like anything.
 
 Two roles exist only because a colour cannot always do both jobs. `ember` is
-the accent as a *fill* — the primary button, the progress bar — and it stays
-the same warm amber in both lightings, because it is the thing people
-recognise. `ember_text` is the accent as *text*, and on a pale ground it has to
-darken sharply or it cannot be read.
+the accent as a *fill* — the primary button, the progress bar — and it is free
+to be bright, because what has to be legible is the text sitting on it.
+`ember_text` is the accent as *text*, and on bone paper it has to darken
+sharply or it cannot be read. Every role that carries text clears WCAG AA
+against its own ground in both lightings, which is a test, not a claim.
 """
 
 from __future__ import annotations
@@ -34,50 +43,59 @@ ROLES: dict[str, str] = {
     "ember_text": "the accent as text, dark enough to read on this ground",
     "on_ember": "text sitting on an ember fill",
     "cream": "the accent's soft tint, for large gentle fills",
-    "moss": "it worked",
+    "moss": "it worked — the teal lobe of the footage, doing a green's job",
     "rust": "it did not work, or needs attention",
 }
 
-#: Night. The frame the footage is shot in, and the program's own look.
+#: Night. A soft ink rather than a black — the ground a modern phone app
+#: sits on, and the one the reels' own shadows sit closest to.
 DARK: dict[str, str] = {
-    "ground": "#0c0b0a",
-    "surface": "#171614",
-    "raised": "#201e1b",
-    "line": "#2e2b26",
-    "text": "#f2ede4",
-    "text_muted": "#a9a49a",
-    "text_faint": "#8b857a",
-    "ember": "#e9a85c",
-    "ember_text": "#e9a85c",
-    "on_ember": "#241703",
-    "cream": "#e8c8a8",
-    "moss": "#8fb283",
-    "rust": "#d4785a",
+    "ground": "#19181b",
+    "surface": "#232127",
+    "raised": "#2f2d34",
+    "line": "#3b3842",
+    "text": "#f5f2ef",
+    "text_muted": "#b5acb9",
+    "text_faint": "#978b9c",
+    "ember": "#eca669",
+    "ember_text": "#f1b47e",
+    "on_ember": "#2c1807",
+    "cream": "#edd6c0",
+    "moss": "#72bccb",
+    "rust": "#ee8777",
 }
 
-#: The lit side of the same photographs. Warm paper, not clinical white.
-#: text_muted and text_faint darkened to meet WCAG AA (4.5:1) on the ground.
+#: Daylight. Bone paper, not white: the same warm lobe the accent comes
+#: from, taken up to a ground. text_muted and text_faint are darkened to
+#: clear AA on it, and ember_text darkened much further — a bright apricot
+#: is a fine button and an unreadable link.
 LIGHT: dict[str, str] = {
-    "ground": "#f6f1e6",
-    "surface": "#fffdf7",
-    "raised": "#efe6d5",
-    "line": "#d8cab2",
-    "text": "#1c1815",
-    "text_muted": "#4d4639",
-    "text_faint": "#5e5649",
-    "ember": "#e9a85c",
-    "ember_text": "#6b4009",
-    "on_ember": "#241703",
-    "cream": "#ead2ae",
-    "moss": "#2d5433",
-    "rust": "#8b2e14",
+    "ground": "#f7f5f2",
+    "surface": "#ffffff",
+    "raised": "#ede9e3",
+    "line": "#ded7cf",
+    "text": "#1c1a17",
+    "text_muted": "#5d5751",
+    "text_faint": "#68615a",
+    "ember": "#efa15d",
+    "ember_text": "#964b13",
+    "on_ember": "#2c1807",
+    "cream": "#f7e7d4",
+    "moss": "#286571",
+    "rust": "#ab3321",
 }
 
 SCHEMES: dict[str, dict[str, str]] = {"dark": DARK, "light": LIGHT}
 
-#: The browser tab / status bar colour. Only the dark one is needed here: the
-#: page carries both in media-scoped <meta theme-color> tags.
+#: The browser tab / status bar colour, in both lightings. Every page carries
+#: these twice — once in a media-scoped <meta theme-color> tag and once in
+#: theme.js, which repaints the tag when somebody overrides the system setting
+#: — and the manifest carries the dark one again. They are hand-written copies
+#: of these two constants, so they are held to them by test rather than by
+#: anybody remembering: recolouring the palette without this check left every
+#: status bar the old warm brown while the page behind it went blue.
 THEME_COLOR = DARK["ground"]
+LIGHT_THEME_COLOR = LIGHT["ground"]
 
 #: What the appearance switch offers. "system" is the default: follow the phone.
 MODES = ("system", "light", "dark")
