@@ -36,7 +36,7 @@ from playwright.sync_api import sync_playwright
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from auteur.craft.color import LOOKS  # noqa: E402
+from auteur.craft.color import LOOKS, level_chain, level_for  # noqa: E402
 
 PHOTOS = [
     p
@@ -102,8 +102,27 @@ def uri(path: Path) -> str:
     return f"data:image/{kind};base64," + base64.b64encode(path.read_bytes()).decode()
 
 
+def levelling_for(photo: Path) -> str:
+    """The level this photograph would get inside a real render.
+
+    The browser levels a picture from its own histogram before grading it, and
+    the render pipeline now does the same per shot — so a check that grades
+    unlevelled footage on one side is comparing two things the program itself
+    never compares. The numbers come from the same percentiles the analysis
+    measures: 1st and 99th, not the extremes.
+    """
+    frame = np.asarray(Image.open(photo).convert("RGB"), dtype=np.float32) / 255.0
+    lum = 0.2126 * frame[..., 0] + 0.7152 * frame[..., 1] + 0.0722 * frame[..., 2]
+    low, high = np.percentile(lum, (1.0, 99.0))
+    black, white, gamma = level_for(
+        float(np.clip(low, 0.0, 0.5)), float(np.clip(high, 0.2, 1.0)), float(lum.mean())
+    )
+    return level_chain(black, white, gamma)
+
+
 def through_ffmpeg(photo: Path, look: str) -> tuple[float, float]:
     out = OUT / "probe.png"
+    level = levelling_for(photo)
     proc = subprocess.run(
         [
             "ffmpeg",
@@ -113,7 +132,7 @@ def through_ffmpeg(photo: Path, look: str) -> tuple[float, float]:
             "-i",
             str(photo),
             "-vf",
-            f"scale=320:-1,{LOOKS[look].build(1.0)}",
+            ",".join(filter(None, ["scale=320:-1", level, LOOKS[look].build(1.0)])),
             "-frames:v",
             "1",
             str(out),

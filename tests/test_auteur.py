@@ -7672,3 +7672,79 @@ def test_an_unknown_join_says_so_rather_than_becoming_a_dissolve():
     finally:
         logger.removeHandler(handler)
     assert any("teleport" in record.getMessage() for record in records)
+
+
+# ---------------------------------------------------------------------------
+# Levelling, and the two renderers agreeing
+# ---------------------------------------------------------------------------
+
+
+def test_ffmpeg_gamma_is_the_reciprocal_of_the_browsers():
+    """The two are documented in opposite directions and it is invisible.
+
+    The browser's lookup table is `pow(x, gamma)`, where a gamma below 1
+    brightens. ffmpeg's `eq` says "larger values make the picture brighter", so
+    it is `pow(x, 1 / gamma)`. Passing the same number to both applies the
+    correction backwards, which is exactly what happened: adding levelling to
+    the ffmpeg path moved the two renderers *further* apart, from 9-15 levels
+    out of 255 to 10-16, and nothing about the code looked wrong.
+    """
+    from auteur.craft.color import level_chain
+
+    # A dark picture wants brightening: gamma below 1 in the browser's terms.
+    chain = level_chain(0.02, 0.99, 0.60)
+    assert "eq=gamma=1.6667" in chain, chain
+
+    # And a bright one wants the opposite.
+    chain = level_chain(0.0, 1.0, 1.25)
+    assert "eq=gamma=0.8000" in chain, chain
+
+
+def test_levelling_leaves_a_well_exposed_picture_alone():
+    """Pulled back toward doing nothing, or every film gets the same face."""
+    from auteur.craft.color import level_chain, level_for
+
+    black, white, gamma = level_for(0.0, 1.0, 0.44)
+    assert black == 0.0
+    assert white == 1.0
+    assert abs(gamma - 1.0) < 0.02
+    assert level_chain(black, white, gamma) == ""
+
+
+def test_levelling_lifts_an_underexposed_one():
+    from auteur.craft.color import level_for
+
+    _, _, gamma = level_for(0.01, 0.95, 0.15)
+    # Below 1 in the browser's terms, which is the direction that brightens.
+    assert gamma < 0.8
+
+
+def test_the_white_point_can_never_cross_the_black_point():
+    """colorlevels inverts the picture if it does, silently."""
+    from auteur.edl import Look
+
+    look = Look(black=0.4, white=0.1).normalise()
+    assert look.white > look.black
+
+    look = Look(black=0.9, white=0.05).normalise()
+    assert look.black <= 0.5
+    assert look.white > look.black
+
+
+def test_a_shot_carries_the_level_measured_from_its_own_footage():
+    """Not a global setting: the gap between the renderers tracked how
+    underexposed each individual source was."""
+    import numpy as np
+
+    from auteur.analysis.video import VideoAnalysis, _ends_of
+
+    dark = np.full((1, 8, 8), 0.10, np.float32)
+    dark[0, 0, 0] = 1.0  # one specular highlight, which must not set the white
+    low, high = _ends_of(dark)
+    assert low < 0.2
+    assert high < 0.5, "the 99th percentile let one blown pixel set the white point"
+
+    # And the default is a no-op, so footage nothing measured is untouched.
+    blank = VideoAnalysis(fps=24.0, duration=1.0, width=8, height=8)
+    assert blank.black_point == 0.0
+    assert blank.white_point == 1.0

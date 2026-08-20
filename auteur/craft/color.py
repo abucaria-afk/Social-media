@@ -13,6 +13,8 @@ matches, and it is what the audience actually notices.
 
 from __future__ import annotations
 
+import math
+
 import itertools
 from dataclasses import dataclass
 
@@ -494,6 +496,65 @@ def look_chain(look: Look) -> str:
     return spec.build(look.strength)  # type: ignore[operator]
 
 
+#: How far the auto-level is pulled back toward doing nothing, and where it
+#: puts the midtone. Both copied from the browser renderer's `levelPass`, which
+#: is the other half of this: two graders that disagree about exposure are two
+#: different films with the same name on them.
+LEVEL_PULL = 0.72
+LEVEL_TARGET = 0.44
+
+
+def level_for(low: float, high: float, mean: float) -> tuple[float, float, float]:
+    """The black point and gamma that level a shot, from its own histogram.
+
+    The same curve the browser applies per photograph, written once here so
+    the ffmpeg path reaches the same answer: stretch what the picture actually
+    uses to fill the range, then put the midtone where a viewer expects it,
+    with both pulled back toward doing nothing so a correctly exposed frame is
+    barely touched.
+
+    `low` and `high` are the 1st and 99th percentiles rather than the extremes,
+    because one blown specular highlight should not set the white point.
+    """
+    span = max(0.06, high - low)
+    stretch = 1.0 + (1.0 / span - 1.0) * LEVEL_PULL
+    lifted = (mean - low) * stretch
+    if 0.01 < lifted < 0.99:
+        gamma = 1.0 + (math.log(LEVEL_TARGET) / math.log(lifted) - 1.0) * LEVEL_PULL
+    else:
+        gamma = 1.0
+    # The white point is where the stretch lands: `(v - low) * stretch` reaches
+    # 1 at `low + 1 / stretch`, which is what colorlevels wants as `rimax`.
+    black = min(max(low, 0.0), 0.5)
+    white = min(1.0, max(black + 0.05, low + 1.0 / stretch))
+    return black, white, min(max(gamma, 0.45), 2.2)
+
+
+def level_chain(black: float, white: float, gamma: float) -> str:
+    """The two filters that apply a level, or nothing at all.
+
+    `colorlevels` does the stretch — it maps `rimin` to 0 and `rimax` to 1,
+    which is exactly `(v - black) * stretch` clipped — and `eq=gamma` does the
+    power. Written in that order because the browser's lookup table is
+    `pow((v - low) * stretch, gamma)` and swapping them is a different curve.
+    """
+    links: list[str] = []
+    if black > 0.005 or white < 0.995:
+        links.append(
+            f"colorlevels=rimin={black:.4f}:gimin={black:.4f}:bimin={black:.4f}"
+            f":rimax={white:.4f}:gimax={white:.4f}:bimax={white:.4f}"
+        )
+    if abs(gamma - 1.0) > 0.01:
+        # The reciprocal, and this is the whole reason the first attempt made
+        # the two renderers *further* apart rather than closer. The browser's
+        # lookup table is `pow(x, gamma)`, where a gamma below 1 brightens.
+        # ffmpeg's `eq` is documented the other way round — "larger values make
+        # the picture brighter" — so it is `pow(x, 1 / gamma)`. Passing the
+        # same number to both applies the correction backwards.
+        links.append(f"eq=gamma={1.0 / gamma:.4f}")
+    return chain(*links)
+
+
 def correction_chain(look: Look) -> str:
     """The corrective pass: exposure, white balance and saturation matching.
 
@@ -501,6 +562,12 @@ def correction_chain(look: Look) -> str:
     already agrees with itself.
     """
     links: list[str] = []
+
+    # Levelling comes first: everything below is a correction *relative to* a
+    # picture that has already been put where a picture should be.
+    levelled = level_chain(look.black, look.white, look.gamma)
+    if levelled:
+        links.append(levelled)
 
     if abs(look.exposure) > 0.005 or abs(look.contrast) > 0.005 or abs(look.saturation) > 0.005:
         links.append(

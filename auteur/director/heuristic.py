@@ -26,6 +26,7 @@ import numpy as np
 from ..analysis.audio import AudioAnalysis
 from ..analysis.dossier import ClipDossier, Take
 from ..config import Settings
+from ..craft import color as color_craft
 from ..edl import (
     MIN_SHOT,
     EditDecisionList,
@@ -449,7 +450,7 @@ def _match_looks(
         if dossier is None:
             continue
         luma = float(np.mean(dossier.video.luma)) if len(dossier.video.luma) else 0.5
-        samples.append((shot, luma, dossier.video.warmth, dossier.video.saturation))
+        samples.append((shot, luma, dossier.video.warmth, dossier.video.saturation, dossier))
 
     if not samples:
         return
@@ -458,7 +459,15 @@ def _match_looks(
     target_warmth = float(np.median([s[2] for s in samples]))
     target_saturation = float(np.median([s[3] for s in samples]))
 
-    for shot, luma, warmth, saturation in samples:
+    for shot, luma, warmth, saturation, dossier in samples:
+        # Level first, from this shot's own histogram — the same curve the
+        # browser renderer applies to a photograph before it grades it. Shot
+        # matching below then works on footage that has already been put where
+        # a picture should be, which is the only way the two renderers reach
+        # the same answer about a decade.
+        black, white, gamma = color_craft.level_for(
+            dossier.video.black_point, dossier.video.white_point, luma
+        )
         # Correct part of the way, not all of it: full correction flattens the film.
         shot.look = Look(
             preset=preset,
@@ -467,6 +476,9 @@ def _match_looks(
             saturation=float(np.clip((target_saturation - saturation) * 0.5, -0.3, 0.3)),
             contrast=0.0,
             strength=strength,
+            black=black,
+            white=white,
+            gamma=gamma,
         )
 
 

@@ -46,6 +46,14 @@ class VideoAnalysis:
     shadows: np.ndarray = field(repr=False, default_factory=lambda: np.zeros(0, np.float32))
     highlights: np.ndarray = field(repr=False, default_factory=lambda: np.zeros(0, np.float32))
 
+    #: Where this footage's picture actually starts and stops, as the 1st and
+    #: 99th percentiles of luma rather than the extremes — one blown specular
+    #: highlight should not set the white point. The renderer levels from
+    #: these; without them the ffmpeg path graded unlevelled footage while the
+    #: browser levelled it first, and the two disagreed about every decade.
+    black_point: float = 0.0
+    white_point: float = 1.0
+
     #: Colour, measured on a coarse RGB proxy.
     mean_rgb: tuple[float, float, float] = (0.5, 0.5, 0.5)
     saturation: float = 0.0
@@ -383,6 +391,7 @@ def analyse_video(
 
     luma = frames.mean(axis=(1, 2))
     contrast = frames.std(axis=(1, 2))
+    black_point, white_point = _ends_of(frames)
     shadows = (frames < 0.04).mean(axis=(1, 2))
     highlights = (frames > 0.96).mean(axis=(1, 2))
 
@@ -418,6 +427,8 @@ def analyse_video(
         height=stream.height,
         luma=luma.astype(np.float32),
         contrast=contrast.astype(np.float32),
+        black_point=black_point,
+        white_point=white_point,
         sharpness=_normalise(sharpness).astype(np.float32),
         edges=_normalise(edges).astype(np.float32),
         motion=motion,
@@ -440,6 +451,20 @@ def _pad_like(small: np.ndarray, reference: np.ndarray) -> np.ndarray:
     if small.shape[1:] == reference.shape[1:]:
         return small
     return np.pad(small, ((0, 0), (1, 1), (1, 1)), mode="edge")
+
+
+def _ends_of(frames: np.ndarray) -> tuple[float, float]:
+    """Where the picture starts and stops: the 1st and 99th luma percentiles.
+
+    Percentiles rather than min and max, because a night shot with one bright
+    light in it reaches both ends of the range while being dark everywhere that
+    matters — which is exactly the footage `normalize` cannot help with and the
+    reason this is measured here rather than left to a filter.
+    """
+    if frames.size == 0:
+        return 0.0, 1.0
+    low, high = np.percentile(frames, (1.0, 99.0))
+    return float(np.clip(low, 0.0, 0.5)), float(np.clip(high, 0.2, 1.0))
 
 
 def _analyse_still(asset: MediaAsset, analysis_fps: float, width: int) -> VideoAnalysis:
@@ -467,6 +492,8 @@ def _analyse_still(asset: MediaAsset, analysis_fps: float, width: int) -> VideoA
         height=stream.height,
         luma=constant(float(frame.mean())),
         contrast=constant(float(frame.std())),
+        black_point=_ends_of(frame)[0],
+        white_point=_ends_of(frame)[1],
         sharpness=constant(0.7),
         edges=constant(float(np.abs(laplacian).mean())),
         motion=np.zeros(frame_count, np.float32),

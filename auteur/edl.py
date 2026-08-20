@@ -256,6 +256,19 @@ class Look:
     #: 0..1 strength of the named preset.
     strength: float = 1.0
 
+    #: Auto-levelling, measured from this shot's own footage: where its black
+    #: point sits, and the gamma that puts its midtone where a viewer expects
+    #: one. Both default to doing nothing.
+    #:
+    #: This exists because the browser renderer levels a picture from its own
+    #: histogram before grading it and the ffmpeg path did not, so the two
+    #: disagreed about every decade by 9 to 15 levels out of 255 — the app and
+    #: the desktop render showed different films, and the gap tracked how
+    #: underexposed the source was.
+    black: float = 0.0  # 0..0.5, the input level that becomes 0
+    white: float = 1.0  # 0.2..1.0, the input level that becomes 1
+    gamma: float = 1.0  # 0.45..2.2, applied after the stretch
+
     def normalise(self) -> Look:
         return Look(
             preset=(self.preset or "neutral").strip().lower(),
@@ -264,12 +277,19 @@ class Look:
             saturation=_clamp(self.saturation, -1.0, 1.0),
             contrast=_clamp(self.contrast, -1.0, 1.0),
             strength=_clamp(self.strength, 0.0, 1.0),
+            black=_clamp(self.black, 0.0, 0.5),
+            # Never below the black point, or colorlevels inverts the picture.
+            white=_clamp(self.white, max(0.2, self.black + 0.05), 1.0),
+            gamma=_clamp(self.gamma, 0.45, 2.2),
         )
 
     @property
     def is_identity(self) -> bool:
         return (
             self.preset in ("neutral", "none", "")
+            and self.black < 0.005
+            and self.white > 0.995
+            and abs(self.gamma - 1.0) < 0.01
             and abs(self.exposure) < 0.01
             and abs(self.temperature) < 0.01
             and abs(self.saturation) < 0.01
