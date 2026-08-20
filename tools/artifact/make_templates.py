@@ -144,7 +144,12 @@ def main() -> int:
         if counts[label] > 1:
             numbered[label] = numbered.get(label, 0) + 1
             entry["label"] = f"{label} {numbered[label]}"
-        entry["note"] = f"{entry['shots']} shots over {entry['seconds']:.0f}s · {entry['note']}"
+        # Short enough to read on a chip. The long form — the cuts-per-ten-
+        # seconds sentence — turned every chip into a nine-line paragraph and
+        # nineteen of them into a wall nobody would scroll past on a phone.
+        # The two numbers that actually tell one template from another are how
+        # many shots it has and how long each one holds.
+        entry["note"] = f"{entry['shots']} shots · {entry['hold']:.2f}s each"
 
     OUT.write_text(json.dumps(kept, indent=1), encoding="utf-8")
     print(f"\n{len(kept)} template(s) -> {OUT} ({OUT.stat().st_size} bytes)")

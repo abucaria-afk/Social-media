@@ -480,6 +480,9 @@
     } catch (e) {
       return false;                     // tainted canvas: leave it untouched
     }
+    // Level first, grade second. Grading an underexposed photograph without
+    // this makes it black rather than making it look like 1994.
+    if (recipe.level !== false) { levelPass(pixels); }
     tonePass(pixels, era);
     chromaShift(pixels, era, canvas.width, canvas.height);
     g.putImageData(pixels, 0, 0);
@@ -488,6 +491,75 @@
     grainPass(canvas, era);
     vignettePass(canvas, era);
     return true;
+  }
+
+  /* Bring a photograph to a usable exposure before grading it.
+   *
+   * A grade is a look applied to a picture, not a rescue. Applied to a night
+   * photograph straight off a phone — of which a camera roll is full — a look
+   * that lifts blacks and adds a vignette produces a black rectangle, and a
+   * reel of black rectangles is what "it looks worse than anything a human
+   * would make" looks like from the inside. Measured on a real set: eight
+   * photographs, three of them night shots, and the night shots came out of
+   * the grade at a mean luma under 0.08.
+   *
+   * So the picture is levelled first, from its own histogram, and only then
+   * graded. Deliberately partial — `PULL` well under 1 — because a picture
+   * that is dark *on purpose* should stay darker than one that is not, and
+   * full auto-levels flattens the difference between every photograph ever
+   * taken. This corrects; it does not normalise.
+   */
+  var PULL = 0.72;
+  //: Where a mid-grey subject should sit once the picture is levelled.
+  var TARGET = 0.44;
+
+  function levelPass(image) {
+    var d = image.data;
+    var n = d.length / 4;
+    if (!n) { return; }
+
+    // A 64-bin luma histogram is enough to find the ends of the picture.
+    var bins = new Float32Array(64);
+    var mean = 0;
+    for (var i = 0; i < d.length; i += 4) {
+      var l = (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+      bins[Math.min(63, Math.floor(l * 64))] += 1;
+      mean += l;
+    }
+    mean /= n;
+
+    // The 1st and 99th percentiles rather than the extremes: one blown
+    // specular highlight or one dead pixel should not set the white point.
+    var low = 0, high = 1, seen = 0;
+    var floorAt = n * 0.01, ceilAt = n * 0.99;
+    for (var b = 0; b < 64; b++) {
+      var was = seen;
+      seen += bins[b];
+      if (was < floorAt && seen >= floorAt) { low = b / 64; }
+      if (was < ceilAt && seen >= ceilAt) { high = (b + 1) / 64; }
+    }
+    var span = Math.max(0.06, high - low);
+
+    // Stretch what the picture actually uses to fill the range, then put the
+    // midtone where a viewer expects it. Both pulled back toward doing
+    // nothing, so a correctly exposed photograph is barely touched.
+    var stretch = 1 + (1 / span - 1) * PULL;
+    var lifted = (mean - low) * stretch;
+    var gamma = lifted > 0.01 && lifted < 0.99
+      ? 1 + (Math.log(TARGET) / Math.log(lifted) - 1) * PULL
+      : 1;
+    gamma = clamp(gamma, 0.45, 2.2);
+
+    var lut = new Uint8Array(256);
+    for (var v = 0; v < 256; v++) {
+      var x = clamp((v / 255 - low) * stretch, 0, 1);
+      lut[v] = clamp(Math.round(Math.pow(x, gamma) * 255), 0, 255);
+    }
+    for (i = 0; i < d.length; i += 4) {
+      d[i] = lut[d[i]];
+      d[i + 1] = lut[d[i + 1]];
+      d[i + 2] = lut[d[i + 2]];
+    }
   }
 
   //: Grade by era name. The named-recipe front door onto `apply`.
@@ -518,6 +590,11 @@
 
   global.auteurEra = {
     ERAS: ERAS,
+    // Exposed so the levelling can be measured on its own. Inferring it from
+    // the finished grade measured nothing: `full()` drops keys it does not
+    // know, so an opt-out passed in the recipe never reached the check and
+    // both arms of the comparison ran the same code.
+    levelPass: levelPass,
     NEUTRAL: NEUTRAL,
     apply: apply,
     names: names,

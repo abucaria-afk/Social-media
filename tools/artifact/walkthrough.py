@@ -154,7 +154,7 @@ def main() -> int:
             ("animation-tab", "/overlays", "#kinds .overlay-chip", "the shapes over the cut"),
             ("studio-tab", "/studio", "#platforms .platform", "what the numbers say"),
             ("scholar-tab", "/ask", "#question", "asking the Scholar"),
-            ("connect-tab", "/connect", ".platform, .connection", "where the film goes"),
+            ("connect-tab", "/connect", 'input[placeholder*="handle"]', "where the film goes"),
         ]:
             page.goto(BASE + path)
             try:
@@ -166,16 +166,18 @@ def main() -> int:
         # 7. Connecting a platform, which is the last thing a person does.
         page.goto(BASE + "/connect")
         page.wait_for_timeout(800)
-        for platform in ("instagram", "tiktok"):
-            box = page.query_selector(f'[data-platform="{platform}"] input, #{platform}-handle')
-            button = page.query_selector(
-                f'[data-platform="{platform}"] button.link, ' f"#{platform}-link"
-            )
-            if box and button:
-                box.fill("@" + WHO)
-                button.click()
-                page.wait_for_timeout(1200)
-                shot(page, f"linked-{platform}", f"{platform} linked to the account")
+        # Located by what is on the screen rather than by a data attribute the
+        # markup does not carry. Guessing selectors is how the first run of
+        # this reported "connect-tab: never became ready" about a page that
+        # had rendered perfectly.
+        boxes = page.query_selector_all('input[placeholder*="handle"]')
+        buttons = [b for b in page.query_selector_all("button") if b.inner_text().strip() == "Link"]
+        for n, name in enumerate(("instagram", "tiktok")):
+            if n < len(boxes) and n < len(buttons):
+                boxes[n].fill("@" + WHO)
+                buttons[n].click()
+                page.wait_for_timeout(1400)
+                shot(page, f"linked-{name}", f"{name} linked to the account")
         shot(page, "connections", "both platforms, and what linking does and does not mean")
 
         browser.close()

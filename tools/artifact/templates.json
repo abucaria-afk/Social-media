@@ -2,7 +2,7 @@
  {
   "id": "d7bdebaf29",
   "label": "Razor 1",
-  "note": "43 shots over 17s \u00b7 0.12s a shot, 25 cuts every ten seconds on average \u2014 as fast as it gets",
+  "note": "43 shots \u00b7 0.12s each",
   "seconds": 17.418,
   "shots": 43,
   "hold": 0.125,
@@ -356,7 +356,7 @@
  {
   "id": "b0c3fe4124",
   "label": "Razor 2",
-  "note": "37 shots over 5s \u00b7 0.12s a shot, 72 cuts every ten seconds on average \u2014 as fast as it gets",
+  "note": "37 shots \u00b7 0.12s each",
   "seconds": 5.17,
   "shots": 37,
   "hold": 0.125,
@@ -662,7 +662,7 @@
  {
   "id": "18323cdb87",
   "label": "Razor 3",
-  "note": "33 shots over 5s \u00b7 0.12s a shot, 65 cuts every ten seconds on average \u2014 as fast as it gets",
+  "note": "33 shots \u00b7 0.12s each",
   "seconds": 5.087,
   "shots": 33,
   "hold": 0.125,
@@ -936,7 +936,7 @@
  {
   "id": "f9aec381f4",
   "label": "Razor 4",
-  "note": "28 shots over 10s \u00b7 0.12s a shot, 27 cuts every ten seconds on average \u2014 as fast as it gets",
+  "note": "28 shots \u00b7 0.12s each",
   "seconds": 10.417,
   "shots": 28,
   "hold": 0.125,
@@ -1170,7 +1170,7 @@
  {
   "id": "3c978dddd1",
   "label": "Hypercut 1",
-  "note": "59 shots over 10s \u00b7 0.17s a shot, 59 cuts every ten seconds on average \u2014 three to a beat",
+  "note": "59 shots \u00b7 0.17s each",
   "seconds": 9.917,
   "shots": 59,
   "hold": 0.167,
@@ -1652,7 +1652,7 @@
  {
   "id": "a8306773de",
   "label": "Hypercut 2",
-  "note": "31 shots over 6s \u00b7 0.17s a shot, 55 cuts every ten seconds on average \u2014 three to a beat",
+  "note": "31 shots \u00b7 0.17s each",
   "seconds": 5.626,
   "shots": 31,
   "hold": 0.167,
@@ -1910,7 +1910,7 @@
  {
   "id": "e39b15dc08",
   "label": "Hypercut 3",
-  "note": "20 shots over 7s \u00b7 0.17s a shot, 28 cuts every ten seconds on average \u2014 three to a beat",
+  "note": "20 shots \u00b7 0.17s each",
   "seconds": 7.168,
   "shots": 20,
   "hold": 0.167,
@@ -2080,7 +2080,7 @@
  {
   "id": "2ac0348e66",
   "label": "Hypercut 4",
-  "note": "20 shots over 8s \u00b7 0.17s a shot, 24 cuts every ten seconds on average \u2014 three to a beat",
+  "note": "20 shots \u00b7 0.17s each",
   "seconds": 8.209,
   "shots": 20,
   "hold": 0.167,
@@ -2250,7 +2250,7 @@
  {
   "id": "d09d0988fc",
   "label": "Hypercut 5",
-  "note": "19 shots over 7s \u00b7 0.17s a shot, 26 cuts every ten seconds on average \u2014 three to a beat",
+  "note": "19 shots \u00b7 0.17s each",
   "seconds": 7.251,
   "shots": 19,
   "hold": 0.167,
@@ -2412,7 +2412,7 @@
  {
   "id": "3b48a98b16",
   "label": "Quick 1",
-  "note": "67 shots over 19s \u00b7 0.21s a shot, 36 cuts every ten seconds on average \u2014 room to see each one",
+  "note": "67 shots \u00b7 0.21s each",
   "seconds": 18.583,
   "shots": 67,
   "hold": 0.208,
@@ -2958,7 +2958,7 @@
  {
   "id": "07fa00527e",
   "label": "Quick 2",
-  "note": "62 shots over 34s \u00b7 0.21s a shot, 18 cuts every ten seconds on average \u2014 room to see each one",
+  "note": "62 shots \u00b7 0.21s each",
   "seconds": 34.002,
   "shots": 62,
   "hold": 0.208,
@@ -3464,7 +3464,7 @@
  {
   "id": "9457dd5ad7",
   "label": "Quick 3",
-  "note": "38 shots over 11s \u00b7 0.21s a shot, 35 cuts every ten seconds on average \u2014 room to see each one",
+  "note": "38 shots \u00b7 0.21s each",
   "seconds": 10.793,
   "shots": 38,
   "hold": 0.208,
@@ -3778,7 +3778,7 @@
  {
   "id": "8927b07272",
   "label": "Quick 4",
-  "note": "23 shots over 7s \u00b7 0.21s a shot, 31 cuts every ten seconds on average \u2014 room to see each one",
+  "note": "23 shots \u00b7 0.21s each",
   "seconds": 7.375,
   "shots": 23,
   "hold": 0.208,
@@ -3972,7 +3972,7 @@
  {
   "id": "066c08a603",
   "label": "Quick 5",
-  "note": "27 shots over 13s \u00b7 0.33s a shot, 20 cuts every ten seconds on average \u2014 room to see each one",
+  "note": "27 shots \u00b7 0.33s each",
   "seconds": 13.461,
   "shots": 27,
   "hold": 0.334,
@@ -4198,7 +4198,7 @@
  {
   "id": "935ba6b112",
   "label": "Quick 6",
-  "note": "28 shots over 12s \u00b7 0.35s a shot, 23 cuts every ten seconds on average \u2014 room to see each one",
+  "note": "28 shots \u00b7 0.35s each",
   "seconds": 12.001,
   "shots": 28,
   "hold": 0.3545,
@@ -4432,7 +4432,7 @@
  {
   "id": "ab550b87dc",
   "label": "Held 1",
-  "note": "19 shots over 10s \u00b7 0.42s a shot, 19 cuts every ten seconds on average \u2014 it lets shots land",
+  "note": "19 shots \u00b7 0.42s each",
   "seconds": 9.9,
   "shots": 19,
   "hold": 0.417,
@@ -4594,7 +4594,7 @@
  {
   "id": "e25799d4db",
   "label": "Held 2",
-  "note": "38 shots over 18s \u00b7 0.46s a shot, 22 cuts every ten seconds on average \u2014 it lets shots land",
+  "note": "38 shots \u00b7 0.46s each",
   "seconds": 17.667,
   "shots": 38,
   "hold": 0.4585,
@@ -4908,7 +4908,7 @@
  {
   "id": "ea7c28a2b0",
   "label": "Held 3",
-  "note": "19 shots over 9s \u00b7 0.50s a shot, 20 cuts every ten seconds on average \u2014 it lets shots land",
+  "note": "19 shots \u00b7 0.50s each",
   "seconds": 9.459,
   "shots": 19,
   "hold": 0.5,
