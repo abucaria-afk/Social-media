@@ -1026,3 +1026,41 @@ body.has-tabbar .page {
   font: 600 var(--text-footnote)/1 var(--font-display);
   cursor: pointer;
 }
+
+/* The back button and the bar's trailing action.
+ *
+ * These lived in inbox.css, which is the only page that had them at the time.
+ * The manager reuses the same top bar and does not load that file, so both
+ * controls rendered at their intrinsic size — an 18x25 back arrow and a 43x21
+ * button, well under the 44px a thumb reliably hits, on a page that had just
+ * been built. Chrome shared by more than one page belongs in the shared
+ * stylesheet; that is the whole reason this file exists. */
+.topbar-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  margin-left: -10px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text);
+  font-size: var(--text-title-2);
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.chip-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ember);
+  color: var(--on-ember);
+  font: 600 var(--text-footnote)/1 var(--font-display);
+  cursor: pointer;
+}

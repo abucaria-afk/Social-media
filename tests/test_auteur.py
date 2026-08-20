@@ -7791,3 +7791,234 @@ def test_a_consensus_reading_carries_every_field_a_reading_has():
         if field.name in Reading.FILLED_LATER:
             continue
         assert getattr(out, field.name) != 0.0, f"_consensus drops {field.name}"
+
+
+# ---------------------------------------------------------------------------
+# The manager
+# ---------------------------------------------------------------------------
+
+
+def test_the_manager_never_posts_anything_anywhere():
+    """The one test in this file that is about a promise rather than a bug.
+
+    A tool that plans posts, drafts captions and holds a schedule is one small
+    change away from one that publishes them. What makes "it never posts" true
+    is not the absence of a feature, it is that nothing in the module can reach
+    a network at all — so this reads the source and says so.
+    """
+    import ast
+    import inspect
+
+    from auteur import manager
+
+    source = inspect.getsource(manager)
+    tree = ast.parse(source)
+
+    forbidden = {
+        "requests",
+        "urllib",
+        "http",
+        "httpx",
+        "aiohttp",
+        "socket",
+        "smtplib",
+        "ftplib",
+        "webbrowser",
+    }
+    reached = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            reached.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            reached.add(node.module.split(".")[0])
+    assert not (reached & forbidden), f"the manager can reach the network: {reached & forbidden}"
+
+    # And the verb is the one that tells the truth about what happened.
+    assert "mark_posted" in dir(manager.Board)
+    assert not hasattr(manager.Board, "post")
+    assert not hasattr(manager, "publish")
+
+
+def test_a_plan_exists_before_the_footage_does():
+    """The whole point: a post you can plan with nothing in hand."""
+    from auteur.manager import Plan
+
+    plan = Plan(
+        id="p",
+        owner="ada",
+        title="Saturday market",
+        platform="instagram-reel",
+        when="2026-09-01T09:00:00+00:00",
+        prompt="a 90s hypercut of the market",
+    )
+    assert plan.status == "idea"
+    assert plan.film == ""
+
+
+def test_the_shot_list_follows_the_runtime_and_the_measured_hold():
+    """A 20 second film at a 0.167s median is a lot of shots, and it says so."""
+    from auteur.manager import shot_list
+
+    fast = shot_list("a hypercut", seconds=20.0, hold=0.167)
+    slow = shot_list("slow and cinematic", seconds=20.0, hold=1.0)
+    assert len(fast) > len(slow) * 3
+
+    # It opens on a hook and ends on a close, once each, however long it runs.
+    assert fast[0].role == "hook"
+    assert fast[-1].role == "close"
+    assert sum(1 for s in fast if s.role == "hook") == 1
+    assert sum(1 for s in fast if s.role == "close") == 1
+
+    # And every shot says what it is for, because that is the only part of a
+    # shot this program can know before the footage exists.
+    assert all(s.what and s.why for s in fast)
+
+
+def test_every_check_names_what_it_checked_against():
+    """A tick without a source is an opinion wearing a tick."""
+    from auteur.manager import Plan, check, shot_list
+
+    shots = shot_list("a hypercut", seconds=20.0, hold=0.167)
+    plan = Plan(
+        id="p",
+        owner="ada",
+        title="t",
+        platform="instagram-reel",
+        when="2026-09-01T09:00:00+00:00",
+        prompt="a hypercut",
+        seconds=20.0,
+        shots=[{"role": s.role, "seconds": s.seconds} for s in shots],
+        caption="words",
+        hashtags=["one"],
+        alt_text="a description",
+    )
+    report = check(plan, hold=0.167, first_cut=0.9)
+    assert report.findings
+    for finding in report.findings:
+        assert finding.source, f"{finding.name} names no source"
+        assert finding.verdict in ("pass", "warn", "fail")
+    # Nothing this reports is ever a claim that it posted.
+    assert report.to_json()["posts"] is False
+
+
+def test_the_manager_says_it_has_not_measured_the_time_of_day():
+    """Nothing in the metric schema records when a post went out, so the
+    manager must not imply it knows. Stating a gap is a feature."""
+    from auteur.manager import Plan, check
+
+    plan = Plan(
+        id="p",
+        owner="ada",
+        title="t",
+        platform="tiktok",
+        when="2026-09-01T09:00:00+00:00",
+        prompt="a hypercut",
+    )
+    report = check(plan)
+    hour = [f for f in report.findings if f.name == "time of day"]
+    assert hour, "the manager silently skipped the question it cannot answer"
+    assert hour[0].verdict != "pass"
+    assert "not checked" in hour[0].detail
+
+
+def test_a_length_the_surface_refuses_is_a_failure_not_a_warning():
+    from auteur.manager import Plan, check
+
+    plan = Plan(
+        id="p",
+        owner="ada",
+        title="t",
+        platform="instagram-story",
+        when="2026-09-01T09:00:00+00:00",
+        prompt="a hypercut",
+        seconds=500.0,
+    )
+    report = check(plan)
+    length = [f for f in report.findings if f.name == "length"][0]
+    assert length.verdict == "fail"
+
+
+def test_a_prediction_never_travels_without_its_provenance():
+    """A fitted-on-simulated-rows model gives a perfectly confident number that
+    predicts the simulator. A number without that sentence attached is worse
+    than no number, so the two are returned together or not at all."""
+    from auteur.manager import predict_for
+
+    score, why = predict_for(
+        __import__("auteur.manager", fromlist=["Plan"]).Plan(
+            id="p",
+            owner="ada",
+            title="t",
+            platform="tiktok",
+            when="2026-09-01T09:00:00+00:00",
+            prompt="a hypercut",
+        )
+    )
+    assert score is None
+    assert why, "no number and no reason is not an answer"
+
+
+def test_only_a_plans_owner_can_change_or_drop_it(tmp_path):
+    from auteur.manager import Board
+
+    board = Board(tmp_path / "plans.json")
+    plan = board.add(
+        owner="ada",
+        title="t",
+        platform="tiktok",
+        when="2026-09-01T09:00:00+00:00",
+        prompt="a hypercut",
+    )
+    assert board.update(plan.id, "grace", title="mine now") is None
+    assert board.drop(plan.id, "grace") is False
+    assert board.get(plan.id).title == "t"
+    assert board.update(plan.id, "ada", title="renamed").title == "renamed"
+
+
+def test_a_plan_survives_the_process_that_made_it(tmp_path):
+    from auteur.manager import Board
+
+    Board(tmp_path / "plans.json").add(
+        owner="ada",
+        title="Saturday market",
+        platform="instagram-reel",
+        when="2026-09-01T09:00:00+00:00",
+        prompt="a hypercut",
+    )
+    again = Board(tmp_path / "plans.json")
+    assert [p.title for p in again.by("ada")] == ["Saturday market"]
+
+
+def test_the_capture_list_is_something_a_person_could_actually_shoot():
+    """A twenty second hypercut is a hundred and ten shots, and a hundred and
+    ten numbered instructions is not a shot list. What people actually do —
+    and what the reference reels are made of — is a dozen setups the edit cuts
+    among, so that is what the plan hands over."""
+    from auteur.manager import capture_list, shot_list
+
+    shots = shot_list("a 90s hypercut of the market", seconds=20.0, hold=0.167)
+    captures = capture_list(shots)
+
+    assert len(shots) > 80
+    assert len(captures) <= 20, "a capture list nobody could carry out is not a plan"
+    # Nothing is lost: every shot in the timeline comes from one of them, and
+    # the screen time adds back up.
+    assert sum(c.times for c in captures) == len(shots)
+    assert abs(sum(c.seconds for c in captures) - sum(s.seconds for s in shots)) < 0.5
+    # And each setup is named once, not repeated as separate rows.
+    assert len({(c.role, c.what) for c in captures}) == len(captures)
+
+
+def test_two_shots_in_a_row_are_not_the_same_instruction():
+    """The instruction cycled on the position within the shape rather than per
+    role, so wherever two runs were adjacent the plan said "a wide of where you
+    are" twice in a row."""
+    from auteur.manager import shot_list
+
+    shots = shot_list("a hypercut", seconds=20.0, hold=0.167)
+    repeats = [
+        (a.order, a.what)
+        for a, b in zip(shots, shots[1:], strict=False)
+        if a.what == b.what and a.role == b.role == "run"
+    ]
+    assert repeats == [], f"consecutive identical instructions: {repeats[:3]}"

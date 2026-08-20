@@ -41,6 +41,7 @@ SCREENS = [
     ("inbox", "/inbox"),
     ("studio", "/studio"),
     ("scholar", "/ask"),
+    ("manager", "/manager"),
 ]
 
 #: WCAG AA for body text. The same bar the palette is already held to, applied

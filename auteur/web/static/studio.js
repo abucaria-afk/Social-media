@@ -342,6 +342,12 @@
 
   function count(n, one) { return n + " " + (n === 1 ? one : one + "s"); }
 
+  fill("more-manager", "/api/plans", function (said) {
+    var live = (said.plans || []).filter(function (p) {
+      return p.status !== "posted" && p.status !== "dropped";
+    });
+    return live.length ? count(live.length, "planned") : "nothing planned";
+  });
   fill("more-overlays", "/api/overlays", function (said) {
     return count((said.kinds || []).length, "shape");
   });

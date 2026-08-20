@@ -25,7 +25,8 @@ import sys
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -450,6 +451,7 @@ class Handler(BaseHTTPRequestHandler):
     accounts: Any = None  # an auth.Accounts once serve() has run
     films: Any = None  # a social.Films once serve() has run
     messages: Any = None  # a social.Messages once serve() has run
+    board: Any = None  # a manager.Board once serve() has run
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quieter than the default
         log.debug("%s - %s", self.address_string(), fmt % args)
@@ -1077,6 +1079,9 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/inbox", "/inbox.html", "/messages"):
             self._static(STATIC / "inbox.html", "text/html; charset=utf-8")
             return
+        if path in ("/manager", "/manager.html", "/plan"):
+            self._static(STATIC / "manager.html", "text/html; charset=utf-8")
+            return
         if path == "/api/platforms":
             self._json({"platforms": self._platforms()})
             return
@@ -1113,6 +1118,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/shared":
             self._shared_state()
+            return
+        if path == "/api/plans":
+            self._plans()
+            return
+        if path.startswith("/api/plans/"):
+            self._plan_one(path.strip("/").split("/")[2])
             return
         if path.startswith("/api/messages/"):
             self._thread(unquote(path[len("/api/messages/") :]))
@@ -1493,6 +1504,202 @@ class Handler(BaseHTTPRequestHandler):
             }
         )
 
+    # -------------------------------------------------------------- manager
+
+    def _hold_and_open(self) -> tuple[float, float]:
+        """The two numbers the manager judges a plan by, from the Scholar.
+
+        Fetched here rather than inside `check` so that what a plan is being
+        held against is visible at the call site. Falls back to zero, which the
+        check reads as "not measured" and reports rather than papering over.
+        """
+        try:
+            from ..scholar import Scholar
+
+            store = Scholar().knowledge
+        except Exception:  # noqa: BLE001 - no Scholar is a fallback, not a failure
+            return 0.0, 0.0
+        hold = opening = 0.0
+        for question, key in (
+            ("hypercut how fast a fast cut is", "shot_seconds"),
+            ("how long before the first cut, the opening hold", "first_cut"),
+        ):
+            for hit in store.recall(question, limit=3):
+                value = (getattr(hit, "measurements", None) or {}).get(key)
+                if value:
+                    if key == "shot_seconds":
+                        hold = float(value)
+                    else:
+                        opening = float(value)
+                    break
+        return hold, opening
+
+    def _plan_json(self, plan, *, checked: bool = False) -> dict:
+        from .. import manager
+
+        out = plan.public()
+        # The surface's own name and spec, resolved here rather than looked up
+        # in the page: the page fills its platform table from a second request,
+        # and a plan drawn before that arrives showed the raw key.
+        try:
+            from ..workflows.platforms import resolve
+
+            spec = resolve(plan.platform)
+            out["platform_name"] = spec.name
+            out["platform_spec"] = spec.describe()
+        except Exception:  # noqa: BLE001 - an unknown surface is the check's problem
+            out["platform_name"] = plan.platform
+            out["platform_spec"] = ""
+        if checked:
+            hold, opening = self._hold_and_open()
+            report = manager.check(
+                plan, hold=hold, first_cut=opening, others=self.board.by(plan.owner)
+            )
+            score, why = manager.predict_for(plan, self._film_file(plan.film))
+            report.predicted = score
+            report.provenance = why
+            out["check"] = report.to_json()
+        return out
+
+    def _film_file(self, film_id: str):
+        if not film_id or self.films is None:
+            return None
+        film = self.films.get(film_id)
+        return film.video if film is not None else None
+
+    def _plans(self) -> None:
+        who = self.current_user() or ""
+        from .. import manager
+        from ..workflows.platforms import PLATFORMS
+
+        plans = self.board.by(who)
+        self._json(
+            {
+                "plans": [self._plan_json(p) for p in plans],
+                "platforms": [
+                    {
+                        "id": key,
+                        "name": spec.name,
+                        "service": spec.service,
+                        "spec": spec.describe(),
+                        "ideal": spec.ideal_seconds,
+                    }
+                    for key, spec in PLATFORMS.items()
+                ],
+                "statuses": list(manager.STATUSES),
+                # Said in the payload as well as in the page, so anything that
+                # reads this API rather than the screen still knows.
+                "posts": False,
+            }
+        )
+
+    def _plan_one(self, plan_id: str) -> None:
+        plan = self.board.get(plan_id)
+        if plan is None or plan.owner != (self.current_user() or ""):
+            self._json({"error": "no such plan"}, 404)
+            return
+        self._json({"plan": self._plan_json(plan, checked=True)})
+
+    def _make_plan(self) -> None:
+        """A new plan, with its shot list already worked out."""
+        from .. import manager
+
+        who = self.current_user() or ""
+        payload = self._json_body()
+        prompt = str(payload.get("prompt") or "").strip()[:500]
+        title = str(payload.get("title") or "").strip()[:120] or (prompt[:60] or "Untitled")
+        if not prompt:
+            self._json({"error": "Say what the film is."}, 400)
+            return
+        try:
+            seconds = float(payload.get("seconds") or 20.0)
+        except (TypeError, ValueError):
+            seconds = 20.0
+        seconds = max(3.0, min(600.0, seconds))
+
+        hold, _ = self._hold_and_open()
+        shots = manager.shot_list(prompt, seconds=seconds, hold=hold)
+        plan = self.board.add(
+            owner=who,
+            title=title,
+            platform=str(payload.get("platform") or "instagram-reel"),
+            when=str(payload.get("when") or "").strip()
+            or (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+            prompt=prompt,
+            seconds=seconds,
+            shots=[asdict(shot) | {"why": shot.why} for shot in shots],
+            captures=[asdict(c) for c in manager.capture_list(shots)],
+            caption=str(payload.get("caption") or "")[:2500],
+            hashtags=[t.strip().lstrip("#") for t in (payload.get("hashtags") or []) if t.strip()][
+                :30
+            ],
+            alt_text=str(payload.get("alt_text") or "")[:500],
+        )
+        log.info("%s planned %s", _for_log(who), _for_log(plan.title))
+        self._json({"plan": self._plan_json(plan, checked=True)}, 201)
+
+    def _edit_plan(self, plan_id: str) -> None:
+        who = self.current_user() or ""
+        payload = self._json_body()
+        fields = {}
+        for key in ("title", "platform", "when", "prompt", "caption", "alt_text", "status", "note"):
+            if key in payload:
+                fields[key] = str(payload[key])[:2500]
+        if "seconds" in payload:
+            try:
+                fields["seconds"] = max(3.0, min(600.0, float(payload["seconds"])))
+            except (TypeError, ValueError):
+                pass
+        if "hashtags" in payload:
+            fields["hashtags"] = [
+                str(t).strip().lstrip("#") for t in (payload["hashtags"] or []) if str(t).strip()
+            ][:30]
+        if "film" in payload:
+            fields["film"] = str(payload["film"])[:64]
+        plan = self.board.update(plan_id, who, **fields)
+        if plan is None:
+            self._json({"error": "no such plan"}, 404)
+            return
+        self._json({"plan": self._plan_json(plan, checked=True)})
+
+    def _reshoot_plan(self, plan_id: str) -> None:
+        """Work the shot list out again, after the brief or the runtime changed."""
+        from .. import manager
+
+        who = self.current_user() or ""
+        plan = self.board.get(plan_id)
+        if plan is None or plan.owner != who:
+            self._json({"error": "no such plan"}, 404)
+            return
+        hold, _ = self._hold_and_open()
+        shots = manager.shot_list(plan.prompt, seconds=plan.seconds, hold=hold)
+        plan = self.board.update(
+            plan_id,
+            who,
+            shots=[asdict(shot) | {"why": shot.why} for shot in shots],
+            captures=[asdict(c) for c in manager.capture_list(shots)],
+        )
+        self._json({"plan": self._plan_json(plan, checked=True)})
+
+    def _drop_plan(self, plan_id: str) -> None:
+        if not self.board.drop(plan_id, self.current_user() or ""):
+            self._json({"error": "that is not yours to remove"}, 403)
+            return
+        self._json({"ok": True})
+
+    def _mark_posted(self, plan_id: str) -> None:
+        """Record that a *person* posted it. This program does not post.
+
+        Kept as its own route with its own name so that nothing about it can be
+        mistaken for publishing: there is no credential, no request, and no
+        service on the other end of this. It moves a row on a board.
+        """
+        plan = self.board.mark_posted(plan_id, self.current_user() or "")
+        if plan is None:
+            self._json({"error": "no such plan"}, 404)
+            return
+        self._json({"plan": self._plan_json(plan), "posted_by": "you"})
+
     # ---------------------------------------------------------------- share
 
     #: Footage handed to this app by the phone's own share sheet, waiting for
@@ -1747,6 +1954,22 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/shared/clear":
             self._clear_shared(self.current_user() or "")
             self._json({"ok": True})
+            return
+        if path == "/api/plans":
+            self._make_plan()
+            return
+        if path.startswith("/api/plans/"):
+            parts = path.strip("/").split("/")
+            plan_id = parts[2] if len(parts) > 2 else ""
+            what = parts[3] if len(parts) > 3 else ""
+            if what == "reshoot":
+                self._reshoot_plan(plan_id)
+            elif what == "drop":
+                self._drop_plan(plan_id)
+            elif what == "posted":
+                self._mark_posted(plan_id)
+            else:
+                self._edit_plan(plan_id)
             return
         if path.startswith("/api/films/") and path.endswith("/like"):
             self._like(path.split("/")[3])
@@ -2075,6 +2298,7 @@ def serve(
     """Run the web app until interrupted."""
     from . import assets, seed
     from .auth import Accounts
+    from ..manager import Board
     from .social import Films, Messages
 
     assets.ensure(STATIC)
@@ -2086,6 +2310,7 @@ def serve(
     Handler.films = Films(Films.default_path(root))
     Handler.studio.films = Handler.films
     Handler.messages = Messages(Messages.default_path(root))
+    Handler.board = Board(Board.default_path(root))
     # A film points at a file inside a job folder, and job folders are swept
     # after a few hours. Checked once at start-up rather than on every feed
     # request, so a long-running instance does not stat the whole library to

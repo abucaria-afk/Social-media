@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#19181b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f7f5f2" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="Plan a post before the footage for it exists.">
+<script>
+  (function () {
+    try {
+      var mode = localStorage.getItem("auteur-theme");
+      if (mode === "light" || mode === "dark") {
+        document.documentElement.setAttribute("data-theme", mode);
+      }
+    } catch (e) { /* private mode: fall through to the system setting */ }
+  })();
+</script>
+<link rel="icon" href="/icon-192.png">
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/manager.css">
+<title>Auteur — the manager</title>
+</head>
+<body>
+
+<!-- The board -->
+<main class="page" id="board-screen">
+  <header class="topbar">
+    <a class="topbar-back" href="/studio" aria-label="Back to the studio">←</a>
+    <h1>Manager</h1>
+    <span class="topbar-right">
+      <button type="button" class="chip-button" id="new-plan">Plan</button>
+    </span>
+  </header>
+
+  <h2 class="large-title">Manager</h2>
+  <p class="lede">
+    Plan a post before the footage for it exists: pick the day and the surface,
+    say what the film is, and it works out what you have to go and shoot.
+  </p>
+
+  <!-- Said once, at the top, and again in the API's own payload. -->
+  <p class="never-posts">
+    <span aria-hidden="true">⃠</span>
+    This does everything except post. There is no account connected to any
+    service and no request is ever made to one — when you have posted something
+    yourself, mark it here and it leaves the board.
+  </p>
+
+  <ul class="plans" id="plans"></ul>
+
+  <div class="blank" id="board-blank" hidden>
+    <p class="blank-line">Nothing planned.</p>
+    <p class="blank-sub">Start with a day and a sentence. The shots come after.</p>
+    <button type="button" class="go" id="blank-new">Plan something</button>
+  </div>
+</main>
+
+<!-- One plan -->
+<main class="page" id="plan-screen" hidden>
+  <header class="topbar">
+    <button type="button" class="topbar-back" id="plan-back" aria-label="Back to the board">←</button>
+    <h1 id="plan-name">Plan</h1>
+    <span class="topbar-right">
+      <button type="button" class="chip-ghost" id="plan-drop">Delete</button>
+    </span>
+  </header>
+
+  <h2 class="large-title" id="plan-title">Plan</h2>
+  <p class="lede" id="plan-when"></p>
+
+  <h3 class="section">Will it work</h3>
+  <ul class="findings" id="findings"></ul>
+  <p class="group-caption" id="model-note"></p>
+
+  <h3 class="section">Go and shoot</h3>
+  <p class="group-caption" id="shot-summary"></p>
+  <ol class="shotlist" id="shotlist"></ol>
+
+  <h3 class="section">The words</h3>
+  <div class="inset-group">
+    <label class="inset-row" for="edit-caption">
+      <span class="inset-label">Caption</span>
+    </label>
+    <textarea id="edit-caption" rows="3" placeholder="What goes in the box"></textarea>
+    <label class="inset-row" for="edit-tags">
+      <span class="inset-label">Hashtags</span>
+    </label>
+    <textarea id="edit-tags" rows="2" placeholder="market, dawn, reel"></textarea>
+    <label class="inset-row" for="edit-alt">
+      <span class="inset-label">Alt text</span>
+    </label>
+    <textarea id="edit-alt" rows="2" placeholder="For anybody using a screen reader"></textarea>
+  </div>
+
+  <div class="plan-actions">
+    <button type="button" class="go" id="plan-save">Save</button>
+    <button type="button" class="ghost" id="plan-copy">Copy caption and tags</button>
+    <a class="ghost" id="plan-make">Make this film now</a>
+    <button type="button" class="ghost" id="plan-posted">I posted this</button>
+  </div>
+</main>
+
+<!-- Making one -->
+<div class="sheet" id="new-sheet" hidden>
+  <div class="sheet-scrim" id="new-scrim"></div>
+  <form class="sheet-body" id="new-form">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Plan a post</h2>
+
+    <label class="field-label" for="new-title">Call it something</label>
+    <input type="text" id="new-title" placeholder="Saturday market">
+
+    <label class="field-label" for="new-prompt">What kind of film</label>
+    <textarea id="new-prompt" rows="2" placeholder="a 90s hypercut, 20 seconds"></textarea>
+
+    <label class="field-label" for="new-platform">Where it goes</label>
+    <select id="new-platform"></select>
+
+    <label class="field-label" for="new-when">When</label>
+    <input type="datetime-local" id="new-when">
+
+    <label class="field-label" for="new-seconds">How long</label>
+    <input type="number" id="new-seconds" min="3" max="600" step="1" value="20">
+
+    <p class="error" id="new-error" role="alert" hidden></p>
+    <button type="submit" class="go">Work out the shots</button>
+    <button type="button" class="ghost" id="new-close">Cancel</button>
+  </form>
+</div>
+
+<script src="/static/chrome.js"></script>
+<script src="/static/manager.js"></script>
+</body>
+</html>
