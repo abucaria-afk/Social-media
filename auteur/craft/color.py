@@ -88,10 +88,23 @@ def _bloom(radius: float, opacity: float, threshold: float = 0.62) -> str:
 
 
 def _vignette(amount: float) -> str:
+    """Darken the corners. `amount` is 0 (none) to 1 (as far as this goes).
+
+    The mapping used to run the other way. ffmpeg's `angle` is the lens angle
+    and a *larger* one vignettes harder — the comment here claimed the
+    opposite, so every look in this file asked for a subtle vignette and got a
+    near-maximum one. Measured on a photograph with a mean luma of 121: the
+    2020s look's nominal 0.16 produced angle 1.36 and a mean of 45, which is
+    62% of the light in the frame removed by the gentlest vignette on offer.
+    That is most of why graded frames came out looking heavy and dark.
+
+    Calibrated rather than guessed. On the same photograph this maps 0.16 to
+    about -3% mean luma, 0.30 to -5%, and 1.0 to -24%, which is a strong
+    vignette that still leaves a picture behind it.
+    """
     if amount <= 0.001:
         return ""
-    # Larger angle = subtler falloff; map 0..1 onto a tasteful range.
-    angle = 1.5 - 0.85 * min(amount, 1.0)
+    angle = 0.15 + 0.55 * min(amount, 1.0)
     return f"vignette=angle={angle:.3f}:mode=forward"
 
 
@@ -245,6 +258,202 @@ def _aqua(s: float) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# The decades
+#
+# Ports of the six era recipes in `tools/artifact/era.js`, which the browser
+# renderer applies per-pixel because a photograph is graded once. A clip pays
+# per frame, so the same look has to be built out of ffmpeg filters instead —
+# and it is worth being exact about what survives that translation and what
+# does not, rather than shipping two things called "1980s" that do not match.
+#
+# Survives: the tone curve (as `curves` control points computed from the same
+# lift/gain/gamma), the split tone (as `colorbalance`), contrast and
+# saturation, halation (as a thresholded bloom), grain (as `noise`), the
+# chroma bleed that makes VHS look like VHS (as `rgbashift`), and the
+# vignette.
+#
+# Does not: the scanlines. Interlacing needs a per-pixel expression, `geq` is
+# far too slow to run over every frame of a film, and a wrong-but-fast
+# approximation of scanlines reads as a screen-door artefact rather than as
+# 1985. Left out and said so.
+# ---------------------------------------------------------------------------
+
+
+def _film_curve(
+    lift: tuple[float, float, float],
+    gain: tuple[float, float, float],
+    gamma: tuple[float, float, float],
+) -> str:
+    """Where black and white land per channel, as `curves` control points.
+
+    The same arithmetic the browser does in a lookup table: an input `x` comes
+    out at `lift + (gain - lift) * x ** gamma`. Sampled at five points, which
+    `curves` interpolates between smoothly enough that the difference from the
+    full table is well under a quantisation step.
+    """
+    stops = (0.0, 0.25, 0.5, 0.75, 1.0)
+    parts = []
+    for name, low, high, power in zip("rgb", lift, gain, gamma, strict=True):
+        points = " ".join(
+            f"{x:.2f}/{max(0.0, min(1.0, low + (high - low) * (x**power))):.4f}" for x in stops
+        )
+        parts.append(f"{name}='{points}'")
+    return "curves=" + ":".join(parts)
+
+
+def _grain(amount: float) -> str:
+    """Film grain. Temporal, so it moves — static grain reads as sensor dirt."""
+    if amount <= 0.01:
+        return ""
+    return f"noise=alls={max(1, round(amount * 42))}:allf=t+u"
+
+
+def _chroma_bleed(pixels: float) -> str:
+    """Colour drawn to the side of the thing it belongs to, which is composite
+    video's single most recognisable artefact."""
+    if pixels <= 0.05:
+        return ""
+    shift = max(1, round(pixels))
+    return f"rgbashift=rh={shift}:bh=-{shift}"
+
+
+def _era(
+    *,
+    lift: tuple[float, float, float],
+    gain: tuple[float, float, float],
+    gamma: tuple[float, float, float],
+    contrast: float,
+    saturation: float,
+    shadows: tuple[float, float, float],
+    highs: tuple[float, float, float],
+    halation: float,
+    grain: float,
+    chroma: float,
+    vignette: float,
+    strength: float,
+) -> str:
+    """One decade, built from the same numbers the browser grades with."""
+    s = max(0.0, min(1.0, strength))
+    return chain(
+        _film_curve(lift, gain, gamma) if s > 0.3 else "",
+        _balance(shadows=shadows, mids=(0.0, 0.0, 0.0), highs=highs, strength=s),
+        _eq(contrast=contrast, saturation=saturation, gamma=1.0, strength=s),
+        _bloom(radius=14.0, opacity=halation * 0.5 * s, threshold=0.62),
+        _chroma_bleed(chroma * s),
+        _grain(grain * s),
+        _vignette(vignette * s),
+    )
+
+
+def _seventies(s: float) -> str:
+    """Super 8 — orange, heavy grain, soft blacks."""
+    return _era(
+        lift=(0.085, 0.055, 0.030),
+        gain=(1.0, 0.965, 0.885),
+        gamma=(0.94, 1.0, 1.08),
+        contrast=0.82,
+        saturation=0.92,
+        shadows=(0.030, 0.010, -0.010),
+        highs=(0.055, 0.022, -0.030),
+        halation=0.55,
+        grain=0.30,
+        chroma=0.0,
+        vignette=0.46,
+        strength=s,
+    )
+
+
+def _eighties(s: float) -> str:
+    """VHS — chroma bleeding sideways and blown highlights."""
+    return _era(
+        lift=(0.055, 0.045, 0.078),
+        gain=(0.96, 0.92, 0.97),
+        gamma=(1.0, 1.02, 0.96),
+        contrast=1.14,
+        saturation=1.26,
+        shadows=(0.006, -0.008, 0.038),
+        highs=(0.020, 0.014, -0.004),
+        halation=0.30,
+        grain=0.13,
+        chroma=2.6,
+        vignette=0.34,
+        strength=s,
+    )
+
+
+def _nineties(s: float) -> str:
+    """Kodak Gold — golden, milky blacks, grain you can see."""
+    return _era(
+        lift=(0.070, 0.062, 0.048),
+        gain=(1.02, 0.99, 0.925),
+        gamma=(0.96, 1.0, 1.06),
+        contrast=0.90,
+        saturation=1.05,
+        shadows=(0.008, 0.018, 0.010),
+        highs=(0.048, 0.028, -0.018),
+        halation=0.40,
+        grain=0.22,
+        chroma=0.0,
+        vignette=0.30,
+        strength=s,
+    )
+
+
+def _y2k(s: float) -> str:
+    """Point-and-shoot flash — hard, cool, and clipped."""
+    return _era(
+        lift=(0.012, 0.016, 0.030),
+        gain=(0.99, 0.98, 0.97),
+        gamma=(1.06, 1.04, 1.0),
+        contrast=1.24,
+        saturation=1.14,
+        shadows=(-0.012, 0.004, 0.030),
+        highs=(0.020, 0.020, 0.012),
+        halation=0.18,
+        grain=0.07,
+        chroma=0.8,
+        vignette=0.20,
+        strength=s,
+    )
+
+
+def _tens(s: float) -> str:
+    """The filter era — faded blacks, teal shadows, warm skin."""
+    return _era(
+        lift=(0.090, 0.098, 0.104),
+        gain=(0.985, 0.985, 0.965),
+        gamma=(1.0, 1.0, 1.0),
+        contrast=1.06,
+        saturation=0.94,
+        shadows=(-0.030, 0.012, 0.046),
+        highs=(0.050, 0.026, -0.020),
+        halation=0.22,
+        grain=0.06,
+        chroma=0.0,
+        vignette=0.42,
+        strength=s,
+    )
+
+
+def _twenties(s: float) -> str:
+    """Phone HDR — everything visible, nothing hidden."""
+    return _era(
+        lift=(0.0, 0.0, 0.004),
+        gain=(1.04, 1.04, 1.05),
+        gamma=(0.98, 0.98, 0.98),
+        contrast=1.16,
+        saturation=1.16,
+        shadows=(-0.008, 0.0, 0.016),
+        highs=(0.012, 0.010, 0.008),
+        halation=0.10,
+        grain=0.0,
+        chroma=0.0,
+        vignette=0.16,
+        strength=s,
+    )
+
+
 LOOKS: dict[str, LookSpec] = {
     "neutral": LookSpec("neutral", "clean, barely touched", _neutral),
     "blockbuster": LookSpec("blockbuster", "teal shadows, orange highlights", _blockbuster),
@@ -258,6 +467,13 @@ LOOKS: dict[str, LookSpec] = {
     "punch": LookSpec("punch", "vivid and sharp", _punch),
     "desert": LookSpec("desert", "sun-baked yellows", _desert),
     "aqua": LookSpec("aqua", "cool green-blue depth", _aqua),
+    # The decades, matching the browser renderer's recipes.
+    "1970s": LookSpec("1970s", "Super 8 — orange, grainy, soft blacks", _seventies),
+    "1980s": LookSpec("1980s", "VHS — chroma bleed and blown highlights", _eighties),
+    "1990s": LookSpec("1990s", "Kodak Gold — golden, milky blacks", _nineties),
+    "2000s": LookSpec("2000s", "point-and-shoot flash — hard and cool", _y2k),
+    "2010s": LookSpec("2010s", "the filter era — faded, teal and warm", _tens),
+    "2020s": LookSpec("2020s", "phone HDR — everything visible", _twenties),
 }
 
 
