@@ -338,7 +338,27 @@ def _choose_motion(take: Take, slot: _Slot, is_still: bool, rng: random.Random) 
     )
 
     if is_still:
-        kind = "ken-burns" if slot.energy < 0.6 else "punch-in"
+        # Not `ken-burns if quiet else punch-in`, which is what this was. That
+        # is a hard if/else on one number, so a fast film — where nearly every
+        # slot is high-energy — put a punch on 65 of 80 shots, and no still
+        # ever simply held. The Gaze agent's report is the exact shape of that
+        # bug: "constant low-grade movement on every frame reads as a slideshow
+        # with a wobble on it, and it costs every cut its edge — a cut only
+        # lands against something still."
+        #
+        # So: a bag, weighted by energy, that contains holding still. The
+        # Scholar measures 0.034 inter-frame motion across the reference reels
+        # — close to locked off throughout — which is the number that says a
+        # still frame is allowed to be a still frame.
+        if slot.energy > 0.62:
+            bag = ("punch-in", "punch-in", "pull-out", "none", "ken-burns")
+        elif slot.energy > 0.34:
+            bag = ("ken-burns", "punch-in", "none", "drift-left", "drift-right")
+        else:
+            bag = ("ken-burns", "none", "none", "drift-right")
+        kind = rng.choice(bag)
+        if kind == "none":
+            return Motion(kind="none", intensity=0.0, anchor=anchor)
         return Motion(kind=kind, intensity=0.35 + 0.3 * slot.energy, anchor=anchor)
 
     if take.camera == "static" and take.motion < 0.02:
@@ -397,7 +417,17 @@ def _choose_transition(
     ceiling = min(slot.length * 0.4, 0.6)
     if ceiling < 0.1:
         return Transition("cut", 0.0)
-    duration = min(ceiling, 0.5 if kind in ("dissolve", "film-burn", "light-leak") else 0.25)
+    # A portal or a carry needs longer than a whip to read: the aperture has
+    # to be visibly small before it is visibly large, and the carried middle
+    # has to still be there after the edges have already changed. Under about a
+    # third of a second both of them are just a soft cut.
+    if kind in ("dissolve", "film-burn", "light-leak"):
+        longest = 0.5
+    elif kind in ("portal", "carry"):
+        longest = 0.34
+    else:
+        longest = 0.25
+    duration = min(ceiling, longest)
     return Transition(kind, duration)
 
 
@@ -570,6 +600,10 @@ def _design_sound(edl: EditDecisionList, slots: list[_Slot], brief: Brief) -> li
             "zoom-blur",
             "slide-left",
             "slide-right",
+            # A portal is a hole opening in the frame and it wants the same
+            # rising whoosh a whip does. A carry deliberately does not: the
+            # point of it is that nothing announces the change.
+            "portal",
         ):
             cues.append(
                 SoundCue("whoosh", at=round(max(0.0, start - 0.12), 3), gain=0.5, duration=0.45)

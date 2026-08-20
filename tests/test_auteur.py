@@ -7556,3 +7556,119 @@ def test_the_feed_and_inbox_are_behind_the_sign_in():
     for path in ("/feed", "/inbox", "/api/feed", "/api/messages", "/api/people"):
         assert path not in server.PUBLIC_PATHS
         assert not path.startswith(server.PUBLIC_PREFIXES)
+
+
+# ---------------------------------------------------------------------------
+# Joins in the ffmpeg path
+# ---------------------------------------------------------------------------
+
+
+def test_the_progress_term_runs_forwards():
+    """xfade's own `P` counts down, whatever its documentation says.
+
+    Measured against the binary by writing `P*200` into the luma plane and
+    reading the raw frames back: it falls from 1 to 0 across the join. Every
+    custom expression in this module was written to the documented direction
+    and so rendered backwards — the whips travelled away from the shot they
+    were thrown at. This is the correction, and it is one string so that the
+    next expression cannot get it wrong separately.
+    """
+    from auteur.craft import transitions
+
+    assert transitions.T == "(1-P)"
+    for name, expr in transitions.CUSTOM_EXPRESSIONS.items():
+        # Every custom join must go through the correction, and none may use a
+        # bare P for anything but the correction itself.
+        assert "(1-P)" in expr, f"{name} does not use the corrected progress"
+        assert expr.count("P") == expr.count("(1-P)") + expr.count("PLANE") + expr.count(
+            "PI"
+        ), f"{name} uses a bare P somewhere"
+
+
+def test_the_two_joins_people_actually_ask_for_exist():
+    """A portal opening through the outgoing shot, and a carried middle.
+
+    These are the joins named in every description of the reels this program
+    is built to make — "part of the previous photo is on the next photo" — and
+    the ffmpeg path had neither.
+    """
+    from auteur.craft import transitions
+
+    assert "portal" in transitions.CUSTOM_EXPRESSIONS
+    assert "carry" in transitions.CUSTOM_EXPRESSIONS
+    # And a fallback for a build that will not take custom expressions.
+    assert transitions.BUILTIN["portal"] == "circleopen"
+    assert transitions.BUILTIN["carry"] == "fade"
+
+
+def test_portal_and_carry_are_written_in_frame_coordinates():
+    """Not per-plane, unlike the whips.
+
+    `X` and `Y` are frame coordinates in every plane while `W` and `H` are the
+    frame's dimensions everywhere, so halving them for chroma — which is what
+    `_plane_expr` is for — draws a second, quarter-sized shape in the corner.
+    On a red-to-blue join that was a blue circle in the top-left and a dark red
+    one in the middle, on the same frame.
+    """
+    from auteur.craft import transitions
+
+    for name in ("portal", "carry"):
+        assert (
+            "PLANE" not in transitions.CUSTOM_EXPRESSIONS[name]
+        ), f"{name} is wrapped per-plane and will draw twice"
+
+
+def test_a_hypercut_may_still_open_a_portal():
+    """The references cut hard and still open one on the shots that can hold it.
+
+    The bag used to be ("cut",) exactly, which made every join in the fastest
+    style identical — the thing the Gaze agent reports as the absence of a
+    decision rather than as a style.
+    """
+    from auteur.director.brief import parse_brief
+
+    brief = parse_brief("a 90s hypercut, 12 seconds")
+    assert brief.style == "hypercut"
+    assert "portal" in brief.transitions
+    # Still overwhelmingly cuts, or it is not a hypercut any more.
+    assert brief.transitions.count("cut") / len(brief.transitions) >= 0.6
+
+
+def test_the_edl_accepts_every_join_the_renderer_can_actually_make():
+    """Two lists that have to agree, held to each other rather than to memory.
+
+    `Transition.normalise` validates against `edl.TRANSITIONS` and silently
+    rewrites anything else to a dissolve. So a join added to the renderer but
+    not to that set is not a broken join — it is an *invisible* one: the
+    director chooses it, the EDL writes down "dissolve", every tally agrees,
+    and nobody can tell the feature was never delivered. That happened to both
+    `portal` and `carry`.
+    """
+    from auteur import edl
+    from auteur.craft import transitions
+
+    renderable = set(transitions.BUILTIN) | set(transitions.CUSTOM_EXPRESSIONS)
+    missing = renderable - edl.TRANSITIONS
+    assert missing == set(), f"the renderer can make joins the EDL will rename: {sorted(missing)}"
+
+    # And the other direction: a name the EDL allows that nothing can render
+    # would come out of ffmpeg as whatever `xfade_spec` defaults to.
+    unrenderable = edl.TRANSITIONS - renderable - {"cut"}
+    assert unrenderable == set(), f"the EDL allows joins nothing renders: {sorted(unrenderable)}"
+
+
+def test_an_unknown_join_says_so_rather_than_becoming_a_dissolve():
+    import logging
+
+    from auteur.edl import Transition
+
+    logger = logging.getLogger("auteur.edl")
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    logger.addHandler(handler)
+    try:
+        assert Transition("teleport", 0.4).normalise().kind == "dissolve"
+    finally:
+        logger.removeHandler(handler)
+    assert any("teleport" in record.getMessage() for record in records)

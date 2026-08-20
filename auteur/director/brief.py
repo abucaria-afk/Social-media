@@ -193,7 +193,15 @@ class Brief:
     letterbox: float = 0.0
     duration: float | None = None
     #: Transition vocabulary this film is allowed to use, in preference order.
-    transitions: tuple[str, ...] = ("cut", "cut", "cut", "dissolve", "whip-left", "dip-to-black")
+    transitions: tuple[str, ...] = (
+        "cut",
+        "cut",
+        "cut",
+        "dissolve",
+        "portal",
+        "whip-left",
+        "dip-to-black",
+    )
     #: Strings the director asked to appear on screen, in order.
     on_screen_text: list[str] = field(default_factory=list)
     #: Explicit instructions we recognised but did not consume.
@@ -445,15 +453,31 @@ def parse_brief(prompt: str, *, duration: float | None = None) -> Brief:
     ):
         brief.transitions = ("cut",)
     elif style == "hypercut":
-        # The references cut hard. At 0.167s a shot there is no room for a
-        # transition anyway — a 0.22s dissolve would outlast the shot.
-        brief.transitions = ("cut",)
+        # The references cut hard, and at a 0.167s median a shot has no room
+        # for a transition — a 0.22s dissolve would outlast it. But the
+        # reference reels are not *only* fast: they open a portal on the
+        # handful of shots that are long enough to hold one, and cut
+        # everything else. Leaving these in the bag and letting the length
+        # ceiling below decide is what produces that, rather than a film
+        # where every join is the same and the whole thing reads as a
+        # slideshow on fast-forward.
+        brief.transitions = ("cut", "cut", "cut", "cut", "cut", "portal", "carry")
     elif style in ("music-video", "highlights") or base < 0.7:
-        brief.transitions = ("cut", "cut", "cut", "whip-left", "whip-right", "zoom-blur", "glitch")
+        brief.transitions = (
+            "cut",
+            "cut",
+            "cut",
+            "whip-left",
+            "whip-right",
+            "portal",
+            "carry",
+            "zoom-blur",
+            "glitch",
+        )
     elif style in ("documentary", "explainer", "travel") or base > 1.6:
-        brief.transitions = ("cut", "cut", "dissolve", "dissolve", "dip-to-black")
+        brief.transitions = ("cut", "cut", "dissolve", "dissolve", "carry", "dip-to-black")
     elif look in ("kodak", "bloom", "amber"):
-        brief.transitions = ("cut", "cut", "dissolve", "light-leak", "film-burn")
+        brief.transitions = ("cut", "cut", "dissolve", "light-leak", "carry", "film-burn")
 
     if any(word in lowered for word in ("no music", "silent", "natural sound", "no soundtrack")):
         brief.beat_sync = False

@@ -129,7 +129,12 @@ def review(
 
     # ---- flash frames ----------------------------------------------------
     for index, (start, _, shot) in enumerate(edl.timeline(), start=1):
-        if shot.duration < MIN_SHOT * 1.2:
+        # `< MIN_SHOT`, not `< MIN_SHOT * 1.2`. The 1.2 was slack around a
+        # floor nobody had measured — MIN_SHOT was 0.083, two frames. It is now
+        # 0.125, the fastest hold anywhere in the twenty-three reference reels,
+        # so a shot at the floor is by definition something the references do
+        # and flagging it says the corpus is full of flash frames.
+        if shot.duration < MIN_SHOT:
             critique.notes.append(
                 Note(
                     "flash-frame",
