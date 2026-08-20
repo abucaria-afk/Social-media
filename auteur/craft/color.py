@@ -309,12 +309,20 @@ def _grain(amount: float) -> str:
     return f"noise=alls={max(1, round(amount * 42))}:allf=t+u"
 
 
-def _chroma_bleed(pixels: float) -> str:
-    """Colour drawn to the side of the thing it belongs to, which is composite
-    video's single most recognisable artefact."""
+def _chroma_bleed(pixels: float, *, width: int = 1080) -> str:
+    """Colour drawn to the side of the thing it belongs to.
+
+    Composite video's single most recognisable artefact, and the reason a VHS
+    still reads as VHS. `pixels` is quoted against a 1080-wide frame and scaled
+    to the real one — the first version did not scale, so at the 320px size the
+    checks render at, a 2.6px shift is nearly nine times the intended
+    displacement and fringed the entire picture rather than its edges.
+    """
     if pixels <= 0.05:
         return ""
-    shift = max(1, round(pixels))
+    shift = round(pixels * width / 1080)
+    if shift < 1:
+        return ""
     return f"rgbashift=rh={shift}:bh=-{shift}"
 
 
@@ -332,6 +340,7 @@ def _era(
     chroma: float,
     vignette: float,
     strength: float,
+    width: int = 1080,
 ) -> str:
     """One decade, built from the same numbers the browser grades with."""
     s = max(0.0, min(1.0, strength))
@@ -340,7 +349,7 @@ def _era(
         _balance(shadows=shadows, mids=(0.0, 0.0, 0.0), highs=highs, strength=s),
         _eq(contrast=contrast, saturation=saturation, gamma=1.0, strength=s),
         _bloom(radius=14.0, opacity=halation * 0.5 * s, threshold=0.62),
-        _chroma_bleed(chroma * s),
+        _chroma_bleed(chroma * s, width=width),
         _grain(grain * s),
         _vignette(vignette * s),
     )

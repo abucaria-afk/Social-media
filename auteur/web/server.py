@@ -109,6 +109,11 @@ class Job:
     error: str = ""
     video: Path | None = None
     facts: list[str] = field(default_factory=list)
+    #: What it understood from the words, said back. The page has had a
+    #: panel for this the whole time and the server never filled it, so a
+    #: prompt whose effect you cannot see was indistinguishable from one
+    #: that was ignored — which is exactly what people reported.
+    heard: str = ""
     notes: Path | None = None
     created: float = field(default_factory=time.time)
     thread: threading.Thread | None = None
@@ -123,6 +128,7 @@ class Job:
             "lines": self.lines[-40:],
             "error": self.error,
             "facts": self.facts,
+            "heard": self.heard,
             "video": f"/api/jobs/{self.id}/video" if self.video else None,
             "notes": f"/api/jobs/{self.id}/notes" if self.notes else None,
         }
@@ -299,11 +305,24 @@ class Studio:
                 if critique is not None:
                     facts.append(f"it rates itself {critique.score:.0%}")
 
+                # Said back in the person's own terms. Built from the edit that
+                # was actually made rather than from the prompt, so it reports
+                # what happened rather than what was asked for — the two differ
+                # whenever a word was not understood, and that difference is
+                # the only thing worth showing.
+                heard = _said_back(
+                    production.edl,
+                    prompt=job.prompt,
+                    template=template,
+                    shape=fmt,
+                )
+
                 with self.lock:
                     self.recent_edls[job.owner] = production.edl
                     job.video = production.primary
                     job.notes = production.workspace.root / "production-notes.md"
                     job.facts = facts
+                    job.heard = heard
                     job.status = "done"
                     job.stage = "Your film is ready"
                     job.percent = 100.0
@@ -1476,6 +1495,45 @@ def _fit_to_template(edl, beats: list, seconds: float | None) -> None:
             shot.transition_in = Transition()
         out.append(shot)
     edl.shots = out
+
+
+def _said_back(edl, *, prompt: str, template: str, shape) -> str:  # noqa: ARG001
+    """One sentence describing the edit that was made.
+
+    A prompt whose effect you cannot see is indistinguishable from a prompt
+    that was ignored, which is what people reported about this app. The page
+    has had a panel for this the whole time; the server simply never sent
+    anything to put in it.
+    """
+    import re
+
+    shots = len(edl.shots)
+    if not shots:
+        return ""
+    holds = sorted(shot.duration for shot in edl.shots)
+    median = holds[len(holds) // 2]
+    joins = {}
+    for shot in edl.shots[1:]:
+        kind = "cut" if shot.transition_in.is_cut else shot.transition_in.kind
+        joins[kind] = joins.get(kind, 0) + 1
+    looks = {shot.look.preset for shot in edl.shots if shot.look.preset}
+
+    parts = [
+        f"{shots} shots over {edl.duration:.0f} seconds, a median {median:.2f}s each",
+    ]
+    if looks:
+        parts.append("graded " + ", ".join(sorted(looks)))
+    if template:
+        parts.append("cut to a reference reel's timeline")
+    if joins:
+        best = sorted(joins.items(), key=lambda kv: -kv[1])[:3]
+        parts.append("joins: " + ", ".join(f"{n} {kind}" for kind, n in best))
+    quoted = re.findall(
+        r'["\u201c\u2018\']([^"\u201c\u201d\u2018\u2019\']{1,48})["\u201d\u2019\']', prompt
+    )
+    if quoted:
+        parts.append("on screen: " + ", ".join(f"\u201c{q}\u201d" for q in quoted[:4]))
+    return "It made " + "; ".join(parts) + "."
 
 
 def serve(
