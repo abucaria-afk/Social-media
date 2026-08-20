@@ -10,7 +10,10 @@ which is most of the frame — gives a strongly bimodal distribution: a warm lob
 across 0-50 degrees holding 37% of them, and a teal lobe across 170-220 holding
 42%. What matters more than either hue is the *saturation*: the median coloured
 pixel sits at 0.40, nowhere near the neon these films are usually assumed to
-be. They are muted, and they are bright — mean luma 0.249 on frames that are
+be. The Scholar reaches the same conclusion from its own reading of the corpus
+and reports 0.28 — a lower number because it takes the median across the whole
+frame rather than across the pixels that carry colour, and the greys count. Ask
+it: "how saturated are these films". They are muted, and they are bright — mean luma 0.249 on frames that are
 mostly dark, which means the colour that is there carries.
 
 So the palette is muted and bright rather than saturated and dark. `ember` is
@@ -24,8 +27,16 @@ Two roles exist only because a colour cannot always do both jobs. `ember` is
 the accent as a *fill* — the primary button, the progress bar — and it is free
 to be bright, because what has to be legible is the text sitting on it.
 `ember_text` is the accent as *text*, and on bone paper it has to darken
-sharply or it cannot be read. Every role that carries text clears WCAG AA
-against its own ground in both lightings, which is a test, not a claim.
+sharply or it cannot be read.
+
+Every role that carries text clears WCAG AA against **every surface it can sit
+on** — the ground, a card, and a control on a card — in both lightings, which
+is a test rather than a claim. It used to be checked against the ground alone,
+and that is a different question: `text_faint` cleared 5.46 on the ground and
+4.20 on a raised control, so seventy pieces of text in the app were under the
+bar while the palette test was green. Anything that only ever sits on the
+ground still has to clear the hardest case, because nothing stops the next
+screen from putting it on a card.
 """
 
 from __future__ import annotations
@@ -56,7 +67,7 @@ DARK: dict[str, str] = {
     "line": "#3b3842",
     "text": "#f5f2ef",
     "text_muted": "#b5acb9",
-    "text_faint": "#978b9c",
+    "text_faint": "#9e94a4",
     "ember": "#eca669",
     "ember_text": "#f1b47e",
     "on_ember": "#2c1807",

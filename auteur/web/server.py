@@ -1111,6 +1111,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/messages":
             self._inbox()
             return
+        if path == "/api/shared":
+            self._shared_state()
+            return
         if path.startswith("/api/messages/"):
             self._thread(unquote(path[len("/api/messages/") :]))
             return
@@ -1490,6 +1493,96 @@ class Handler(BaseHTTPRequestHandler):
             }
         )
 
+    # ---------------------------------------------------------------- share
+
+    #: Footage handed to this app by the phone's own share sheet, waiting for
+    #: somebody to say what film to make of it. Cleared when it is used, and
+    #: swept with the workspace like everything else.
+    SHARED_KEEP = 12
+
+    def _shared_dir(self, who: str) -> Path:
+        return self.studio.workspace / "shared" / _safe_name(who)
+
+    def _receive_share(self) -> None:
+        """Footage shared *into* the app from Photos, Gallery, or anywhere else.
+
+        This is the route the product was missing. Everything here starts with
+        footage that is already on the phone, and the way a phone hands footage
+        to an app is the system share sheet — so without a share target, "share
+        to Auteur" simply is not an option where people already are, and the
+        only way in is to open the app first and find the file picker. The
+        manifest advertises it; this receives it.
+
+        The share sheet posts a plain form and expects a page back, not JSON:
+        it is a navigation, so the answer is a redirect to the make screen with
+        the footage already waiting on it.
+        """
+        who = self.current_user() or ""
+        if not who:
+            # Signing in first, then coming back, would lose the files. Better
+            # to say so than to drop somebody's video silently.
+            self._redirect("/login?from=share")
+            return
+        try:
+            files, fields = self._read_upload()
+        except MemoryError:
+            self._redirect("/?shared=toobig")
+            return
+        except Exception as exc:  # noqa: BLE001 - a bad share is not a crash
+            log.info("could not read a share from %s: %s", _for_log(who), exc)
+            self._redirect("/?shared=unreadable")
+            return
+
+        folder = self._shared_dir(who)
+        shutil.rmtree(folder, ignore_errors=True)
+        folder.mkdir(parents=True, exist_ok=True)
+        kept = 0
+        for name, blob in files[: self.SHARED_KEEP]:
+            if not blob:
+                continue
+            (folder / _safe_name(Path(name).name or f"clip-{kept}")).write_bytes(blob)
+            kept += 1
+
+        # Some share sheets send the caption as `text` and some as `title`; the
+        # manifest maps text to `prompt`, and title is a reasonable fallback.
+        said = (fields.get("prompt") or fields.get("title") or "").strip()[:500]
+        if said:
+            (folder / "said.txt").write_text(said, encoding="utf-8")
+        log.info("%s shared %d file(s) into the app", _for_log(who), kept)
+        self._redirect("/?shared=1" if kept else "/?shared=empty")
+
+    def _shared_state(self) -> None:
+        """What the share sheet left waiting, so the make screen can say so."""
+        who = self.current_user() or ""
+        folder = self._shared_dir(who) if who else None
+        if folder is None or not folder.is_dir():
+            self._json({"waiting": 0, "said": "", "names": []})
+            return
+        names = sorted(f.name for f in folder.iterdir() if f.is_file() and f.name != "said.txt")
+        said = ""
+        note = folder / "said.txt"
+        if note.is_file():
+            said = note.read_text(encoding="utf-8")[:500]
+        self._json({"waiting": len(names), "said": said, "names": names[:12]})
+
+    def _take_shared(self, who: str) -> list[Path]:
+        """Claim the shared footage for a job, and stop it being claimed twice."""
+        folder = self._shared_dir(who) if who else None
+        if folder is None or not folder.is_dir():
+            return []
+        return [f for f in sorted(folder.iterdir()) if f.is_file() and f.name != "said.txt"]
+
+    def _clear_shared(self, who: str) -> None:
+        if who:
+            shutil.rmtree(self._shared_dir(who), ignore_errors=True)
+
+    def _redirect(self, where: str) -> None:
+        self.send_response(303)
+        self.send_header("Location", where)
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
     def _read_upload(self) -> tuple[list[tuple[str, bytes]], dict[str, str]]:
         """The posted multipart body, as (files, fields).
 
@@ -1599,6 +1692,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - stdlib naming
         path = self.path.split("?", 1)[0]
 
+        if path == "/share":
+            # Before the sign-in gate reads it as an API call: this is a
+            # navigation from the operating system, so it answers with a
+            # redirect either way rather than a 401 nobody sees.
+            self._receive_share()
+            return
         if path == "/api/signup":
             self._sign_up()
             return
@@ -1645,6 +1744,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/messages/send":
             self._send_message()
             return
+        if path == "/api/shared/clear":
+            self._clear_shared(self.current_user() or "")
+            self._json({"ok": True})
+            return
         if path.startswith("/api/films/") and path.endswith("/like"):
             self._like(path.split("/")[3])
             return
@@ -1664,7 +1767,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "I could not read that upload."}, 400)
             return
 
-        if not files:
+        # Footage the phone's share sheet already handed over counts as
+        # picking clips. Without this the share target delivers the files and
+        # the make screen then insists nothing was chosen.
+        shared = [] if files else self._take_shared(self.current_user() or "")
+        if not files and not shared:
             self._json({"error": "Pick at least one clip first."}, 400)
             return
         prompt = fields.get("prompt", "").strip()
@@ -1692,6 +1799,12 @@ class Handler(BaseHTTPRequestHandler):
             safe = Path(filename).name or f"clip{index}"
             safe = "".join(char for char in safe if char.isalnum() or char in "._- ")[-80:]
             (clips / f"{index:02d}-{safe or 'clip.mp4'}").write_bytes(payload)
+        for index, source in enumerate(shared, start=len(files)):
+            shutil.copy2(source, clips / f"{index:02d}-{source.name}")
+        if shared:
+            # Claimed. Leaving them would put the same footage in the next film
+            # somebody made, which is the kind of bug people assume is a ghost.
+            self._clear_shared(self.current_user() or "")
 
         self.studio.start(job)
         self._json(job.snapshot(), 202)

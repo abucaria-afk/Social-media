@@ -88,6 +88,7 @@
     document.body.appendChild(nav);
     document.body.classList.add("has-tabbar");
     badge();
+    largeTitles();
   }
 
   /* The unread count on the inbox tab. One request on load; the inbox page
@@ -105,11 +106,80 @@
         } else {
           dot.hidden = true;
         }
+        /* And on the home-screen icon itself. This is the number people
+         * actually act on — an unread count inside an app nobody has opened
+         * is not a notification. Supported on both phones for an installed
+         * app; a plain tab throws, which is why it is guarded rather than
+         * feature-detected on `navigator` alone. */
+        try {
+          if (navigator.setAppBadge) {
+            if (data.unread > 0) { navigator.setAppBadge(data.unread); }
+            else if (navigator.clearAppBadge) { navigator.clearAppBadge(); }
+          }
+        } catch (e) { /* not installed, or not permitted */ }
       })
       .catch(function () { /* signed out, or offline: no badge */ });
   }
 
-  window.auteurChrome = { refreshBadge: badge };
+  /* The large title collapses into the bar as it scrolls under it.
+   *
+   * A scroll listener rather than `animation-timeline: scroll()`, because
+   * Safari does not have scroll-driven animations and this is the platform
+   * Safari is on. Passive, and it reads one number per frame — the observer
+   * alternative fires on a threshold and the title has to cross-fade, not
+   * snap. */
+  function largeTitles() {
+    var bar = document.querySelector(".topbar");
+    var title = document.querySelector(".large-title");
+    if (!bar) return;
+    var scroller = document.querySelector(".page") ? window : null;
+
+    function check() {
+      var past;
+      if (title) {
+        /* Collapsed once the large title's baseline has gone under the bar. */
+        past = title.getBoundingClientRect().bottom < bar.getBoundingClientRect().bottom;
+      } else {
+        past = (window.scrollY || document.documentElement.scrollTop) > 4;
+      }
+      bar.classList.toggle("is-collapsed", past);
+    }
+
+    (scroller || window).addEventListener("scroll", check, { passive: true });
+    window.addEventListener("resize", check, { passive: true });
+    check();
+  }
+
+  /* The share sheet, which on this platform is the *system* one: it can save a
+   * film to Photos, AirDrop it, or hand it to any app on the phone. A download
+   * link cannot do any of that — on iOS it opens the file in a tab and leaves
+   * somebody to work out the rest — so where the browser has Web Share with
+   * files, that is the button. Everything else keeps the download.
+   *
+   * `canShare` with the actual file, not a feature test on `share`: iOS has
+   * had `navigator.share` for years and file sharing for fewer, and asking the
+   * general question gets a yes and then throws. */
+  function canShareFiles(files) {
+    return !!(navigator.canShare && navigator.share && navigator.canShare({ files: files }));
+  }
+
+  function shareFile(url, name, title) {
+    return fetch(url, { credentials: "same-origin" })
+      .then(function (r) { return r.blob(); })
+      .then(function (blob) {
+        var file = new File([blob], name, { type: blob.type || "video/mp4" });
+        if (!canShareFiles([file])) return false;
+        return navigator.share({ files: [file], title: title || name }).then(function () {
+          return true;
+        });
+      });
+  }
+
+  window.auteurChrome = {
+    refreshBadge: badge,
+    shareFile: shareFile,
+    canShareFiles: canShareFiles
+  };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", build);

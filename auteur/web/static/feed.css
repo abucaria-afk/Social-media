@@ -189,8 +189,12 @@
 
 .feed-switch {
   pointer-events: auto;
-  min-height: 30px;
-  padding: 0 12px;
+  /* 44, not the 30 this was. The pill still *looks* small — the extra height
+     is transparent padding either side of the label — because the size a
+     control is drawn at and the size it can be hit at are different numbers
+     and only the second one is a rule. */
+  min-height: 44px;
+  padding: 7px 12px;
   border: 1px solid rgba(255,255,255,0.34);
   border-radius: 999px;
   background: rgba(0,0,0,0.28);

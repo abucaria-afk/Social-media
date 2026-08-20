@@ -80,6 +80,11 @@ class Reading:
     #: Dominant hue in degrees, and how far the hues spread.
     hue: float = 0.0
     hue_spread: float = 0.0
+    #: Mean saturation, 0..1. Computed here all along to name the lighting and
+    #: then thrown away, which is why the Scholar could describe a reel's hue
+    #: and not how saturated it was — the number the whole palette of this app
+    #: was derived from was one it could not state.
+    saturation: float = 0.0
     #: 0..1. High means a sharp subject against a soft ground — depth.
     depth_separation: float = 0.0
     #: How the visual weight sits left-to-right; 0 is balanced.
@@ -106,6 +111,17 @@ class Reading:
     #: blur reads as depth separation and *raises* the craft score. See
     #: `resolved_detail`.
     acuity: float = 0.0
+
+    #: Fields that `_consensus` does not compute, because they are not
+    #: per-frame quantities — `acuity` is measured once from the file at a
+    #: resolution where fine detail still exists, after the consensus is taken.
+    #: Named here rather than left implicit so that the test holding
+    #: `_consensus` to this dataclass has something to read: without it, every
+    #: field added to a Reading and forgotten in `_consensus` comes back as its
+    #: default, and a default of 0.0 does not look like a bug, it looks like a
+    #: measurement. That is exactly how `saturation` was reported as 0.00 for
+    #: every reel in the corpus.
+    FILLED_LATER = ("acuity",)
     #: Secondary places the eye goes, best first.
     secondary: tuple[tuple[float, float], ...] = ()
     notes: list[str] = field(default_factory=list)
@@ -136,6 +152,7 @@ class Reading:
             "palette": self.palette,
             "hue": round(self.hue, 1),
             "hue_spread": round(self.hue_spread, 1),
+            "saturation": round(self.saturation, 4),
             "depth_separation": round(self.depth_separation, 4),
             "balance": round(self.balance, 4),
             "busy": round(self.busy, 4),
@@ -426,6 +443,7 @@ def read_frame(frame: np.ndarray) -> Reading:
         palette=_palette_name(spread),
         hue=hue,
         hue_spread=spread,
+        saturation=float(saturation_map.mean()),
         depth_separation=depth,
         balance=balance,
         busy=busy,
@@ -642,7 +660,16 @@ def _acuity_of(path: Path) -> float:
 
 
 def _consensus(readings: list[Reading]) -> Reading:
-    """One reading from several: the most common name, the median number."""
+    """One reading from several: the most common name, the median number.
+
+    Rebuilt field by field, which means every field added to `Reading` has to
+    be added here too or it silently comes back as its default. That is not
+    hypothetical: `saturation` was measured correctly on every sampled frame
+    and then dropped here, so a reel whose frames measure 0.23 was reported at
+    exactly 0.00 — and 0.00 does not look like a bug, it looks like a greyscale
+    film. The test below holds this function to the dataclass rather than to
+    anybody noticing.
+    """
     from collections import Counter
 
     def common(attribute: str) -> str:
@@ -663,6 +690,7 @@ def _consensus(readings: list[Reading]) -> Reading:
         palette=common("palette"),
         hue=median("hue"),
         hue_spread=median("hue_spread"),
+        saturation=median("saturation"),
         depth_separation=median("depth_separation"),
         balance=median("balance"),
         busy=median("busy"),

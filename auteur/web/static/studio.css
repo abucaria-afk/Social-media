@@ -45,16 +45,30 @@
 
 .sbar-title {
   font-weight: 600;
-  font-size: 1rem;
+  font-size: var(--text-headline);
   color: var(--text);
+  white-space: nowrap;
 }
 
+/* One line, truncated. A bar carries a title and at most one short trailing
+   value — it is 46px tall and it is sticky, so anything that can wrap will
+   eventually push the content of the page down by three lines and stay there.
+   The studio's provenance line is a whole sentence and did exactly that. The
+   full text stays reachable as the title attribute. */
 .sbar-note {
   margin-left: auto;
+  min-width: 0;
   color: var(--text-faint);
-  font-size: 0.74rem;
+  font-size: var(--text-caption);
   text-align: right;
   line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.has-tabbar .studio-wrap {
+  padding-bottom: calc(var(--tabbar) + var(--safe-bottom) + 20px);
 }
 
 .studio-wrap {

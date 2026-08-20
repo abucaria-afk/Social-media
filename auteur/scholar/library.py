@@ -358,12 +358,13 @@ def measure_film(path: Path) -> list[Learning]:
         note(
             "exposure and palette",
             f"{path.name} runs at luma {style.luma:.2f}, contrast {style.contrast:.2f}, "
-            f"{reading.hue_spread:.0f}° of hue spread, "
+            f"saturation {reading.saturation:.2f}, {reading.hue_spread:.0f}° of hue spread, "
             f"{reading.clipped_black:.0%} of the frame at true black",
             "match the grade to this rather than to a preset name",
             [Discipline.COLOR_THEORY, Discipline.CINEMATOGRAPHY],
             luma=style.luma,
             contrast=style.contrast,
+            saturation=reading.saturation,
             hue_spread=reading.hue_spread,
             clipped_black=reading.clipped_black,
         ),
@@ -643,6 +644,8 @@ def conclude(store) -> list[Learning]:
     opens = gather("first_cut")
     lumas = gather("luma")
     motions = gather("motion")
+    saturations = gather("saturation")
+    spreads = gather("hue_spread")
 
     def standing(n: int) -> Confidence:
         if n >= 8:
@@ -666,6 +669,27 @@ def conclude(store) -> list[Learning]:
         )
 
     out: list[Learning] = []
+
+    if len(saturations) >= 3:
+        median = statistics.median(saturations)
+        spread = statistics.median(spreads) if spreads else 0.0
+        out.append(
+            across(
+                "colour — how saturated these films actually are",
+                f"Across {len(saturations)} reels the median frame measures "
+                f"{median:.2f} saturation over {spread:.0f}° of hue spread. That is "
+                f"muted, not neon: the word people reach for to describe these is "
+                f"'vivid', and the measurement says otherwise. The colour reads as "
+                f"strong because it sits on a dark frame, not because it is intense.",
+                "when a look, a grade or an interface takes its colour from these "
+                "films, take the saturation from this number rather than from the "
+                "impression — a palette built on the impression comes out neon",
+                [Discipline.COLOR_THEORY, Discipline.CINEMATOGRAPHY],
+                len(saturations),
+                saturation=median,
+                hue_spread=spread,
+            )
+        )
 
     if len(holds) >= 3:
         median = statistics.median(holds)

@@ -2227,14 +2227,24 @@ def test_both_palettes_define_every_role():
 
 
 def test_both_palettes_are_readable():
-    """A theme switch must not be able to make text disappear."""
+    """A theme switch must not be able to make text disappear.
+
+    Against every surface text can land on, not just the ground. Checking the
+    ground alone answers a different question than the name of this test
+    implies, and the gap was real: `text_faint` cleared 5.46 against the dark
+    ground and 4.20 against a raised control, so seventy pieces of text in the
+    running app were under the bar while this test was green. The one that
+    matters is the *hardest* surface, because nothing stops the next screen
+    from putting a hint on a card.
+    """
     from auteur import theme
 
     for scheme in ("dark", "light"):
-        ground = theme.rgb_of("ground", scheme)
-        for role in ("text", "text_muted", "text_faint", "ember_text", "moss", "rust"):
-            ratio = theme.contrast(theme.rgb_of(role, scheme), ground)
-            assert ratio >= 4.5, f"{role} on {scheme} ground is only {ratio:.2f}:1"
+        for under in ("ground", "surface", "raised"):
+            behind = theme.rgb_of(under, scheme)
+            for role in ("text", "text_muted", "text_faint", "ember_text", "moss", "rust"):
+                ratio = theme.contrast(theme.rgb_of(role, scheme), behind)
+                assert ratio >= 4.5, f"{role} on {scheme} {under} is only {ratio:.2f}:1"
 
         button = theme.contrast(theme.rgb_of("on_ember", scheme), theme.rgb_of("ember", scheme))
         assert button >= 4.5, f"the main button on {scheme} is only {button:.2f}:1"
@@ -7748,3 +7758,36 @@ def test_a_shot_carries_the_level_measured_from_its_own_footage():
     blank = VideoAnalysis(fps=24.0, duration=1.0, width=8, height=8)
     assert blank.black_point == 0.0
     assert blank.white_point == 1.0
+
+
+def test_a_consensus_reading_carries_every_field_a_reading_has():
+    """`_consensus` rebuilds a Reading field by field, so a field added to the
+    dataclass and forgotten here comes back as its default — and a default of
+    0.0 does not read as a bug, it reads as a measurement. `saturation` was
+    measured on every sampled frame, dropped here, and reported as exactly 0.00
+    for every reel in the corpus."""
+    import dataclasses
+
+    from auteur.vision.connoisseur import Reading, _consensus
+
+    varied = [
+        Reading(
+            **{
+                f.name: (
+                    (0.1 * (i + 1), 0.2 * (i + 1))
+                    if f.name == "focus"
+                    else 0.11 * (i + 1) if f.type in (float, "float") else dataclasses.MISSING
+                )
+                for f in dataclasses.fields(Reading)
+                if f.name in {"focus"} or f.type in (float, "float")
+            }
+        )
+        for i in range(3)
+    ]
+    out = _consensus(varied)
+    for field in dataclasses.fields(Reading):
+        if field.type not in (float, "float") or field.name == "focus":
+            continue
+        if field.name in Reading.FILLED_LATER:
+            continue
+        assert getattr(out, field.name) != 0.0, f"_consensus drops {field.name}"

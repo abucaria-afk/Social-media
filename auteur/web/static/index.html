@@ -58,6 +58,18 @@
 
     <form id="form" novalidate>
 
+      <!-- Footage the phone's own share sheet handed over. Hidden unless
+           there is some, because a permanently visible empty state is how
+           people learn to stop reading a panel. -->
+      <div class="handed" id="handed" hidden>
+        <span class="handed-mark" aria-hidden="true">↧</span>
+        <span class="handed-lines">
+          <span class="handed-title" id="handed-title"></span>
+          <span class="handed-note" id="handed-note"></span>
+        </span>
+        <button type="button" class="handed-drop" id="handed-drop">Clear</button>
+      </div>
+
       <label class="card picker scroll-reveal zoom-hover" for="clips" data-delay="1">
         <span class="step-number">1</span>
         <span class="card-body">

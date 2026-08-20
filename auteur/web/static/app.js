@@ -111,6 +111,40 @@
     });
   })();
 
+  /* Footage shared into the app from Photos, Gallery, or any other app.
+   *
+   * The share target posts the files and redirects here. If the make screen
+   * did not say so, the files would be sitting on the server invisibly and the
+   * screen would still be asking somebody to pick some — which reads as the
+   * share having failed. */
+  (function () {
+    var box = $("handed");
+    if (!box) { return; }
+
+    function clear() {
+      box.hidden = true;
+      fetch("/api/shared/clear", { method: "POST", credentials: "same-origin" })
+        .catch(function () { /* it is claimed when the film is made anyway */ });
+    }
+
+    fetch("/api/shared", { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (said) {
+        if (!said || !said.waiting) { return; }
+        $("handed-title").textContent =
+          said.waiting + (said.waiting === 1 ? " clip" : " clips") + " from your camera roll";
+        $("handed-note").textContent = said.names
+          ? said.names.slice(0, 3).join(", ") + (said.waiting > 3 ? " and more" : "")
+          : "";
+        box.hidden = false;
+        // A caption came with the share often enough to be worth using.
+        if (said.said && !$("prompt").value) { $("prompt").value = said.said; }
+      })
+      .catch(function () { /* nothing waiting, or signed out */ });
+
+    $("handed-drop").addEventListener("click", clear);
+  })();
+
   // -- who is signed in -----------------------------------------------------
 
   fetch("/api/session", { cache: "no-store" })

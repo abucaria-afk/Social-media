@@ -29,19 +29,46 @@
                "Helvetica Neue", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
-  /* A ratio rather than a list of sizes somebody picked: 1.2 on a 15px base.
-     15, not the 17 this used to sit at. Instagram sets its captions and its
-     names at 14 and its section headers at 16, and the reason is not that
-     small type is fashionable — it is that a feed is a list of *many* things
-     and 17px body copy fits four of them on a phone. At 17 this app read like
-     a document about video editing. */
-  --step--2: 0.6667rem;
-  --step--1: 0.8rem;
-  --step-0: 1rem;
-  --step-1: 1.1333rem;
-  --step-2: 1.4rem;
-  --step-3: 1.7333rem;
-  --step-4: 2.1333rem;
+  /* Type: the ramp the phones ship, not a ratio somebody picked.
+   *
+   * What was here was 1.2 on a 15px base, invented. These are the sizes the
+   * two mobile operating systems actually render their own text at, which
+   * happen to agree closely — 17 and 16 for body, and near-identical rungs
+   * above and below. The names are the ones the platforms use, so a rule that
+   * says "footnote" is asking for a thing that exists rather than for a
+   * number somebody has to look up.
+   *
+   * 17 for body, larger than the 15 this had. The density argument that
+   * produced the 15 was not wrong, it was applied at the wrong level: a
+   * message list is dense because its *secondary* line is set in a smaller
+   * rung, not because everything shrinks. Instagram, Messages and WhatsApp
+   * all set the name at body size and the preview two rungs down. So does
+   * this now.
+   *
+   * In rem so the browser's own text-size control scales all of it together,
+   * and see the Dynamic Type block below for the part that follows the size
+   * set in the operating system rather than in the browser. */
+  --text-large-title: 2.125rem; /* 34 */
+  --text-title-1: 1.75rem;      /* 28 */
+  --text-title-2: 1.375rem;     /* 22 */
+  --text-title-3: 1.25rem;      /* 20 */
+  --text-headline: 1.0625rem;   /* 17, semibold */
+  --text-body: 1.0625rem;       /* 17 */
+  --text-callout: 1rem;         /* 16 */
+  --text-subhead: 0.9375rem;    /* 15 */
+  --text-footnote: 0.8125rem;   /* 13 */
+  --text-caption: 0.75rem;      /* 12 */
+  --text-caption-2: 0.6875rem;  /* 11 */
+
+  /* The old names, kept pointing at the nearest rung so nothing has to be
+     renamed in one pass. New rules should use the names above. */
+  --step--2: var(--text-caption-2);
+  --step--1: var(--text-footnote);
+  --step-0: var(--text-body);
+  --step-1: var(--text-title-3);
+  --step-2: var(--text-title-2);
+  --step-3: var(--text-title-1);
+  --step-4: var(--text-large-title);
 
   /* Corners, tightened for the same reason. An 18px radius on a 44px control
      is most of the way to a pill and reads as soft where these apps read as
@@ -69,7 +96,7 @@ html, body {
   padding: 0;
   background: var(--ground);
   color: var(--text);
-  font: 15px/1.45 var(--font-body);
+  font: var(--text-body)/1.4 var(--font-body);
   -webkit-text-size-adjust: 100%;
   overscroll-behavior-y: none;
 }
@@ -772,3 +799,230 @@ body.has-tabbar .page {
 .onward-name { display: block; font: 600 var(--step-0)/1.3 var(--font-display); }
 .onward-note { display: block; color: var(--text-faint); font-size: var(--step--1); }
 .onward-state { color: var(--text-faint); font: var(--step--1) var(--font-mono); }
+
+/* ===========================================================================
+   Platform behaviour
+   ---------------------------------------------------------------------------
+   This app is opened from a phone's home screen far more often than from a
+   desktop browser, and the difference between "a website in standalone mode"
+   and "an app" is a short list of specific things. They are collected here
+   rather than scattered, because every one of them is a rule about the
+   *platform* and not about this product.
+
+   Nothing here is invented. Every pattern below is one that Instagram,
+   TikTok and YouTube all ship, on both phones — a collapsing title, a
+   translucent bar, grouped rows, a bottom tab bar. Those apps are the
+   grammar people already read, and the cost of a novel pattern is paid by
+   every person who opens this and has to work it out.
+   ========================================================================= */
+
+/* -- Dynamic Type ---------------------------------------------------------
+   The sizes above are in rem, which follows Safari's own text-size control and
+   ignores the one in Settings > Display & Brightness > Text Size. That setting
+   is the one people who need larger text actually use, and the only web hook
+   for it is the `-apple-system-*` font shorthands: they carry the *user's*
+   current Dynamic Type size, not the default.
+
+   So body copy asks for it, and everything else stays on the rem ladder. Using
+   the shorthand everywhere would mean giving up the family and the weights,
+   since `font:` sets all of them — which is why this is scoped to the text
+   where the size matters most and the styling matters least. */
+@supports (font: -apple-system-body) {
+  .card-hint,
+  .fineprint,
+  .thread-last,
+  .bubble,
+  .reel-prompt,
+  .list-note {
+    font: -apple-system-body;
+    /* Put the family back; the shorthand is only wanted for its size. */
+    font-family: var(--font-body);
+  }
+}
+
+/* -- Materials ------------------------------------------------------------
+   A bar is not a colour, it is a material: the content behind it shows
+   through, blurred and saturated. Both platforms do this and all three
+   reference apps rely on it — it is how a bar stays legible over a feed that
+   is a moving photograph. Two weights, because a sheet and a bar are not the
+   same depth and using one value for both makes the sheet read as a bar. */
+.material-bar,
+.tabbar,
+.topbar,
+.composer {
+  background: color-mix(in srgb, var(--ground) 82%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
+.material-thick,
+.sheet-body {
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(30px);
+  backdrop-filter: saturate(180%) blur(30px);
+}
+
+/* Where backdrop-filter is unavailable the material has to become opaque, or
+   the bar is a tinted window onto whatever is scrolling under it. */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .material-bar, .tabbar, .topbar, .composer { background: var(--ground); }
+  .material-thick, .sheet-body { background: var(--surface); }
+}
+
+/* -- Collapsing titles ----------------------------------------------------
+   The screen's name is set large in the content, scrolls away with it, and a
+   compact copy in the bar fades in as it goes. This is one pattern with two
+   names — a large title on one platform, a large top app bar on the other —
+   and Instagram, YouTube and TikTok all ship it on both. Driven by a scroll
+   listener in chrome.js rather than `animation-timeline: scroll()`, which is
+   not available widely enough to rely on. */
+.large-title {
+  margin: 4px 0 10px;
+  font: 700 var(--text-large-title)/1.1 var(--font-display);
+  letter-spacing: -0.022em;
+}
+
+.topbar h1 {
+  margin: 0;
+  font: 600 var(--text-headline)/1.2 var(--font-display);
+  letter-spacing: -0.01em;
+  /* Hidden until the large title has scrolled under the bar. */
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+}
+
+.topbar.is-collapsed h1 { opacity: 1; }
+
+/* The hairline under a bar appears only once there is content beneath it, the
+   way a UINavigationBar's does. */
+.topbar { border-bottom: 1px solid transparent; }
+.topbar.is-collapsed { border-bottom-color: var(--line); }
+
+/* -- Grouped rows ---------------------------------------------------------
+   Rows in a rounded group, inset from the edge, with separators that start
+   where the label starts rather than at the screen edge, and a caption under
+   the group explaining it. Every settings screen in every one of the
+   reference apps is built out of this, on both platforms. */
+.inset-group {
+  margin: 0 0 22px;
+  padding: 0;
+  list-style: none;
+  background: var(--surface);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.inset-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 14px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* Inset from the text, not from the screen — the separator on the platform
+   starts where the label starts. */
+.inset-row + .inset-row { box-shadow: inset 0 1px 0 var(--line); }
+.inset-row:active { background: var(--raised); }
+
+.inset-label { flex: 1; min-width: 0; font-size: var(--text-body); }
+.inset-value { color: var(--text-faint); font-size: var(--text-body); }
+
+/* The chevron. Not an emoji and not an icon font: one character that every
+   Apple platform draws the same way. */
+.inset-row .chevron {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: var(--text-subhead);
+}
+
+.group-caption {
+  margin: -14px 4px 22px;
+  padding: 0 14px;
+  color: var(--text-faint);
+  font-size: var(--text-footnote);
+  line-height: 1.35;
+}
+
+/* -- Increased contrast and reduced motion --------------------------------
+   Both are operating-system accessibility settings — on either phone — and
+   both are readable from CSS. Honouring them is not decoration: the whole app
+   is a surface somebody looks at for a long time. */
+@media (prefers-contrast: more) {
+  :root { --line: var(--text-faint); }
+  .card, .inset-group { border: 1px solid var(--line); }
+  .card-hint, .group-caption, .fineprint { color: var(--text-muted); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* -- Standalone ------------------------------------------------------------
+   Launched from the home screen there is no browser chrome and no way back, so
+   the app has to own the whole window: no rubber-band scroll past the top, no
+   text selection on things that are not text, no callout menu on a long press
+   over a control. In a tab none of this applies and the browser's own
+   behaviour is the right one. */
+@media (display-mode: standalone) {
+  html, body {
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  /* Except anything somebody might actually want to copy. */
+  p, li, textarea, input, .bubble, .heard, .facts, .said {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
+/* Footage the phone handed over through its share sheet. */
+.handed {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--ember);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--ember) 12%, var(--surface));
+}
+
+.handed-mark { color: var(--ember-text); font-size: var(--text-title-3); line-height: 1; }
+.handed-lines { flex: 1; min-width: 0; }
+.handed-title { display: block; font: 600 var(--text-callout)/1.3 var(--font-display); }
+
+.handed-note {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--text-footnote);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.handed-drop {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  font: 600 var(--text-footnote)/1 var(--font-display);
+  cursor: pointer;
+}

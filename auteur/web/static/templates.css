@@ -66,8 +66,12 @@
 
 .template-note {
   grid-column: 1 / -1;
-  color: var(--text-faint);
-  font-size: 0.8rem;
+  /* Muted, not faint. This row sits on a *selected* card, whose background is
+     lifted further than a plain one, and text_faint is calibrated to clear the
+     bar on the ground, a surface and a raised control — not on top of a
+     highlighted card. The nearest rung that clears it there is this one. */
+  color: var(--text-muted);
+  font-size: var(--text-footnote);
   line-height: 1.4;
 }
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import enum
 import json
+import os
 import logging
 import math
 import re
@@ -321,7 +322,37 @@ class KnowledgeStore:
         more than it sounds, because "read the folder again" is the normal way
         to use this.
         """
-        if any(known.learning_id == learning.learning_id for known in self._learnings):
+        for index, known in enumerate(self._learnings):
+            if known.learning_id != learning.learning_id:
+                continue
+            # Same claim, better measurement. A learning id is derived from the
+            # source and the claim, deliberately, so re-reading a folder is a
+            # no-op — but that also meant a *new measurement of the same claim*
+            # could never land. Saturation was added to what a film records,
+            # every reel was re-read, and the store kept nothing: the claim
+            # "exposure and palette" already existed for each file, so the
+            # richer version was discarded as a duplicate and the Scholar went
+            # on being unable to state the number the app's whole palette was
+            # built from.
+            #
+            # Comparing the measurements themselves, not just which keys are
+            # present. The first version of this compared key sets, and that
+            # was not enough either: once `saturation` had been recorded once —
+            # wrongly, as 0.00, because the consensus reading was dropping it —
+            # the key existed, so the corrected 0.23 was rejected as a
+            # duplicate of the broken 0.00. A store that can learn a number but
+            # not correct one is worse than a store that cannot learn.
+            #
+            # Still idempotent: measurements are rounded on the way in, so
+            # re-reading unchanged material produces identical dictionaries and
+            # nothing is written.
+            was = known.measurements or {}
+            now = learning.measurements or {}
+            if now != was:
+                self._learnings[index] = learning
+                self._rewrite()
+                self._corroborate(learning)
+                return True
             return False
         self._learnings.append(learning)
         self._watched_videos.add(learning.source_video_id)
@@ -330,6 +361,19 @@ class KnowledgeStore:
             f.write(json.dumps(learning.to_json()) + "\n")
         self._corroborate(learning)
         return True
+
+    def _rewrite(self) -> None:
+        """Write the whole store out again, for the rare case of a replacement.
+
+        Everything else appends, which is why this is separate and why it is
+        not used on the common path: a store of thousands of learnings should
+        not be rewritten because one arrived.
+        """
+        scratch = self._path.with_suffix(self._path.suffix + ".new")
+        with scratch.open("w", encoding="utf-8") as f:
+            for learning in self._learnings:
+                f.write(json.dumps(learning.to_json()) + "\n")
+        os.replace(scratch, self._path)
 
     #: How many *different* channels have to say the same thing before it stops
     #: being one person's opinion. Two is the smallest number that can rule out
