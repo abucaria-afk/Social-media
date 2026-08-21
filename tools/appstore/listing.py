@@ -24,6 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from auteur.web.auth import ADULT_AGE, MINIMUM_AGE  # noqa: E402
 from auteur.identity import (  # noqa: E402
     DESCRIPTION_LIMIT,
     IDENTITY,
@@ -85,6 +86,9 @@ FOR EVERYONE
 
 Text size, reduced motion and increased contrast are settings in the app, and
 the system's own accessibility settings are always honoured.
+
+Auteur is for people 12 and over. An account for somebody under 18 starts with
+sensitive films hidden, and that can be locked with a code.
 """
 
 REVIEW_NOTES = """\
@@ -128,6 +132,17 @@ Present and reachable from the app even though the content is one household's:
   when an account is made, at {terms}.
 • Published contact information: {email}.
 
+AGE RATING — 12+, AND THE CONTROLS BEHIND IT
+
+Sign-up asks for a year of birth and refuses anybody under {minimum}. An
+account for somebody under {adult} starts with sensitive and unreviewed
+reported films hidden, and that restriction can be locked with a four-digit
+code so the person it applies to cannot lift it (You → Sensitive films).
+Turning the restriction on never needs the code; only turning it off does.
+
+The year is kept on the person's own instance and is never transmitted
+anywhere — there is no server of ours for it to reach.
+
 GUIDELINE 5.1.1(v) — ACCOUNT DELETION
 
 You → Delete my account. It asks for the password and for the word "delete" to
@@ -163,21 +178,40 @@ at is one the person runs themselves.
 """
 
 AGE_RATING = """\
-Answer the questionnaire as follows. The result is **4+** on the content
-questions, but see the last row.
+**The rating is 12+.** Answer the questionnaire as follows.
 
 | Question | Answer |
 | --- | --- |
 | Cartoon or fantasy violence, realistic violence, sexual content, nudity, profanity, alcohol/tobacco/drugs, horror, gambling, contests | **None** |
 | Unrestricted web access | **No** — the app opens no arbitrary web content |
 | **Does the app include user-generated content?** | **Yes** |
+| Does the app have controls for that content? | **Yes** — see below |
 
-The last one is the one that matters and the one people get wrong. The feed and
-the messages are user-generated content, even though they exist only on an
+The third row is the one that matters and the one people get wrong. The feed
+and the messages are user-generated content even though they exist only on an
 instance the person runs. Answering "Yes" moves the rating to **12+** and makes
 the guideline 1.2 controls a requirement — which this app has. Answering "No"
 to avoid the higher rating is the single most common cause of a rejection for
 apps of this shape.
+
+The app holds itself to that rating rather than only declaring it:
+
+* **Sign-up asks for a year of birth** and refuses anybody under
+  {minimum}. The field says nothing about which answer gets you in.
+* **An account for somebody under {adult} starts restricted**: films their
+  author or the operator has marked sensitive are hidden, and so is anything
+  reported that nobody has looked at yet.
+* **The restriction can be locked with a four-digit code**, so the person it
+  applies to cannot simply turn it off. It is set in the app (You → Sensitive
+  films) or by whoever runs the instance
+  (`auteur account password --user <name> --lock 1234`).
+* **Turning the restriction *on* never needs the code.** Anybody may choose to
+  see less; only lifting it is gated.
+
+The year of birth is stored on the instance the person runs and never reaches
+the developer, so the App Privacy answer below stays "Data Not Collected" —
+that question is about what *we* receive, not about what a file on somebody's
+own computer holds.
 """
 
 EXPORT = """\
@@ -256,7 +290,7 @@ App Store Connect counts it.
 
 ## Age rating
 
-{AGE_RATING}
+{AGE_RATING.format(minimum=MINIMUM_AGE, adult=ADULT_AGE)}
 
 ## App Privacy
 
@@ -269,7 +303,12 @@ App Store Connect counts it.
 ## Notes for App Review
 
 ```
-{REVIEW_NOTES.format(terms=IDENTITY.terms_url, email=IDENTITY.support_email)}```
+{REVIEW_NOTES.format(
+        terms=IDENTITY.terms_url,
+        email=IDENTITY.support_email,
+        minimum=MINIMUM_AGE,
+        adult=ADULT_AGE,
+    )}```
 
 ## Screenshots
 

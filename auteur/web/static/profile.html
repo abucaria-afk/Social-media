@@ -141,6 +141,20 @@
       Two-step needs an authenticator app.
     </p>
 
+    <h3 class="settings-label">What you see</h3>
+    <div class="inset-group">
+      <button type="button" class="inset-row" id="restriction-row">
+        <span class="inset-label">Sensitive films</span>
+        <span class="inset-value" id="restriction-state">…</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </button>
+    </div>
+    <p class="group-caption" id="restriction-note">
+      Hides films their author or the person running this copy has marked
+      sensitive, and anything reported that nobody has looked at yet. Your own
+      films are never hidden from you.
+    </p>
+
     <h3 class="settings-label">Appearance</h3>
     <div class="settings">
       <div class="choices appearance" role="radiogroup" aria-label="Appearance">
@@ -226,6 +240,56 @@
     <button type="button" class="go" id="edit-save">Save</button>
     <button type="button" class="ghost" id="picture-remove" hidden>Remove my picture</button>
     <button type="button" class="ghost" data-close="edit">Cancel</button>
+  </div>
+</div>
+
+<!-- Hiding sensitive films, and the code that stops the person it applies to
+     from simply turning it off again. -->
+<div class="sheet" id="restriction-sheet" hidden>
+  <div class="sheet-scrim" data-close="restriction"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Sensitive films">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Sensitive films</h2>
+    <p class="sheet-note" id="restriction-why"></p>
+
+    <div id="restriction-on" hidden>
+      <p class="sheet-note">
+        Turning this on hides films marked sensitive, and anything reported
+        that has not been looked at yet.
+      </p>
+      <label class="check">
+        <input type="checkbox" id="restriction-want-lock">
+        <span>Need a code to turn it off again</span>
+      </label>
+      <div id="restriction-lock-box" hidden>
+        <label class="field-label" for="restriction-new-lock">A four-digit code</label>
+        <input type="text" id="restriction-new-lock" inputmode="numeric" maxlength="4"
+               autocomplete="off" autocorrect="off" spellcheck="false" placeholder="0000">
+        <p class="card-hint">
+          Set this yourself if it is your account, or have somebody set it for
+          you if it is not. There is no way to recover it from inside the app —
+          whoever runs this copy can clear it with
+          <code>auteur account password --lock ''</code>.
+        </p>
+      </div>
+      <p class="error" id="restriction-error" role="alert" hidden></p>
+      <button type="button" class="go" id="restriction-go">Hide sensitive films</button>
+    </div>
+
+    <div id="restriction-off" hidden>
+      <p class="sheet-note" id="restriction-off-note">
+        Sensitive films are hidden from this account.
+      </p>
+      <div id="restriction-code-box" hidden>
+        <label class="field-label" for="restriction-code">The code</label>
+        <input type="password" id="restriction-code" inputmode="numeric" maxlength="4"
+               autocomplete="off" autocorrect="off" spellcheck="false">
+      </div>
+      <p class="error" id="restriction-off-error" role="alert" hidden></p>
+      <button type="button" class="ghost" id="restriction-lift">Show everything</button>
+    </div>
+
+    <button type="button" class="ghost" data-close="restriction">Close</button>
   </div>
 </div>
 

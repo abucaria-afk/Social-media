@@ -49,6 +49,39 @@ RESET_LIFETIME = 30 * 60
 MAX_ATTEMPTS = 5
 LOCKOUT_SECONDS = 900
 
+#: The youngest this app is for, and the age it stops treating somebody as a
+#: minor. Twelve because that is the App Store rating the app is submitted
+#: under — an app rated 12+ that lets an eight-year-old make an account is one
+#: whose rating is a claim rather than a fact, and the questionnaire answer and
+#: this constant have to agree. `tools/appstore/preflight.py` checks that they
+#: do.
+MINIMUM_AGE = 12
+ADULT_AGE = 18
+
+#: A restriction is lifted with a code, and the code is four digits because it
+#: is typed by whoever set it in front of the person it restricts. It is not a
+#: password: it stops the person it applies to from turning it off, and it is
+#: not standing against somebody with the account file.
+LOCK_DIGITS = 4
+
+
+def age_from(born: int, *, now: float | None = None) -> int:
+    """How old somebody is, from a year of birth. -1 if they have not said.
+
+    A year rather than a date, and the reason is worth stating: a year is the
+    least that answers both questions this app has — "are they old enough" and
+    "are they still a minor" — and it stays right as time passes, which a
+    stored yes/no would not. A full date of birth would be more data for no
+    more answers.
+
+    It reads one year young for anybody whose birthday has not come round yet,
+    which is the direction to be wrong in.
+    """
+    if not born:
+        return -1
+    year = time.gmtime(now if now is not None else time.time()).tm_year
+    return max(0, year - int(born))
+
 
 def hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
     """Return (salt_hex, hash_hex) for a password."""
@@ -104,6 +137,22 @@ class Account:
     #: rollable. Empty until somebody asks for their calendar.
     calendar_token: str = ""
 
+    #: Year of birth, or 0 for an account made before this was asked. See
+    #: `age_from` for why it is a year and not a date. It never leaves the
+    #: machine holding the accounts — there is nowhere for it to go — so the
+    #: App Privacy answer stays "data not collected", which is about what the
+    #: *developer* receives and not about what a file on your own computer
+    #: holds.
+    born: int = 0
+
+    #: "none" or "limited". Limited hides films their author or the operator
+    #: has marked sensitive, and films with a report nobody has looked at yet.
+    restriction: str = "none"
+    #: sha256 of the code that lifts it. Empty means it can be lifted without
+    #: one, which is right for an adult who turned it on for themselves and
+    #: wrong for a restriction somebody else set.
+    restriction_lock: str = ""
+
     def check(self, password: str) -> bool:
         _, candidate = hash_password(password, bytes.fromhex(self.salt))
         return hmac.compare_digest(candidate, self.password_hash)
@@ -111,6 +160,27 @@ class Account:
     @property
     def locked(self) -> bool:
         return time.time() < self.locked_until
+
+    @property
+    def age(self) -> int:
+        """Years old, or -1 if this account never said."""
+        return age_from(self.born)
+
+    @property
+    def minor(self) -> bool:
+        """Under eighteen, as far as this account has said.
+
+        An account that never said is *not* treated as a minor. That is the
+        deliberate direction: accounts made before this was asked belong to
+        whoever was already using the instance, and silently restricting them
+        would be a change nobody asked for landing on people's own footage.
+        """
+        age = self.age
+        return 0 <= age < ADULT_AGE
+
+    @property
+    def restricted(self) -> bool:
+        return self.restriction == "limited"
 
 
 class Accounts:
@@ -219,11 +289,24 @@ class Accounts:
             return account
         return next((a for a in self.accounts.values() if a.email.lower() == key), None)
 
-    def add(self, username: str, email: str, password: str) -> Account:
+    def add(self, username: str, email: str, password: str, born: int = 0) -> Account:
+        """Make an account. `born` is a year, or 0 for "did not say".
+
+        An account for somebody under eighteen starts restricted. Not as a
+        judgement about them — as the direction to be wrong in, since the
+        restriction can be lifted in two taps by whoever should be lifting it
+        and cannot be applied retroactively to something already seen.
+        """
         salt, digest = hash_password(password)
         account = Account(
-            username=username.strip(), email=email.strip().lower(), salt=salt, password_hash=digest
+            username=username.strip(),
+            email=email.strip().lower(),
+            salt=salt,
+            password_hash=digest,
+            born=int(born or 0),
         )
+        if account.minor:
+            account.restriction = "limited"
         with self.lock:
             self.accounts[account.username.lower()] = account
             self._save()
@@ -270,6 +353,62 @@ class Accounts:
             # response to worrying that somebody else has it.
             self.sessions = {k: v for k, v in self.sessions.items() if v[0] != account.username}
             self._save()
+
+    # -- what somebody is allowed to see ---------------------------------
+
+    def set_restriction(self, username: str, on: bool) -> bool:
+        """Turn the content restriction on or off. True if there was an account.
+
+        Not guarded here. The guard is the *code*, and it belongs to whoever
+        is asking — the server checks it before calling this, and the CLI is
+        the operator, who does not need to ask themselves for permission.
+        """
+        with self.lock:
+            account = self.accounts.get((username or "").strip().lower())
+            if account is None:
+                return False
+            account.restriction = "limited" if on else "none"
+            self._save()
+            return True
+
+    def set_restriction_lock(self, username: str, code: str) -> str:
+        """Set or clear the code that lifts a restriction. "" if it worked.
+
+        Stored hashed, like everything else in this file that lets somebody
+        do something. Four digits is not a password and is not pretending to
+        be one: it stands between the person the restriction applies to and
+        the switch that turns it off, which is exactly as much as a code typed
+        in front of them can ever do.
+        """
+        code = "".join(ch for ch in (code or "") if ch.isdigit())
+        with self.lock:
+            account = self.accounts.get((username or "").strip().lower())
+            if account is None:
+                return "no account by that name"
+            if not code:
+                account.restriction_lock = ""
+                self._save()
+                return ""
+            if len(code) != LOCK_DIGITS:
+                return f"{LOCK_DIGITS} digits, please"
+            account.restriction_lock = _token_hash(code)
+            self._save()
+            return ""
+
+    def check_restriction_lock(self, username: str, code: str) -> bool:
+        """Does this code lift the restriction? True when there is no code set.
+
+        Compared in constant time. Four digits is a small enough space that a
+        timing leak is not the way in, but a hand-rolled `==` on a secret is
+        the habit this file does not want to start.
+        """
+        account = self.get(username)
+        if account is None:
+            return False
+        if not account.restriction_lock:
+            return True
+        code = "".join(ch for ch in (code or "") if ch.isdigit())
+        return bool(code) and hmac.compare_digest(account.restriction_lock, _token_hash(code))
 
     def remove(self, username: str) -> bool:
         """Delete an account and every session it holds. True if there was one.

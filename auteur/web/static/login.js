@@ -226,6 +226,7 @@
     var who = $("new-username").value.trim();
     var mail = $("new-email").value.trim();
     var word = $("signup-password").value;
+    var born = $("signup-born").value.trim();
     say($("signup-error"), "");
     $("signup-go").disabled = true;
 
@@ -233,7 +234,10 @@
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: who, email: mail, password: word })
+      /* The year goes as it was typed. The server decides whether it is old
+         enough, because a check that only runs in the page is a check that
+         does not run. */
+      body: JSON.stringify({ username: who, email: mail, password: word, born: born })
     })
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (got) {

@@ -291,6 +291,27 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     account.add_argument("-u", "--user", default=None, help="username")
     account.add_argument("-e", "--email", default=None, help="email, for password resets")
+    account.add_argument(
+        "--born",
+        default=None,
+        metavar="YEAR",
+        help=(
+            "the year they were born. Under 18 starts with sensitive films "
+            "hidden; under 12 is refused, which is the rating this app ships at"
+        ),
+    )
+    account.add_argument(
+        "--restrict",
+        default=None,
+        choices=["on", "off"],
+        help="hide sensitive and reported films from this account",
+    )
+    account.add_argument(
+        "--lock",
+        default=None,
+        metavar="CODE",
+        help="four digits, needed to lift the restriction. Use --lock '' to remove it",
+    )
 
     moderate = sub.add_parser(
         "moderate",
@@ -300,10 +321,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "action",
         nargs="?",
         default="show",
-        choices=["show", "remove", "keep", "close"],
+        choices=["show", "remove", "hide", "keep", "close"],
         help=(
             "show what is waiting (default), remove the film a report is about, "
-            "keep it, or close somebody's account"
+            "hide it from restricted accounts, keep it, or close somebody's account"
         ),
     )
     moderate.add_argument("target", nargs="?", help="a report id, or a username for `close`")
@@ -850,7 +871,7 @@ def _run_account(args: argparse.Namespace, say: Reporter) -> int:
     """Manage who can sign in, without anyone having to edit a JSON file."""
     import getpass
 
-    from .web.auth import Accounts, password_problem
+    from .web.auth import MINIMUM_AGE, Accounts, age_from, password_problem
 
     root = Path(args.out) if args.out else Path.cwd() / "auteur-web"
     accounts = Accounts(Accounts.default_path(root))
@@ -862,7 +883,14 @@ def _run_account(args: argparse.Namespace, say: Reporter) -> int:
         if accounts.empty:
             print("     nobody yet — `auteur serve` creates the first one")
         for account in accounts.accounts.values():
-            state = "  (locked)" if account.locked else ""
+            marks = []
+            if account.locked:
+                marks.append("locked out")
+            if account.age >= 0:
+                marks.append(f"{account.age}")
+            if account.restricted:
+                marks.append("restricted" + (" 🔒" if account.restriction_lock else ""))
+            state = f"  ({', '.join(marks)})" if marks else ""
             print(f"     {account.username:<24} {account.email}{state}")
         print()
         return 0
@@ -872,10 +900,50 @@ def _run_account(args: argparse.Namespace, say: Reporter) -> int:
         say.failure("a username is needed")
         return 2
 
+    # Setting the restriction is not a password change and must not ask for
+    # one — a parent turning it on for a child does not have the child's
+    # password and should not need it.
+    if args.action == "password" and (args.restrict is not None or args.lock is not None):
+        account = accounts.get(username)
+        if account is None:
+            say.failure(f"no account called {username!r}")
+            return 1
+        if args.restrict is not None:
+            accounts.set_restriction(account.username, args.restrict == "on")
+        if args.lock is not None:
+            problem = accounts.set_restriction_lock(account.username, args.lock)
+            if problem:
+                say.failure(problem)
+                return 1
+        again = accounts.get(username)
+        print(
+            f"\n  {again.username}: sensitive films are "
+            f"{'hidden' if again.restricted else 'shown'}"
+            f"{', and lifting it needs the code' if again.restriction_lock else ''}\n"
+        )
+        return 0
+
+    born = 0
     if args.action == "add":
         if accounts.get(username) is not None:
             say.failure(f"{username} already exists", "use `auteur account password` instead")
             return 1
+        # The age, before the password prompt. Asking somebody to type a
+        # password twice and *then* telling them the account cannot exist is
+        # the wrong order to find that out in.
+        if args.born:
+            try:
+                born = int(args.born)
+            except ValueError:
+                say.failure(f"{args.born!r} is not a year")
+                return 2
+            years = age_from(born)
+            if years < MINIMUM_AGE:
+                say.failure(
+                    f"that is {years}, and this app ships at {MINIMUM_AGE}+",
+                    "the App Store rating and this check have to agree",
+                )
+                return 1
         email = args.email or input("email (for password resets): ").strip()
     else:
         existing = accounts.get(username)
@@ -895,8 +963,15 @@ def _run_account(args: argparse.Namespace, say: Reporter) -> int:
         return 1
 
     if args.action == "add":
-        accounts.add(username, email, password)
-        print(f"\n  added {username} <{email}>\n")
+        made = accounts.add(username, email, password, born=born)
+        note = ""
+        if made.restricted:
+            note = (
+                "\n  they are under 18, so sensitive and reported films start hidden"
+                "\n  set a code with:  auteur account password --user "
+                f"{username} --lock 1234"
+            )
+        print(f"\n  added {username} <{email}>{note}\n")
     else:
         accounts.set_password(accounts.get(username), password)
         print(
@@ -964,6 +1039,7 @@ def _run_moderate(args: argparse.Namespace, say: Reporter) -> int:
                 )
         print()
         print("     auteur moderate remove <id>     take the film down")
+        print("     auteur moderate hide <id>       leave it up, out of restricted accounts")
         print("     auteur moderate keep <id>       leave it, and say so")
         print("     auteur moderate close <person>  close their account entirely")
         print()
@@ -995,6 +1071,21 @@ def _run_moderate(args: argparse.Namespace, say: Reporter) -> int:
     if report is None:
         say.failure("no report with that id", "auteur moderate show")
         return 1
+
+    if args.action == "hide":
+        # The middle answer, and the one most reports actually deserve: not
+        # "this should not exist" but "this is not for everybody". Anybody
+        # with the content restriction on stops seeing it; everyone else does
+        # not notice.
+        if report.kind != "film":
+            say.failure("only a film can be hidden", f"this report is about a {report.kind}")
+            return 1
+        if films.mark(report.about, True) is None:
+            print("\n  that film had already gone\n")
+        else:
+            print("\n  hidden from restricted accounts, and left up for everybody else\n")
+        reports.decide(report.id, "kept", args.note or "hidden from restricted accounts")
+        return 0
 
     if args.action == "remove":
         if report.kind == "film":

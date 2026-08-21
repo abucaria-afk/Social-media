@@ -36,7 +36,7 @@ from urllib.parse import parse_qs, unquote
 
 from ..config import FORMATS, QUALITIES, Settings
 from ..ui import Reporter, describe_count, describe_duration, describe_shape
-from . import profiles, safety
+from . import auth, profiles, safety
 from .social import PAGE
 
 log = logging.getLogger("auteur.web")
@@ -1033,6 +1033,7 @@ class Handler(BaseHTTPRequestHandler):
         # here rather than in each scope, because a filter that has to be
         # remembered three times is one that will be remembered twice.
         apart = self.profiles.apart(who)
+        held = self._held_back(who)
 
         scope = (query.get("scope") or [""])[0]
         if query.get("mine"):
@@ -1050,7 +1051,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             films = self.films.feed(who, limit=999, before=before)
 
-        films = [f for f in films if f.owner not in apart][:PAGE]
+        films = [f for f in films if f.owner not in apart and f.id not in held][:PAGE]
         rows = [f.public(who) for f in films]
         self._json(
             {
@@ -1181,7 +1182,103 @@ class Handler(BaseHTTPRequestHandler):
         self.profiles.forget_picture(who)
         self._json({"profile": self._mine(who)})
 
+    def _held_back(self, who: str) -> set[str]:
+        """Film ids this account's content restriction keeps off the screen.
+
+        Two kinds, and the second is the one worth stating. A film marked
+        sensitive is held back because somebody said so. A film with a report
+        nobody has looked at yet is held back *while* the operator decides —
+        which is the honest thing to do with "this might be bad, we do not
+        know yet" on an account somebody has restricted, and it costs nothing
+        if the report turns out to be nonsense.
+
+        Never applied to your own films. A restriction is about what you are
+        shown, not about hiding your own work from you.
+        """
+        self.accounts.refresh()
+        account = self.accounts.get(who)
+        if account is None or not account.restricted:
+            return set()
+        out = {f.id for f in self.films.feed(who, limit=9999) if f.sensitive and f.owner != who}
+        out |= {
+            r.about for r in self.reports.open_ones() if r.kind == "film" and r.about_who != who
+        }
+        return out
+
     # ---------------------------------------------------------------- safety
+
+    def _restriction_state(self) -> None:
+        """What this account is allowed to see, and whether it can change it."""
+        who = self.current_user() or ""
+        self.accounts.refresh()
+        account = self.accounts.get(who)
+        if account is None:
+            self._json({"error": "Please sign in."}, 401)
+            return
+        self._json(
+            {
+                "on": account.restricted,
+                # Whether lifting it needs a code — not the code, and not a
+                # hash of it. A page that is told "there is no lock" can hide
+                # the field; a page told anything more could check the code
+                # itself, which is not where a check belongs.
+                "locked": bool(account.restriction_lock),
+                "age": account.age,
+                "minor": account.minor,
+                "digits": auth.LOCK_DIGITS,
+            }
+        )
+
+    def _set_restriction(self) -> None:
+        """Turn the restriction on or off, and set or clear its code.
+
+        Turning it *on* never needs the code — anybody may restrict
+        themselves, and asking for permission to see less would be a strange
+        thing to require. Turning it off needs it, which is the entire point:
+        the switch has to be out of reach of the person it applies to.
+        """
+        who = self.current_user() or ""
+        payload = self._json_body()
+        self.accounts.refresh()
+        account = self.accounts.get(who)
+        if account is None:
+            self._json({"error": "Please sign in."}, 401)
+            return
+
+        wanted = bool(payload.get("on"))
+        if account.restricted and not wanted:
+            if not self.accounts.check_restriction_lock(who, str(payload.get("code") or "")):
+                self._json({"error": "That code does not lift it."}, 403)
+                return
+
+        self.accounts.set_restriction(who, wanted)
+
+        # A code can be set while turning it on, and is cleared when it comes
+        # off — a lock left behind on a restriction that is no longer there is
+        # a surprise waiting for whoever turns it back on.
+        if "lock" in payload:
+            if not wanted:
+                self.accounts.set_restriction_lock(who, "")
+            else:
+                problem = self.accounts.set_restriction_lock(who, str(payload.get("lock") or ""))
+                if problem:
+                    self._json({"error": problem[0].upper() + problem[1:] + "."}, 400)
+                    return
+        elif not wanted:
+            self.accounts.set_restriction_lock(who, "")
+
+        log.info("%s set their content restriction to %s", _for_log(who), wanted)
+        self._restriction_state()
+
+    def _mark_film(self, film_id: str) -> None:
+        """Mark your own film sensitive, or unmark it."""
+        who = self.current_user() or ""
+        wanted = bool(self._json_body().get("sensitive", True))
+        film = self.films.mark(film_id, wanted, who=who)
+        if film is None:
+            self._json({"error": "that is not yours to mark"}, 403)
+            return
+        self._json({"film": film.public(who)})
 
     def _block(self, who: str) -> None:
         """Block somebody, or stop. Takes effect at once and asks nobody.
@@ -1683,6 +1780,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/reports":
             self._my_reports()
             return
+        if path == "/api/restriction":
+            self._restriction_state()
+            return
         if path.startswith("/api/profiles/"):
             parts = path.strip("/").split("/")
             name = parts[2] if len(parts) > 2 else ""
@@ -1860,7 +1960,30 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "Ten characters or more, please."}, 400)
             return
 
-        self.accounts.add(username, email, password)
+        # The age gate. This app is submitted to the App Store at 12+, and a
+        # rating an app does not itself hold to is a claim rather than a fact.
+        try:
+            born = int(str(payload.get("born") or "").strip())
+        except ValueError:
+            born = 0
+        this_year = time.gmtime().tm_year
+        if not (1900 <= born <= this_year):
+            self._json({"error": "What year were you born?"}, 400)
+            return
+        if auth.age_from(born) < auth.MINIMUM_AGE:
+            # Said plainly, and not as "you are too young" — the person
+            # reading it may have mistyped a year, and either way there is
+            # nothing to do about it here.
+            self._json(
+                {
+                    "error": f"Auteur is for people {auth.MINIMUM_AGE} and over. "
+                    "If that year is wrong, put it right and try again."
+                },
+                403,
+            )
+            return
+
+        self.accounts.add(username, email, password, born=born)
         token, message = self.accounts.sign_in(username, password)
         if token is None:
             self._json({"error": message}, 400)
@@ -2845,6 +2968,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/report":
             self._report()
             return
+        if path == "/api/restriction":
+            self._set_restriction()
+            return
         if path.startswith("/api/profiles/") and path.endswith("/block"):
             self._block(path.split("/")[3])
             return
@@ -2888,6 +3014,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path.startswith("/api/films/") and path.endswith("/delete"):
             self._unpublish(path.split("/")[3])
+            return
+        if path.startswith("/api/films/") and path.endswith("/sensitive"):
+            self._mark_film(path.split("/")[3])
             return
         if path != "/api/jobs":
             self._json({"error": "not found"}, 404)

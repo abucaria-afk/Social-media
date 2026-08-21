@@ -9,6 +9,22 @@ what a normal set of terms covers — accounts we hold, data we process, uptime
 we promise — does not exist here, and saying otherwise to look professional
 would be the dishonest option.
 
+## Who it is for
+
+**Auteur is for people 12 and over.** Signing up asks for the year you were
+born and refuses anybody younger — that is the App Store rating this app ships
+at, and a rating an app does not hold itself to is a claim rather than a fact.
+
+An account for somebody under 18 starts with **sensitive films hidden**: films
+their author or the person running the instance has marked sensitive, and
+anything reported that nobody has looked at yet. That can be turned off in the
+app, and it can be **locked with a four-digit code** so that the person it
+applies to cannot lift it themselves. Turning it on never needs the code —
+anybody may choose to see less.
+
+The year you were born is kept on the machine running the instance, is used
+only for those two decisions, and goes nowhere else.
+
 ## What you agree to
 
 **Nothing objectionable, and nobody abusive.** There is no tolerance for

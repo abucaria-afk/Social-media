@@ -66,6 +66,13 @@
   var HEART_OUTLINE = '<svg viewBox="0 0 24 24" width="30" height="30" fill="none" ' +
     'stroke="currentColor" stroke-width="1.9" stroke-linejoin="round">' +
     '<path d="M12 20.3s-7-4.4-8.8-8.4A4.7 4.7 0 0 1 12 7.4a4.7 4.7 0 0 1 8.8 4.5c-1.8 4-8.8 8.4-8.8 8.4z"/></svg>';
+  /* An eye with a line through it. The filled state is the *crossed* one,
+     because "hidden" is the state worth being able to see at a glance. */
+  var EYE = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" ' +
+    'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" ' +
+    'stroke-linejoin="round"><path d="M2.6 12S6.4 5.8 12 5.8 21.4 12 21.4 12 ' +
+    '17.6 18.2 12 18.2 2.6 12 2.6 12z"/><circle cx="12" cy="12" r="3.1"/>' +
+    '<path d="M4 20 20 4"/></svg>';
   var SEND = '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" ' +
     'stroke="currentColor" stroke-width="1.9" stroke-linejoin="round">' +
     '<path d="M21.5 2.5 11 13M21.5 2.5 15 21.5l-4-8.5-8.5-4z"/></svg>';
@@ -102,10 +109,19 @@
           '<span class="rail-count">' + film.likes + "</span></button>" +
         '<button type="button" class="rail-button" data-send="' + film.id + '">' +
           SEND + "<span>Send</span></button>" +
-        (film.mine ? "" :
-          '<button type="button" class="rail-button more" data-more="' + film.id +
-          '" data-owner="' + escaped(film.owner) +
-          '" aria-label="Report or block">⋯</button>') +
+        (film.mine
+          /* Your own film gets the other control: marking it sensitive, so it
+             stays up and stays out of restricted accounts. Two different
+             questions, and putting both behind one ⋯ that means different
+             things depending on whose film it is would be the kind of menu
+             nobody trusts. */
+          ? '<button type="button" class="rail-button more' +
+            (film.sensitive ? " is-on" : "") + '" data-mark="' + film.id +
+            '" aria-pressed="' + (film.sensitive ? "true" : "false") +
+            '" aria-label="Mark as sensitive">' + EYE + "</button>"
+          : '<button type="button" class="rail-button more" data-more="' + film.id +
+            '" data-owner="' + escaped(film.owner) +
+            '" aria-label="Report or block">⋯</button>') +
       "</div>";
 
     /* A square or landscape film letterboxes rather than being cropped to a
@@ -206,6 +222,31 @@
     if (more && window.auteurSafety) {
       window.auteurSafety.open("film", more.dataset.more, more.dataset.owner,
                                nameOf(more.dataset.owner));
+      return;
+    }
+    var mark = event.target.closest("[data-mark]");
+    if (mark) {
+      var wanted = mark.getAttribute("aria-pressed") !== "true";
+      fetch("/api/films/" + mark.dataset.mark + "/sensitive", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sensitive: wanted })
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data) { return; }
+          mark.classList.toggle("is-on", data.film.sensitive);
+          mark.setAttribute("aria-pressed", data.film.sensitive ? "true" : "false");
+          if (window.auteurSafety) {
+            window.auteurSafety.said(
+              data.film.sensitive
+                ? "Marked sensitive. It stays up, and stays out of accounts that hide those."
+                : "No longer marked sensitive."
+            );
+          }
+        })
+        .catch(function () {});
     }
   });
 

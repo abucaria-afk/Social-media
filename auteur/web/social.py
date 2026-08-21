@@ -84,6 +84,13 @@ class Film:
     created: float = field(default_factory=time.time)
     #: Who has liked it. A set of names, kept as a list for JSON.
     liked_by: list[str] = field(default_factory=list)
+    #: Held back from accounts with the content restriction on. Set by whoever
+    #: made the film, or by the operator working through a report. There is no
+    #: classifier behind this and there is not going to be one: a program that
+    #: silently hides somebody's footage because a model fired is a worse
+    #: failure than the one it prevents, on an instance holding one family's
+    #: videos.
+    sensitive: bool = False
 
     def public(self, who: str = "") -> dict:
         """What a browser is allowed to know about this film.
@@ -106,6 +113,7 @@ class Film:
             "video": f"/api/films/{self.id}/video",
             "poster": f"/api/films/{self.id}/poster",
             "mine": bool(who) and who == self.owner,
+            "sensitive": self.sensitive,
         }
 
 
@@ -162,6 +170,22 @@ class Films:
                 film.liked_by.remove(who)
             else:
                 film.liked_by.append(who)
+            self._save()
+            return film
+
+    def mark(self, film_id: str, sensitive: bool, who: str = "") -> Film | None:
+        """Flag a film as sensitive, or unflag it.
+
+        `who` is checked when given, so the route can only let an author mark
+        their own. The operator calls it without one — taking down what was
+        reported is the whole point of having a moderator, and a moderator who
+        can only mark their own films cannot do it.
+        """
+        with self.lock:
+            film = self.films.get(film_id)
+            if film is None or (who and film.owner != who):
+                return None
+            film.sensitive = bool(sensitive)
             self._save()
             return film
 

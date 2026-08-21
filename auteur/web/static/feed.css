@@ -262,3 +262,8 @@
    `position: fixed` at all: a full-page scrim with the dialog laid out as an
    ordinary block underneath the page content. Same bug as `.topbar-back` had,
    for the same reason — they are now in style.css, where shared chrome goes. */
+
+/* The sensitive mark on your own film. Filled when it is on, like the heart —
+   the crossed eye is already the "hidden" glyph, so the accent says which of
+   the two states it is in rather than which glyph it is. */
+.rail-button.more.is-on { color: var(--ember); }

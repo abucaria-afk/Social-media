@@ -181,6 +181,7 @@
           $("email").textContent = profile.email || "not set";
           twoStepState();
           reportsState();
+          restrictionState();
         }
         draw(profile, got.data.films);
         /* `/api/profile` answers about you and does not carry films; the
@@ -521,6 +522,116 @@
   });
 
   // ---------------------------------------------------------------- account
+
+  /* What this account is shown, and the code that keeps the switch out of
+     reach of the person it applies to.
+     Turning it *on* never needs the code — anybody may choose to see less.
+     Turning it off does, which is the entire point. */
+  var restriction = { on: false, locked: false, digits: 4 };
+
+  function restrictionState() {
+    return fetch("/api/restriction", { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) { return; }
+        restriction = data;
+        $("restriction-state").textContent = data.on ? "Hidden" : "Shown";
+        $("restriction-row").dataset.on = data.on ? "1" : "";
+        return data;
+      })
+      .catch(function () {});
+  }
+
+  $("restriction-row").addEventListener("click", function () {
+    $("restriction-error").hidden = true;
+    $("restriction-off-error").hidden = true;
+    $("restriction-code").value = "";
+    $("restriction-new-lock").value = "";
+    $("restriction-want-lock").checked = false;
+    $("restriction-lock-box").hidden = true;
+
+    $("restriction-on").hidden = restriction.on;
+    $("restriction-off").hidden = !restriction.on;
+    $("restriction-code-box").hidden = !restriction.locked;
+    $("restriction-off-note").textContent = restriction.locked
+      ? "Sensitive films are hidden from this account, and lifting that needs the code."
+      : "Sensitive films are hidden from this account.";
+    /* Said plainly when it was set for them rather than by them, so the state
+       is not a mystery. */
+    $("restriction-why").textContent =
+      restriction.minor && restriction.on
+        ? "This started on because this account is under 18."
+        : "";
+    openSheet("restriction");
+  });
+
+  $("restriction-want-lock").addEventListener("change", function () {
+    $("restriction-lock-box").hidden = !this.checked;
+    if (this.checked) { $("restriction-new-lock").focus(); }
+  });
+
+  $("restriction-go").addEventListener("click", function () {
+    var problem = $("restriction-error");
+    problem.hidden = true;
+    var body = { on: true };
+    if ($("restriction-want-lock").checked) {
+      body.lock = $("restriction-new-lock").value;
+    }
+    fetch("/api/restriction", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (got) {
+        if (!got.ok) {
+          problem.textContent = got.d.error || "That did not work.";
+          problem.hidden = false;
+          return;
+        }
+        restriction = got.d;
+        $("restriction-state").textContent = "Hidden";
+        closeSheet("restriction");
+        if (window.auteurSafety) {
+          window.auteurSafety.said("Sensitive films are hidden from this account.");
+        }
+      })
+      .catch(function () {
+        problem.textContent = "Could not reach the app.";
+        problem.hidden = false;
+      });
+  });
+
+  $("restriction-lift").addEventListener("click", function () {
+    var problem = $("restriction-off-error");
+    problem.hidden = true;
+    fetch("/api/restriction", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ on: false, code: $("restriction-code").value })
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (got) {
+        if (!got.ok) {
+          problem.textContent = got.d.error || "That did not work.";
+          problem.hidden = false;
+          $("restriction-code").value = "";
+          return;
+        }
+        restriction = got.d;
+        $("restriction-state").textContent = "Shown";
+        closeSheet("restriction");
+        if (window.auteurSafety) {
+          window.auteurSafety.said("Everything is shown on this account again.");
+        }
+      })
+      .catch(function () {
+        problem.textContent = "Could not reach the app.";
+        problem.hidden = false;
+      });
+  });
 
   /* Deleting the account, which is the one thing in here that cannot be
      undone. Two gates, both deliberate: the password, because a live session

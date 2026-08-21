@@ -121,6 +121,22 @@
                   aria-label="Show password">Show</button>
         </span>
         <p class="card-hint">Ten characters or more.</p>
+
+        <!-- The age gate. A year rather than a full date: it is the least
+             that answers both questions the app has — old enough, and still a
+             minor — and it stays right as time passes. Nothing on this screen
+             hints at which answer gets you in, which is the point of an age
+             gate; a field that says "must be 12 or over" is a field everybody
+             passes. -->
+        <label class="card-title spaced" for="signup-born">The year you were born</label>
+        <input type="text" id="signup-born" name="born" inputmode="numeric"
+               maxlength="4" autocomplete="bday-year" autocorrect="off"
+               spellcheck="false" placeholder="1994">
+        <p class="card-hint">
+          Kept on this machine and used for two things: whether this app is for
+          you, and whether it starts with sensitive films hidden. Nothing else
+          ever sees it.
+        </p>
       </div>
       <!-- Agreed to by making the account, not by ticking a box.
            Apple requires an app with a feed and an inbox to make people agree

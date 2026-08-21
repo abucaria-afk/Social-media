@@ -69,6 +69,8 @@ real problem:
 | the three URLs actually answer | the most common metadata rejection there is |
 | the listing fits its fields | enforced after you have written past it |
 | the guideline 1.2 controls exist on both sides | the rejection this app is most exposed to |
+| the age gate, the restriction and its lock all exist | a 12+ rating the app does not hold to |
+| the app's minimum age matches the declared rating | two places holding one number |
 
 `.github/workflows/appstore.yml` runs it on every push, and weekly, so a
 domain that stops answering is found before a submission rather than during
@@ -114,14 +116,38 @@ four things by using the app. All four are there:
 Plus terms with no tolerance for objectionable content or abusive users, agreed
 to where the account is made.
 
+**The 12+ rating, and holding the app to it.** The age-rating questionnaire is
+answered "yes, includes user-generated content", which puts the app at 12+;
+answering "no" to keep 4+ is the most common rejection for apps of this shape.
+The app enforces what it declares:
+
+* Sign-up asks for a **year of birth** and refuses anybody under 12. The field
+  says nothing about which answer gets you in.
+* An account for somebody **under 18 starts restricted** — films their author
+  or the operator has marked sensitive are hidden, and so is anything reported
+  that nobody has looked at yet.
+* The restriction **can be locked with a four-digit code**, in the app
+  (You → Sensitive films) or by the operator
+  (`auteur account password --user <name> --lock 1234`), so the person it
+  applies to cannot lift it.
+* Turning it **on** never needs the code. Choosing to see less should not
+  require anybody's permission; only lifting it is gated.
+* `auteur moderate hide <id>` is the middle answer to a report: the film stays
+  up for everybody else and drops out of restricted accounts.
+
+`tools/appstore/preflight.py` fails if the number the app refuses below and the
+rating the listing declares ever stop agreeing, and
+`tools/artifact/check_age.py` drives the whole thing in a browser.
+
 **5.1.1(v), account deletion.** *You → Delete my account*, which asks for the
 password and for the word "delete" to be typed, then removes the account, the
 films and their files, the conversations, the profile and picture, the plans
 and the added reels — immediately, with no copy kept. `auteur moderate close
 <person>` does the same from the operator's side.
 
-Both are driven end to end in a real browser by
-`tools/artifact/check_safety.py`, which reports what it measured.
+All of it is driven end to end in a real browser by
+`tools/artifact/check_safety.py` and `tools/artifact/check_age.py`, which
+report what they measured.
 
 ## What this is honest about
 

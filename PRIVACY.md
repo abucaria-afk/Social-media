@@ -81,6 +81,19 @@ The shared secret never leaves the machine holding the accounts, and recovery
 codes are stored hashed — so the file that survives a lost phone is not also
 the file that replaces the second factor.
 
+## The one thing it asks you for
+
+**A year of birth, at sign-up.** A year rather than a full date, because a year
+is the least that answers the only two questions this app has about it: whether
+you are old enough to use it at all, and whether an account should start with
+sensitive films hidden. It is written into the accounts file on the machine
+running the instance, alongside your username, and it goes nowhere else — there
+is no address in this program that could send it anywhere.
+
+That is also why the App Store's privacy answers still read "data not
+collected": that question is about what reaches the people who publish an app,
+and nothing here does.
+
 ## Your account, and getting rid of it
 
 **You can delete your account from inside the app.** *You &rarr; Delete my

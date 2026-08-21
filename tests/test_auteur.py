@@ -9894,3 +9894,209 @@ def test_every_control_guideline_1_2_asks_for_exists_on_both_sides():
     # And the operator's side, which is what makes reporting more than a form.
     cli = (Path(__file__).resolve().parents[1] / "auteur" / "cli.py").read_text()
     assert "def _run_moderate" in cli
+
+
+# ---------------------------------------------------------------------------
+# 12+, and holding the app to it
+# ---------------------------------------------------------------------------
+
+
+def test_an_age_is_a_year_and_stays_right_as_time_passes():
+    """A stored yes/no would be wrong from the next birthday onward, and a
+    full date of birth is more data for no more answers."""
+    import time
+
+    from auteur.web import auth
+
+    born = 2000
+    at_2020 = time.mktime((2020, 6, 1, 0, 0, 0, 0, 0, 0))
+    at_2030 = time.mktime((2030, 6, 1, 0, 0, 0, 0, 0, 0))
+    assert auth.age_from(born, now=at_2020) == 20
+    assert auth.age_from(born, now=at_2030) == 30
+    # Nobody said: not zero, which would read as a newborn.
+    assert auth.age_from(0) == -1
+
+
+def test_an_account_under_eighteen_starts_restricted(tmp_path):
+    """Not a judgement — the direction to be wrong in. It lifts in two taps
+    and cannot be applied retroactively to something already seen."""
+    import time
+
+    from auteur.web.auth import Accounts
+
+    year = time.gmtime().tm_year
+    accounts = Accounts(tmp_path / "accounts.json")
+    kid = accounts.add("kid", "k@example.com", "a-long-enough-one", born=year - 14)
+    grown = accounts.add("grown", "g@example.com", "a-long-enough-one", born=year - 30)
+    quiet = accounts.add("quiet", "q@example.com", "a-long-enough-one")
+
+    assert kid.minor and kid.restricted
+    assert not grown.minor and not grown.restricted
+    # An account that never said is not treated as a minor: those belong to
+    # people who were already using the instance, and silently restricting
+    # them would be a change nobody asked for.
+    assert not quiet.minor and not quiet.restricted
+
+
+def test_the_code_that_lifts_a_restriction_is_stored_hashed(tmp_path):
+    from auteur.web.auth import LOCK_DIGITS, Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("kid", "k@example.com", "a-long-enough-one")
+    assert accounts.set_restriction_lock("kid", "12") == f"{LOCK_DIGITS} digits, please"
+    assert accounts.set_restriction_lock("kid", "4821") == ""
+
+    stored = accounts.get("kid").restriction_lock
+    assert "4821" not in stored and len(stored) == 64
+    assert accounts.check_restriction_lock("kid", "4821")
+    assert not accounts.check_restriction_lock("kid", "0000")
+    assert not accounts.check_restriction_lock("kid", "")
+
+    # Cleared, and then anything lifts it — which is right for somebody who
+    # restricted themselves and never set one.
+    assert accounts.set_restriction_lock("kid", "") == ""
+    assert accounts.check_restriction_lock("kid", "")
+
+
+def test_signing_up_too_young_is_refused(web_server):
+    """The rating is 12+, and a rating the app does not hold itself to is a
+    claim rather than a fact."""
+    import time
+
+    from auteur.web import server as web
+
+    base, _, _cookie = web_server
+    # An instance with accounts refuses sign-up outright, so this needs an
+    # empty one — which is also the only state the gate is ever reached in.
+    web.Handler.accounts.accounts.clear()
+    year = time.gmtime().tm_year
+
+    # No year at all.
+    status, payload, _ = _post(
+        base, "/api/signup", {"username": "tiny", "password": "a-long-enough-one"}
+    )
+    assert status == 400 and "year" in payload["error"]
+
+    status, payload, _ = _post(
+        base,
+        "/api/signup",
+        {"username": "tiny", "password": "a-long-enough-one", "born": year - 8},
+    )
+    assert status == 403
+    assert "12 and over" in payload["error"]
+
+    status, _payload, _ = _post(
+        base,
+        "/api/signup",
+        {"username": "old-enough", "password": "a-long-enough-one", "born": year - 30},
+    )
+    assert status == 200
+
+
+def test_a_restriction_hides_sensitive_and_unreviewed_films(web_server):
+    """It has to hide something real, or it is theatre."""
+    from auteur.web import server as web
+
+    base, studio, cookie = web_server
+    made = {}
+    for name, owner in (("plain", "grace"), ("marked", "grace"), ("reported", "grace")):
+        clip = studio.workspace / f"{name}.mp4"
+        clip.parent.mkdir(parents=True, exist_ok=True)
+        clip.write_bytes(b"not really an mp4")
+        made[name] = web.Handler.films.add(owner=owner, prompt=name, video=str(clip))
+    mine = studio.workspace / "mine.mp4"
+    mine.write_bytes(b"not really an mp4")
+    made["mine"] = web.Handler.films.add(owner="tester", prompt="mine", video=str(mine))
+
+    web.Handler.films.mark(made["marked"].id, True)
+    web.Handler.reports.file(
+        by="tester",
+        kind="film",
+        about=made["reported"].id,
+        about_who="grace",
+        reason="sexual",
+    )
+    # And one of your own, marked: a restriction is about what you are shown,
+    # not about hiding your own work from you.
+    web.Handler.films.mark(made["mine"].id, True)
+
+    seen = {f["prompt"] for f in _api_get(base, "/api/feed?scope=all", cookie)["films"]}
+    assert seen == {"plain", "marked", "reported", "mine"}
+
+    _api_post(base, "/api/restriction", cookie, {"on": True})
+    seen = {f["prompt"] for f in _api_get(base, "/api/feed?scope=all", cookie)["films"]}
+    assert seen == {"plain", "mine"}, seen
+
+    # Once the operator has looked at the report, it stops being held back.
+    report = web.Handler.reports.open_ones()[0]
+    web.Handler.reports.decide(report.id, "kept")
+    seen = {f["prompt"] for f in _api_get(base, "/api/feed?scope=all", cookie)["films"]}
+    assert seen == {"plain", "reported", "mine"}
+
+
+def test_turning_a_restriction_on_never_needs_the_code_and_lifting_it_does(web_server):
+    """The switch has to be out of reach of the person it applies to, and
+    choosing to see less should never need anybody's permission."""
+    from urllib.error import HTTPError
+
+    base, _, cookie = web_server
+
+    state = _api_post(base, "/api/restriction", cookie, {"on": True, "lock": "4821"})
+    assert state["on"] is True and state["locked"] is True
+
+    with pytest.raises(HTTPError) as raised:
+        _api_post(base, "/api/restriction", cookie, {"on": False})
+    assert raised.value.code == 403
+    with pytest.raises(HTTPError):
+        _api_post(base, "/api/restriction", cookie, {"on": False, "code": "0000"})
+    assert _api_get(base, "/api/restriction", cookie)["on"] is True
+
+    state = _api_post(base, "/api/restriction", cookie, {"on": False, "code": "4821"})
+    assert state["on"] is False
+    # The lock goes with it: one left behind is a surprise waiting for
+    # whoever turns the restriction back on.
+    assert state["locked"] is False
+
+
+def test_the_page_is_never_told_the_code(web_server):
+    """It is told whether there is one, which is all it needs to draw a field."""
+    base, _, cookie = web_server
+    _api_post(base, "/api/restriction", cookie, {"on": True, "lock": "4821"})
+    state = _api_get(base, "/api/restriction", cookie)
+    assert state["locked"] is True
+    assert "4821" not in json.dumps(state)
+    assert "lock" not in state and "restriction_lock" not in state
+
+
+def test_only_a_films_author_can_mark_it_sensitive(web_server):
+    from urllib.error import HTTPError
+
+    from auteur.web import server as web
+
+    base, studio, cookie = web_server
+    clip = studio.workspace / "theirs.mp4"
+    clip.parent.mkdir(parents=True, exist_ok=True)
+    clip.write_bytes(b"not really an mp4")
+    theirs = web.Handler.films.add(owner="grace", prompt="theirs", video=str(clip))
+
+    with pytest.raises(HTTPError) as raised:
+        _api_post(base, f"/api/films/{theirs.id}/sensitive", cookie, {"sensitive": True})
+    assert raised.value.code == 403
+
+    # The operator's route into it is the store, not the network — there is
+    # deliberately no endpoint that marks somebody else's film.
+    assert web.Handler.films.mark(theirs.id, True) is not None
+    assert web.Handler.films.get(theirs.id).sensitive is True
+
+
+def test_the_rating_the_listing_declares_is_the_one_the_app_enforces():
+    """Two places holding one number is how they end up disagreeing."""
+    from auteur.web.auth import MINIMUM_AGE
+
+    listing = _tool("listing")
+    assert "**The rating is 12+.**" in listing.AGE_RATING
+    assert MINIMUM_AGE == 12
+
+    preflight = _tool("preflight")
+    notes = preflight.check_age()
+    assert notes and all(note.ok for note in notes), [n.what for n in notes if not n.ok]

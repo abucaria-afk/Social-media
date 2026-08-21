@@ -357,6 +357,56 @@ def check_urls(online: bool) -> list[Note]:
     return out
 
 
+def check_age() -> list[Note]:
+    """The rating, and whether the app actually holds itself to it.
+
+    A rating is a claim, and the questionnaire is where it is made. This is
+    the other half: the sign-up gate, the restriction, and the lock all have
+    to exist, and the number the app refuses below has to be the number the
+    listing declares. Two places holding one number is how they end up
+    disagreeing, so both are read here rather than remembered.
+    """
+    from auteur.web.auth import ADULT_AGE, MINIMUM_AGE
+
+    server = (ROOT / "auteur" / "web" / "server.py").read_text(encoding="utf-8")
+    profile_js = (STATIC / "profile.js").read_text(encoding="utf-8")
+    login = (STATIC / "login.html").read_text(encoding="utf-8")
+    listing = (ROOT / "tools" / "appstore" / "listing.py").read_text(encoding="utf-8")
+
+    out = [Note(True, f"the app refuses anybody under {MINIMUM_AGE}", f"adult at {ADULT_AGE}")]
+
+    for what, ok in (
+        ("sign-up asks for a year", 'id="signup-born"' in login),
+        ("the server checks it", "MINIMUM_AGE" in server and "age_from" in server),
+        ("the restriction has a route", '"/api/restriction"' in server),
+        ("and a control", "restriction-row" in profile_js),
+        ("lifting it can need a code", "check_restriction_lock" in server),
+    ):
+        out.append(Note(ok, f"12+: {what}", "" if ok else "missing"))
+
+    # The listing says 12+; if the app's own floor ever moves, one of these
+    # two has to move with it and this is what notices.
+    if "**The rating is 12+.**" not in listing:
+        out.append(Note(False, "the listing does not declare 12+", "tools/appstore/listing.py"))
+    elif MINIMUM_AGE != 12:
+        out.append(
+            Note(
+                False,
+                f"the app refuses under {MINIMUM_AGE} and the listing says 12+",
+                "move one of them",
+            )
+        )
+    else:
+        out.append(Note(True, "the listing and the app agree on 12+", ""))
+
+    terms = " ".join((ROOT / "TERMS.md").read_text(encoding="utf-8").split())
+    if f"for people {MINIMUM_AGE} and over" not in terms:
+        out.append(Note(False, "the terms do not state the minimum age", "TERMS.md"))
+    else:
+        out.append(Note(True, "the terms state the minimum age", ""))
+    return out
+
+
 def check_safety() -> list[Note]:
     """Guideline 1.2, checked against the code rather than against a promise.
 
@@ -401,6 +451,7 @@ def main() -> int:
         ("Documents", check_documents()),
         ("URLs", check_urls(args.online)),
         ("Safety", check_safety()),
+        ("Age", check_age()),
     ]
 
     bad = 0
