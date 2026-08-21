@@ -2184,6 +2184,15 @@ body { background: var(--ground); }
 /* `display: block` on its own beats [hidden]'s display:none, which put the
    studio underneath every other screen. */
 #studio-page, #animation-page, #templates-page { display: block; }
+/* Room for the bar, on every section — the app does this with .has-tabbar,
+   which is set by the script this build strips. */
+#app, .studio-wrap, .page {
+  padding-bottom: calc(var(--tabbar) + var(--safe-bottom) + 20px) !important;
+}
+/* The marks are text here rather than the app's inline SVG: the bar is built
+   in Python and a copy of nine paths in a string is a copy that goes stale. */
+.tabbar .tab-icon { font-size: 20px; line-height: 1; }
+.tabbar .tab-big .tab-icon { font-size: 17px; }
 #studio-page[hidden], #animation-page[hidden], #templates-page[hidden],
 [hidden] { display: none !important; }
 
@@ -2324,12 +2333,6 @@ body { background: var(--ground); }
     <!-- Where it goes. The other four rooms are in the bar along the bottom
          now; this one is not a place you spend time, it is a setting, so it
          stays here as one row rather than taking a fifth of the bar. -->
-    <nav class="rooms-flat" aria-label="The rest of this page">
-      <a class="onward" href="#" data-goto="templates"><span class="onward-mark" aria-hidden="true">▚</span><span class="onward-lines"><span class="onward-name">Templates</span><span class="onward-note">cut to a real reel's timing</span></span></a>
-      <a class="onward" href="#" data-goto="animation"><span class="onward-mark" aria-hidden="true">◎</span><span class="onward-lines"><span class="onward-name">Animation</span><span class="onward-note">what goes over the cut</span></span></a>
-      <a class="onward" href="#" data-goto="studio"><span class="onward-mark" aria-hidden="true">◱</span><span class="onward-lines"><span class="onward-name">Studio</span><span class="onward-note">what the numbers say</span></span></a>
-    </nav>
-
     <div class="settings">
       <span class="settings-label">Appearance</span>
       <div class="choices appearance" role="radiogroup" aria-label="Appearance">
@@ -2625,6 +2628,7 @@ body { background: var(--ground); }
 
 
 </div>
+<nav class="tabbar" aria-label="Main"><a class="tab tab-big" href="#" data-goto="home" data-tab="home"><span class="tab-icon">＋</span><span class="tab-label">Create</span></a><a class="tab" href="#" data-goto="templates" data-tab="templates"><span class="tab-icon">▚</span><span class="tab-label">Templates</span></a><a class="tab" href="#" data-goto="animation" data-tab="animation"><span class="tab-icon">◎</span><span class="tab-label">Animation</span></a><a class="tab" href="#" data-goto="studio" data-tab="studio"><span class="tab-icon">◱</span><span class="tab-label">Studio</span></a></nav>
 <script>
 /* The graphics vocabulary, drawn in a browser.
  *
@@ -12144,6 +12148,17 @@ window.auteurTemplates = [
       document.getElementById(PAGES[name]).hidden = name !== to;
     });
     document.getElementById("app").hidden = !!PAGES[to];
+    /* Which tab you are on. Without this the bar is four links that never
+       say where you are, which is a menu rather than a tab bar. */
+    var tabs = document.querySelectorAll(".tabbar .tab");
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].classList.toggle("is-on", tabs[i].dataset.tab === to);
+      if (tabs[i].dataset.tab === to) {
+        tabs[i].setAttribute("aria-current", "page");
+      } else {
+        tabs[i].removeAttribute("aria-current");
+      }
+    }
     window.scrollTo(0, 0);
   }
   function show(id) {

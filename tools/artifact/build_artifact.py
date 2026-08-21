@@ -123,33 +123,34 @@ def _drop_server_links(markup: str) -> str:
     return re.sub(r'<a\b[^>]*href="/[^"]*".*?</a>\s*', "", markup, flags=re.S)
 
 
-# The way into the other three sections.
+# The way into the other three sections: the tab bar, the same one the app has.
 #
-# In the app this is the tab bar, and the tab bar is injected by a script —
-# which this build strips, because a published page has no routes for it to
-# link to. So the page ended up carrying a studio, an animation tab and a
-# templates library that nothing could reach: not dead links this time, dead
-# *content*, which is harder to notice and worse.
+# In the app this is injected by a script, which this build strips because the
+# script links to routes a published page has none of. The first attempt put a
+# list of links at the foot of the home section instead — which is where it
+# ended up 1564px down a 1945px page, nearly two screens below the fold, past
+# the entire form. Present, and not reachable, which is the same thing as
+# missing for anybody who does not already know it is there.
 #
-# Built from the list of sections that exist rather than written out, so a
-# section added or removed cannot leave this pointing at nothing.
-ROOMS = (
-    ("templates", "▚", "Templates", "cut to a real reel's timing"),
-    ("animation", "◎", "Animation", "what goes over the cut"),
-    ("studio", "◱", "Studio", "what the numbers say"),
+# So: the real bar, fixed to the bottom, built from the sections that exist.
+# Same markup and same classes as chrome.js emits, so it is the app's bar
+# rather than a drawing of one.
+TABS = (
+    ("home", "＋", "Create"),
+    ("templates", "▚", "Templates"),
+    ("animation", "◎", "Animation"),
+    ("studio", "◱", "Studio"),
 )
-_nav = "\n".join(
-    f'      <a class="onward" href="#" data-goto="{key}">'
-    f'<span class="onward-mark" aria-hidden="true">{mark}</span>'
-    f'<span class="onward-lines"><span class="onward-name">{name}</span>'
-    f'<span class="onward-note">{note}</span></span></a>'
-    for key, mark, name, note in ROOMS
-)
-home = home.replace(
-    '<div class="settings">',
-    f'<nav class="rooms-flat" aria-label="The rest of this page">\n{_nav}\n    </nav>\n\n'
-    '    <div class="settings">',
-    1,
+TAB_BAR = (
+    '<nav class="tabbar" aria-label="Main">'
+    + "".join(
+        f'<a class="tab{" tab-big" if key == "home" else ""}" href="#" '
+        f'data-goto="{key}" data-tab="{key}">'
+        f'<span class="tab-icon">{mark}</span>'
+        f'<span class="tab-label">{name}</span></a>'
+        for key, mark, name in TABS
+    )
+    + "</nav>"
 )
 
 home = _drop_server_links(home)
@@ -351,6 +352,17 @@ DEMO = r"""
       document.getElementById(PAGES[name]).hidden = name !== to;
     });
     document.getElementById("app").hidden = !!PAGES[to];
+    /* Which tab you are on. Without this the bar is four links that never
+       say where you are, which is a menu rather than a tab bar. */
+    var tabs = document.querySelectorAll(".tabbar .tab");
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].classList.toggle("is-on", tabs[i].dataset.tab === to);
+      if (tabs[i].dataset.tab === to) {
+        tabs[i].setAttribute("aria-current", "page");
+      } else {
+        tabs[i].removeAttribute("aria-current");
+      }
+    }
     window.scrollTo(0, 0);
   }
   function show(id) {
@@ -725,6 +737,15 @@ body { background: var(--ground); }
 /* `display: block` on its own beats [hidden]'s display:none, which put the
    studio underneath every other screen. */
 #studio-page, #animation-page, #templates-page { display: block; }
+/* Room for the bar, on every section — the app does this with .has-tabbar,
+   which is set by the script this build strips. */
+#app, .studio-wrap, .page {
+  padding-bottom: calc(var(--tabbar) + var(--safe-bottom) + 20px) !important;
+}
+/* The marks are text here rather than the app's inline SVG: the bar is built
+   in Python and a copy of nine paths in a string is a copy that goes stale. */
+.tabbar .tab-icon { font-size: 20px; line-height: 1; }
+.tabbar .tab-big .tab-icon { font-size: 17px; }
 #studio-page[hidden], #animation-page[hidden], #templates-page[hidden],
 [hidden] { display: none !important; }
 """
@@ -766,6 +787,7 @@ page = f"""<title>Auteur Edit Room</title>
 <div id="templates-page" hidden>
 {templates}
 </div>
+{TAB_BAR}
 <script>
 {SHAPES}
 </script>

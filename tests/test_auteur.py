@@ -8752,3 +8752,27 @@ def test_hsts_is_not_promised_from_a_plain_http_server():
     import inspect
 
     assert "Strict-Transport-Security" in inspect.getsource(server.Handler._send)
+
+
+def test_the_published_page_has_the_tab_bar_and_it_is_not_hidden():
+    """It was a list of links at the foot of the home section — 1564px down a
+    1945px page, past the whole form. Present and unreachable, which is the
+    same as missing for anybody who does not know it is there.
+
+    Then it was the real bar, placed *inside* the templates section, which is
+    `hidden` — so it existed and was invisible on every screen."""
+    page = (
+        Path(__file__).resolve().parent.parent / "ios" / "Auteur" / "Web" / "index.html"
+    ).read_text()
+
+    assert 'class="tabbar"' in page
+    for room in ("home", "templates", "animation", "studio"):
+        assert f'data-tab="{room}"' in page, f"no tab for {room}"
+
+    # Outside every section, or a fixed bar inherits their hidden state.
+    bar = page.index('class="tabbar"')
+    for section in ("studio-page", "animation-page", "templates-page"):
+        opened = page.index(f'id="{section}"')
+        assert bar > opened, "the bar is inside a section"
+        closing = page.index("</div>", opened)
+        assert not (opened < bar < closing), f"the bar is inside {section}, which is hidden"
