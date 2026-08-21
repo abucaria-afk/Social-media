@@ -1898,6 +1898,45 @@ def _scholar_scroll(args: argparse.Namespace, say: Reporter, text: str) -> int:
     return 0
 
 
+def _scholar_sources(scholar, say: Reporter) -> None:
+    """Where what it knows came from, and how old the outside numbers are.
+
+    An audit of the live store found 127 learnings and not one from outside
+    this repository — every one of them measured off its own reels, read out of
+    its own markdown, or concluded over those. The confidence ladder counts
+    independent channels and there was only ever one, so nothing could ever
+    climb it and nothing said so. This puts the mix on the screen, because a
+    store that only agrees with itself looks exactly like a store that knows a
+    lot until somebody counts the channels.
+    """
+    import collections
+    import datetime
+
+    from .scholar.published import stale
+
+    rows = scholar.knowledge._learnings
+    if not rows:
+        return
+
+    kinds = collections.Counter(row.source_channel.split(":")[0] for row in rows)
+    inside = sum(n for k, n in kinds.items() if k in ("local", "film", "across", "scroll"))
+    outside = sum(n for k, n in kinds.items() if k in ("published", "corroborate", "yt"))
+
+    say.detail(f"sources: {', '.join(f'{k} {n}' for k, n in kinds.most_common())}")
+    if not outside:
+        say.detail(
+            "all of it from inside this project — nothing has corroborated it. "
+            "run `auteur scholar study` to take in the published measurements"
+        )
+    else:
+        say.detail(f"{inside} learned here, {outside} from outside")
+
+    old = stale(datetime.date.today().year)
+    if old:
+        which = ", ".join(f"{s.key} ({s.measured})" for s in old)
+        say.detail(f"outside numbers worth re-checking: {which}")
+
+
 def _run_scholar(args: argparse.Namespace, say: Reporter) -> int:
     """The study agent: what it knows, what it wants to watch, what it teaches."""
     import json as _json
@@ -1919,6 +1958,7 @@ def _run_scholar(args: argparse.Namespace, say: Reporter) -> int:
             print(line)
         can_study, how = reachable()
         say.detail(f"YouTube: {how}" if can_study else f"cannot study — {how}")
+        _scholar_sources(scholar, say)
         return 0
 
     if args.action == "subscribe":

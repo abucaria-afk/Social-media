@@ -807,6 +807,32 @@ class Scholar:
             1 for learning in conclude(self._store) if self._store.add(learning)
         )
 
+        # And then what somebody else measured.
+        #
+        # Everything above this line came out of this repository — its reels,
+        # its notes, and conclusions drawn over those. That is one channel, and
+        # the confidence ladder counts channels, so the store could never climb
+        # past what it already believed. `published` is the outside: findings
+        # from Cinemetrics, from Cutting's 75-year study, from Redfern on why
+        # the median is the honest statistic — each carrying the URL it came
+        # from and the year it was measured.
+        #
+        # `corroborate` is the part that makes them worth having: it holds the
+        # published numbers against this project's own corpus and records where
+        # they agree and where they do not. Redfern's feature-film ratio does
+        # not survive contact with a fifteen-second reel, and knowing that is
+        # worth more than either number alone.
+        from .published import corroborate, corpus, learn as published_learn
+
+        session.learnings_extracted += sum(
+            1 for learning in published_learn() if self._store.add(learning)
+        )
+        reels = corpus()
+        if reels:
+            session.learnings_extracted += sum(
+                1 for learning in corroborate(reels) if self._store.add(learning)
+            )
+
         session.duration_sec = time.time() - started
         self._sessions.append(session)
         log.info(

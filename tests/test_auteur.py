@@ -7720,6 +7720,111 @@ def test_picking_a_decade_grades_the_whole_film_to_it():
     ), f"the page offers {offered - set(ERA_LOOKS)}, which is unwired"
 
 
+def test_the_scholar_has_a_source_that_is_not_this_repository(tmp_path):
+    """Audited on the live store: 127 learnings, every one from inside.
+
+    94 measured off the project's own reels, 23 read out of its own markdown, 7
+    concluded over those, 3 from its own scrolls. The confidence ladder counts
+    independent channels and there was exactly one, so nothing could ever climb
+    it — and `library.py` says in its own docstring that a project's notes
+    agreeing with a project's notes is not corroboration, which had been true
+    and unaddressed for the whole life of the store.
+    """
+    from auteur.scholar.published import FINDINGS, SOURCES, learn
+
+    assert FINDINGS, "no published findings at all"
+    drawn = learn()
+    assert len(drawn) == len(FINDINGS)
+
+    for learning in drawn:
+        assert learning.source_channel.startswith("published:")
+        # The point of an outside source is that a person can go and check it.
+        assert learning.source_video_id.startswith(
+            "https://"
+        ), f"{learning.technique!r} cites no URL"
+        assert learning.measurements.get(
+            "measured_year"
+        ), f"{learning.technique!r} does not say when it was measured"
+
+    # And they are independent of each other, which is what the ladder counts.
+    assert len({learning.source_channel for learning in drawn}) >= 3
+
+    # Evidence is graded rather than flattened. A peer-reviewed measurement of
+    # 160 films and a trade article are not the same kind of fact, and a store
+    # that recorded them identically would be confidently wrong in exactly the
+    # places it should hedge.
+    kinds = {source.kind for source in SOURCES.values()}
+    assert "peer-reviewed" in kinds and "trade" in kinds, "no grading of evidence"
+    for source in SOURCES.values():
+        if source.kind == "trade":
+            assert (
+                source.strength.value == "tentative"
+            ), f"{source.key} is a trade source starting above tentative"
+
+
+def test_the_outside_numbers_are_checked_against_this_projects_own(tmp_path):
+    """An outside number is only worth having if something is done with it.
+
+    What should be done is the comparison. Redfern's rule for feature film —
+    the median hold is about 0.6 of the mean — is a real published constant,
+    and it does not survive contact with a fifteen-second reel: measured on
+    this corpus the ratio is nearer 0.8, because short form has no room for the
+    long held shots that pull a feature's mean away from its median. The
+    direction of the advice holds and the constant does not, and knowing which
+    is which is the whole value of having read it.
+    """
+    import statistics
+
+    from auteur.scholar.published import corpus, corroborate
+
+    reels = corpus()
+    assert reels, "the corpus the comparison needs is missing"
+
+    drawn = corroborate(reels)
+    assert drawn, "nothing was compared"
+
+    skew = next(item for item in drawn if "skew" in item.technique)
+    ours = skew.measurements["our_ratio"]
+    theirs = skew.measurements["published_ratio"]
+
+    # Recomputed here rather than trusted, from the same per-shot durations.
+    ratios = []
+    for reel in reels:
+        holds = [float(b[0]) for b in reel.get("beats", []) if float(b[0]) > 0]
+        if len(holds) >= 8 and statistics.mean(holds) > 0:
+            ratios.append(statistics.median(holds) / statistics.mean(holds))
+    assert ours == pytest.approx(statistics.median(ratios), abs=0.01)
+
+    assert ours > theirs + 0.1, (
+        "the corpus now matches the feature-film ratio, so this comparison "
+        "proves nothing — re-measure"
+    )
+    assert skew.source_video_id.startswith("https://"), "the comparison cites nothing"
+
+
+def test_a_loop_return_is_measured_against_the_film_it_closes(tmp_path):
+    """A constant written for a 0.9s montage outlived the 0.9s montage.
+
+    The loop return exists to be invisible — a brief touch back to the opening
+    frame so the reel rounds rather than jumps. At 0.9s it was one shot long
+    when a montage held 0.9s. The montage holds 0.334s now, which made the
+    return 2.7 holds, and on a hypercut 5.4: the shot meant to slip past
+    unnoticed became the longest in the film, sitting at the end where the loop
+    is supposed to snap.
+    """
+    from auteur.director.brief import parse_brief
+
+    for prompt in ("montage", "a hypercut", "slow and cinematic"):
+        hold = parse_brief(prompt).base_shot_length
+        # The rule as the agent applies it.
+        span = min(max(hold * 2.0, 0.2), 0.9, 10.0)
+        assert span <= 0.9 + 1e-9, "the return outgrew its ceiling"
+        assert span / hold <= 3.0, (
+            f"a {prompt!r} film holds {hold}s and the loop return runs {span:.2f}s — "
+            f"{span / hold:.1f} holds, which is not a touch back"
+        )
+
+
 def test_the_scholar_names_what_it_measures_not_just_the_files(tmp_path):
     """Per-film learnings describe moments; none of them describes the form.
 
