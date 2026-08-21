@@ -14,10 +14,12 @@ from __future__ import annotations
 import email.parser
 import email.policy
 import gzip
+import io
 import json
 import logging
 import mimetypes
 import os
+import re
 import shutil
 import tempfile
 import socket
@@ -48,7 +50,52 @@ EXPORTS = (
     else (Path.cwd() / "auteur-exports")
 )
 #: Anything bigger than this is refused rather than swallowing the machine.
-MAX_UPLOAD = 2 * 1024 * 1024 * 1024  # 2 GB
+#: The most a single post may carry.
+#:
+#: 512 MB, not the 2 GB this was. The number was aspirational: the multipart
+#: parser materialises the whole body *and* the parsed parts, so a 2 GB upload
+#: peaked at several gigabytes of resident memory and the process was killed
+#: rather than answering — a denial of service anybody could trigger by
+#: accident with a long 4K clip. Still a minute of 4K, and now bounded by
+#: something a small machine has.
+MAX_UPLOAD = int(os.environ.get("AUTEUR_MAX_UPLOAD") or 512 * 1024 * 1024)
+
+#: Kept in memory up to here; past it the body spools to a temporary file. So
+#: an ordinary post costs nothing extra and a large one costs disk rather than
+#: RAM.
+SPOOL_TO_DISK = 16 * 1024 * 1024
+
+#: Sent on every response.
+#:
+#: `Referrer-Policy` is the one that is load-bearing rather than tidy: the
+#: calendar subscription URL carries its credential in the path, so any
+#: outbound navigation from a page would put somebody's calendar secret in
+#: another site's logs. `no-referrer` is the only value that closes it.
+#:
+#: The rest are the ordinary set. `nosniff` matters here because the app serves
+#: video somebody uploaded and text somebody typed; `frame-ancestors 'none'`
+#: because nothing about this app should ever be inside somebody else's frame.
+SAFETY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Permissions-Policy": "geolocation=(), microphone=(), interest-cohort=()",
+    # Everything the pages need is served from this origin, and `blob:` is how
+    # a finished film reaches the video element. No remote script, style, font
+    # or frame is ever wanted, so none is allowed.
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "img-src 'self' data: blob:; "
+        "media-src 'self' blob:; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'none'; "
+        "form-action 'self'"
+    ),
+}
 #: How much of a file to put on the wire at a time.
 CHUNK = 512 * 1024
 #: Types worth gzipping. PNG and MP4 are already compressed; running them
@@ -401,6 +448,15 @@ class Studio:
         for job in stale:
             shutil.rmtree(job.folder, ignore_errors=True)
 
+        # Whatever was just deleted, a film may have been pointing at. Checked
+        # here rather than only at start-up: a film outlives its job on
+        # purpose, but it cannot outlive its file, and an instance left running
+        # for a day filled its feed with rows that play nothing.
+        if stale and self.films is not None:
+            gone = self.films.drop_missing()
+            if gone:
+                log.info("dropped %d film(s) whose footage was swept", gone)
+
 
 def _plain_cause(exc: BaseException) -> str:
     """One short, readable line about what went wrong.
@@ -429,9 +485,23 @@ def _plain_cause(exc: BaseException) -> str:
 def _parse_multipart(
     body: bytes, content_type: str
 ) -> tuple[dict[str, str], list[tuple[str, bytes]]]:
-    """Pull fields and files out of a browser form post, using only stdlib."""
+    """Pull fields and files out of a browser form post, using only stdlib.
+
+    Kept for callers that already hold the body — the share target reads a
+    small form, and the tests build one. Anything that reads from the socket
+    should use `_parse_multipart_stream`, which does not need the whole post to
+    exist as a single bytes object first.
+    """
+    return _parse_multipart_stream(io.BytesIO(body), content_type)
+
+
+def _parse_multipart_stream(
+    body, content_type: str
+) -> tuple[dict[str, str], list[tuple[str, bytes]]]:
+    """The same, from a file object, so the raw post is never copied."""
     parser = email.parser.BytesParser(policy=email.policy.default)
-    message = parser.parsebytes(b"Content-Type: " + content_type.encode() + b"\r\n\r\n" + body)
+    header = b"Content-Type: " + content_type.encode() + b"\r\n\r\n"
+    message = parser.parse(_Prefixed(header, body))
 
     fields: dict[str, str] = {}
     files: list[tuple[str, bytes]] = []
@@ -449,6 +519,28 @@ def _parse_multipart(
     return fields, files
 
 
+class _Prefixed(io.RawIOBase):
+    """A file that reads `header` first and then everything in `rest`.
+
+    `BytesParser.parse` wants one stream carrying the Content-Type header and
+    the body. Concatenating them would rebuild the copy this exists to avoid,
+    so they are read in order instead.
+    """
+
+    def __init__(self, header: bytes, rest) -> None:
+        self._header = io.BytesIO(header)
+        self._rest = rest
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, target) -> int:
+        got = self._header.readinto(target)
+        if got:
+            return got
+        return self._rest.readinto(target)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "auteur"
     #: HTTP/1.1 so connections are kept alive. The page polls every second or
@@ -463,7 +555,11 @@ class Handler(BaseHTTPRequestHandler):
     attempts: Any = None  # an oidc.Attempts once serve() has run
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quieter than the default
-        log.debug("%s - %s", self.address_string(), fmt % args)
+        # The request line carries the path, and one path has a credential in
+        # it: a calendar app cannot send a cookie, so the subscription URL *is*
+        # the secret. Logging it would put it in whatever collects these logs,
+        # which is exactly the place a rollable secret should never reach.
+        log.debug("%s - %s", self.address_string(), _redact(fmt % args))
 
     # -- who is asking ---------------------------------------------------
 
@@ -529,6 +625,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        for key, value in SAFETY_HEADERS.items():
+            if key not in headers:
+                self.send_header(key, value)
         for key, value in headers.items():
             self.send_header(key, value)
         self.end_headers()
@@ -1959,15 +2058,21 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("nothing was sent")
         if length > MAX_UPLOAD:
             raise MemoryError("larger than MAX_UPLOAD")
-        chunks: list[bytes] = []
-        remaining = length
-        while remaining > 0:
-            block = self.rfile.read(min(CHUNK, remaining))
-            if not block:
-                raise ValueError("the upload stopped part way")
-            chunks.append(block)
-            remaining -= len(block)
-        fields, files = _parse_multipart(b"".join(chunks), self.headers.get("Content-Type", ""))
+
+        # Spooled rather than accumulated in a list. The list held one copy and
+        # `b"".join` made a second, so a large post cost twice its own size in
+        # memory before the parser had even seen it. A SpooledTemporaryFile
+        # keeps an ordinary post in memory and lets a big one go to disk.
+        with tempfile.SpooledTemporaryFile(max_size=SPOOL_TO_DISK) as spool:
+            remaining = length
+            while remaining > 0:
+                block = self.rfile.read(min(CHUNK, remaining))
+                if not block:
+                    raise ValueError("the upload stopped part way")
+                spool.write(block)
+                remaining -= len(block)
+            spool.seek(0)
+            fields, files = _parse_multipart_stream(spool, self.headers.get("Content-Type", ""))
         return files, fields
 
     # ------------------------------------------------------------ templates
@@ -2294,6 +2399,19 @@ def _for_log(text: str, limit: int = 64) -> str:
     """
     clean = "".join(ch for ch in str(text) if ch.isprintable())
     return repr(clean[:limit])
+
+
+def _redact(line: str) -> str:
+    """Blank out anything in a log line that is a credential.
+
+    Only one thing qualifies today — the calendar token in `/calendar/<x>.ics`
+    — and it is handled here rather than at the call site so the next secret
+    that ends up in a path has somewhere obvious to be added.
+    """
+    return _CALENDAR_PATH.sub("/calendar/[redacted].ics", line)
+
+
+_CALENDAR_PATH = re.compile(r"/calendar/[A-Za-z0-9_-]+\.ics")
 
 
 def _safe_name(who: str) -> str:

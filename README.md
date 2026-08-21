@@ -290,8 +290,21 @@ python3 tools/artifact/ask_scholar.py URL           # what the Scholar says back
 
 ### Known gaps
 
-Stated here rather than discovered: the transition vocabulary and the levelling
-pass are in the browser renderer only, so a desktop `auteur edit` still hard-cuts
-every join and grades a decade slightly darker than the app does.
-`check_eras_match.py` fails on purpose until that is fixed, and names the cause
-in its own output.
+Stated here rather than discovered.
+
+The two renderers agree about a decade now, within about 3 levels out of 255,
+and the desktop path has the same joins the browser one does — `check_joins.py`
+and `check_eras_match.py` both pass. What is still only in the browser is the
+per-shot *salience* read: the desktop path frames a shot from its subject track
+rather than from an edge map, so a portal opens on the centre of the frame
+rather than on whatever the eye lands on.
+
+Sign-in with Apple is present and cannot work on an ordinary install: its
+client secret is a JWT signed with a key Apple issues, which needs a crypto
+library this project does not depend on, and it requires an https redirect on a
+domain registered with them. The sign-in page says so rather than offering a
+button that fails. Google needs only a client id.
+
+The iOS app in `ios/` has never been compiled — there is no Mac here. Every
+check that can be made without one is made by the test suite, and `ios/README.md`
+lists what is most likely to need fixing first.

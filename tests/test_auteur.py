@@ -8521,3 +8521,113 @@ def test_the_app_declares_that_nothing_leaves_the_phone():
     # refused without saying which one.
     for entry in privacy["NSPrivacyAccessedAPITypes"]:
         assert entry["NSPrivacyAccessedAPITypeReasons"], entry["NSPrivacyAccessedAPIType"]
+
+
+# ---------------------------------------------------------------------------
+# Before letting anybody else use it
+# ---------------------------------------------------------------------------
+
+
+def test_no_referrer_is_sent_because_a_url_carries_a_secret():
+    """The calendar subscription URL carries its credential in the path, so an
+    outbound navigation from any page would put somebody's calendar secret in
+    another site's logs. `no-referrer` is the only value that closes that."""
+    from auteur.web import server
+
+    assert server.SAFETY_HEADERS["Referrer-Policy"] == "no-referrer"
+
+
+def test_every_response_carries_the_safety_headers():
+    from auteur.web import server
+
+    for key in (
+        "X-Content-Type-Options",
+        "Referrer-Policy",
+        "X-Frame-Options",
+        "Content-Security-Policy",
+    ):
+        assert key in server.SAFETY_HEADERS
+
+    policy = server.SAFETY_HEADERS["Content-Security-Policy"]
+    # Nothing remote: everything the pages need is served from this origin, and
+    # blob: is how a finished film reaches a video element.
+    assert "default-src 'self'" in policy
+    assert "frame-ancestors 'none'" in policy
+    assert "blob:" in policy
+    assert "http://" not in policy and "https://" not in policy
+
+
+def test_the_calendar_secret_is_kept_out_of_the_request_log():
+    """The request line carries the path, and one path is a credential."""
+    from auteur.web.server import _redact
+
+    line = "GET /calendar/HnTMHaWX1mbYa9ZBvBd9wlWGO1VfM5fT.ics HTTP/1.1"
+    assert "HnTMHaWX" not in _redact(line)
+    assert "[redacted]" in _redact(line)
+    # And it does not mangle anything else.
+    assert _redact("GET /api/feed HTTP/1.1") == "GET /api/feed HTTP/1.1"
+
+
+def test_an_upload_is_bounded_by_something_a_machine_actually_has():
+    """2 GB was aspirational: the parser materialises the body *and* the parsed
+    parts, so a post that size peaked at several gigabytes resident and the
+    process was killed rather than answering — a denial of service anybody
+    could trigger by accident with a long 4K clip."""
+    from auteur.web import server
+
+    assert server.MAX_UPLOAD <= 1024 * 1024 * 1024
+    assert server.SPOOL_TO_DISK < server.MAX_UPLOAD
+
+
+def test_a_posted_form_is_read_without_copying_the_whole_body():
+    """The streaming parser has to agree with the one that takes bytes, or the
+    fix quietly changes what uploads mean."""
+    import io
+
+    from auteur.web.server import _parse_multipart, _parse_multipart_stream
+
+    boundary = "----abc"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="prompt"\r\n\r\n'
+        "a 90s hypercut\r\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="clips"; filename="one.mp4"\r\n'
+        "Content-Type: video/mp4\r\n\r\n"
+        "not really a film\r\n"
+        f"--{boundary}--\r\n"
+    ).encode()
+    kind = f"multipart/form-data; boundary={boundary}"
+
+    fields, files = _parse_multipart(body, kind)
+    streamed_fields, streamed_files = _parse_multipart_stream(io.BytesIO(body), kind)
+
+    assert fields == streamed_fields == {"prompt": "a 90s hypercut"}
+    assert files == streamed_files
+    assert files[0][0] == "one.mp4"
+    assert files[0][1] == b"not really a film"
+
+
+def test_sweeping_a_job_also_forgets_the_films_that_pointed_into_it():
+    """A film outlives its job on purpose. It cannot outlive its file, and
+    `drop_missing` only ran at start-up — so an instance left running for a day
+    filled its feed with rows that play nothing."""
+    import inspect
+
+    from auteur.web.server import Studio
+
+    source = inspect.getsource(Studio.sweep)
+    assert "drop_missing" in source, "sweeping leaves the feed pointing at deleted files"
+
+
+def test_the_readme_does_not_claim_gaps_that_have_been_closed():
+    """Documentation that describes a fixed problem is worse than none: it
+    sends somebody to look for a bug that is not there."""
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text()
+    gaps = readme[readme.index("### Known gaps") :]
+    gaps = gaps[: gaps.index("\n## ")] if "\n## " in gaps else gaps
+
+    # These two were the gap and are not any more; the tools that proved it
+    # are in the repository and pass.
+    assert "hard-cuts" not in gaps
+    assert "fails on purpose" not in gaps
