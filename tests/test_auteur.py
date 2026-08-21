@@ -6980,6 +6980,93 @@ def test_the_trainer_can_reach_the_rate_it_is_chasing():
     assert low <= 0.125, "the fastest reference reel is outside the search space"
 
 
+def test_the_browsers_two_fallbacks_are_the_same_word():
+    """A prompt with no words the engine knows went through two fallbacks.
+
+    `cadenceFor` fell back to a montage hold and `styleFor` fell back to
+    `story`, so a film nobody described got the measured 0.334s arranged to
+    story's bars — 25 cuts every ten seconds instead of 20. Neither fallback
+    was wrong on its own; they were wrong together, which is the kind of fault
+    that survives every test written about either half.
+    """
+    source = (Path(__file__).resolve().parent.parent / "tools" / "artifact" / "style.js").read_text(
+        encoding="utf-8"
+    )
+    render = (
+        Path(__file__).resolve().parent.parent / "tools" / "artifact" / "browser-render.js"
+    ).read_text(encoding="utf-8")
+
+    style_fallback = re.search(r"return STYLES\.([a-z]+);\s*\n  \}", source)
+    assert style_fallback, "styleFor's fallback is gone or reshaped"
+
+    cadence_fallback = re.search(r'return \{ hold: [0-9.]+, label: "([^"]*)" \};', render)
+    assert cadence_fallback, "cadenceFor's fallback is gone or reshaped"
+
+    assert style_fallback.group(1) in cadence_fallback.group(1), (
+        f"a prompt with no words is arranged as {style_fallback.group(1)!r} and held at "
+        f"{cadence_fallback.group(1)!r} — the default is two halves of different films"
+    )
+
+
+def test_the_browser_arranges_a_montage_at_the_rate_the_reels_cut_at():
+    """Agreeing on the hold is not the same as agreeing on the film.
+
+    The two engines were brought onto the same 0.334s, and the published page
+    still came out at 26 cuts per ten seconds against the corpus's 20.1 —
+    because a shot's length is the hold times a multiplier from the style's
+    bar pattern, and there was no montage style in the browser at all. The word
+    fell through to `story`, whose bars average 1.24, so the pace was borrowed
+    from a style that means something else.
+
+    The bars are read out of the JavaScript and the rate recomputed here, so
+    editing either the bars or the hold without checking fails.
+    """
+    import statistics
+
+    from auteur.director.brief import parse_brief
+
+    source = (Path(__file__).resolve().parent.parent / "tools" / "artifact" / "style.js").read_text(
+        encoding="utf-8"
+    )
+
+    block = re.search(r"\n    montage: \{(.*?)\n    \}", source, re.S)
+    assert block, "the browser has no montage style"
+
+    bars = re.search(r"bars: (\[\[.*?\]\]),", block.group(1), re.S)
+    assert bars, "the montage style has no bar patterns"
+    patterns = [
+        [float(n) for n in group.split(",")]
+        for group in re.findall(r"\[([^\[\]]+)\]", bars.group(1))
+    ]
+    assert len(patterns) >= 3, f"only {len(patterns)} bars — a film would repeat one phrase"
+
+    pooled = [value for pattern in patterns for value in pattern]
+    hold = parse_brief("montage").base_shot_length
+    rate = 10.0 / (statistics.mean(pooled) * hold)
+
+    # What the thirteen montage reels measure at, recomputed here rather than
+    # typed in, so re-measuring the corpus moves the bar.
+    reels = json.loads(
+        (
+            Path(__file__).resolve().parent.parent / "tools" / "artifact" / "templates.json"
+        ).read_text(encoding="utf-8")
+    )
+    band = [r for r in reels if 0.20 < float(r["hold"]) <= 0.75]
+    corpus = statistics.median(float(r["shots"]) / float(r["seconds"]) * 10.0 for r in band)
+
+    assert rate == pytest.approx(corpus, rel=0.12), (
+        f"the browser arranges a montage at {rate:.1f} cuts per ten seconds and the "
+        f"reels cut at {corpus:.1f}"
+    )
+
+    # The median shot is one hold — that is what makes 0.334s the median rather
+    # than the floor — and no bar is all one number, which would be a
+    # metronomic movement.
+    assert statistics.median(pooled) == 1, "the median shot is not the measured hold"
+    for pattern in patterns:
+        assert len(set(pattern)) > 1, f"the bar {pattern} has no rhythm in it"
+
+
 def test_both_renderers_cut_the_same_word_at_the_same_pace():
     """There are two pace tables, and nothing compared them.
 

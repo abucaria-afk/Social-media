@@ -109,6 +109,38 @@
       invert: 0.0,
       push: 0.18,
       travel: 0.30
+    },
+
+    /* The pace the corpus sits at when it is not sprinting.
+     *
+     * There was no montage style here at all, so the word fell through to
+     * `story` — whose bars average 1.24 of the base hold and put the film out
+     * at about 26 cuts every ten seconds against the corpus's 20.1. The word
+     * had a measured pace on the app side and a borrowed rhythm here.
+     *
+     * The bars below are measured rather than picked. Across the thirteen
+     * montage reels, 46% of shots run one unit, 31% two, 7% three and 10%
+     * four; pooled, these bars run 65/25/5/5, which is more single-hold than
+     * the corpus because `hold` here is the *median* shot rather than the
+     * grid the reels are counted against — the two are not the same number.
+     * What is held to the corpus is the thing that can be measured off a
+     * finished film: a mean of 1.5 holds a shot, which at 0.334s is 20.0 cuts
+     * every ten seconds against the measured 20.1.
+     *
+     * Each bar is a phrase rather than a list: three quick and a longer, an
+     * alternation, a pair, three quick and a rest. A bar of all the same
+     * number would be a metronomic movement, which is the fault the whole
+     * arrangement exists to avoid. */
+    montage: {
+      label: "montage",
+      note: "cut at the reference pace — mostly hard cuts, a gesture carried across now and then",
+      transitions: { cut: 10, carry: 3, portal: 3, whip: 2, match: 2, push: 1 },
+      gestures: { hold: 5, press: 4, snap: 3, settle: 3, swing: 2, release: 1 },
+      bars: [[1, 1, 2, 1, 3], [1, 2, 1, 1, 2], [2, 1, 1, 2, 1], [1, 1, 1, 4, 1]],
+      accents: 0.16,
+      invert: 0.12,
+      push: 0.14,
+      travel: 0.32
     }
   };
 
@@ -116,8 +148,9 @@
    *
    * Words people actually type, same principle as the look and cadence
    * matching: a prompt is somebody describing a feeling. Anything unmatched
-   * gets `story`, which is the one that tries hardest to be invisible and is
-   * therefore the safest thing to be wrong about.
+   * gets `montage`, for the same reason the cadence falls back to a montage
+   * hold: it is the pace most of the corpus is cut at, and the two fallbacks
+   * have to be the same word or the default is two halves of different films.
    */
   /* Matched at a word boundary, without which every one of these also fires
    * inside longer words. That is not hypothetical: `rave` matched *travel*,
@@ -134,6 +167,10 @@
     ["hype", /hype|gym|workout|sport|training|aggressive|energy|energet|punchy|drop|rave|edm|techno|club|party|fast/],
     ["dreamy", /dream|soft|nostalg|memor|hazy|ethereal|gentle|calm|slow|romantic|wedding|love|sunset|golden/],
     ["gallery", /gallery|minimal|still|portrait|photo|quiet|editorial|fashion|clean|austere|documentary/],
+    /* Before `story`, so the word lands on the style named after it. After
+     * `hypercut` and `hype`, so "fast montage" is still cut fast — which is
+     * what the cadence table does with the same words. */
+    ["montage", /montage|recap|highlights|round\s*up|best\s*of/],
     ["story", /story|narrative|journey|trip|travel|day\s*in|vlog|cinematic|film/]
   ].map(function (entry) { return [entry[0], wordy(entry[1])]; });
 
@@ -142,7 +179,15 @@
     for (var i = 0; i < STYLE_WORDS.length; i++) {
       if (STYLE_WORDS[i][1].test(p)) { return STYLES[STYLE_WORDS[i][0]]; }
     }
-    return STYLES.story;
+    /* `montage`, because that is what the cadence falls back to.
+     *
+     * A prompt with no style word and no pace word went through two different
+     * fallbacks that did not agree: the cadence said montage and held each
+     * shot 0.334s, and this said `story` and multiplied it by story's bars.
+     * The film came out at 25 cuts every ten seconds instead of 20 — the
+     * measured hold arranged to somebody else's rhythm. Both fallbacks are
+     * the same word now, which is the only way the default can be one thing. */
+    return STYLES.montage;
   }
 
   /* Draw from a weighted bag, never returning what was returned last time.
