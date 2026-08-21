@@ -8389,3 +8389,135 @@ def test_a_platform_has_a_readable_title_that_is_not_its_lookup_key():
         assert spec.title != key
         assert " " in spec.title
         assert spec.service in spec.title
+
+
+# ---------------------------------------------------------------------------
+# The iOS app
+# ---------------------------------------------------------------------------
+
+IOS = Path(__file__).resolve().parent.parent / "ios"
+
+
+def test_the_app_icon_carries_no_alpha_channel():
+    """App Store Connect rejects an icon with a channel it does not use, and
+    the rejection arrives after the upload, by email, naming something else."""
+    from PIL import Image
+
+    icons = sorted((IOS / "Auteur" / "Assets.xcassets" / "AppIcon.appiconset").glob("*.png"))
+    assert icons, "no icons built — run ios/scripts/build_bundle.py"
+    for path in icons:
+        with Image.open(path) as icon:
+            assert icon.mode == "RGB", f"{path.name} has an alpha channel"
+            assert icon.size[0] == icon.size[1], f"{path.name} is not square"
+    assert any(p.name == "icon-1024.png" for p in icons), "the store icon is 1024"
+
+
+def test_every_plist_in_the_project_parses():
+    """Xcode reports a malformed plist as a build failure several steps away
+    from the file that is wrong."""
+    import plistlib
+
+    found = list(IOS.rglob("*.plist")) + list(IOS.rglob("*.xcprivacy"))
+    assert len(found) >= 3
+    for path in found:
+        with path.open("rb") as handle:
+            plistlib.load(handle)
+
+
+def test_the_app_asks_only_for_permissions_it_uses():
+    """Every usage string is a sentence somebody reads in a dialog, and a
+    permission the app does not use is both a worse dialog and a rejection."""
+    import plistlib
+
+    with (IOS / "Auteur" / "Info.plist").open("rb") as handle:
+        info = plistlib.load(handle)
+
+    for key in ("NSPhotoLibraryAddUsageDescription", "NSCalendarsWriteOnlyAccessUsageDescription"):
+        assert key in info, f"{key} is missing and the app will crash when it asks"
+        assert len(info[key]) > 25, f"{key} does not say what it is for"
+        assert info[key].endswith("."), f"{key} is not a sentence"
+
+    # The picker hands over only what somebody chose and needs no permission,
+    # so read access to the whole library would be asking for something nothing
+    # in this app uses.
+    assert "NSPhotoLibraryUsageDescription" not in info
+
+    swift = (IOS / "Auteur" / "Bridge.swift").read_text()
+    assert "addOnly" in swift, "the app asks for more of Photos than it needs"
+
+
+def test_the_app_targets_the_ios_the_renderer_actually_needs():
+    """The one number in the project file that is a measurement rather than a
+    default: the renderer records by pulling frames off a canvas, and
+    `canvas.captureStream` did not exist in WebKit before 15.4."""
+    spec = (IOS / "project.yml").read_text()
+    match = re.search(r"iOS:\s*\"(\d+)\.(\d+)\"", spec)
+    assert match, "the deployment target is not stated"
+    major, minor = int(match.group(1)), int(match.group(2))
+    assert (major, minor) >= (15, 4), "below the iOS that can record from a canvas"
+
+    # And it is armv7-free: 32-bit has not run iOS since 11, and declaring it
+    # makes modern devices report as unsupported instead of erroring.
+    import plistlib
+
+    with (IOS / "Auteur" / "Info.plist").open("rb") as handle:
+        info = plistlib.load(handle)
+    assert info["UIRequiredDeviceCapabilities"] == ["arm64"]
+
+
+def test_the_bundled_page_reaches_nothing_outside_itself():
+    """The app has no network entitlement, so an external reference is not a
+    slow load, it is a silently blank region on somebody's phone."""
+    page = (IOS / "Auteur" / "Web" / "index.html").read_text()
+    outside = re.findall(r'(?:src|href)\s*=\s*["\']https?://[^"\']+', page)
+    assert outside == [], f"the bundled page reaches out: {outside[:3]}"
+    assert page.lstrip().startswith("<!DOCTYPE html>")
+    assert "<title>" in page
+
+
+def test_every_colour_the_app_names_actually_exists():
+    """`UILaunchScreen` names a colour by string. A missing one is not an
+    error — the app just launches on a white flash whatever the theme is."""
+    import json
+    import plistlib
+
+    with (IOS / "Auteur" / "Info.plist").open("rb") as handle:
+        info = plistlib.load(handle)
+    named = info["UILaunchScreen"]["UIColorName"]
+    folder = IOS / "Auteur" / "Assets.xcassets" / f"{named}.colorset"
+    assert folder.is_dir(), f"{named} is named in Info.plist and does not exist"
+    colours = json.loads((folder / "Contents.json").read_text())["colors"]
+    # Both lightings, or the launch flashes the wrong one on half the phones.
+    assert len(colours) == 2
+
+
+def test_the_shim_fills_in_the_two_apis_a_web_view_does_not_have():
+    """`navigator.share` exists in Safari and not in a web view, so without
+    this the page's own save button silently does nothing — the worst failure
+    available, on the one control that delivers the product."""
+    shim = (IOS / "Auteur" / "native.js").read_text()
+    assert "navigator.share" in shim
+    assert "navigator.canShare" in shim
+    assert "messageHandlers.auteur" in shim
+    # And the page is never edited to know about the app: the shim fills in
+    # what the page already reaches for.
+    for job in ("save", "share", "calendar", "capabilities"):
+        assert f'"{job}"' in shim or f"'{job}'" in shim
+
+    swift = (IOS / "Auteur" / "Bridge.swift").read_text()
+    for job in ("save", "share", "calendar", "capabilities"):
+        assert f'case "{job}"' in swift, f"the shim sends {job} and Swift ignores it"
+
+
+def test_the_app_declares_that_nothing_leaves_the_phone():
+    import plistlib
+
+    with (IOS / "Auteur" / "PrivacyInfo.xcprivacy").open("rb") as handle:
+        privacy = plistlib.load(handle)
+    assert privacy["NSPrivacyTracking"] is False
+    assert privacy["NSPrivacyTrackingDomains"] == []
+    assert privacy["NSPrivacyCollectedDataTypes"] == []
+    # Every "required reason" API used has to carry a reason, or the upload is
+    # refused without saying which one.
+    for entry in privacy["NSPrivacyAccessedAPITypes"]:
+        assert entry["NSPrivacyAccessedAPITypeReasons"], entry["NSPrivacyAccessedAPIType"]
