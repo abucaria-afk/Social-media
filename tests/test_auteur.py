@@ -8698,8 +8698,10 @@ def test_the_privacy_policy_is_generated_from_the_one_source():
 
 def test_the_policy_says_what_the_code_does():
     """The two claims in it that a test can actually hold it to."""
-    policy = (Path(__file__).resolve().parent.parent / "PRIVACY.md").read_text()
-    assert "collects nothing" in policy.lower()
+    # Whitespace-normalised: the source is hard wrapped, so a phrase that
+    # spans a line break is not a substring of the file.
+    policy = " ".join((Path(__file__).resolve().parent.parent / "PRIVACY.md").read_text().split())
+    assert "nobody operates a service here" in policy.lower()
 
     # "no network requests of any kind" about the iOS app.
     bundled = (
@@ -8776,3 +8778,223 @@ def test_the_published_page_has_the_tab_bar_and_it_is_not_hidden():
         assert bar > opened, "the bar is inside a section"
         closing = page.index("</div>", opened)
         assert not (opened < bar < closing), f"the bar is inside {section}, which is hidden"
+
+
+# ---------------------------------------------------------------------------
+# Two-step verification
+# ---------------------------------------------------------------------------
+
+
+def test_the_codes_match_the_published_rfc_vectors():
+    """RFC 6238 ships test vectors precisely so an implementation can be
+    checked rather than believed. Written against the specification because an
+    authentication library is the last place to take a fourth party you have
+    not read."""
+    import base64
+
+    from auteur.web import totp
+
+    secret = base64.b32encode(b"12345678901234567890").decode().rstrip("=")
+    assert totp.code_at(secret, 59) == "287082"
+    assert totp.code_at(secret, 1111111109) == "081804"
+    assert totp.code_at(secret, 1111111111) == "050471"
+    assert totp.code_at(secret, 1234567890) == "005924"
+
+
+def test_a_code_is_accepted_across_a_drifting_clock_but_not_forever():
+    from auteur.web import totp
+
+    secret = totp.new_secret()
+    now = 1_700_000_000
+    code = totp.code_at(secret, now)
+    assert totp.check(secret, code, moment=now) is not None
+    assert totp.check(secret, code, moment=now + 29) is not None
+    assert totp.check(secret, code, moment=now - 29) is not None
+    # 90 seconds of total validity, and no more: a wider window is a longer
+    # replay opportunity for a code somebody read over a shoulder.
+    assert totp.check(secret, code, moment=now + 91) is None
+    assert totp.check(secret, "000000", moment=now) is None
+    assert totp.check(secret, "not a code", moment=now) is None
+
+
+def test_the_password_alone_stops_being_enough(tmp_path):
+    """The whole point. `sign_in` must hand back a ticket rather than a session
+    — a ticket names the account, expires, is spent by use, and can do nothing
+    else."""
+    from auteur.web import totp
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("ada", "ada@example.invalid", "a-long-enough-passphrase")
+
+    token, _ = accounts.sign_in("ada", "a-long-enough-passphrase")
+    assert token is not None, "with two-step off, a password is enough"
+
+    secret = accounts.begin_totp("ada")
+    assert accounts.get("ada").totp_on is False, "an unfinished setup must not lock anybody out"
+    assert accounts.confirm_totp("ada", "000000") is None
+    codes = accounts.confirm_totp("ada", totp.code_at(secret))
+    assert codes and len(codes) == totp.RECOVERY_CODES
+
+    token, message = accounts.sign_in("ada", "a-long-enough-passphrase")
+    assert token is None, "the password alone still opened a session"
+    assert message.startswith("code:")
+
+    ticket = message[5:]
+    assert accounts.spend_ticket(ticket) == "ada"
+    assert accounts.spend_ticket(ticket) is None, "a ticket that works twice is a session"
+
+
+def test_a_code_cannot_be_used_twice(tmp_path):
+    """Otherwise a code is good for its whole window however many times it is
+    presented, and anybody who saw one has thirty seconds to use it too."""
+    from auteur.web import totp
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("ada", "ada@example.invalid", "a-long-enough-passphrase")
+    secret = accounts.begin_totp("ada")
+    accounts.confirm_totp("ada", totp.code_at(secret))
+
+    # Setup already spent this window, so the same code must not work again.
+    assert accounts.second_step("ada", totp.code_at(secret)) is False
+
+
+def test_a_recovery_code_works_once_and_is_stored_hashed(tmp_path):
+    from auteur.web import totp
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("ada", "ada@example.invalid", "a-long-enough-passphrase")
+    secret = accounts.begin_totp("ada")
+    codes = accounts.confirm_totp("ada", totp.code_at(secret))
+
+    stored = (tmp_path / "accounts.json").read_text()
+    for code in codes:
+        assert code not in stored, "a recovery code is a password and is in the clear"
+
+    assert accounts.second_step("ada", codes[0].lower()) is True
+    assert accounts.second_step("ada", codes[0]) is False, "a code that works twice never expires"
+    assert len(accounts.get("ada").recovery) == totp.RECOVERY_CODES - 1
+
+
+def test_turning_it_off_needs_the_password_again(tmp_path):
+    """A borrowed unlocked phone with a live session should not be able to
+    remove the factor protecting the account it is signed in to."""
+    from auteur.web import totp
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("ada", "ada@example.invalid", "a-long-enough-passphrase")
+    secret = accounts.begin_totp("ada")
+    accounts.confirm_totp("ada", totp.code_at(secret))
+
+    assert accounts.disable_totp("ada", "wrong") is False
+    assert accounts.get("ada").totp_on is True
+    assert accounts.disable_totp("ada", "a-long-enough-passphrase") is True
+    assert accounts.get("ada").totp_secret == ""
+    assert accounts.get("ada").recovery == []
+
+
+def test_the_second_step_happens_while_signed_out():
+    from auteur.web import server
+
+    assert "/api/login/step2" in server.PUBLIC_PATHS
+
+
+# ---------------------------------------------------------------------------
+# The bug finder
+# ---------------------------------------------------------------------------
+
+
+def test_a_fault_can_be_reported_before_anybody_has_signed_in():
+    """A fault on the sign-in page is exactly the one nobody could report if
+    reporting needed an account."""
+    from auteur.web import server
+
+    assert "/api/trouble" in server.PUBLIC_PATHS
+
+
+def test_the_bug_finder_is_not_telemetry():
+    """The difference is not intent. There is no endpoint in this program that
+    sends anything off the machine, so a report has nowhere to go but the disk
+    it is already on."""
+    from auteur.web import server
+
+    handler = (server.STATIC / "trouble.js").read_text()
+    # One destination, and it is this server.
+    assert '"/api/trouble"' in handler
+    for elsewhere in ("http://", "https://", "sendBeacon", "new Image("):
+        assert elsewhere not in handler, f"the bug finder reaches {elsewhere}"
+
+
+def test_the_bug_finder_cannot_itself_throw():
+    """An error handler that throws is a loop that takes the page down harder
+    than the fault it was reporting."""
+    handler = (
+        Path(__file__).resolve().parent.parent / "auteur" / "web" / "static" / "trouble.js"
+    ).read_text()
+    assert "try {" in handler
+    # And it stops repeating itself, or one fault in a loop is a thousand posts.
+    assert "SEEN" in handler
+    assert "MOST" in handler
+
+
+def test_every_page_can_report_a_fault():
+    from auteur.web import server
+
+    for page in (
+        "index",
+        "feed",
+        "inbox",
+        "manager",
+        "templates",
+        "studio",
+        "ask",
+        "overlays",
+        "connect",
+        "login",
+    ):
+        text = (server.STATIC / f"{page}.html").read_text()
+        assert "trouble.js" in text, f"{page}.html cannot report a fault"
+
+
+# ---------------------------------------------------------------------------
+# Reaching an instance
+# ---------------------------------------------------------------------------
+
+
+def test_the_app_allows_plain_http_only_on_the_local_network():
+    """Reaching your own instance means a plain connection to a local address.
+    `NSAllowsArbitraryLoads` would open every unencrypted request to the
+    internet as well, which is not what is wanted and is a review question."""
+    import plistlib
+
+    with (IOS / "Auteur" / "Info.plist").open("rb") as handle:
+        info = plistlib.load(handle)
+
+    ats = info["NSAppTransportSecurity"]
+    assert ats.get("NSAllowsLocalNetworking") is True
+    assert "NSAllowsArbitraryLoads" not in ats
+    assert len(info["NSLocalNetworkUsageDescription"]) > 25
+
+
+def test_with_no_instance_the_app_opens_no_socket():
+    """The default is the bundled page, which is a file URL."""
+    swift = (IOS / "Auteur" / "Instance.swift").read_text()
+    assert "Bundle.main.url" in swift
+    # And only http(s) to a real host is ever accepted.
+    assert 'scheme == "http" || scheme == "https"' in swift
+    assert "url.host != nil" in swift
+
+
+def test_the_policy_no_longer_claims_the_app_has_no_network():
+    """It has a feed and messages, and neither can live inside one phone. The
+    old wording said "no network requests" without qualification, which read as
+    a contradiction because it was one."""
+    policy = " ".join((Path(__file__).resolve().parent.parent / "PRIVACY.md").read_text().split())
+    assert "nothing goes anywhere you did not put it" in policy.lower()
+    assert "on its own, the app makes no network requests at all" in policy.lower()
+    assert "connected to your own instance" in policy.lower()
+    # And the sentence that used to be the contradiction is gone.
+    assert "it makes **no network requests of any kind**" not in policy

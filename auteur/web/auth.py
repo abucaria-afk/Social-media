@@ -25,6 +25,8 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from . import totp
+
 log = logging.getLogger("auteur.web.auth")
 
 #: scrypt parameters. n=2^15 costs roughly 100ms and ~32MB per attempt, which
@@ -85,6 +87,17 @@ class Account:
     #: sha256 of the outstanding reset token, and when it expires.
     reset_hash: str = ""
     reset_expires: float = 0.0
+    #: Two-step verification. `totp_secret` exists as soon as somebody starts
+    #: setting it up; `totp_on` only once they have proved they can produce a
+    #: code from it, so a half-finished setup can never lock anybody out.
+    totp_secret: str = ""
+    totp_on: bool = False
+    #: sha256 of each unspent recovery code.
+    recovery: list = field(default_factory=list)
+    #: The last time-step spent, so one code cannot be used twice inside its
+    #: own window by whoever read it over a shoulder.
+    totp_last_step: int = 0
+
     #: The secret in this person's calendar subscription URL. A calendar app is
     #: not a browser and will not sign in, so the link *is* the credential —
     #: which makes it a capability: long, unguessable, per person, and
@@ -109,6 +122,10 @@ class Accounts:
         self.accounts: dict[str, Account] = {}
         #: token hash -> (username, expiry)
         self.sessions: dict[str, tuple[str, float]] = {}
+        #: Half-finished sign-ins: the password was right and the second step
+        #: is owed. In memory only — a sign-in interrupted by a restart should
+        #: start again rather than resume.
+        self._tickets: dict[str, tuple[str, float]] = {}
         #: mtime of the file as we last read or wrote it, for `refresh()`.
         self._stamp = 0.0
         self._load()
@@ -298,7 +315,119 @@ class Accounts:
         with self.lock:
             account.failures, account.locked_until = 0, 0.0
             self._save()
+            owed = account.totp_on
+
+        if owed:
+            # The password was right and that is not enough. What comes back is
+            # a ticket, not a session: it names the account, expires in a few
+            # minutes, is spent by being used, and can do nothing else — so a
+            # stolen one is worth nothing without the code it is waiting for.
+            return None, "code:" + self.open_ticket(account.username)
         return self.open_session(account.username), "Signed in."
+
+    #: How long somebody has to fetch a code from their phone.
+    TICKET_LIFETIME = 300
+
+    def open_ticket(self, username: str) -> str:
+        token = secrets.token_urlsafe(24)
+        with self.lock:
+            self._tickets[_token_hash(token)] = (username, time.time() + self.TICKET_LIFETIME)
+            self._sweep_tickets()
+        return token
+
+    def spend_ticket(self, token: str) -> str | None:
+        """Whose half-finished sign-in this is. Once."""
+        if not token:
+            return None
+        with self.lock:
+            self._sweep_tickets()
+            found = self._tickets.pop(_token_hash(token), None)
+        if found is None:
+            return None
+        username, expiry = found
+        return username if expiry > time.time() else None
+
+    def _sweep_tickets(self) -> None:
+        now = time.time()
+        for key in [k for k, (_, expiry) in self._tickets.items() if expiry < now]:
+            self._tickets.pop(key, None)
+
+    # -- two-step verification -------------------------------------------
+
+    def begin_totp(self, username: str) -> str:
+        """A secret to set up with, not yet switched on."""
+        with self.lock:
+            account = self.accounts.get(username.lower())
+            if account is None:
+                return ""
+            if not account.totp_secret or account.totp_on:
+                account.totp_secret = totp.new_secret()
+                self._save()
+            return account.totp_secret
+
+    def confirm_totp(self, username: str, code: str) -> list[str] | None:
+        """Switch it on, once they have proved they can produce a code.
+
+        Returns the recovery codes, once, in the clear — the only time they
+        exist in readable form. Returns None if the code was wrong, which
+        leaves the feature off rather than half on.
+        """
+        with self.lock:
+            account = self.accounts.get(username.lower())
+            if account is None or not account.totp_secret:
+                return None
+            step = totp.check(account.totp_secret, code)
+            if step is None:
+                return None
+            plain = totp.new_recovery_codes()
+            account.recovery = [totp.hash_recovery(c) for c in plain]
+            account.totp_last_step = step
+            account.totp_on = True
+            self._save()
+            return plain
+
+    def disable_totp(self, username: str, password: str) -> bool:
+        """Turn it off, and only with the password.
+
+        Asking for the password again is the point: a borrowed unlocked phone
+        with a live session should not be able to remove the factor that
+        protects the account it is signed in to.
+        """
+        with self.lock:
+            account = self.accounts.get(username.lower())
+        if account is None or not account.check(password):
+            return False
+        with self.lock:
+            account.totp_on = False
+            account.totp_secret = ""
+            account.recovery = []
+            account.totp_last_step = 0
+            self._save()
+        return True
+
+    def second_step(self, username: str, given: str) -> bool:
+        """Check a code, or a recovery code. Either is spent by using it."""
+        with self.lock:
+            account = self.accounts.get(username.lower())
+            if account is None or not account.totp_on:
+                return False
+
+            step = totp.check(account.totp_secret, given)
+            if step is not None:
+                # Single use. Without this a code is good for its whole window
+                # however many times it is presented.
+                if step <= account.totp_last_step:
+                    return False
+                account.totp_last_step = step
+                self._save()
+                return True
+
+            spent = totp.spend_recovery(account.recovery, given)
+            if spent is None:
+                return False
+            account.recovery = [h for h in account.recovery if h != spent]
+            self._save()
+            return True
 
     def open_session(self, username: str) -> str:
         """A session for somebody whose identity has already been established.

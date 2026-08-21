@@ -1140,3 +1140,72 @@ body.has-tabbar .page {
    is injected by a script; a page with no routes has to carry its own. */
 .rooms-flat { display: grid; gap: 8px; margin-top: 18px; }
 .rooms-flat .onward { margin-top: 0; }
+
+/* The shared secret, and the recovery codes. Both are read off the screen and
+   typed somewhere else, so both are monospace with room between characters —
+   O and 0 at body size in a proportional face is how a code gets mistyped
+   three times and blamed on the server. */
+.two-step-secret {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  font: var(--text-callout)/1.6 var(--font-mono);
+  letter-spacing: 0.08em;
+  word-break: break-all;
+  -webkit-user-select: all;
+  user-select: all;
+}
+
+.recovery {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  margin: 12px 0 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  list-style: none;
+  font: var(--text-footnote)/1.7 var(--font-mono);
+  letter-spacing: 0.04em;
+  -webkit-user-select: all;
+  user-select: all;
+}
+
+/* What went wrong. A panel rather than an alert: an alert stops the page, and
+   the commonest script error is one that has already broken something else —
+   interrupting on top of that turns a degraded screen into an unusable one. */
+.trouble {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(var(--tabbar) + var(--safe-bottom) + 12px);
+  z-index: 90;
+  padding: 12px 14px;
+  border: 1px solid var(--rust);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--ground) 55%, transparent);
+}
+
+.trouble-what { margin: 0 0 4px; font: 600 var(--text-callout)/1.3 var(--font-display); }
+
+.trouble-detail {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font: var(--text-caption)/1.45 var(--font-mono);
+  word-break: break-word;
+}
+
+.trouble-acts { display: flex; gap: 8px; }
+
+.trouble-acts button {
+  flex: 1;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--text);
+  font: 600 var(--text-footnote)/1 var(--font-display);
+  cursor: pointer;
+}

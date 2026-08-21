@@ -173,6 +173,19 @@
       <span class="onward-state" id="room-connect"></span>
     </a>
 
+    <h3 class="settings-label">Your account</h3>
+    <div class="inset-group">
+      <button type="button" class="inset-row" id="two-step-row">
+        <span class="inset-label">Two-step verification</span>
+        <span class="inset-value" id="two-step-state">…</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </button>
+    </div>
+    <p class="group-caption">
+      A password that has leaked somewhere else stops being enough on its own.
+      You will need an authenticator app.
+    </p>
+
     <div class="settings">
       <span class="settings-label">Appearance</span>
       <div class="choices appearance" role="radiogroup" aria-label="Appearance">
@@ -227,6 +240,54 @@
 
 </main>
 
+<!-- Turning two-step on, and off. -->
+<div class="sheet" id="two-step-sheet" hidden>
+  <div class="sheet-scrim" id="two-step-scrim"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Two-step verification">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title" id="two-step-title">Two-step verification</h2>
+
+    <div id="two-step-setup" hidden>
+      <p class="sheet-note">
+        Add this to an authenticator app, then type what it shows to prove it
+        worked. Nothing changes until you do.
+      </p>
+      <a class="ghost" id="two-step-uri" href="#">Open in my authenticator</a>
+      <p class="two-step-secret" id="two-step-secret"></p>
+      <p class="sheet-note">Or type that key in by hand.</p>
+      <label class="field-label" for="two-step-code">The six digits it shows</label>
+      <input type="text" id="two-step-code" inputmode="numeric" maxlength="6"
+             autocomplete="one-time-code" autocorrect="off" spellcheck="false">
+      <p class="error" id="two-step-error" role="alert" hidden></p>
+      <button type="button" class="go" id="two-step-confirm">Turn it on</button>
+    </div>
+
+    <div id="two-step-recovery" hidden>
+      <p class="sheet-note">
+        <strong>Write these down now.</strong> Each one gets you in once if you
+        lose the phone, and this is the only time they can be shown — they are
+        stored hashed, like a password.
+      </p>
+      <ul class="recovery" id="recovery-list"></ul>
+      <button type="button" class="ghost" id="recovery-copy">Copy them</button>
+    </div>
+
+    <div id="two-step-remove" hidden>
+      <p class="sheet-note">
+        It is on. Turning it off needs your password again — a borrowed phone
+        with a live session should not be able to remove it.
+      </p>
+      <label class="field-label" for="two-step-password">Your password</label>
+      <input type="password" id="two-step-password" autocomplete="current-password">
+      <p class="error" id="two-step-off-error" role="alert" hidden></p>
+      <button type="button" class="ghost" id="two-step-off">Turn it off</button>
+    </div>
+
+    <button type="button" class="ghost" id="two-step-close">Close</button>
+  </div>
+</div>
+
+<script src="/static/trouble.js"></script>
 <script src="/static/chrome.js"></script>
 <script src="/static/theme.js"></script>
 <script src="/static/app.js"></script>

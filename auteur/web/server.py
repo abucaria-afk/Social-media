@@ -140,6 +140,12 @@ PUBLIC_PATHS = frozenset(
         "/api/can-signup",
         "/api/forgot",
         "/api/reset",
+        # The second step of signing in happens while signed out, by
+        # definition — a ticket is not a session and reaches nothing else.
+        "/api/login/step2",
+        # A fault on the sign-in page is exactly the one nobody could report
+        # if reporting needed an account.
+        "/api/trouble",
         "/api/sign-in-with",
         # The App Store requires a privacy policy at a URL anybody can open,
         # and "anybody" includes a reviewer who has not been given an account.
@@ -1202,6 +1208,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/calendar":
             self._calendar_link()
             return
+        if path == "/api/two-step":
+            self._two_step_state()
+            return
+        if path == "/api/trouble":
+            self._trouble_log()
+            return
         if path == "/api/sign-in-with":
             self._sign_in_options()
             return
@@ -1460,6 +1472,12 @@ class Handler(BaseHTTPRequestHandler):
         token, message = self.accounts.sign_in(
             str(payload.get("username", "")), str(payload.get("password", ""))
         )
+        if token is None and message.startswith("code:"):
+            # The password was right and it is not enough. No cookie yet: what
+            # goes back is a ticket, which names the account and can do nothing
+            # but be exchanged for a session by somebody holding a code.
+            self._json({"needs": "code", "ticket": message[5:]}, 200)
+            return
         if token is None:
             # 401 with the same wording whatever went wrong, so the response
             # never distinguishes "no such user" from "wrong password".
@@ -1472,6 +1490,143 @@ class Handler(BaseHTTPRequestHandler):
             "application/json; charset=utf-8",
             extra={"Set-Cookie": self._set_session_cookie(token), "Cache-Control": "no-store"},
         )
+
+    #: Most faults kept on disk. A log that grows without bound is a log that
+    #: eventually fills the machine the app is running on.
+    TROUBLE_KEEP = 200
+
+    def _record_trouble(self) -> None:
+        """A script error from a page, written down where somebody can find it.
+
+        Not telemetry, and the difference is not a matter of intent: this goes
+        to a file on the machine already running the app and nowhere else.
+        There is no endpoint anywhere in this program that sends anything off
+        the machine, which is what makes "nothing leaves your phone" a fact
+        rather than a policy.
+
+        Open to anybody who can reach the server, signed in or not: a fault on
+        the sign-in page is exactly the one nobody can report otherwise.
+        """
+        payload = self._json_body()
+        entry = {
+            "at": str(payload.get("at") or "")[:40],
+            "what": str(payload.get("what") or "")[:300],
+            "where": str(payload.get("where") or "")[:120],
+            "line": int(payload.get("line") or 0),
+            "page": str(payload.get("page") or "")[:120],
+            "stack": str(payload.get("stack") or "")[:900],
+            "screen": str(payload.get("screen") or "")[:20],
+            "agent": str(payload.get("agent") or "")[:160],
+            "who": _for_log(self.current_user() or ""),
+        }
+        if not entry["what"]:
+            self._json({"error": "nothing to record"}, 400)
+            return
+
+        path = self.studio.workspace / "trouble.json"
+        try:
+            with self.studio.lock:
+                try:
+                    known = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    known = []
+                if not isinstance(known, list):
+                    known = []
+                known.append(entry)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(known[-self.TROUBLE_KEEP :], indent=1), encoding="utf-8")
+        except OSError as exc:  # noqa: BLE001 - failing to log is not a crash
+            log.warning("could not write the trouble log: %s", exc)
+
+        log.warning(
+            "a page reported: %s (%s:%s)", _for_log(entry["what"]), entry["where"], entry["line"]
+        )
+        self._json({"recorded": True})
+
+    def _trouble_log(self) -> None:
+        """What has gone wrong, newest first, for the studio to show."""
+        path = self.studio.workspace / "trouble.json"
+        try:
+            known = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            known = []
+        if not isinstance(known, list):
+            known = []
+        self._json({"trouble": list(reversed(known))[:50], "kept": len(known)})
+
+    def _second_step(self) -> None:
+        """The code, exchanged for a session.
+
+        Rate limited by the same lockout the password is: a six digit code is
+        guessable in a million tries and a server that answers a million tries
+        is the whole of the weakness.
+        """
+        self.accounts.refresh()
+        payload = self._json_body()
+        who = self.accounts.spend_ticket(str(payload.get("ticket") or ""))
+        if who is None:
+            self._json({"error": "That sign-in expired. Start again."}, 401)
+            return
+        if not self.accounts.second_step(who, str(payload.get("code") or "")):
+            log.info("a wrong second step for %s", _for_log(who))
+            self._json({"error": "That code did not match."}, 401)
+            return
+        token = self.accounts.open_session(who)
+        log.info("%s signed in with a second step", _for_log(who))
+        self._send(
+            200,
+            json.dumps({"user": who}).encode(),
+            "application/json; charset=utf-8",
+            extra={"Set-Cookie": self._set_session_cookie(token), "Cache-Control": "no-store"},
+        )
+
+    def _two_step_state(self) -> None:
+        who = self.current_user() or ""
+        self.accounts.refresh()
+        account = self.accounts.get(who) if who else None
+        self._json(
+            {
+                "on": bool(account and account.totp_on),
+                "recovery_left": len(account.recovery) if account else 0,
+            }
+        )
+
+    def _two_step_start(self) -> None:
+        from . import totp
+
+        who = self.current_user() or ""
+        secret = self.accounts.begin_totp(who)
+        if not secret:
+            self._json({"error": "no such account"}, 404)
+            return
+        self._json(
+            {
+                # The secret goes to the person setting it up and nowhere else.
+                "secret": totp.readable(secret),
+                "uri": totp.provisioning_uri(secret, account=who),
+            }
+        )
+
+    def _two_step_confirm(self) -> None:
+        who = self.current_user() or ""
+        payload = self._json_body()
+        codes = self.accounts.confirm_totp(who, str(payload.get("code") or ""))
+        if codes is None:
+            self._json({"error": "That code did not match. It is still off."}, 400)
+            return
+        log.info("%s turned on two-step verification", _for_log(who))
+        # Shown once. They are hashed the moment they are made, so this is the
+        # only time they exist in a form anybody can read.
+        self._json({"on": True, "recovery": codes})
+
+    def _two_step_off(self) -> None:
+        who = self.current_user() or ""
+        payload = self._json_body()
+        if not self.accounts.disable_totp(who, str(payload.get("password") or "")):
+            self._json({"error": "That password did not match."}, 401)
+            return
+        log.info("%s turned off two-step verification", _for_log(who))
+        self._json({"on": False})
 
     def _forgot(self) -> None:
         from .auth import send_reset
@@ -2232,6 +2387,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/login":
             self._sign_in()
             return
+        if path == "/api/login/step2":
+            self._second_step()
+            return
         if path == "/api/logout":
             self.accounts.sign_out(self.session_token)
             self._send(
@@ -2240,6 +2398,9 @@ class Handler(BaseHTTPRequestHandler):
                 "application/json; charset=utf-8",
                 extra={"Set-Cookie": self._clear_session_cookie(), "Cache-Control": "no-store"},
             )
+            return
+        if path == "/api/trouble":
+            self._record_trouble()
             return
         if path == "/api/forgot":
             self._forgot()
@@ -2265,6 +2426,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/calendar/roll":
             self._calendar_roll()
+            return
+        if path == "/api/two-step/start":
+            self._two_step_start()
+            return
+        if path == "/api/two-step/confirm":
+            self._two_step_confirm()
+            return
+        if path == "/api/two-step/off":
+            self._two_step_off()
             return
         if path == "/api/shared/clear":
             self._clear_shared(self.current_user() or "")

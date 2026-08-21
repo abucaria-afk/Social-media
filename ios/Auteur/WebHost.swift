@@ -4,6 +4,7 @@ import WebKit
 /// The web view, and the rules it runs under.
 struct WebHost: UIViewRepresentable {
     let bridge: Bridge
+    @ObservedObject var instance: Instance
 
     func makeUIView(context: Context) -> WKWebView {
         let settings = WKWebViewConfiguration()
@@ -41,15 +42,30 @@ struct WebHost: UIViewRepresentable {
 
         bridge.attach(view)
 
-        // From the bundle, with the folder granted so nothing has to be
-        // inlined that does not need to be. There is no network entitlement in
-        // this app at all; a page that reached outside would simply not load,
-        // which is why the build script refuses to ship one that does.
-        if let page = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Web") {
-            view.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent())
-        }
+        load(into: view)
         return view
     }
 
-    func updateUIView(_ view: WKWebView, context: Context) {}
+    func updateUIView(_ view: WKWebView, context: Context) {
+        // Connecting or disconnecting changes which page this is.
+        let wanted = instance.start
+        if view.url?.absoluteString != wanted?.absoluteString {
+            load(into: view)
+        }
+    }
+
+    /// The instance if one is set, and the bundle otherwise.
+    ///
+    /// The bundled page is loaded as a file URL with its folder granted, so it
+    /// works with no network at all. An instance is an ordinary load — the
+    /// feed and the messages live there because a feed of other people's films
+    /// cannot exist inside one phone.
+    private func load(into view: WKWebView) {
+        guard let start = instance.start else { return }
+        if start.isFileURL {
+            view.loadFileURL(start, allowingReadAccessTo: start.deletingLastPathComponent())
+        } else {
+            view.load(URLRequest(url: start))
+        }
+    }
 }

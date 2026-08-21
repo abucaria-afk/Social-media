@@ -87,6 +87,8 @@
 
   // -- sign in --------------------------------------------------------------
 
+  var ticket = null;
+
   $("signin-form").addEventListener("submit", function (event) {
     event.preventDefault();
     var problem = $("signin-error");
@@ -99,14 +101,34 @@
       return;
     }
 
+    function ready() {
+      $("signin-go").disabled = false;
+      $("signin-go").textContent = ticket ? "Sign in" : "Sign in";
+    }
+
     $("signin-go").disabled = true;
     $("signin-go").textContent = "Signing in…";
+
+    // Already past the password: this submit is the code.
+    if (ticket) {
+      window.auteurFinishSecondStep(
+        $("step2-code").value.trim(),
+        function (message) { say(problem, message, true); },
+        ready
+      );
+      return;
+    }
+
     post("/api/login", { username: username, password: password })
       .then(function (result) {
         if (!result.ok) {
           say(problem, result.payload.error || "That did not work.", true);
-          $("signin-go").disabled = false;
-          $("signin-go").textContent = "Sign in";
+          ready();
+          return;
+        }
+        if (result.payload && result.payload.needs === "code") {
+          // The password was right and it is not enough.
+          window.auteurSecondStep(result.payload, ready);
           return;
         }
         // Full navigation rather than a fetch, so the browser offers to save
@@ -158,6 +180,46 @@
     this.textContent = hidden ? "Hide" : "Show";
     this.setAttribute("aria-label", hidden ? "Hide password" : "Show password");
   });
+
+  /* Signing in, in one or two steps.
+   *
+   * The form is the same form: when the password is right and a second step is
+   * owed, the server sends a ticket instead of a cookie, the code field
+   * appears, and the next submit exchanges the two. Keeping it one form means
+   * the browser's own password manager still sees a normal sign-in, and the
+   * `one-time-code` autocomplete lets the phone offer the code from the
+   * message or the authenticator. */
+  window.auteurSecondStep = function (payload, whenDone) {
+    ticket = payload.ticket;
+    var box = $("step2");
+    box.hidden = false;
+    $("step2-code").focus();
+    say($("signin-error"), "");
+    if (whenDone) { whenDone(); }
+  };
+
+  window.auteurFinishSecondStep = function (code, onFail, always) {
+    fetch("/api/login/step2", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket: ticket, code: code })
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (got) {
+        if (!got.ok) {
+          // The ticket is spent either way, so a wrong code means starting
+          // over rather than guessing again on the same one.
+          ticket = null;
+          $("step2").hidden = true;
+          onFail(got.d.error || "That code did not match.");
+          return;
+        }
+        window.location.href = "/";
+      })
+      .catch(function (err) { onFail("Could not reach it: " + err); })
+      .then(always || function () {});
+  };
 
   $("signup-form").addEventListener("submit", function (event) {
     event.preventDefault();

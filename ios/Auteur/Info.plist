@@ -24,10 +24,17 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSCalendarsUsageDescription</key>
 	<string>So a planned shoot can be added to your calendar with its reminders.</string>
 	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
 	<string>So a planned shoot can be added to your calendar with its reminders.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>So the app can reach the copy of Auteur running on your own computer, for the feed, messages and planned posts that live there.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>So a film you have made can be saved to your camera roll.</string>
 	<key>UILaunchScreen</key>

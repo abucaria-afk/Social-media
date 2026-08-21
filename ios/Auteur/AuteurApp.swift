@@ -24,9 +24,31 @@ struct AuteurApp: App {
 
 struct EditRoom: View {
     @StateObject private var bridge = Bridge()
+    @StateObject private var instance = Instance()
+    @State private var connecting = false
 
     var body: some View {
-        WebHost(bridge: bridge)
+        WebHost(bridge: bridge, instance: instance)
+            .sheet(isPresented: $connecting) {
+                ConnectSheet(instance: instance, showing: $connecting)
+            }
+            // Only from the bundled page: connected, the app's own settings
+            // screen is on the instance and this button would be a second one
+            // saying something different.
+            .overlay(alignment: .topTrailing) {
+                if !instance.isSet {
+                    Button {
+                        connecting = true
+                    } label: {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .padding(10)
+                            .background(.thinMaterial, in: Circle())
+                    }
+                    .padding(.top, 54)
+                    .padding(.trailing, 14)
+                    .accessibilityLabel("Connect to your Auteur")
+                }
+            }
             .overlay(alignment: .bottom) {
                 if let note = bridge.note {
                     Text(note)

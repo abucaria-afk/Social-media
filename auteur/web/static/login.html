@@ -57,6 +57,22 @@
 
       <p class="error" id="signin-error" role="alert" hidden></p>
 
+      <!-- The second step. Hidden until the password has been accepted and
+           found insufficient, so the ordinary sign-in is still two fields. -->
+      <div class="card" id="step2" hidden>
+        <span class="card-body">
+          <label class="card-title" for="step2-code">The code from your authenticator</label>
+          <input type="text" id="step2-code" name="one-time-code"
+                 inputmode="numeric" autocomplete="one-time-code"
+                 pattern="[0-9A-Za-z]*" maxlength="14" enterkeyhint="go"
+                 autocapitalize="characters" autocorrect="off" spellcheck="false">
+          <span class="card-hint">
+            Six digits. If you have lost the phone, one of your recovery codes
+            works here instead — each of them once.
+          </span>
+        </span>
+      </div>
+
       <button type="submit" class="go" id="signin-go">Sign in</button>
 
       <!-- Filled from /api/sign-in-with. Providers that are not set up are
@@ -168,6 +184,7 @@
 
 </main>
 
+<script src="/static/trouble.js"></script>
 <script src="/static/login.js"></script>
 </body>
 </html>

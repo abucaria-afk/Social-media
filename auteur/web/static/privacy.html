@@ -13,10 +13,12 @@
 <body>
 <main class="prose">
 <h1>Privacy</h1>
-<p><strong>Auteur collects nothing, tracks nothing, and sends nothing anywhere.</strong></p>
-<p>That is not a promise about intent. It is a property of how the app is built, and the parts of it that can be checked are checked by the test suite.</p>
+<p><strong>Nobody operates a service here. There is no &quot;we&quot; to send anything to.</strong></p>
+<p>That is the whole of it, and it is a property of how this is built rather than a promise about intent — the parts that can be checked are checked by the test suite.</p>
+<p>It is worth being exact about the one thing that sounds like a contradiction. This app has a feed of films and messages between people, and neither of those can live inside a single phone: they need a server. The server is one *you* run, with <code>auteur serve</code>, usually on your own wifi, holding its files in a folder you chose. So &quot;nothing leaves your phone&quot; is not quite the right sentence, and the right one is longer: <strong>nothing goes anywhere you did not put it.</strong> There is no account with anybody, no analytics, no third party, and no address in this program that you did not type.</p>
 <h2>The iOS app</h2>
-<p>The app on the App Store contains a page loaded from inside the app itself and a small amount of native code. It makes <strong>no network requests of any kind</strong> — there is no analytics, no crash reporting, no advertising identifier, no account, and no server. It works with the phone in aeroplane mode, which is the simplest way to confirm it.</p>
+<p><strong>On its own, the app makes no network requests at all.</strong> It contains the whole edit room — a page loaded from inside the app itself, plus a small amount of native code — and it works with the phone in aeroplane mode, which is the simplest way to confirm it. There is no analytics, no crash reporting service, no advertising identifier and no account.</p>
+<p><strong>Connected to your own instance, it reaches that and nothing else.</strong> The feed, the messages and the planned posts live there because they cannot live in one phone. You type the address; it is <code>http://</code> on your own wifi, so the app allows plain connections *only* to local addresses and never to the internet. Leave it empty and the app never opens a socket.</p>
 <p>What it asks for, and why:</p>
 <table><thead><tr><th>Permission</th><th>Asked when</th><th>What it is used for</th>
 </tr></thead><tbody>
@@ -31,6 +33,8 @@
 <p><strong>Sign-in with Google.</strong> If, and only if, you configure it, signing in sends you to Google and Google tells this app your email address so it can match an account that already exists here. Google will know you signed in to something. This app tells Google nothing about you and creates no account from it.</p>
 <p><strong>The calendar link.</strong> Subscribing puts your planned shoots in your calendar app, which may be synced by Apple or Google depending on which calendar you put it in. That is your calendar&#x27;s arrangement, not this app&#x27;s. The link contains a secret, which is why the app tells you to treat it as a password and lets you replace it.</p>
 <p><strong>The Scholar.</strong> If you give it an API key it sends the *question you typed* to Anthropic to answer it. It never sends your footage. Without a key it answers only from what it has measured locally, and says so.</p>
+<p><strong>When something breaks.</strong> A script error is written to a file beside the accounts on the machine running the app, and shown to you in a panel you can copy. That is a bug finder rather than telemetry, and the difference is not intent: there is no endpoint in this program that sends anything off the machine, so there is nowhere for a report to go except the disk it is already on.</p>
+<p><strong>Signing in.</strong> A password can be protected with two-step verification, which this app implements itself to the same standard every authenticator app uses. The shared secret never leaves the machine holding the accounts, and recovery codes are stored hashed — so the file that survives a lost phone is not also the file that replaces the second factor.</p>
 <h2>Publishing</h2>
 <p>Nothing in this program posts to Instagram, TikTok, YouTube or anywhere else. The manager plans posts, drafts captions and checks them; you post them. There is no code path that publishes to a service and no credentials for one — a test reads the source to keep it that way.</p>
 <h2>Children</h2>
