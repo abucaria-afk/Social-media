@@ -36,6 +36,8 @@ from urllib.parse import parse_qs, unquote
 
 from ..config import FORMATS, QUALITIES, Settings
 from ..ui import Reporter, describe_count, describe_duration, describe_shape
+from . import profiles
+from .social import PAGE
 
 log = logging.getLogger("auteur.web")
 
@@ -570,6 +572,7 @@ class Handler(BaseHTTPRequestHandler):
     accounts: Any = None  # an auth.Accounts once serve() has run
     films: Any = None  # a social.Films once serve() has run
     messages: Any = None  # a social.Messages once serve() has run
+    profiles: Any = None  # a profiles.Profiles once serve() has run
     board: Any = None  # a manager.Board once serve() has run
     sign_in_with: Any = None  # provider settings once serve() has run
     attempts: Any = None  # an oidc.Attempts once serve() has run
@@ -1005,7 +1008,14 @@ class Handler(BaseHTTPRequestHandler):
         return poster if poster.is_file() else None
 
     def _feed(self) -> None:
-        """Films, newest first. `?mine=1` for only your own, `?before=` to page."""
+        """Films, newest first. `?scope=` picks whose, `?before=` pages back.
+
+        Three scopes, because "everyone" is the wrong default to be stuck with
+        on an instance where a household shares one server: `all` is everybody,
+        `following` is the people this person chose, and `mine` is their own.
+        `?mine=1` still works — it is what the first version of the feed sent,
+        and a phone with the old page cached is a real client.
+        """
         who = self.current_user() or ""
         query = parse_qs(self.path.partition("?")[2])
         before = None
@@ -1013,11 +1023,170 @@ class Handler(BaseHTTPRequestHandler):
             before = float(query["before"][0]) if query.get("before") else None
         except (TypeError, ValueError):
             before = None
+
+        scope = (query.get("scope") or [""])[0]
         if query.get("mine"):
+            scope = "mine"
+        if scope == "mine":
             films = self.films.by(who)
+        elif scope == "following":
+            # Only the people they actually follow. Slipping their own films in
+            # was tempting — it stops the tab being empty on the day somebody
+            # signs up — but a tab labelled Following that shows something you
+            # do not follow is a label that lies, and the empty state says what
+            # to do about it instead.
+            wanted = set(self.profiles.following_of(who))
+            films = [f for f in self.films.feed(who, limit=999, before=before) if f.owner in wanted]
+            films = films[:PAGE]
         else:
             films = self.films.feed(who, before=before)
-        self._json({"films": [f.public(who) for f in films], "me": who})
+
+        rows = [f.public(who) for f in films]
+        self._json(
+            {
+                "films": rows,
+                "me": who,
+                "scope": scope or "all",
+                # Enough to draw each author's disc without a request per film.
+                "people": self.profiles.cards(sorted({f["owner"] for f in rows})),
+                "following": len(self.profiles.following_of(who)),
+            }
+        )
+
+    # ------------------------------------------------------------- profiles
+
+    def _mine(self, who: str) -> dict:
+        """Your own profile, with the film count on it.
+
+        Every handler that answers with a profile goes through here, because
+        the count is the part that is easy to leave out: `public_of` defaults
+        it to zero, so saving a bio or a picture used to hand back a profile
+        that said "0 Films" and the header would change to match. The page was
+        right, the answer was incomplete, and it looked like the films had been
+        deleted.
+        """
+        return self.profiles.public_of(who, viewer=who, films=len(self.films.by(who, limit=999)))
+
+    def _my_profile(self) -> None:
+        """Everything the profile page needs about the person looking at it."""
+        who = self.current_user() or ""
+        self.accounts.refresh()
+        account = self.accounts.accounts.get(who)
+        payload = self._mine(who)
+        payload["email"] = getattr(account, "email", "") if account else ""
+        payload["two_step"] = bool(getattr(account, "totp_on", False)) if account else False
+        self._json({"profile": payload})
+
+    def _profile(self, who: str) -> None:
+        """Somebody's profile, and the films of theirs the feed would show."""
+        me = self.current_user() or ""
+        who = unquote(who).strip()
+        self.accounts.refresh()
+        if who not in self.accounts.accounts:
+            self._json({"error": "no one here by that name"}, 404)
+            return
+        films = self.films.by(who, limit=60)
+        self._json(
+            {
+                "profile": self.profiles.public_of(who, viewer=me, films=len(films)),
+                "films": [f.public(me) for f in films],
+            }
+        )
+
+    def _profile_picture(self, who: str) -> None:
+        """The picture itself, or a 404 if they have not set one.
+
+        Cached hard and addressed with a `?v=` that moves when the picture
+        does, which is the same bargain the film posters make: a disc fetched
+        on every screen should come off the cache, and a *replaced* picture
+        should still appear immediately.
+        """
+        found = self.profiles.picture_path(unquote(who).strip())
+        if found is None:
+            self._json({"error": "not found"}, 404)
+            return
+        self._file(found, "image/jpeg")
+
+    def _profile_people(self, who: str, which: str) -> None:
+        """Who somebody follows, or who follows them."""
+        me = self.current_user() or ""
+        who = unquote(who).strip()
+        names = (
+            self.profiles.following_of(who)
+            if which == "following"
+            else self.profiles.followers_of(who)
+        )
+        cards = self.profiles.cards(names)
+        mine = set(self.profiles.following_of(me))
+        rows = [dict(cards[n], you_follow=n in mine, me=n == me) for n in names]
+        self._json({"who": who, "which": which, "people": rows})
+
+    def _edit_profile(self) -> None:
+        who = self.current_user() or ""
+        payload = self._json_body()
+        # `None` for anything not sent, so a form that posts one field does not
+        # blank the other two — see `Profiles.edit`.
+        profile = self.profiles.edit(
+            who,
+            name=payload["name"] if "name" in payload else None,
+            bio=payload["bio"] if "bio" in payload else None,
+            link=payload["link"] if "link" in payload else None,
+        )
+        if "link" in payload and str(payload["link"] or "").strip() and not profile.link:
+            self._json({"error": "That link needs to start with http:// or https://"}, 400)
+            return
+        self._json({"profile": self._mine(who)})
+
+    def _set_picture(self) -> None:
+        """A new profile picture, posted as the image's own bytes.
+
+        Raw rather than multipart because the page has already decoded the
+        photograph into a canvas and handed back a blob — which is also how a
+        four-megabyte HEIC off a phone becomes a sixty-kilobyte JPEG before it
+        touches the network. The server re-encodes it regardless: the page is
+        a convenience and never the check.
+        """
+        who = self.current_user() or ""
+        # Checked before reading, and separately from the empty case: they are
+        # different mistakes and "there was nothing in that upload" is a
+        # baffling thing to be told about an eleven-megabyte photograph.
+        if int(self.headers.get("Content-Length") or 0) > profiles.LARGEST_UPLOAD:
+            self._json({"error": "That picture is too large. Try one under 8MB."}, 413)
+            return
+        raw = self._read_body(profiles.LARGEST_UPLOAD)
+        if not raw:
+            self._json({"error": "There was nothing in that upload."}, 400)
+            return
+        try:
+            filename = profiles.store_picture(raw, self.profiles.pictures, who)
+        except profiles.BadPicture as bad:
+            self._json({"error": str(bad)}, 400)
+            return
+        self.profiles.set_picture(who, filename)
+        log.info("%s set a profile picture", _for_log(who))
+        self._json({"profile": self._mine(who)})
+
+    def _clear_picture(self) -> None:
+        who = self.current_user() or ""
+        self.profiles.forget_picture(who)
+        self._json({"profile": self._mine(who)})
+
+    def _follow(self, who: str) -> None:
+        me = self.current_user() or ""
+        who = unquote(who).strip()
+        self.accounts.refresh()
+        if who not in self.accounts.accounts:
+            self._json({"error": "no one here by that name"}, 404)
+            return
+        if who == me:
+            self._json({"error": "You already know what you make."}, 400)
+            return
+        wanted = bool(self._json_body().get("follow", True))
+        if wanted:
+            self.profiles.follow(me, who)
+        else:
+            self.profiles.unfollow(me, who)
+        self._json({"profile": self.profiles.public_of(who, viewer=me)})
 
     def _film_media(self, path: str) -> None:
         """The video or the poster for one film, by film id.
@@ -1072,9 +1241,13 @@ class Handler(BaseHTTPRequestHandler):
         self.accounts.refresh()
         names = sorted(n for n in self.accounts.accounts if n != who)
         counts = {n: len(self.films.by(n, limit=999)) for n in names}
+        cards = self.profiles.cards(names)
+        mine = set(self.profiles.following_of(who))
         self._json(
             {
-                "people": [{"who": n, "films": counts.get(n, 0)} for n in names],
+                "people": [
+                    dict(cards[n], films=counts.get(n, 0), you_follow=n in mine) for n in names
+                ],
                 "me": who,
             }
         )
@@ -1261,6 +1434,13 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/inbox", "/inbox.html", "/messages"):
             self._static(STATIC / "inbox.html", "text/html; charset=utf-8")
             return
+        if path in ("/profile", "/profile.html", "/me", "/you") or path.startswith("/u/"):
+            # `/u/<name>` so a profile is a link somebody can send. The page
+            # reads the name out of the address itself; the server serves the
+            # same document either way, which is what makes back and forward
+            # work between two people's profiles.
+            self._static(STATIC / "profile.html", "text/html; charset=utf-8")
+            return
         if path in ("/manager", "/manager.html", "/plan"):
             self._static(STATIC / "manager.html", "text/html; charset=utf-8")
             return
@@ -1291,6 +1471,22 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/feed":
             self._feed()
+            return
+        if path == "/api/profile":
+            self._my_profile()
+            return
+        if path.startswith("/api/profiles/"):
+            parts = path.strip("/").split("/")
+            name = parts[2] if len(parts) > 2 else ""
+            what = parts[3] if len(parts) > 3 else ""
+            if what == "picture":
+                self._profile_picture(name)
+            elif what in ("following", "followers"):
+                self._profile_people(name, what)
+            elif what:
+                self._json({"error": "not found"}, 404)
+            else:
+                self._profile(name)
             return
         if path == "/api/people":
             self._people()
@@ -2424,6 +2620,18 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/messages/send":
             self._send_message()
             return
+        if path == "/api/profile":
+            self._edit_profile()
+            return
+        if path == "/api/profile/picture":
+            self._set_picture()
+            return
+        if path == "/api/profile/picture/remove":
+            self._clear_picture()
+            return
+        if path.startswith("/api/profiles/") and path.endswith("/follow"):
+            self._follow(path.split("/")[3])
+            return
         if path == "/api/calendar/roll":
             self._calendar_roll()
             return
@@ -2798,6 +3006,7 @@ def serve(
     from .auth import Accounts
     from ..manager import Board
     from . import oidc
+    from .profiles import Profiles
     from .social import Films, Messages
 
     assets.ensure(STATIC)
@@ -2809,6 +3018,8 @@ def serve(
     Handler.films = Films(Films.default_path(root))
     Handler.studio.films = Handler.films
     Handler.messages = Messages(Messages.default_path(root))
+    # Who everybody is: the picture, the name they chose, and who they follow.
+    Handler.profiles = Profiles(Profiles.default_path(root), root / "pictures")
     Handler.board = Board(Board.default_path(root))
     # Credentials from the workspace or the environment, never the repo.
     Handler.sign_in_with = oidc.load(root)
@@ -2823,6 +3034,13 @@ def serve(
     gone = Handler.films.drop_missing()
     if gone:
         log.info("dropped %d film(s) whose file had been swept", gone)
+    # And the same check one level up: a deleted account otherwise stays in
+    # everybody's following list as a name with no profile behind it, so the
+    # count on the profile page is larger than the list underneath it.
+    Handler.accounts.refresh()
+    stale = Handler.profiles.drop_unknown(set(Handler.accounts.accounts))
+    if stale:
+        log.info("dropped %d follow(s) of accounts that no longer exist", stale)
     # Unless the first person is to claim it from their phone. `bootstrap`
     # generates an account and prints its password to the terminal, which is
     # fine at a desk and is the reason the first step of the whole product

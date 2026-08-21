@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#19181b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f7f5f2" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="Your picture, your films, and how this app looks to you.">
+<!-- Before anything paints: appearance and the three accessibility settings.
+     This page is the one that sets them, so a flash of the old size here would
+     be the setting appearing to fight the person changing it. -->
+<script src="/static/settings.js"></script>
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/profile.css">
+<title>Auteur — profile</title>
+</head>
+<body>
+
+<main class="page" id="profile">
+  <header class="topbar">
+    <button type="button" class="topbar-back" id="back" aria-label="Back" hidden>←</button>
+    <h1 id="bar-name">Profile</h1>
+    <span class="topbar-right">
+      <button type="button" class="chip-button" id="edit-open" hidden>Edit</button>
+    </span>
+  </header>
+
+  <h2 class="large-title" id="big-name">…</h2>
+
+  <!-- The header. Picture on the left, three counts on the right, the way both
+       reference apps lay a profile out — the counts sit beside the picture
+       rather than under it so the bio starts above the fold. -->
+  <section class="who">
+    <button type="button" class="who-pic" id="picture" aria-label="Change your picture">
+      <img id="picture-img" alt="" hidden>
+      <span class="who-initial" id="picture-initial" aria-hidden="true">?</span>
+      <span class="who-pic-badge" id="picture-badge" aria-hidden="true" hidden>＋</span>
+    </button>
+    <ul class="counts">
+      <li class="count">
+        <span class="count-number" id="count-films">0</span>
+        <span class="count-label">Films</span>
+      </li>
+      <li class="count">
+        <button type="button" class="count-open" id="open-followers">
+          <span class="count-number" id="count-followers">0</span>
+          <span class="count-label">Followers</span>
+        </button>
+      </li>
+      <li class="count">
+        <button type="button" class="count-open" id="open-following">
+          <span class="count-number" id="count-following">0</span>
+          <span class="count-label">Following</span>
+        </button>
+      </li>
+    </ul>
+  </section>
+
+  <p class="who-bio" id="bio" hidden></p>
+  <!-- rel on a link somebody else wrote. `noopener` because the new tab would
+       otherwise get a handle on this one through window.opener, and
+       `nofollow ugc` because a profile field is user content, not an
+       endorsement by whoever runs the instance. -->
+  <a class="who-link" id="link" href="#" rel="noopener noreferrer nofollow ugc"
+     target="_blank" hidden></a>
+
+  <div class="who-actions" id="actions">
+    <button type="button" class="go" id="follow" hidden>Follow</button>
+    <button type="button" class="ghost" id="message" hidden>Message</button>
+    <button type="button" class="ghost" id="edit-profile" hidden>Edit profile</button>
+  </div>
+
+  <p class="error" id="page-error" role="alert" hidden></p>
+
+  <!-- Everything below here is only for your own profile. -->
+  <div id="mine" hidden>
+    <!-- The studio, where the tab bar used to have it. Same idea as the
+         professional dashboard row Instagram puts at the top of your own
+         profile: the workroom belongs to you, not to the five slots everybody
+         navigates with. -->
+    <a class="onward" href="/studio">
+      <span class="onward-mark" aria-hidden="true">◱</span>
+      <span class="onward-lines">
+        <span class="onward-name">Studio</span>
+        <span class="onward-note">The crew, what they have learned, and the plan board</span>
+      </span>
+      <span class="onward-state" aria-hidden="true">›</span>
+    </a>
+  </div>
+
+  <h3 class="settings-label" id="films-label">Films</h3>
+  <div class="grid" id="films"></div>
+  <div class="blank" id="films-blank" hidden>
+    <p class="blank-line" id="blank-line">No films yet.</p>
+    <p class="blank-sub" id="blank-sub">Anything finished here shows up on this page.</p>
+    <a class="go" id="blank-go" href="/">Make one</a>
+  </div>
+
+  <div id="settings" hidden>
+    <h3 class="settings-label">Your account</h3>
+    <div class="inset-group">
+      <div class="inset-row" id="email-row">
+        <span class="inset-label">Email</span>
+        <span class="inset-value" id="email">…</span>
+      </div>
+      <button type="button" class="inset-row" id="two-step-row">
+        <span class="inset-label">Two-step verification</span>
+        <span class="inset-value" id="two-step-state">…</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </button>
+      <a class="inset-row" href="/connect">
+        <span class="inset-label">Where it goes</span>
+        <span class="inset-value">Instagram · TikTok</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </a>
+      <a class="inset-row" href="/privacy">
+        <span class="inset-label">Privacy</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </a>
+    </div>
+    <p class="group-caption">
+      A password that has leaked somewhere else stops being enough on its own.
+      Two-step needs an authenticator app.
+    </p>
+
+    <h3 class="settings-label">Appearance</h3>
+    <div class="settings">
+      <div class="choices appearance" role="radiogroup" aria-label="Appearance">
+        <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
+        <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
+        <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
+      </div>
+    </div>
+
+    <h3 class="settings-label">Accessibility</h3>
+    <div class="settings">
+      <span class="settings-label settings-sub" id="text-label">Text size</span>
+      <div class="choices sizes" data-setting="text" role="radiogroup" aria-labelledby="text-label">
+        <button type="button" class="choice" data-value="default" role="radio" aria-checked="false"><span class="size-a size-a-1">A</span><small>Default</small></button>
+        <button type="button" class="choice" data-value="large" role="radio" aria-checked="false"><span class="size-a size-a-2">A</span><small>Large</small></button>
+        <button type="button" class="choice" data-value="larger" role="radio" aria-checked="false"><span class="size-a size-a-3">A</span><small>Larger</small></button>
+        <button type="button" class="choice" data-value="largest" role="radio" aria-checked="false"><span class="size-a size-a-4">A</span><small>Largest</small></button>
+      </div>
+    </div>
+
+    <div class="settings">
+      <span class="settings-label settings-sub" id="motion-label">Motion</span>
+      <div class="choices" data-setting="motion" role="radiogroup" aria-labelledby="motion-label">
+        <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
+        <button type="button" class="choice" data-value="still" role="radio" aria-checked="false">Reduce motion<small>no sliding or fading</small></button>
+      </div>
+    </div>
+
+    <div class="settings">
+      <span class="settings-label settings-sub" id="contrast-label">Contrast</span>
+      <div class="choices" data-setting="contrast" role="radiogroup" aria-labelledby="contrast-label">
+        <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
+        <button type="button" class="choice" data-value="more" role="radio" aria-checked="false">Increase contrast<small>stronger edges and text</small></button>
+      </div>
+    </div>
+
+    <p class="group-caption">
+      These three are kept on this device, not on your account, because they
+      are about the screen you are reading rather than about who you are. If
+      your phone already asks for less motion or more contrast, that is
+      followed here whatever this says — Automatic never turns either off.
+    </p>
+
+    <div class="inset-group">
+      <button type="button" class="inset-row danger" id="sign-out">
+        <span class="inset-label">Sign out</span>
+      </button>
+    </div>
+  </div>
+</main>
+
+<!-- Editing your own name, bio and link. -->
+<div class="sheet" id="edit-sheet" hidden>
+  <div class="sheet-scrim" data-close="edit"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Edit profile">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Edit profile</h2>
+
+    <label class="field-label" for="edit-name">Name</label>
+    <input type="text" id="edit-name" maxlength="40" autocomplete="name"
+           placeholder="What you would like to be called">
+
+    <label class="field-label" for="edit-bio">Bio</label>
+    <textarea id="edit-bio" maxlength="150" rows="3"
+              placeholder="One or two lines about what you make"></textarea>
+    <p class="counter"><span id="bio-left">150</span> left</p>
+
+    <label class="field-label" for="edit-link">Link</label>
+    <input type="url" id="edit-link" maxlength="120" inputmode="url"
+           autocapitalize="off" autocorrect="off" spellcheck="false"
+           placeholder="https://">
+
+    <p class="error" id="edit-error" role="alert" hidden></p>
+    <button type="button" class="go" id="edit-save">Save</button>
+    <button type="button" class="ghost" id="picture-remove" hidden>Remove my picture</button>
+    <button type="button" class="ghost" data-close="edit">Cancel</button>
+  </div>
+</div>
+
+<!-- Followers, or following. One sheet, two lists. -->
+<div class="sheet" id="people-sheet" hidden>
+  <div class="sheet-scrim" data-close="people"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-labelledby="people-title">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title" id="people-title">Followers</h2>
+    <ul class="people" id="people-list"></ul>
+    <p class="sheet-note" id="people-empty" hidden>Nobody yet.</p>
+    <button type="button" class="ghost" data-close="people">Close</button>
+  </div>
+</div>
+
+<!-- Turning two-step on, and off. It lives here rather than on the edit room's
+     home screen: it is an account setting, and this is where the account
+     settings are. -->
+<div class="sheet" id="two-step-sheet" hidden>
+  <div class="sheet-scrim" id="two-step-scrim"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Two-step verification">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title" id="two-step-title">Two-step verification</h2>
+
+    <div id="two-step-setup" hidden>
+      <p class="sheet-note">
+        Add this to an authenticator app, then type what it shows to prove it
+        worked. Nothing changes until you do.
+      </p>
+      <a class="ghost" id="two-step-uri" href="#">Open in my authenticator</a>
+      <p class="two-step-secret" id="two-step-secret"></p>
+      <p class="sheet-note">Or type that key in by hand.</p>
+      <label class="field-label" for="two-step-code">The six digits it shows</label>
+      <input type="text" id="two-step-code" inputmode="numeric" maxlength="6"
+             autocomplete="one-time-code" autocorrect="off" spellcheck="false">
+      <p class="error" id="two-step-error" role="alert" hidden></p>
+      <button type="button" class="go" id="two-step-confirm">Turn it on</button>
+    </div>
+
+    <div id="two-step-recovery" hidden>
+      <p class="sheet-note">
+        <strong>Write these down now.</strong> Each one gets you in once if you
+        lose the phone, and this is the only time they can be shown — they are
+        stored hashed, like a password.
+      </p>
+      <ul class="recovery" id="recovery-list"></ul>
+      <button type="button" class="ghost" id="recovery-copy">Copy them</button>
+    </div>
+
+    <div id="two-step-remove" hidden>
+      <p class="sheet-note">
+        It is on. Turning it off needs your password again — a borrowed phone
+        with a live session should not be able to remove it.
+      </p>
+      <label class="field-label" for="two-step-password">Your password</label>
+      <input type="password" id="two-step-password" autocomplete="current-password">
+      <p class="error" id="two-step-off-error" role="alert" hidden></p>
+      <button type="button" class="ghost" id="two-step-off">Turn it off</button>
+    </div>
+
+    <button type="button" class="ghost" id="two-step-close">Close</button>
+  </div>
+</div>
+
+<!-- Not visible, and not decoration: this is what opens the camera roll. A
+     file input styled to look like a button is a file input nobody can use
+     with a keyboard, so the real control is the picture itself and this is
+     what it clicks. -->
+<input type="file" id="picture-file" accept="image/*" hidden>
+
+<script src="/static/trouble.js"></script>
+<script src="/static/chrome.js"></script>
+<script src="/static/theme.js"></script>
+<script src="/static/profile.js"></script>
+</body>
+</html>

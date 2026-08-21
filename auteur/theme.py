@@ -56,6 +56,7 @@ ROLES: dict[str, str] = {
     "cream": "the accent's soft tint, for large gentle fills",
     "moss": "it worked — the teal lobe of the footage, doing a green's job",
     "rust": "it did not work, or needs attention",
+    "scrim": "the dim behind a sheet — the one role that carries its own alpha",
 }
 
 #: Night. A soft ink rather than a black — the ground a modern phone app
@@ -74,6 +75,12 @@ DARK: dict[str, str] = {
     "cream": "#edd6c0",
     "moss": "#72bccb",
     "rust": "#ee8777",
+    # Eight digits: the last pair is the alpha. A scrim is not a colour the
+    # page can be painted in, it is a dim over whatever is already there, so
+    # it is the one role stored translucent. It lives here rather than as an
+    # rgba() in style.css for the same reason everything else does — one
+    # palette, in one file, or the stylesheet drifts away from it.
+    "scrim": "#0000008c",
 }
 
 #: Daylight. Bone paper, not white: the same warm lobe the accent comes
@@ -94,6 +101,10 @@ LIGHT: dict[str, str] = {
     "cream": "#f7e7d4",
     "moss": "#286571",
     "rust": "#ab3321",
+    # Lighter than the dark scheme's. The same 55% black that reads as a dim
+    # over a near-black page reads as a blackout over a bone one, and the
+    # content behind a sheet is meant to still be visible.
+    "scrim": "#00000066",
 }
 
 SCHEMES: dict[str, dict[str, str]] = {"dark": DARK, "light": LIGHT}

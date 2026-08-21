@@ -1,0 +1,561 @@
+/* The profile page: yours, or somebody else's.
+ *
+ * One document serving two screens, decided by the address. `/profile` is
+ * yours; `/u/<name>` is theirs and is a link you can send somebody. The
+ * account settings and the accessibility settings are only ever revealed after
+ * the server has confirmed the profile is yours — the markup ships them
+ * `hidden` and nothing here un-hides them on any other path.
+ */
+(function () {
+  "use strict";
+
+  function $(id) { return document.getElementById(id); }
+
+  function escaped(text) {
+    return String(text == null ? "" : text)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  /* The same hash the feed and the inbox use, so somebody without a picture is
+     one colour across the whole app rather than three. */
+  function hueOf(name) {
+    var total = 0;
+    for (var i = 0; i < name.length; i++) { total = (total * 31 + name.charCodeAt(i)) % 360; }
+    return total;
+  }
+
+  /* Whose profile this is, from the address. `/u/<name>` carries a name that
+     has been through encodeURIComponent, so it comes back through decode. */
+  function wanted() {
+    var path = location.pathname;
+    if (path.indexOf("/u/") === 0) {
+      try { return decodeURIComponent(path.slice(3)).replace(/\/+$/, ""); }
+      catch (e) { return path.slice(3); }
+    }
+    return "";
+  }
+
+  var who = wanted();
+  var live = null;   // the profile as the server last described it
+  var me = "";       // my own username, once known
+
+  // ---------------------------------------------------------------- drawing
+
+  function draw(profile, films) {
+    live = profile;
+    var mine = !!profile.me;
+
+    document.title = "Auteur — " + profile.name;
+    $("bar-name").textContent = profile.name;
+    $("big-name").textContent = profile.name;
+
+    var pic = $("picture");
+    pic.style.setProperty("--hue", hueOf(profile.who));
+    pic.dataset.mine = mine ? "1" : "";
+    pic.setAttribute(
+      "aria-label",
+      mine ? "Change your picture" : profile.name + "'s picture"
+    );
+    if (!mine) { pic.setAttribute("tabindex", "-1"); }
+    var img = $("picture-img");
+    if (profile.picture) {
+      img.src = profile.picture;
+      /* Empty alt, not the name: the name is already the heading right beside
+         it, and a screen reader reading it twice is noise. */
+      img.alt = "";
+      img.hidden = false;
+      $("picture-initial").hidden = true;
+    } else {
+      img.hidden = true;
+      img.removeAttribute("src");
+      $("picture-initial").hidden = false;
+      $("picture-initial").textContent = (profile.who[0] || "?");
+    }
+    $("picture-badge").hidden = !mine;
+
+    $("count-films").textContent = profile.films;
+    $("count-followers").textContent = profile.followers;
+    $("count-following").textContent = profile.following;
+
+    var bio = $("bio");
+    bio.textContent = profile.bio || "";
+    bio.hidden = !profile.bio;
+
+    var link = $("link");
+    if (profile.link) {
+      link.href = profile.link;
+      /* Shown without the scheme, which is what every app does and what
+         everybody reads anyway. The href keeps it. */
+      link.textContent = profile.link.replace(/^https?:\/\//, "").replace(/\/$/, "");
+      link.hidden = false;
+    } else {
+      link.hidden = true;
+      link.removeAttribute("href");
+    }
+
+    $("edit-open").hidden = !mine;
+    $("edit-profile").hidden = !mine;
+    $("follow").hidden = mine;
+    $("message").hidden = mine;
+    $("mine").hidden = !mine;
+    $("settings").hidden = !mine;
+    $("back").hidden = mine;
+    $("blank-go").hidden = !mine;
+
+    if (!mine) {
+      markFollow(profile.you_follow);
+      $("blank-line").textContent = profile.name + " has not made anything yet.";
+      $("blank-sub").textContent = "Films they finish here will show up on this page.";
+    }
+
+    grid(films || [], profile);
+  }
+
+  function markFollow(following) {
+    var button = $("follow");
+    button.textContent = following ? "Following" : "Follow";
+    button.classList.toggle("is-following", !!following);
+    button.setAttribute("aria-pressed", following ? "true" : "false");
+  }
+
+  function grid(films, profile) {
+    var box = $("films");
+    $("films-label").textContent = profile.me ? "Your films" : "Films";
+    if (!films.length) {
+      box.innerHTML = "";
+      $("films-blank").hidden = false;
+      return;
+    }
+    $("films-blank").hidden = true;
+    box.innerHTML = films.map(function (film) {
+      return '<button type="button" class="grid-cell" data-film="' + escaped(film.id) +
+        '" aria-label="' + escaped(film.prompt || "a film") + '">' +
+        '<img src="' + escaped(film.poster) + '" alt="" loading="lazy">' +
+        (film.likes ? '<span class="grid-likes">♥ ' + film.likes + "</span>" : "") +
+        "</button>";
+    }).join("");
+  }
+
+  function trouble(message) {
+    var box = $("page-error");
+    box.textContent = message;
+    box.hidden = !message;
+  }
+
+  // ---------------------------------------------------------------- loading
+
+  function load() {
+    var url = who ? "/api/profiles/" + encodeURIComponent(who) : "/api/profile";
+    return fetch(url, { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) {
+        if (r.status === 401) { location.href = "/login"; return null; }
+        return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+      })
+      .then(function (got) {
+        if (!got) { return; }
+        if (!got.ok) { trouble(got.data.error || "That profile could not be opened."); return; }
+        trouble("");
+        var profile = got.data.profile;
+        if (!who) {
+          me = profile.who;
+          $("email").textContent = profile.email || "not set";
+          twoStepState();
+        }
+        draw(profile, got.data.films);
+        /* `/api/profile` answers about you and does not carry films; the
+           by-name route does. */
+        if (!who) { films(); }
+      })
+      .catch(function () { trouble("Could not reach the app."); });
+  }
+
+  /* Your own films are not in `/api/profile` — that answer is about you, and
+     the feed already knows how to list films by owner. */
+  function films() {
+    fetch("/api/feed?scope=mine", { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { if (data && live) { grid(data.films, live); } })
+      .catch(function () {});
+  }
+
+  // ------------------------------------------------------------------ edit
+
+  function openSheet(name) {
+    $(name + "-sheet").hidden = false;
+    document.body.classList.add("sheet-open");
+  }
+
+  function closeSheet(name) {
+    $(name + "-sheet").hidden = true;
+    document.body.classList.remove("sheet-open");
+  }
+
+  document.addEventListener("click", function (event) {
+    var closer = event.target.closest("[data-close]");
+    if (closer) { closeSheet(closer.dataset.close); }
+  });
+
+  function openEdit() {
+    if (!live) { return; }
+    $("edit-name").value = live.name === live.who ? "" : live.name;
+    $("edit-bio").value = live.bio || "";
+    $("edit-link").value = live.link || "";
+    $("picture-remove").hidden = !live.picture;
+    $("edit-error").hidden = true;
+    countBio();
+    openSheet("edit");
+  }
+
+  function countBio() {
+    var left = 150 - $("edit-bio").value.length;
+    $("bio-left").textContent = left;
+    $("bio-left").parentNode.classList.toggle("is-full", left <= 0);
+  }
+
+  $("edit-open").addEventListener("click", openEdit);
+  $("edit-profile").addEventListener("click", openEdit);
+  $("edit-bio").addEventListener("input", countBio);
+
+  $("edit-save").addEventListener("click", function () {
+    var problem = $("edit-error");
+    problem.hidden = true;
+    fetch("/api/profile", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: $("edit-name").value,
+        bio: $("edit-bio").value,
+        link: $("edit-link").value
+      })
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (got) {
+        if (!got.ok) {
+          problem.textContent = got.d.error || "That did not save.";
+          problem.hidden = false;
+          return;
+        }
+        closeSheet("edit");
+        draw(got.d.profile, null);
+        films();
+      })
+      .catch(function () {
+        problem.textContent = "Could not reach the app.";
+        problem.hidden = false;
+      });
+  });
+
+  // --------------------------------------------------------------- picture
+
+  $("picture").addEventListener("click", function () {
+    if (live && live.me) { $("picture-file").click(); }
+  });
+
+  $("picture-file").addEventListener("change", function () {
+    var file = this.files && this.files[0];
+    this.value = "";  /* so choosing the same file twice fires again */
+    if (file) { sendPicture(file); }
+  });
+
+  /* Downscaled here before it is sent, and that is not only politeness about
+     bandwidth. A photograph off an iPhone is four megabytes of HEIC; the
+     browser can already decode it and a canvas cannot hand back anything but
+     a real image, so what reaches the network is a square JPEG of about sixty
+     kilobytes whatever the camera produced. The server re-encodes regardless —
+     this is a convenience, never the check.
+     `imageOrientation: "from-image"` is the part that is easy to miss: without
+     it a portrait photograph arrives on its side, because the rotation lives
+     in a tag rather than in the pixels. */
+  function shrink(file) {
+    var SIDE = 512;
+    if (!window.createImageBitmap || !document.createElement("canvas").toBlob) {
+      return Promise.resolve(file);
+    }
+    return createImageBitmap(file, { imageOrientation: "from-image" })
+      .then(function (bitmap) {
+        var side = Math.min(bitmap.width, bitmap.height);
+        var out = Math.min(side, SIDE);
+        var canvas = document.createElement("canvas");
+        canvas.width = out;
+        canvas.height = out;
+        var pen = canvas.getContext("2d");
+        pen.drawImage(
+          bitmap,
+          (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side,
+          0, 0, out, out
+        );
+        bitmap.close();
+        return new Promise(function (done) {
+          canvas.toBlob(function (blob) { done(blob || file); }, "image/jpeg", 0.86);
+        });
+      })
+      .catch(function () { return file; });
+  }
+
+  function sendPicture(file) {
+    trouble("");
+    shrink(file).then(function (blob) {
+      return fetch("/api/profile/picture", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": blob.type || "image/jpeg" },
+        body: blob
+      });
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (got) {
+        if (!got.ok) { trouble(got.d.error || "That picture did not work."); return; }
+        draw(got.d.profile, null);
+        films();
+      })
+      .catch(function () { trouble("That picture could not be sent."); });
+  }
+
+  $("picture-remove").addEventListener("click", function () {
+    fetch("/api/profile/picture/remove", { method: "POST", credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) { return; }
+        closeSheet("edit");
+        draw(data.profile, null);
+        films();
+      })
+      .catch(function () {});
+  });
+
+  // ---------------------------------------------------------------- follow
+
+  $("follow").addEventListener("click", function () {
+    if (!live) { return; }
+    var wanted = !live.you_follow;
+    /* Marked before the request answers. A follow button that waits for a
+       round trip on a home wifi feels broken; if the request fails the next
+       line puts it back. */
+    markFollow(wanted);
+    fetch("/api/profiles/" + encodeURIComponent(live.who) + "/follow", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ follow: wanted })
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) { markFollow(!wanted); return; }
+        live = data.profile;
+        markFollow(live.you_follow);
+        $("count-followers").textContent = live.followers;
+      })
+      .catch(function () { markFollow(!wanted); });
+  });
+
+  $("message").addEventListener("click", function () {
+    if (live) { location.href = "/inbox?who=" + encodeURIComponent(live.who); }
+  });
+
+  $("back").addEventListener("click", function () {
+    /* Back if there is anywhere to go back to, and the feed if this page was
+       opened from a link somebody sent. `history.length` is the only thing a
+       page can ask, and it counts the whole tab — hence the referrer check
+       first, which is what actually distinguishes the two. */
+    if (document.referrer && document.referrer.indexOf(location.origin) === 0) {
+      history.back();
+    } else {
+      location.href = "/feed";
+    }
+  });
+
+  // ----------------------------------------------------------- who follows
+
+  function people(which) {
+    var name = live ? live.who : "";
+    $("people-title").textContent = which === "following" ? "Following" : "Followers";
+    $("people-list").innerHTML = "";
+    $("people-empty").hidden = true;
+    openSheet("people");
+    fetch("/api/profiles/" + encodeURIComponent(name) + "/" + which, {
+      credentials: "same-origin",
+      cache: "no-store"
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) { return; }
+        if (!data.people.length) {
+          $("people-empty").textContent = which === "following"
+            ? "Not following anybody yet."
+            : "No followers yet.";
+          $("people-empty").hidden = false;
+          return;
+        }
+        $("people-list").innerHTML = data.people.map(function (row) {
+          var face = row.picture
+            ? '<span class="avatar"><img src="' + escaped(row.picture) +
+              '" alt="" width="44" height="44"></span>'
+            : '<span class="avatar" style="--hue:' + hueOf(row.who) + '" aria-hidden="true">' +
+              escaped(row.who[0] || "?") + "</span>";
+          return '<li><a class="people-row" href="/u/' + encodeURIComponent(row.who) + '">' +
+            face +
+            '<span class="people-lines"><span class="people-name">' + escaped(row.name) +
+            '</span><span class="people-who">@' + escaped(row.who) + "</span></span>" +
+            (row.me ? '<span class="people-mark">you</span>'
+                    : (row.you_follow ? '<span class="people-mark">following</span>' : "")) +
+            "</a></li>";
+        }).join("");
+      })
+      .catch(function () {});
+  }
+
+  $("open-followers").addEventListener("click", function () { people("followers"); });
+  $("open-following").addEventListener("click", function () { people("following"); });
+
+  // ------------------------------------------------------------- the films
+
+  $("films").addEventListener("click", function (event) {
+    var cell = event.target.closest(".grid-cell");
+    if (!cell) { return; }
+    /* The feed is where a film is watched — it has the player, the heart and
+       the send button, and building a second one here would be a second one to
+       keep right. It opens on this film rather than at the top. */
+    location.href = "/feed?film=" + encodeURIComponent(cell.dataset.film);
+  });
+
+  // ---------------------------------------------------------------- account
+
+  $("sign-out").addEventListener("click", function () {
+    fetch("/api/logout", { method: "POST", credentials: "same-origin" })
+      .then(function () { location.href = "/login"; })
+      .catch(function () { location.href = "/login"; });
+  });
+
+  /* Two-step verification. It was on the edit room's home screen, which is
+     where the settings used to be; this page is where they are now. */
+  (function () {
+    var row = $("two-step-row");
+    var sheet = $("two-step-sheet");
+    var state = $("two-step-state");
+
+    function show(id, on) { var e = $(id); if (e) { e.hidden = !on; } }
+
+    window.twoStepState = function () {
+      fetch("/api/two-step", { credentials: "same-origin", cache: "no-store" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (said) {
+          if (!said) { state.textContent = ""; return; }
+          state.textContent = said.on
+            ? "On · " + said.recovery_left + " recovery codes left"
+            : "Off";
+          row.dataset.on = said.on ? "1" : "";
+        })
+        .catch(function () { state.textContent = ""; });
+    };
+
+    row.addEventListener("click", function () {
+      openSheet("two-step");
+      show("two-step-recovery", false);
+      if (row.dataset.on) {
+        show("two-step-setup", false);
+        show("two-step-remove", true);
+        return;
+      }
+      show("two-step-remove", false);
+      show("two-step-setup", true);
+      /* The key takes a round trip. An empty box for that moment reads as a
+         dialog that failed to load, so it says what it is waiting for. */
+      $("two-step-secret").textContent = "asking for a key…";
+      $("two-step-error").hidden = true;
+      fetch("/api/two-step/start", { method: "POST", credentials: "same-origin" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (said) {
+          if (!said) {
+            $("two-step-secret").textContent = "";
+            $("two-step-error").textContent = "Could not reach it.";
+            $("two-step-error").hidden = false;
+            return;
+          }
+          $("two-step-secret").textContent = said.secret;
+          $("two-step-uri").href = said.uri;
+        })
+        .catch(function () {
+          $("two-step-secret").textContent = "";
+          $("two-step-error").textContent = "Could not reach it.";
+          $("two-step-error").hidden = false;
+        });
+    });
+
+    $("two-step-confirm").addEventListener("click", function () {
+      var problem = $("two-step-error");
+      problem.hidden = true;
+      fetch("/api/two-step/confirm", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: $("two-step-code").value.trim() })
+      })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+        .then(function (got) {
+          if (!got.ok) {
+            problem.textContent = got.d.error || "That did not work.";
+            problem.hidden = false;
+            return;
+          }
+          show("two-step-setup", false);
+          show("two-step-recovery", true);
+          $("recovery-list").innerHTML = got.d.recovery
+            .map(function (c) { return "<li>" + escaped(c) + "</li>"; })
+            .join("");
+          window.twoStepState();
+        })
+        .catch(function () {
+          problem.textContent = "Could not reach it.";
+          problem.hidden = false;
+        });
+    });
+
+    $("recovery-copy").addEventListener("click", function () {
+      var text = [].map.call($("recovery-list").children, function (li) {
+        return li.textContent;
+      }).join("\n");
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(function () {
+          $("recovery-copy").textContent = "Copied";
+        }).catch(function () {});
+      }
+    });
+
+    $("two-step-off").addEventListener("click", function () {
+      var problem = $("two-step-off-error");
+      problem.hidden = true;
+      fetch("/api/two-step/off", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: $("two-step-password").value })
+      })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+        .then(function (got) {
+          if (!got.ok) {
+            problem.textContent = got.d.error || "That did not work.";
+            problem.hidden = false;
+            return;
+          }
+          $("two-step-password").value = "";
+          closeSheet("two-step");
+          window.twoStepState();
+        })
+        .catch(function () {
+          problem.textContent = "Could not reach it.";
+          problem.hidden = false;
+        });
+    });
+
+    $("two-step-close").addEventListener("click", function () { closeSheet("two-step"); });
+    $("two-step-scrim").addEventListener("click", function () { closeSheet("two-step"); });
+
+    sheet.hidden = true;
+  })();
+
+  function twoStepState() { if (window.twoStepState) { window.twoStepState(); } }
+
+  load();
+})();

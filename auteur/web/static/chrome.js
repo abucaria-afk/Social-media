@@ -12,12 +12,21 @@
  * that is right on seven pages and stale on the eighth is worse than none.
  */
 (function () {
+  /* Five slots, and the fifth is you.
+   *
+   * It was the studio. Both apps this is modelled on end the bar with the
+   * person using it — Home, Search, +, Reels, You on one; Home, Friends, +,
+   * Inbox, Profile on the other — and neither puts a workroom in the bar at
+   * all. Instagram keeps its professional dashboard behind the profile tab,
+   * which is exactly the shape the studio is: yours, entered deliberately, not
+   * somewhere you flick to. So the studio moved to a row at the top of your
+   * own profile, and this slot is the profile itself. */
   var TABS = [
     { id: "feed", href: "/feed", label: "Feed", icon: "home" },
     { id: "templates", href: "/templates", label: "Templates", icon: "grid" },
     { id: "make", href: "/", label: "Create", icon: "plus", big: true },
     { id: "inbox", href: "/inbox", label: "Inbox", icon: "chat" },
-    { id: "studio", href: "/studio", label: "Studio", icon: "spark" }
+    { id: "profile", href: "/profile", label: "You", icon: "person" }
   ];
 
   /* Line art, one weight, drawn on a 24 grid. Filled glyphs read as "selected"
@@ -37,7 +46,13 @@
       line: "M12 3l2.1 5.6L20 10.5l-5.9 1.9L12 18l-2.1-5.6L4 10.5l5.9-1.9z",
       fill: true
     },
-    plus: { line: "M12 6v12M6 12h12", fill: false }
+    plus: { line: "M12 6v12M6 12h12", fill: false },
+    /* Head and shoulders, one path, so the filled variant works the same way
+       the others do. */
+    person: {
+      line: "M12 12.4a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4zM4.2 20.6a7.8 7.8 0 0 1 15.6 0z",
+      fill: true
+    }
   };
 
   function svg(name, active) {
@@ -57,11 +72,13 @@
     if (path.indexOf("/feed") === 0) return "feed";
     if (path.indexOf("/templates") === 0) return "templates";
     if (path.indexOf("/inbox") === 0 || path.indexOf("/messages") === 0) return "inbox";
-    if (path.indexOf("/studio") === 0) return "studio";
-    /* /ask, /overlays and /connect live under the studio in the bar even though
-     * they are their own pages: five slots is the point, and a bar that
-     * highlights nothing on a third of the app reads as broken. */
-    return "studio";
+    if (path.indexOf("/profile") === 0 || path.indexOf("/me") === 0 ||
+        path.indexOf("/u/") === 0) return "profile";
+    /* The studio, /ask, /overlays and /connect are all reached from your own
+     * profile, so that is the slot that lights up on them. Five slots is the
+     * point, and a bar that highlights nothing on a third of the app reads as
+     * broken. */
+    return "profile";
   }
 
   function build() {
@@ -134,14 +151,19 @@
     if (!bar) return;
     var scroller = document.querySelector(".page") ? window : null;
 
+    /* No large title on this page means there is nothing to hand off *from*,
+     * so the bar's own title is the only one — and it starts hidden, waiting
+     * for a scroll that on a short page never comes. The inbox and the manager
+     * were in exactly that state: a heading in the markup, an accessible name
+     * on the screen, and nothing a person could read. */
+    if (!title) {
+      bar.classList.add("is-collapsed");
+      return;
+    }
+
     function check() {
-      var past;
-      if (title) {
-        /* Collapsed once the large title's baseline has gone under the bar. */
-        past = title.getBoundingClientRect().bottom < bar.getBoundingClientRect().bottom;
-      } else {
-        past = (window.scrollY || document.documentElement.scrollTop) > 4;
-      }
+      /* Collapsed once the large title's baseline has gone under the bar. */
+      var past = title.getBoundingClientRect().bottom < bar.getBoundingClientRect().bottom;
       bar.classList.toggle("is-collapsed", past);
     }
 

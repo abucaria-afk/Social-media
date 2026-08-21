@@ -1225,11 +1225,22 @@ def web_server(tmp_path):
     from urllib.request import Request, urlopen
     from auteur.web import assets, server as web
     from auteur.web.auth import Accounts
+    from auteur.web.profiles import Profiles
+    from auteur.web.social import Films, Messages
 
     assets.ensure(web.STATIC)
-    web.Handler.studio = web.Studio(tmp_path / "web")
-    web.Handler.accounts = Accounts(tmp_path / "web" / "accounts.json")
+    root = tmp_path / "web"
+    web.Handler.studio = web.Studio(root)
+    web.Handler.accounts = Accounts(root / "accounts.json")
     web.Handler.accounts.add("tester", "tester@example.com", "a-long-enough-one")
+    # Somebody to follow, message and look at. A server with one account can
+    # answer every route and prove nothing about the ones that are about two
+    # people.
+    web.Handler.accounts.add("grace", "grace@example.com", "another-long-one")
+    web.Handler.films = Films(root / "films.json")
+    web.Handler.studio.films = web.Handler.films
+    web.Handler.messages = Messages(root / "messages.json")
+    web.Handler.profiles = Profiles(root / "profiles.json", root / "pictures")
 
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -1250,6 +1261,9 @@ def web_server(tmp_path):
         httpd.shutdown()
         httpd.server_close()
         web.Handler.accounts = None
+        web.Handler.films = None
+        web.Handler.messages = None
+        web.Handler.profiles = None
 
 
 def test_the_shell_and_icons_are_reachable(web_server):
@@ -2265,16 +2279,30 @@ def test_the_stylesheet_covers_system_light_and_dark():
     assert css.index(":root {") < css.index("@media")
 
 
-def test_the_theme_is_applied_before_the_page_paints():
-    """Reading localStorage from app.js instead would show one frame of the
-    wrong theme on every load."""
+def test_the_settings_are_applied_before_the_page_paints():
+    """Reading them from a deferred script would show one frame of the wrong
+    theme on every load — and, since text size moved in here too, a screenful
+    of small text to somebody who has asked for large.
+
+    The check is on *every* page rather than two, because this used to be an
+    eight-line snippet copied into each head and copied chrome goes stale one
+    page at a time. It is one file now, and this is what says so.
+    """
     from auteur.web import server
 
-    for page in ("index.html", "login.html"):
-        markup = (server.STATIC / page).read_text()
-        early = markup.index("auteur-theme")
-        assert early < markup.index('href="/static/style.css"'), page
-        assert 'setAttribute("data-theme"' in markup
+    for page in sorted(server.STATIC.glob("*.html")):
+        markup = page.read_text()
+        early = markup.index('src="/static/settings.js"')
+        # Before the stylesheet, and with no `defer` or `async` on it: either
+        # attribute would let the page paint first, which is the whole failure
+        # this is standing against.
+        assert early < markup.index('href="/static/style.css"'), page.name
+        tag = markup[markup.rindex("<script", 0, early) : markup.index(">", early)]
+        assert "defer" not in tag and "async" not in tag, page.name
+
+    settings = (server.STATIC / "settings.js").read_text()
+    assert 'setAttribute("data-theme"' in settings
+    assert "localStorage" in settings
 
 
 def test_the_switch_offers_exactly_the_three_modes():
@@ -8998,3 +9026,461 @@ def test_the_policy_no_longer_claims_the_app_has_no_network():
     assert "connected to your own instance" in policy.lower()
     # And the sentence that used to be the contradiction is gone.
     assert "it makes **no network requests of any kind**" not in policy
+
+
+# ---------------------------------------------------------------------------
+# Profiles: a picture, a bio, and who you follow
+# ---------------------------------------------------------------------------
+
+
+def test_a_bio_pasted_out_of_another_app_is_stored_as_one_line(tmp_path):
+    """A stored newline is a layout that only breaks for some people.
+
+    The bio is shown clamped to two lines on the profile header and to one in
+    a list. Text arriving with the newlines and double spaces of wherever it
+    was written renders fine in exactly one of those places.
+    """
+    from auteur.web.profiles import Profiles
+
+    store = Profiles(tmp_path / "profiles.json")
+    saved = store.edit("ada", bio="  makes\n\nsmall   films\t about boats  ")
+    assert saved.bio == "makes small films about boats"
+
+
+def test_a_profile_link_that_is_not_a_web_address_is_refused(tmp_path):
+    """The interesting attack on a field that becomes an href is a scheme.
+
+    A tidier that repairs input is one that eventually repairs `javascript:`
+    into something a tap runs, so anything that is not plainly http or https
+    is dropped rather than fixed. A bare host is the one exception, because
+    somebody typing their own address means https.
+    """
+    from auteur.web.profiles import tidy_link
+
+    assert tidy_link("javascript:alert(1)") == ""
+    assert tidy_link("JavaScript:alert(1)") == ""
+    assert tidy_link("data:text/html;base64,PHNjcmlwdD4=") == ""
+    assert tidy_link("mailto:someone@example.com") == ""
+    assert tidy_link("example.com/reel") == "https://example.com/reel"
+    assert tidy_link("https://example.com") == "https://example.com"
+    assert tidy_link("") == ""
+
+
+def test_following_is_answered_from_the_followers_own_list(tmp_path):
+    """ "Do I follow them" and "do they follow me" are different questions.
+
+    They agree whenever two people follow each other, which is most of the
+    time on a small instance — so getting this backwards looks right on every
+    screen where it is tested by hand.
+    """
+    from auteur.web.profiles import Profiles
+
+    store = Profiles(tmp_path / "profiles.json")
+    store.follow("ada", "grace")
+
+    assert store.public_of("grace", viewer="ada")["you_follow"] is True
+    assert store.public_of("ada", viewer="grace")["you_follow"] is False
+    assert store.public_of("grace", viewer="ada")["followers"] == 1
+    assert store.public_of("ada", viewer="ada")["me"] is True
+    # And nobody follows themselves: the "following" feed would otherwise
+    # include your own films for some people and not others.
+    assert store.follow("ada", "ada") is False
+
+
+def test_a_profile_survives_being_written_and_read_back(tmp_path):
+    from auteur.web.profiles import Profiles
+
+    path = tmp_path / "profiles.json"
+    first = Profiles(path)
+    first.edit("ada", name="Ada L", bio="boats", link="ada.example")
+    first.follow("ada", "grace")
+
+    again = Profiles(path)
+    assert again.get("ada").name == "Ada L"
+    assert again.get("ada").link == "https://ada.example"
+    assert again.following_of("ada") == ["grace"]
+    assert again.followers_of("grace") == ["ada"]
+
+
+def test_editing_one_field_does_not_blank_the_others(tmp_path):
+    """A form that posts only what changed must not clear what did not."""
+    from auteur.web.profiles import Profiles
+
+    store = Profiles(tmp_path / "profiles.json")
+    store.edit("ada", name="Ada L", bio="boats", link="https://ada.example")
+    store.edit("ada", bio="trains")
+    kept = store.get("ada")
+    assert (kept.name, kept.bio, kept.link) == ("Ada L", "trains", "https://ada.example")
+
+
+def test_a_picture_filename_cannot_climb_out_of_its_folder(tmp_path):
+    """The store is a file on disk, so what comes out of it is still input."""
+    from auteur.web.profiles import Profiles
+
+    store = Profiles(tmp_path / "profiles.json", tmp_path / "pictures")
+    (tmp_path / "secret.txt").write_text("not a picture")
+    store.set_picture("ada", "../secret.txt")
+    assert store.picture_path("ada") is None
+
+
+def test_a_follow_of_a_deleted_account_is_forgotten(tmp_path):
+    """Otherwise the count on a profile is larger than the list under it."""
+    from auteur.web.profiles import Profiles
+
+    store = Profiles(tmp_path / "profiles.json")
+    store.follow("ada", "grace")
+    store.follow("ada", "gone")
+    assert store.drop_unknown({"ada", "grace"}) == 1
+    assert store.following_of("ada") == ["grace"]
+
+
+def test_a_profile_picture_is_re_encoded_and_loses_its_metadata(tmp_path):
+    """A phone photograph carries where it was taken and what took it.
+
+    Neither is something anybody means to publish with their face, and both
+    live in EXIF. Re-encoding rather than validating is what removes them —
+    and it is the same step that makes it impossible for the served file to be
+    anything a browser could sniff as markup.
+    """
+    import io
+    from fractions import Fraction
+
+    from PIL import Image
+    from auteur.web.profiles import PICTURE_SIDE, store_picture
+
+    original = Image.new("RGB", (1600, 900), (200, 40, 40))
+    exif = original.getexif()
+    exif[0x010F] = "SomePhone"  # Make
+    exif[0x0110] = "Model X"  # Model
+    where = exif.get_ifd(0x8825)  # GPS
+    where[1] = "N"
+    where[2] = (Fraction(51), Fraction(30), Fraction(0))
+    raw = io.BytesIO()
+    original.save(raw, "JPEG", exif=exif)
+    # The fixture has to actually carry what this claims to remove, or the
+    # test passes against a photograph that never had coordinates in it.
+    assert dict(Image.open(io.BytesIO(raw.getvalue())).getexif().get_ifd(0x8825))
+
+    name = store_picture(raw.getvalue(), tmp_path / "pictures", "ada")
+    out = Image.open(tmp_path / "pictures" / name)
+    assert out.size == (PICTURE_SIDE, PICTURE_SIDE)  # squared and scaled down
+    assert out.mode == "RGB"
+    assert dict(out.getexif()) == {}
+    assert dict(out.getexif().get_ifd(0x8825)) == {}
+
+
+def test_a_sideways_photograph_is_turned_the_right_way_up(tmp_path):
+    """A portrait photograph is stored landscape with a "rotate me" flag.
+
+    Stripping the flag without applying it is how a profile picture ends up on
+    its side, and stripping it is exactly what the re-encode above does.
+    """
+    import io
+
+    from PIL import Image
+    from auteur.web.profiles import store_picture
+
+    # Wide, with the left half red — and a tag saying it should be rotated 90°.
+    art = Image.new("RGB", (400, 200), (20, 20, 200))
+    art.paste(Image.new("RGB", (200, 200), (220, 30, 30)), (0, 0))
+    exif = art.getexif()
+    exif[0x0112] = 6  # Orientation: rotate 90° clockwise
+    raw = io.BytesIO()
+    art.save(raw, "JPEG", exif=exif)
+
+    name = store_picture(raw.getvalue(), tmp_path / "pictures", "ada")
+    out = Image.open(tmp_path / "pictures" / name).convert("RGB")
+    # Orientation 6 means "rotate this a quarter turn clockwise to show it", so
+    # what was the left edge becomes the top: red above, blue below.
+    top = out.getpixel((out.width // 2, 4))
+    bottom = out.getpixel((out.width // 2, out.height - 5))
+    assert top[0] > top[2], f"the top should be red, got {top}"
+    assert bottom[2] > bottom[0], f"the bottom should be blue, got {bottom}"
+
+    # And the same picture without the tag is *not* turned, which is what says
+    # the rotation above came from reading the tag rather than from the crop.
+    plain = io.BytesIO()
+    art.save(plain, "JPEG")
+    flat = Image.open(
+        tmp_path / "pictures" / store_picture(plain.getvalue(), tmp_path / "pictures", "flat")
+    ).convert("RGB")
+    assert flat.getpixel((flat.width // 2, 4))[0] < 120, "an untagged picture was rotated anyway"
+
+
+def test_a_file_that_is_not_a_picture_is_explained_rather_than_raised(tmp_path):
+    from auteur.web.profiles import BadPicture, store_picture
+
+    for bad in (b"", b"<html><script>alert(1)</script></html>", b"\x00\x01\x02"):
+        with pytest.raises(BadPicture):
+            store_picture(bad, tmp_path / "pictures", "ada")
+
+
+def test_a_picture_that_decompresses_to_gigabytes_is_refused(tmp_path):
+    """Pillow's own limit raises a warning, which is not a defence."""
+    import io
+    import struct
+    import zlib
+
+    from auteur.web.profiles import BadPicture, store_picture
+
+    # A PNG header claiming 40,000 x 40,000 — a few dozen bytes on the wire,
+    # six gigabytes of pixels if anything decodes it.
+    def chunk(kind, payload):
+        body = kind + payload
+        return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body))
+
+    header = struct.pack(">IIBBBBB", 40000, 40000, 8, 2, 0, 0, 0)
+    bomb = (
+        b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(b"\x00" * 64))
+    )
+    with pytest.raises(BadPicture):
+        store_picture(io.BytesIO(bomb).getvalue(), tmp_path / "pictures", "ada")
+
+
+# -- as served --------------------------------------------------------------
+
+
+def _api_get(base, path, cookie):
+    import json as _json
+    from urllib.request import Request, urlopen
+
+    with urlopen(Request(base + path, headers={"Cookie": cookie})) as response:
+        return _json.loads(response.read().decode())
+
+
+def _api_post(base, path, cookie, payload=None):
+    import json as _json
+    from urllib.request import Request, urlopen
+
+    request = Request(
+        base + path,
+        data=_json.dumps(payload or {}).encode(),
+        headers={"Cookie": cookie, "Content-Type": "application/json"},
+    )
+    with urlopen(request) as response:
+        return _json.loads(response.read().decode())
+
+
+def test_the_profile_page_is_served_for_you_and_for_anybody_else(web_server):
+    """`/u/<name>` is a link somebody can send, and it is the same document."""
+    from urllib.request import Request, urlopen
+
+    base, _, cookie = web_server
+    for path in ("/profile", "/me", "/u/grace"):
+        with urlopen(Request(base + path, headers={"Cookie": cookie})) as response:
+            body = response.read().decode()
+        assert response.headers["Content-Type"].startswith("text/html"), path
+        assert 'id="profile"' in body, path
+
+
+def test_your_own_profile_carries_your_account_and_nobody_elses(web_server):
+    base, _, cookie = web_server
+    mine = _api_get(base, "/api/profile", cookie)["profile"]
+    assert mine["who"] == "tester"
+    assert mine["me"] is True
+    assert mine["email"] == "tester@example.com"
+
+    theirs = _api_get(base, "/api/profiles/grace", cookie)["profile"]
+    assert theirs["who"] == "grace"
+    assert theirs["me"] is False
+    # Somebody else's email is not somebody else's business.
+    assert "email" not in theirs
+
+
+def test_following_somebody_moves_both_counts(web_server):
+    base, _, cookie = web_server
+    after = _api_post(base, "/api/profiles/grace/follow", cookie, {"follow": True})["profile"]
+    assert after["you_follow"] is True
+    assert after["followers"] == 1
+    assert _api_get(base, "/api/profile", cookie)["profile"]["following"] == 1
+
+    rows = _api_get(base, "/api/profiles/tester/followers", cookie)["people"]
+    assert rows == []
+    rows = _api_get(base, "/api/profiles/tester/following", cookie)["people"]
+    assert [row["who"] for row in rows] == ["grace"]
+
+    back = _api_post(base, "/api/profiles/grace/follow", cookie, {"follow": False})["profile"]
+    assert back["you_follow"] is False
+    assert back["followers"] == 0
+
+
+def test_following_a_name_with_no_account_is_a_404(web_server):
+    from urllib.error import HTTPError
+
+    base, _, cookie = web_server
+    with pytest.raises(HTTPError) as raised:
+        _api_post(base, "/api/profiles/nobody/follow", cookie, {"follow": True})
+    assert raised.value.code == 404
+
+
+def test_the_feed_can_be_narrowed_to_the_people_you_follow(web_server):
+    """A count that is not a filter is a number nobody can act on."""
+    base, _, cookie = web_server
+    from auteur.web import server as web
+
+    for owner in ("grace", "someone-else"):
+        film = tmp = web.Handler.studio.workspace / f"{owner}.mp4"
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_bytes(b"not really an mp4")
+        web.Handler.films.add(owner=owner, prompt=f"{owner}'s film", video=str(film))
+
+    everyone = _api_get(base, "/api/feed?scope=all", cookie)
+    assert len(everyone["films"]) == 2
+    # Each author arrives with the feed rather than one request per row.
+    assert set(everyone["people"]) == {"grace", "someone-else"}
+
+    _api_post(base, "/api/profiles/grace/follow", cookie, {"follow": True})
+    followed = _api_get(base, "/api/feed?scope=following", cookie)
+    assert [f["owner"] for f in followed["films"]] == ["grace"]
+
+    # `?mine=1` is what the first version of the feed sent, and a phone with
+    # that page cached is a real client.
+    assert _api_get(base, "/api/feed?mine=1", cookie)["films"] == []
+
+
+def test_a_profile_picture_goes_up_and_comes_back_as_a_jpeg(web_server):
+    import io
+
+    from PIL import Image
+    from urllib.request import Request, urlopen
+
+    base, _, cookie = web_server
+    raw = io.BytesIO()
+    Image.new("RGB", (900, 600), (30, 160, 90)).save(raw, "PNG")
+
+    request = Request(
+        base + "/api/profile/picture",
+        data=raw.getvalue(),
+        headers={"Cookie": cookie, "Content-Type": "image/png"},
+    )
+    with urlopen(request) as response:
+        import json as _json
+
+        profile = _json.loads(response.read().decode())["profile"]
+    assert profile["picture"].startswith("/api/profiles/tester/picture")
+
+    with urlopen(Request(base + profile["picture"], headers={"Cookie": cookie})) as response:
+        served = response.read()
+        assert response.headers["Content-Type"] == "image/jpeg"
+    assert Image.open(io.BytesIO(served)).format == "JPEG"
+
+    # And taking it off puts the disc back, rather than serving a stale file.
+    from urllib.error import HTTPError
+
+    gone = _api_post(base, "/api/profile/picture/remove", cookie)["profile"]
+    assert gone["picture"] == ""
+    with pytest.raises(HTTPError) as raised:
+        urlopen(Request(base + "/api/profiles/tester/picture", headers={"Cookie": cookie}))
+    assert raised.value.code == 404
+
+
+def test_a_picture_url_changes_when_the_picture_does(tmp_path):
+    """Served with a long cache lifetime, so a replaced picture needs a new URL.
+
+    Without this somebody changes their picture, sees the old one everywhere,
+    and reports the feature as broken.
+    """
+    import io
+    import time
+
+    from PIL import Image
+    from auteur.web.profiles import Profiles, store_picture
+
+    store = Profiles(tmp_path / "profiles.json", tmp_path / "pictures")
+    raw = io.BytesIO()
+    Image.new("RGB", (100, 100), (10, 10, 10)).save(raw, "JPEG")
+
+    store.set_picture("ada", store_picture(raw.getvalue(), store.pictures, "ada"))
+    first = store.get("ada").picture_url
+    time.sleep(1.05)  # the stamp is whole seconds
+    store.set_picture("ada", store_picture(raw.getvalue(), store.pictures, "ada"))
+    assert store.get("ada").picture_url != first
+
+
+def test_the_profile_is_the_fifth_tab_and_the_studio_is_on_it():
+    """The bar ends with the person using it, as both reference apps do — and
+    the workroom that used to be there is a row at the top of their profile,
+    which is where Instagram keeps its professional dashboard."""
+    from auteur.web import server
+
+    chrome = (server.STATIC / "chrome.js").read_text()
+    assert '"/profile"' in chrome
+    assert '"/studio"' not in chrome
+
+    page = (server.STATIC / "profile.html").read_text()
+    assert 'href="/studio"' in page
+    assert "chrome.js" in page
+
+
+def test_the_account_settings_are_hidden_until_the_profile_is_known_to_be_yours():
+    """`hidden` in the markup, revealed by the answer — never the other way.
+
+    A settings panel that flashes on somebody else's page before a script
+    hides it is a settings panel that was on somebody else's page.
+    """
+    import re
+
+    from auteur.web import server
+
+    page = (server.STATIC / "profile.html").read_text()
+    for block in ("settings", "mine"):
+        found = re.search(r'<div id="' + block + r'"([^>]*)>', page)
+        assert found, block
+        assert "hidden" in found.group(1), block
+
+
+def test_the_accessibility_settings_can_turn_a_thing_on_and_never_off():
+    """The phone's own setting is a statement about the person using it.
+
+    An app switch that could contradict it would be an app switch that takes
+    an accessibility setting away, so the media queries stay live underneath
+    and the in-app attribute only ever adds.
+    """
+    from auteur.web import server
+
+    style = (server.STATIC / "style.css").read_text()
+    # Both halves of each pair: the system setting, and the in-app one.
+    assert "@media (prefers-reduced-motion: reduce)" in style
+    assert ':root[data-motion="still"] *' in style
+    assert "@media (prefers-contrast: more)" in style
+    assert ':root[data-contrast="more"]' in style
+    # And nothing that switches either back off.
+    assert 'data-motion="full"' not in style
+    assert 'data-contrast="normal"' not in style
+
+    settings = (server.STATIC / "settings.js").read_text()
+    assert 'removeAttribute("data-motion")' in settings
+    assert 'removeAttribute("data-contrast")' in settings
+
+
+def test_the_feed_keeps_its_own_theme_when_the_app_changes_appearance():
+    """A film is a picture on a black surround everywhere it is watched.
+
+    Applying "Automatic" would strip the attribute that makes the feed dark
+    and paint a bone-white page around a 1080x1920 video, which is a light
+    leak into the one screen whose whole job is the footage.
+    """
+    from auteur.web import server
+
+    feed = (server.STATIC / "feed.html").read_text()
+    assert "data-theme-locked" in feed
+    settings = (server.STATIC / "settings.js").read_text()
+    assert 'hasAttribute("data-theme-locked")' in settings
+
+
+def test_the_type_scale_moves_together_when_the_text_size_does():
+    """Every rung in rem, so one root font-size scales all of it.
+
+    A ladder with a px rung in it is a ladder where that rung stays put while
+    everything around it grows, which is worse than not offering the setting.
+    """
+    import re
+
+    from auteur.web import server
+
+    style = (server.STATIC / "style.css").read_text()
+    block = style[style.index("--text-large-title") : style.index("--radius:")]
+    rungs = re.findall(r"(--text-[a-z0-9-]+): ([^;]+);", block)
+    assert len(rungs) >= 10
+    for name, value in rungs:
+        assert value.strip().endswith("rem"), f"{name} is {value}, which will not scale"

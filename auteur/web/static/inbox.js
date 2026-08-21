@@ -18,9 +18,13 @@
   var field = document.getElementById("composer-text");
   var peopleSheet = document.getElementById("people-sheet");
   var peopleList = document.getElementById("people");
+  var whoProfile = document.getElementById("thread-profile");
 
   var open = null;   // the name of the conversation on screen, or null
   var timer = null;
+  /* username -> { name, picture }. Filled from whatever answer mentioned them,
+     so a row can be drawn without a request per person. */
+  var people = {};
 
   function hueOf(name) {
     var total = 0;
@@ -35,8 +39,32 @@
   }
 
   function avatar(name, small) {
+    var card = people[name] || {};
+    var size = small ? 30 : 44;
+    if (card.picture) {
+      return '<span class="avatar' + (small ? " avatar-sm" : "") + '"><img src="' +
+        escaped(card.picture) + '" alt="" width="' + size + '" height="' + size + '"></span>';
+    }
     return '<span class="avatar' + (small ? " avatar-sm" : "") + '" style="--hue:' +
       hueOf(name) + '" aria-hidden="true">' + escaped(name[0] || "?") + "</span>";
+  }
+
+  function nameOf(who) {
+    var card = people[who] || {};
+    return card.name || who;
+  }
+
+  /* Everybody here, once, so the list rows have pictures and chosen names on
+     them. The list itself is a store of conversations and knows only
+     usernames; this is the one request that turns those into people. */
+  function loadPeople() {
+    return fetch("/api/people", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : { people: [] }; })
+      .then(function (data) {
+        (data.people || []).forEach(function (person) { people[person.who] = person; });
+        return data;
+      })
+      .catch(function () { return { people: [] }; });
   }
 
   /* "now", "14m", "3h", "Tue", "12 Mar" — the same ladder every messages app
@@ -64,7 +92,7 @@
             (row.unread ? " is-unread" : "") + '" data-who="' + escaped(row.who) + '">' +
             avatar(row.who) +
             '<span class="thread-lines">' +
-              '<span class="thread-name">' + escaped(row.who) + "</span>" +
+              '<span class="thread-name">' + escaped(nameOf(row.who)) + "</span>" +
               '<span class="thread-last">' + (row.mine ? "You: " : "") +
               escaped(row.last) + "</span></span>" +
             '<span class="thread-when">' + when(row.at) + "</span>" +
@@ -85,9 +113,18 @@
 
   function show(who) {
     open = who;
-    whoLabel.textContent = who;
-    whoAvatar.textContent = (who[0] || "?");
-    whoAvatar.style.setProperty("--hue", hueOf(who));
+    whoLabel.textContent = nameOf(who);
+    var card = people[who] || {};
+    if (card.picture) {
+      whoAvatar.innerHTML = '<img src="' + escaped(card.picture) +
+        '" alt="" width="30" height="30">';
+    } else {
+      whoAvatar.textContent = (who[0] || "?");
+      whoAvatar.style.setProperty("--hue", hueOf(who));
+    }
+    /* The name in the bar opens their profile, which is where it goes in every
+       messages app anybody has used. */
+    whoProfile.href = "/u/" + encodeURIComponent(who);
     listScreen.hidden = true;
     threadScreen.hidden = false;
     bubbles.innerHTML = "";
@@ -171,22 +208,18 @@
   function openPeople() {
     peopleSheet.hidden = false;
     peopleList.innerHTML = '<li class="person-note">looking…</li>';
-    fetch("/api/people", { credentials: "same-origin" })
-      .then(function (r) { return r.ok ? r.json() : { people: [] }; })
+    loadPeople()
       .then(function (data) {
-        var people = data.people || [];
-        peopleList.innerHTML = people.length
-          ? people.map(function (person) {
+        var rows = data.people || [];
+        peopleList.innerHTML = rows.length
+          ? rows.map(function (person) {
               return '<li><button type="button" class="person" data-to="' +
                 escaped(person.who) + '">' + avatar(person.who) +
-                '<span><span class="person-name">' + escaped(person.who) + "</span>" +
+                '<span><span class="person-name">' + escaped(person.name || person.who) + "</span>" +
                 '<span class="person-note">' + person.films +
                 (person.films === 1 ? " film" : " films") + "</span></span></button></li>";
             }).join("")
           : '<li class="person-note">Nobody else has an account on this copy yet.</li>';
-      })
-      .catch(function () {
-        peopleList.innerHTML = '<li class="person-note">Could not load that.</li>';
       });
   }
 
@@ -204,5 +237,26 @@
     show(button.dataset.to);
   });
 
-  loadList();
+  /* `?who=<name>` opens straight into that conversation. It is how the Message
+     button on somebody's profile gets here, and it means a conversation is a
+     link rather than a place you have to go and find in a list. */
+  function askedFor() {
+    var match = /[?&]who=([^&]+)/.exec(location.search);
+    if (!match) { return ""; }
+    try { return decodeURIComponent(match[1]); } catch (e) { return ""; }
+  }
+
+  /* People first: the list and the conversation header both draw names and
+     pictures out of it, and drawing them before it arrives means every row
+     shows a username and then silently changes. */
+  loadPeople().then(function () {
+    loadList();
+    var straight = askedFor();
+    if (straight) {
+      /* Taken out of the address once used, so going back to the list and
+         then reloading does not re-open the conversation. */
+      history.replaceState(null, "", location.pathname);
+      show(straight);
+    }
+  });
 })();

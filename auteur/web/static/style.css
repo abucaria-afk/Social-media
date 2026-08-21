@@ -722,6 +722,26 @@ input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   text-align: center;
 }
 
+/* -- The page ------------------------------------------------------------
+   The column every screen that is not the feed is laid out in: a gutter down
+   both sides, and a ceiling on the width so it does not become a line of text
+   the width of a laptop.
+
+   This was written out identically in inbox.css and in manager.css, which is
+   two copies of one rule and no copy at all for any page that loads neither.
+   The profile was that page: its title started at x=0, its picture was clipped
+   by the left edge of the screen, and its Follow button ran off the right one.
+   Third time this exact shape of bug has turned up — `.topbar-back`, then the
+   sheet, now this — so the rule is worth stating plainly: chrome that more
+   than one screen uses lives here, not in the stylesheet of whichever screen
+   happened to need it first. */
+.page {
+  --pad: 16px;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 var(--pad);
+}
+
 /* Everything that scrolls has to end above the bar. */
 body.has-tabbar #app,
 body.has-tabbar .page {
@@ -778,6 +798,13 @@ body.has-tabbar .page {
 }
 
 .avatar-sm { width: 30px; height: 30px; font-size: var(--step--1); }
+
+/* And a real picture, once somebody sets one. `overflow: hidden` on the disc
+   rather than a radius on the image, so a picture that is not quite square —
+   which the server does not allow, but a cached one from before it did might
+   be — is still clipped to the circle instead of overhanging it. */
+.avatar { overflow: hidden; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 
 /* One row for the one room that is not in the bar. */
@@ -955,12 +982,36 @@ body.has-tabbar .page {
 /* -- Increased contrast and reduced motion --------------------------------
    Both are operating-system accessibility settings — on either phone — and
    both are readable from CSS. Honouring them is not decoration: the whole app
-   is a surface somebody looks at for a long time. */
+   is a surface somebody looks at for a long time.
+
+   Each has a second selector, `[data-contrast="more"]` and
+   `[data-motion="still"]`, stamped on the root by settings.js when somebody
+   turns it on inside the app. Note what is *not* here: there is no attribute
+   that turns either of these off. Somebody who set "reduce motion" in their
+   phone's settings has said something about themselves, and an app's own
+   switch has no business contradicting it — so the media queries stay live
+   underneath in every case and the in-app control only ever adds. That is why
+   these are two selectors on one rule rather than the `:root:not([data-…])`
+   guard the theme uses: the theme is a preference and can go either way, and
+   these cannot. */
 @media (prefers-contrast: more) {
   :root { --line: var(--text-faint); }
   .card, .inset-group { border: 1px solid var(--line); }
   .card-hint, .group-caption, .fineprint { color: var(--text-muted); }
 }
+
+:root[data-contrast="more"] { --line: var(--text-faint); }
+:root[data-contrast="more"] .card,
+:root[data-contrast="more"] .inset-group { border: 1px solid var(--line); }
+:root[data-contrast="more"] .card-hint,
+:root[data-contrast="more"] .group-caption,
+:root[data-contrast="more"] .fineprint { color: var(--text-muted); }
+/* The faint rungs of the palette are the ones that fail first when somebody
+   asks for more contrast, and they are also the ones carrying secondary text
+   on every list row in the app. Moved up to the muted rung, which clears AA
+   against `raised` — the surface it is most often on — rather than only
+   against `ground`. */
+:root[data-contrast="more"] { --text-faint: var(--text-muted); }
 
 @media (prefers-reduced-motion: reduce) {
   * {
@@ -969,6 +1020,13 @@ body.has-tabbar .page {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+:root[data-motion="still"] * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }
 
 /* -- Standalone ------------------------------------------------------------
@@ -1064,6 +1122,73 @@ body.has-tabbar .page {
   font: 600 var(--text-footnote)/1 var(--font-display);
   cursor: pointer;
 }
+
+/* -- Sheets ---------------------------------------------------------------
+   A panel that comes up from the bottom edge, with the page dimmed behind it.
+   It is the share sheet, the action sheet and the form sheet on both phones,
+   and it is what every one of the reference apps uses for a choice that
+   belongs to the screen you are already on rather than to a new one.
+
+   Shared, not per-page. This was in feed.css when the feed was the only screen
+   with a sheet; the edit room's two-step dialog then used the same classes
+   without that file and came out as a static block under a full-page scrim. */
+.sheet { position: fixed; inset: 0; z-index: 80; }
+.sheet-scrim { position: absolute; inset: 0; background: var(--scrim); }
+
+.sheet-body {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 72dvh;
+  overflow-y: auto;
+  padding: 8px 16px calc(var(--safe-bottom) + 18px);
+  border-radius: 18px 18px 0 0;
+  background: var(--surface);
+  color: var(--text);
+  animation: sheet-up 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .sheet-body { animation: none; } }
+:root[data-motion="still"] .sheet-body { animation: none; }
+
+.sheet-grip {
+  width: 36px;
+  height: 4px;
+  margin: 4px auto 10px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.sheet-title { margin: 0 0 10px; font: 700 var(--step-1)/1.2 var(--font-display); }
+.sheet-note { margin: 10px 0; color: var(--moss); font-size: var(--step--1); }
+
+.people { margin: 0 0 12px; padding: 0; list-style: none; }
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.person-name { font: 600 var(--step-0)/1.2 var(--font-display); }
+.person-note { display: block; color: var(--text-faint); font-size: var(--step--1); }
+.person-sent { margin-left: auto; color: var(--moss); font-size: var(--step--1); }
+
+/* A sheet is a modal: the page behind it must not scroll under your thumb
+   while it is open, which is what this class on <body> is for. */
+body.sheet-open { overflow: hidden; }
 
 /* -- signing in with somebody else's account ------------------------------
    Listed whether or not this copy has been configured for them. A provider

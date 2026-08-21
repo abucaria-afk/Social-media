@@ -6,13 +6,6 @@
  * shows the last line rather than a subject.
  */
 
-.page {
-  --pad: 16px;
-  max-width: 640px;
-  margin: 0 auto;
-  padding: 0 var(--pad);
-}
-
 /* -- the list ------------------------------------------------------------ */
 
 .threads { margin: 4px 0 0; padding: 0; list-style: none; }
@@ -175,3 +168,19 @@
 .blank-line { margin: 0; font: 600 var(--step-1)/1.3 var(--font-display); }
 .blank-sub { margin: 0 0 16px; color: var(--text-faint); font-size: var(--step--1); }
 .blank .go { max-width: 280px; }
+
+/* The conversation's header: picture, name, and both of them a link to the
+   profile. `opacity: 1` on the h1 because the collapsing-title rule in
+   style.css hides `.topbar h1` until the page has scrolled — right for a large
+   title that scrolls away, wrong here, where the name in the bar is the only
+   place the name appears. */
+.thread-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.thread-head h1 { opacity: 1; }

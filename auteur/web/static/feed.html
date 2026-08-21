@@ -3,7 +3,7 @@
      to `:root[data-theme]`, so on the body it was inert. In light mode that
      left the feed painting a black page with the light palette on it — the
      tab labels came out near-black on black at 1.20:1. -->
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="dark" data-theme-locked>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -11,6 +11,10 @@
 <meta name="color-scheme" content="dark">
 <meta name="description" content="Every film made here, one screen at a time.">
 <link rel="icon" href="/icon-192.png">
+<!-- Text size, reduced motion and increased contrast, before anything
+     paints. `data-theme-locked` above is what keeps it from also applying the
+     appearance choice here — this page is dark on purpose. -->
+<script src="/static/settings.js"></script>
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/style.css">
 <link rel="stylesheet" href="/static/feed.css">
@@ -22,16 +26,24 @@
      whose whole job is the footage. -->
 <body class="feed-body">
 
+<!-- Whose films. Three named scopes rather than the one button that cycled
+     between two: a control whose label is the *other* state is a control
+     everybody reads backwards, and once there are three it stops being
+     possible to write at all. This is the segmented header both reference apps
+     put here, and the live one is the one that is underlined. -->
 <div class="feed-top">
-  <span class="feed-top-title" id="feed-scope">Everyone</span>
-  <button type="button" class="feed-switch" id="feed-toggle">Just mine</button>
+  <div class="feed-scopes" role="tablist" aria-label="Whose films">
+    <button type="button" class="feed-scope is-on" data-scope="all" role="tab" aria-selected="true">Everyone</button>
+    <button type="button" class="feed-scope" data-scope="following" role="tab" aria-selected="false">Following</button>
+    <button type="button" class="feed-scope" data-scope="mine" role="tab" aria-selected="false">Yours</button>
+  </div>
 </div>
 
 <main class="reels" id="reels" aria-label="Films made here">
   <div class="feed-empty" id="feed-empty" hidden>
-    <p class="feed-empty-line">Nothing here yet.</p>
-    <p class="feed-empty-sub">Films you finish show up here, newest first.</p>
-    <a class="go" href="/">Make the first one</a>
+    <p class="feed-empty-line" id="feed-empty-line">Nothing here yet.</p>
+    <p class="feed-empty-sub" id="feed-empty-sub">Films you finish show up here, newest first.</p>
+    <a class="go" id="feed-empty-go" href="/">Make the first one</a>
   </div>
 </main>
 

@@ -14,20 +14,13 @@
   <title>auteur · ask the Scholar</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icon-180.png">
+  <!-- Before anything paints: appearance and the three accessibility
+       settings, from one file rather than copied into every page's head. -->
+  <script src="/static/settings.js"></script>
   <link rel="stylesheet" href="/static/theme.css">
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/studio.css">
   <link rel="stylesheet" href="/static/ask.css">
-  <script>
-    (function () {
-      try {
-        var saved = localStorage.getItem("auteur-theme");
-        if (saved === "light" || saved === "dark") {
-          document.documentElement.setAttribute("data-theme", saved);
-        }
-      } catch (e) {}
-    })();
-  </script>
 </head>
 <body>
 

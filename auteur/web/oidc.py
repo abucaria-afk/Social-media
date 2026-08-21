@@ -183,6 +183,11 @@ def offered(configured: dict[str, Settings]) -> list[dict]:
     what it needs reads as a feature waiting on one piece of configuration,
     which is the truth.
     """
+    # `None` rather than an empty mapping is what a server that has not called
+    # `load()` yet has, and asking a None for `.get` is a 500 on the sign-in
+    # page — the one page somebody reaches before anything else. Nothing
+    # configured is a fine answer here; crashing is not.
+    configured = configured or {}
     out = []
     for key, provider in PROVIDERS.items():
         settings = configured.get(key, Settings())
