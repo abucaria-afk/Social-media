@@ -1,0 +1,93 @@
+# Everything App Store Connect would send back, checked on every push.
+#
+# The failures this stands against all arrive *after* an archive has been
+# built, signed and uploaded, as an email naming something adjacent to the real
+# problem. None of them needs a Mac to find: a placeholder bundle identifier,
+# an icon with an alpha channel, a permission string missing for a permission
+# the app asks for, a required-reason API used and not declared, a screenshot
+# at a size the upload form will not take.
+#
+# The check runs in two modes. On a branch it runs offline and reports; on main
+# it also fetches the three URLs Apple asks for, because a privacy policy URL
+# that has stopped resolving is the one thing here that can break without
+# anybody touching the repository.
+name: App Store preflight
+
+on:
+  push:
+  pull_request:
+    branches: [ main ]
+  # Weekly, so an expired domain or a Pages site that stopped answering is
+  # found before a submission rather than during one.
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: appstore-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Before the upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Regenerate the bundle from the palette and the identity
+        # Also the thing that catches a project.yml and an identity.py that
+        # have drifted, because it writes the file that ties them together.
+        run: python3 ios/scripts/build_bundle.py
+
+      - name: Nothing generated is stale
+        # A committed file that this run changed means somebody edited the
+        # generated copy rather than its source, which is the failure the
+        # generation exists to prevent.
+        run: |
+          if ! git diff --quiet -- ios/; then
+            echo "generated files under ios/ are out of date:"
+            git --no-pager diff --stat -- ios/
+            echo
+            echo "run: python3 ios/scripts/build_bundle.py"
+            exit 1
+          fi
+          echo "generated files match their sources"
+
+      - name: The listing fits its fields
+        run: python3 tools/appstore/listing.py build/appstore
+
+      - name: Preflight
+        env:
+          AUTEUR_BUNDLE_ID: ${{ vars.AUTEUR_BUNDLE_ID }}
+          AUTEUR_DEVELOPER: ${{ vars.AUTEUR_DEVELOPER }}
+          AUTEUR_SUPPORT_EMAIL: ${{ vars.AUTEUR_SUPPORT_EMAIL }}
+          AUTEUR_SUPPORT_URL: ${{ vars.AUTEUR_SUPPORT_URL }}
+          AUTEUR_PRIVACY_URL: ${{ vars.AUTEUR_PRIVACY_URL }}
+          AUTEUR_TERMS_URL: ${{ vars.AUTEUR_TERMS_URL }}
+        # `|| true` on a branch: until the repository variables above are set,
+        # the publisher details are placeholders and the preflight is meant to
+        # say so rather than to stop everybody's push. On main it is a failure.
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            python3 tools/appstore/preflight.py --online
+          else
+            python3 tools/appstore/preflight.py || \
+              echo "::warning::preflight is not clean — see above"
+          fi

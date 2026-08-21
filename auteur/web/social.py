@@ -175,6 +175,39 @@ class Films:
             self._save()
             return True
 
+    def remove_any(self, film_id: str) -> str | None:
+        """Remove a film whoever made it. Returns its path, or None.
+
+        `forget` refuses anything that is not yours, which is right for the
+        app and wrong for the person whose computer this is: the App Store
+        asks that reported material can actually be taken down, and a
+        moderator who can only delete their own films cannot do that. This is
+        reachable from `auteur moderate` and from nowhere the network can
+        touch — there is no route to it, deliberately.
+        """
+        with self.lock:
+            film = self.films.pop(film_id, None)
+            if film is None:
+                return None
+            self._save()
+        return film.video
+
+    def forget_everything_by(self, owner: str) -> list[str]:
+        """Every film somebody made, gone. Returns the paths, for the caller.
+
+        Part of deleting an account. The files are handed back rather than
+        deleted here because a film points into a job folder this store does
+        not own, and a store that unlinks paths out of its own JSON is one
+        traversal away from unlinking something else.
+        """
+        with self.lock:
+            mine = [f for f in self.films.values() if f.owner == owner]
+            for film in mine:
+                self.films.pop(film.id, None)
+            if mine:
+                self._save()
+        return [f.video for f in mine]
+
     def drop_missing(self) -> int:
         """Forget films whose file is gone, and say how many.
 
@@ -293,6 +326,22 @@ class Messages:
             self.threads.setdefault(_pair(sender, to), []).append(note)
             self._save()
         return note
+
+    def forget_everything_with(self, who: str) -> int:
+        """Every conversation somebody is in, gone. Returns how many.
+
+        Both halves of it. A deletion that removed only the messages somebody
+        *sent* would leave the other side of every conversation talking to an
+        account that no longer exists, which is worse than either keeping it
+        all or removing it all.
+        """
+        with self.lock:
+            keys = [k for k in self.threads if who in k.split("\x00")]
+            for key in keys:
+                self.threads.pop(key, None)
+            if keys:
+                self._save()
+        return len(keys)
 
     def mark_read(self, who: str, other: str) -> None:
         """Everything `other` sent `who` has now been seen."""

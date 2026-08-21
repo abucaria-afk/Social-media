@@ -1226,6 +1226,7 @@ def web_server(tmp_path):
     from auteur.web import assets, server as web
     from auteur.web.auth import Accounts
     from auteur.web.profiles import Profiles
+    from auteur.web.safety import Reports
     from auteur.web.social import Films, Messages
 
     assets.ensure(web.STATIC)
@@ -1241,6 +1242,7 @@ def web_server(tmp_path):
     web.Handler.studio.films = web.Handler.films
     web.Handler.messages = Messages(root / "messages.json")
     web.Handler.profiles = Profiles(root / "profiles.json", root / "pictures")
+    web.Handler.reports = Reports(root / "reports.json")
 
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -1264,6 +1266,7 @@ def web_server(tmp_path):
         web.Handler.films = None
         web.Handler.messages = None
         web.Handler.profiles = None
+        web.Handler.reports = None
 
 
 def test_the_shell_and_icons_are_reachable(web_server):
@@ -2261,8 +2264,11 @@ def test_both_palettes_are_readable():
                 ratio = theme.contrast(theme.rgb_of(role, scheme), behind)
                 assert ratio >= 4.5, f"{role} on {scheme} {under} is only {ratio:.2f}:1"
 
-        button = theme.contrast(theme.rgb_of("on_ember", scheme), theme.rgb_of("ember", scheme))
-        assert button >= 4.5, f"the main button on {scheme} is only {button:.2f}:1"
+        # Every "text on a fill" pair, not only the primary button: the
+        # destructive one is red-on-red until something checks it.
+        for ink, fill in (("on_ember", "ember"), ("on_rust", "rust")):
+            ratio = theme.contrast(theme.rgb_of(ink, scheme), theme.rgb_of(fill, scheme))
+            assert ratio >= 4.5, f"{ink} on {scheme} {fill} is only {ratio:.2f}:1"
 
 
 def test_the_stylesheet_covers_system_light_and_dark():
@@ -9484,3 +9490,407 @@ def test_the_type_scale_moves_together_when_the_text_size_does():
     assert len(rungs) >= 10
     for name, value in rungs:
         assert value.strip().endswith("rem"), f"{name} is {value}, which will not scale"
+
+
+# ---------------------------------------------------------------------------
+# Getting into the App Store
+# ---------------------------------------------------------------------------
+
+
+def test_the_reserved_example_domain_is_refused_as_a_bundle_identifier():
+    """`com.example.*` is the documentation domain and Apple rejects it.
+
+    It is also exactly what a project file carries until somebody remembers to
+    change it, which is why this is a check rather than a line in a README.
+    """
+    from auteur.identity import Identity, problems, ready
+
+    assert not ready()  # the repository ships with placeholders, on purpose
+    assert any("com.example" in line for line in problems())
+
+    filled = Identity(
+        bundle_id="com.somebody.auteur",
+        developer="Somebody",
+        support_email="hello@somebody.com",
+        support_url="https://somebody.com/auteur",
+        privacy_url="https://somebody.com/auteur/privacy",
+        terms_url="https://somebody.com/auteur/terms",
+    )
+    assert problems(filled) == []
+
+
+def test_a_placeholder_is_caught_whatever_its_capitals():
+    """The first version compared against a lowercase string, so "Example
+    Developer" went straight through it."""
+    from auteur.identity import Identity, problems
+
+    named = Identity(
+        bundle_id="com.somebody.auteur",
+        developer="Example Developer",
+        support_email="hello@somebody.com",
+        support_url="https://somebody.com/",
+        privacy_url="https://somebody.com/privacy",
+        terms_url="https://somebody.com/terms",
+    )
+    assert any("developer name" in line for line in problems(named))
+
+
+def test_an_identifier_that_is_not_reverse_dns_is_refused():
+    from auteur.identity import Identity, problems
+
+    for bad in ("auteur", "com.auteur", "com.somebody auteur", "com.somebody.auteur!"):
+        broken = Identity(
+            bundle_id=bad,
+            developer="Somebody",
+            support_email="hello@somebody.com",
+            support_url="https://somebody.com/",
+            privacy_url="https://somebody.com/privacy",
+            terms_url="https://somebody.com/terms",
+        )
+        assert problems(broken), bad
+
+
+def _tool(name: str):
+    """Load one of the tools/appstore scripts as a module.
+
+    Registered in `sys.modules` before it is executed, which is not optional:
+    `@dataclass` resolves its annotations by looking the defining module up by
+    name, and a module that is not there yet raises inside dataclasses rather
+    than anywhere near the actual mistake.
+    """
+    import importlib.util
+    import sys as _sys
+
+    path = Path(__file__).resolve().parents[1] / "tools" / "appstore" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(f"auteur_tool_{name}", path)
+    module = importlib.util.module_from_spec(spec)
+    _sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_listing_fits_the_fields_it_goes_into():
+    """App Store Connect enforces these after you have written past them."""
+    from auteur import identity
+
+    listing = _tool("listing")
+
+    assert len(identity.IDENTITY.app_name) <= identity.NAME_LIMIT
+    assert len(listing.SUBTITLE) <= identity.SUBTITLE_LIMIT
+    assert len(listing.KEYWORDS) <= identity.KEYWORDS_LIMIT
+    assert len(listing.PROMOTIONAL) <= identity.PROMOTIONAL_LIMIT
+    assert len(listing.DESCRIPTION) <= identity.DESCRIPTION_LIMIT
+    # Keywords are counted with their commas and any spaces after them, so a
+    # tidy-looking ", " list silently costs ten characters.
+    assert ", " not in listing.KEYWORDS
+
+
+def test_every_permission_the_app_asks_for_has_a_sentence_behind_it():
+    """A permission with no string crashes at the moment it is needed, and a
+    string with nothing asking for it is a question from a reviewer."""
+    import plistlib
+
+    root = Path(__file__).resolve().parents[1]
+    with (root / "ios" / "Auteur" / "Info.plist").open("rb") as handle:
+        info = plistlib.load(handle)
+
+    wanted = {
+        "NSPhotoLibraryAddUsageDescription",
+        "NSCalendarsWriteOnlyAccessUsageDescription",
+        "NSCalendarsUsageDescription",
+        "NSLocalNetworkUsageDescription",
+    }
+    have = {key for key in info if key.endswith("UsageDescription")}
+    assert have == wanted, f"unexpected: {have ^ wanted}"
+    for key in have:
+        said = info[key]
+        assert len(said) > 20 and said.endswith("."), f"{key} is {said!r}"
+
+
+def test_the_privacy_manifest_declares_every_required_reason_api_the_swift_uses():
+    """Apple mails an ITMS-91053 about a missing one after the upload.
+
+    This found a real one: `Instance.swift` remembers the instance address in
+    UserDefaults and the manifest did not mention it.
+    """
+    import plistlib
+
+    root = Path(__file__).resolve().parents[1]
+    app = root / "ios" / "Auteur"
+    with (app / "PrivacyInfo.xcprivacy").open("rb") as handle:
+        manifest = plistlib.load(handle)
+
+    declared = {row["NSPrivacyAccessedAPIType"] for row in manifest["NSPrivacyAccessedAPITypes"]}
+    swift = "\n".join(f.read_text() for f in sorted(app.rglob("*.swift")))
+    if "UserDefaults" in swift:
+        assert "NSPrivacyAccessedAPICategoryUserDefaults" in declared
+
+    # And every declared category carries a reason code; one without is the
+    # same to Apple as one that was never declared.
+    for row in manifest["NSPrivacyAccessedAPITypes"]:
+        assert row.get("NSPrivacyAccessedAPITypeReasons"), row["NSPrivacyAccessedAPIType"]
+
+    assert manifest["NSPrivacyTracking"] is False
+    assert manifest["NSPrivacyCollectedDataTypes"] == []
+
+
+def test_the_bundle_identifier_is_not_written_out_twice():
+    """It is in identity.py and generated into Identity.yml; a literal in
+    project.yml would be a second copy, and the second copy is the stale one."""
+    root = Path(__file__).resolve().parents[1]
+    project = (root / "ios" / "project.yml").read_text()
+    assert "PRODUCT_BUNDLE_IDENTIFIER" not in project
+    assert "Identity.yml" in project
+
+    generated = (root / "ios" / "Identity.yml").read_text()
+    from auteur.identity import IDENTITY
+
+    assert IDENTITY.bundle_id in generated
+
+
+def test_the_screenshot_sizes_are_the_ones_the_form_accepts():
+    """A screenshot one pixel off is refused with no clue which dimension."""
+    preflight = _tool("preflight")
+
+    # 1290x2796 is the required iPhone slot, and the generator has to be driven
+    # at the CSS size that produces it — 430 x 932 at three pixels per point.
+    assert (1290, 2796) in preflight.IPHONE_SIZES
+    assert (2048, 2732) in preflight.IPAD_SIZES
+
+    module = _tool("screenshots")
+    for _name, width, height, ratio, wanted in module.DEVICES:
+        assert (width * ratio, height * ratio) == wanted
+        assert wanted in preflight.IPHONE_SIZES | preflight.IPAD_SIZES
+
+
+def test_the_terms_say_the_thing_the_app_store_requires_them_to():
+    """Guideline 1.2 asks for terms with no tolerance for objectionable content
+    or abusive users, agreed to when an account is made."""
+    from auteur.web import server
+
+    root = Path(__file__).resolve().parents[1]
+    terms = " ".join((root / "TERMS.md").read_text().split()).lower()
+    assert "no tolerance for objectionable content" in terms
+    assert "delete your account" in terms
+
+    # Reachable without an account, because the sign-up screen links to it.
+    assert "/terms" in server.PUBLIC_PATHS
+    page = (server.STATIC / "terms.html").read_text()
+    assert "no tolerance" in page
+
+    # And agreed to where the account is made, not on a screen nobody visits.
+    login = (server.STATIC / "login.html").read_text()
+    assert 'href="/terms"' in login
+    assert login.index('href="/terms"') < login.index('id="signup-go"')
+
+
+# -- deleting an account ----------------------------------------------------
+
+
+def test_deleting_an_account_takes_everything_with_it(web_server):
+    """Guideline 5.1.1(v), and the harder half of it: the files, not only the
+    rows. A film row removed while its mp4 is still on disk is footage
+    somebody asked to have deleted, still there."""
+    import json as _json
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    from auteur.web import server as web
+
+    base, studio, cookie = web_server
+    clip = studio.workspace / "mine.mp4"
+    clip.parent.mkdir(parents=True, exist_ok=True)
+    clip.write_bytes(b"not really an mp4")
+    web.Handler.films.add(owner="tester", prompt="mine", video=str(clip))
+    web.Handler.messages.send("tester", "grace", text="hello")
+    web.Handler.profiles.edit("tester", bio="something")
+    web.Handler.profiles.follow("tester", "grace")
+
+    # The password, again: a live session is not proof of who is holding the
+    # phone, and this is the most destructive thing in the app.
+    for payload, code in (
+        ({"password": "wrong", "confirm": "delete"}, 403),
+        ({"password": "a-long-enough-one", "confirm": "yes"}, 400),
+    ):
+        with pytest.raises(HTTPError) as raised:
+            _api_post(base, "/api/profile/delete", cookie, payload)
+        assert raised.value.code == code
+
+    said = _api_post(
+        base, "/api/profile/delete", cookie, {"password": "a-long-enough-one", "confirm": "delete"}
+    )
+    assert said["ok"] is True
+
+    web.Handler.accounts.refresh()
+    assert web.Handler.accounts.get("tester") is None
+    assert web.Handler.films.by("tester") == []
+    assert not clip.exists(), "the film's file was left on disk"
+    assert web.Handler.messages.conversations("grace") == []
+    assert web.Handler.profiles.get("tester").bio == ""
+    assert web.Handler.profiles.followers_of("grace") == []
+
+    # And the session went with it, rather than staying live against a name
+    # that no longer exists.
+    with pytest.raises(HTTPError) as raised:
+        urlopen(Request(base + "/api/profile", headers={"Cookie": cookie}))
+    assert raised.value.code == 401
+    assert _json  # the import is used by the helpers above
+
+
+# -- reporting and blocking -------------------------------------------------
+
+
+def test_a_block_is_a_wall_rather_than_a_mute(web_server):
+    """Filtering only what you blocked leaves the other person able to watch
+    your films and keep writing to you, which is not a block."""
+    from urllib.error import HTTPError
+
+    from auteur.web import server as web
+
+    base, studio, cookie = web_server
+    for owner in ("grace",):
+        clip = studio.workspace / f"{owner}.mp4"
+        clip.parent.mkdir(parents=True, exist_ok=True)
+        clip.write_bytes(b"not really an mp4")
+        web.Handler.films.add(owner=owner, prompt="theirs", video=str(clip))
+    web.Handler.messages.send("grace", "tester", text="hello")
+
+    assert len(_api_get(base, "/api/feed?scope=all", cookie)["films"]) == 1
+    assert _api_get(base, "/api/messages", cookie)["conversations"]
+
+    _api_post(base, "/api/profiles/grace/block", cookie, {"block": True})
+
+    assert _api_get(base, "/api/feed?scope=all", cookie)["films"] == []
+    assert _api_get(base, "/api/messages", cookie)["conversations"] == []
+    assert _api_get(base, "/api/people", cookie)["people"] == []
+    assert _api_get(base, "/api/messages/grace", cookie)["closed"] is True
+    with pytest.raises(HTTPError) as raised:
+        _api_post(base, "/api/messages/send", cookie, {"to": "grace", "text": "hi"})
+    assert raised.value.code == 403
+
+    # The other way round, from the store: the person blocked cannot reach back.
+    assert "tester" in web.Handler.profiles.apart("grace")
+
+    _api_post(base, "/api/profiles/grace/block", cookie, {"block": False})
+    assert len(_api_get(base, "/api/feed?scope=all", cookie)["films"]) == 1
+
+
+def test_a_report_names_whose_content_it_is_from_the_server(web_server):
+    """A report that names whoever the page said it names is a report anybody
+    could file against anybody."""
+    from auteur.web import server as web
+
+    base, studio, cookie = web_server
+    clip = studio.workspace / "grace.mp4"
+    clip.parent.mkdir(parents=True, exist_ok=True)
+    clip.write_bytes(b"not really an mp4")
+    film = web.Handler.films.add(owner="grace", prompt="theirs", video=str(clip))
+
+    said = _api_post(
+        base,
+        "/api/report",
+        cookie,
+        {"kind": "film", "about": film.id, "about_who": "somebody-else", "reason": "spam"},
+    )
+    stored = web.Handler.reports.get(said["report"]["id"])
+    assert stored.about_who == "grace"
+    assert stored.by == "tester"
+
+
+def test_reporting_can_block_in_the_same_step(web_server):
+    """Almost everybody who reports somebody also wants to stop hearing from
+    them, and two journeys through two screens is how people do neither."""
+    from auteur.web import server as web
+
+    base, studio, cookie = web_server
+    clip = studio.workspace / "grace.mp4"
+    clip.parent.mkdir(parents=True, exist_ok=True)
+    clip.write_bytes(b"not really an mp4")
+    film = web.Handler.films.add(owner="grace", prompt="theirs", video=str(clip))
+
+    said = _api_post(
+        base,
+        "/api/report",
+        cookie,
+        {"kind": "film", "about": film.id, "reason": "harassment", "block": True},
+    )
+    assert said["blocked"] is True
+    assert web.Handler.profiles.blocks("tester", "grace")
+
+
+def test_you_can_see_what_came_of_what_you_reported(web_server):
+    """A report whose outcome you can never see is a button people press once
+    and then stop believing in."""
+    from auteur.web import server as web
+
+    base, _, cookie = web_server
+    report = web.Handler.reports.file(
+        by="tester", kind="person", about="grace", about_who="grace", reason="spam"
+    )
+    mine = _api_get(base, "/api/reports", cookie)
+    assert [row["state"] for row in mine["reports"]] == ["open"]
+
+    web.Handler.reports.decide(report.id, "removed", "took the film down")
+    mine = _api_get(base, "/api/reports", cookie)
+    assert mine["reports"][0]["state"] == "removed"
+    # Not the operator's note, and not who else reported it.
+    assert "decided_note" not in mine["reports"][0]
+    assert "by" not in mine["reports"][0]
+
+
+def test_reporting_the_same_thing_twice_does_not_make_two_reports(tmp_path):
+    """An operator needs "how many people reported this" to mean something."""
+    from auteur.web.safety import Reports
+
+    store = Reports(tmp_path / "reports.json")
+    first = store.file(by="ada", kind="film", about="f1", about_who="grace", reason="spam")
+    again = store.file(by="ada", kind="film", about="f1", about_who="grace", reason="spam")
+    assert first.id == again.id
+    assert store.waiting == 1
+
+    other = store.file(by="bob", kind="film", about="f1", about_who="grace", reason="spam")
+    assert other.id != first.id
+    assert store.count_about("f1") == 2
+
+
+def test_the_reports_that_might_mean_danger_are_shown_first(tmp_path):
+    from auteur.web.safety import Reports
+
+    store = Reports(tmp_path / "reports.json")
+    store.file(by="ada", kind="film", about="f1", about_who="g", reason="spam")
+    store.file(by="bob", kind="film", about="f2", about_who="g", reason="child-safety")
+    store.file(by="cal", kind="film", about="f3", about_who="g", reason="violence")
+    assert [r.reason for r in store.open_ones()][0] in ("child-safety", "violence")
+    assert [r.reason for r in store.open_ones()][-1] == "spam"
+
+
+def test_the_moderator_can_remove_a_film_that_is_not_theirs(tmp_path):
+    """`forget` refuses anything that is not yours, which is right for the app
+    and wrong for the person whose computer it is — a moderator who can only
+    delete their own films cannot take down what was reported."""
+    from auteur.web.social import Films
+
+    store = Films(tmp_path / "films.json")
+    film = store.add(owner="grace", prompt="theirs", video=str(tmp_path / "x.mp4"))
+    assert store.forget(film.id, "tester") is False
+    assert store.remove_any(film.id) == str(tmp_path / "x.mp4")
+    assert store.get(film.id) is None
+
+
+def test_every_control_guideline_1_2_asks_for_exists_on_both_sides():
+    """A server endpoint with no button is as absent as a button with no
+    endpoint, and a reviewer finds out by using the app."""
+    from auteur.web import server
+
+    handlers = (server.STATIC.parent / "server.py").read_text()
+    for route in ("/api/report", "/block", "/api/profile/delete"):
+        assert route in handlers, route
+
+    safety = (server.STATIC / "safety.js").read_text()
+    assert "auteurSafety" in safety and "function block(" in safety
+    for page in ("feed.html", "profile.html", "inbox.html"):
+        assert "safety.js" in (server.STATIC / page).read_text(), page
+
+    # And the operator's side, which is what makes reporting more than a form.
+    cli = (Path(__file__).resolve().parents[1] / "auteur" / "cli.py").read_text()
+    assert "def _run_moderate" in cli

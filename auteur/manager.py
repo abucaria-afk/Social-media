@@ -331,6 +331,21 @@ class Board:
             self._save()
             return True
 
+    def forget_everyones(self, owner: str) -> int:
+        """Every plan somebody made, gone. Part of deleting an account.
+
+        A plan is only ever about a post that does not exist yet, so there is
+        nothing here anybody else can be looking at — which is why this needs
+        no confirmation of its own beyond the one the deletion already took.
+        """
+        with self.lock:
+            mine = [p.id for p in self.plans.values() if p.owner == owner]
+            for plan_id in mine:
+                self.plans.pop(plan_id, None)
+            if mine:
+                self._save()
+        return len(mine)
+
     # -- reading ---------------------------------------------------------
 
     def get(self, plan_id: str) -> Plan | None:

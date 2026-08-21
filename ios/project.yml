@@ -6,6 +6,16 @@
 # value below is either required by App Store Connect or forced by what the
 # renderer needs.
 name: Auteur
+
+# The bundle identifier and the two version numbers are not here. They are in
+# `auteur/identity.py` — the one place a publisher fills in — and written out
+# to `Identity.yml` by `ios/scripts/build_bundle.py`. A value that has to be
+# changed by hand in a project file, with a line in a README asking for it, is
+# a value that ships unchanged; this one is checked by the preflight and by the
+# test suite instead.
+include:
+  - Identity.yml
+
 options:
   bundleIdPrefix: com.example
   deploymentTarget:
@@ -26,8 +36,6 @@ settings:
     # Warnings that catch the mistakes this app could actually make.
     SWIFT_STRICT_CONCURRENCY: complete
     GCC_TREAT_WARNINGS_AS_ERRORS: false
-    MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "1"
 
 targets:
   Auteur:
@@ -40,7 +48,6 @@ targets:
     settings:
       base:
         PRODUCT_NAME: Auteur
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.auteur
         INFOPLIST_FILE: Auteur/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor

@@ -36,7 +36,7 @@ from urllib.parse import parse_qs, unquote
 
 from ..config import FORMATS, QUALITIES, Settings
 from ..ui import Reporter, describe_count, describe_duration, describe_shape
-from . import profiles
+from . import profiles, safety
 from .social import PAGE
 
 log = logging.getLogger("auteur.web")
@@ -151,8 +151,12 @@ PUBLIC_PATHS = frozenset(
         "/api/sign-in-with",
         # The App Store requires a privacy policy at a URL anybody can open,
         # and "anybody" includes a reviewer who has not been given an account.
+        # The terms go with it: the sign-up screen links to them, which happens
+        # before anybody has an account by definition.
         "/privacy",
         "/privacy.html",
+        "/terms",
+        "/terms.html",
     }
 )
 
@@ -573,6 +577,7 @@ class Handler(BaseHTTPRequestHandler):
     films: Any = None  # a social.Films once serve() has run
     messages: Any = None  # a social.Messages once serve() has run
     profiles: Any = None  # a profiles.Profiles once serve() has run
+    reports: Any = None  # a safety.Reports once serve() has run
     board: Any = None  # a manager.Board once serve() has run
     sign_in_with: Any = None  # provider settings once serve() has run
     attempts: Any = None  # an oidc.Attempts once serve() has run
@@ -1024,6 +1029,11 @@ class Handler(BaseHTTPRequestHandler):
         except (TypeError, ValueError):
             before = None
 
+        # Nobody on either side of a block appears in anybody's feed. Applied
+        # here rather than in each scope, because a filter that has to be
+        # remembered three times is one that will be remembered twice.
+        apart = self.profiles.apart(who)
+
         scope = (query.get("scope") or [""])[0]
         if query.get("mine"):
             scope = "mine"
@@ -1037,10 +1047,10 @@ class Handler(BaseHTTPRequestHandler):
             # to do about it instead.
             wanted = set(self.profiles.following_of(who))
             films = [f for f in self.films.feed(who, limit=999, before=before) if f.owner in wanted]
-            films = films[:PAGE]
         else:
-            films = self.films.feed(who, before=before)
+            films = self.films.feed(who, limit=999, before=before)
 
+        films = [f for f in films if f.owner not in apart][:PAGE]
         rows = [f.public(who) for f in films]
         self._json(
             {
@@ -1171,6 +1181,185 @@ class Handler(BaseHTTPRequestHandler):
         self.profiles.forget_picture(who)
         self._json({"profile": self._mine(who)})
 
+    # ---------------------------------------------------------------- safety
+
+    def _block(self, who: str) -> None:
+        """Block somebody, or stop. Takes effect at once and asks nobody.
+
+        This is the control that has to work at three in the morning without
+        anybody being available, which is why it is entirely in the hands of
+        the person doing it and why it needs no confirmation beyond the tap.
+        """
+        me = self.current_user() or ""
+        who = unquote(who).strip()
+        self.accounts.refresh()
+        if who not in self.accounts.accounts:
+            self._json({"error": "no one here by that name"}, 404)
+            return
+        if who == me:
+            self._json({"error": "You cannot block yourself."}, 400)
+            return
+        if bool(self._json_body().get("block", True)):
+            self.profiles.block(me, who)
+            log.info("%s blocked somebody", _for_log(me))
+        else:
+            self.profiles.unblock(me, who)
+        self._json({"profile": self.profiles.public_of(who, viewer=me)})
+
+    def _report(self) -> None:
+        """Report a film, a message or a person to whoever runs this instance.
+
+        It goes to a real named human — the person whose computer this is —
+        rather than to a queue, and the answer says so. Claiming a review team
+        would be a lie, and a reporting flow that lies about where the report
+        went is worse than one that is honest about being small.
+        """
+        me = self.current_user() or ""
+        payload = self._json_body()
+        kind = str(payload.get("kind") or "").strip()
+        about = str(payload.get("about") or "").strip()
+        reason = str(payload.get("reason") or "").strip()
+
+        if kind not in safety.KINDS:
+            self._json({"error": "What is being reported?"}, 400)
+            return
+        if reason not in safety.REASONS:
+            self._json({"error": "Pick what is wrong with it."}, 400)
+            return
+
+        # Whose it is, worked out here rather than trusted from the page: a
+        # report that names whoever the browser said it names is a report
+        # somebody can file against anybody.
+        about_who = ""
+        if kind == "film":
+            film = self.films.get(about)
+            if film is None:
+                self._json({"error": "That film is not here any more."}, 404)
+                return
+            about_who = film.owner
+        elif kind == "person":
+            self.accounts.refresh()
+            if about not in self.accounts.accounts:
+                self._json({"error": "no one here by that name"}, 404)
+                return
+            about_who = about
+        else:  # a message
+            about_who = str(payload.get("about_who") or "").strip()
+            self.accounts.refresh()
+            if about_who not in self.accounts.accounts:
+                self._json({"error": "no one here by that name"}, 404)
+                return
+
+        if about_who == me:
+            self._json({"error": "That is yours. Delete it instead."}, 400)
+            return
+
+        report = self.reports.file(
+            by=me,
+            kind=kind,
+            about=about,
+            about_who=about_who,
+            reason=reason,
+            note=str(payload.get("note") or ""),
+        )
+        if report is None:
+            self._json({"error": "That could not be reported."}, 400)
+            return
+        # Loud in the log, because on this instance the log is a person's own
+        # terminal and that is the fastest route to their attention.
+        log.warning(
+            "REPORT %s: a %s was reported as %s — run `auteur moderate` to see it",
+            "urgent" if report.urgent else "filed",
+            report.kind,
+            report.reason,
+        )
+        # Blocking at the same time, if they asked. Almost everybody who
+        # reports somebody also wants to stop hearing from them, and making
+        # that a second journey through a different screen is how people end
+        # up doing neither.
+        blocked = False
+        if bool(payload.get("block")) and about_who and about_who != me:
+            blocked = self.profiles.block(me, about_who)
+        self._json({"report": report.public(), "blocked": blocked}, 201)
+
+    def _my_reports(self) -> None:
+        """What this person has reported, and what came of it."""
+        who = self.current_user() or ""
+        self._json(
+            {
+                "reports": [r.public() for r in self.reports.by(who)],
+                "reasons": safety.REASONS,
+                "blocked": self.profiles.blocked_of(who),
+            }
+        )
+
+    def _delete_account(self) -> None:
+        """Delete this account and everything it made. Password required.
+
+        The App Store requires an app that can create an account to be able to
+        delete one from inside itself — an email address to write to is
+        explicitly not enough (guideline 5.1.1(v)). It is also the right
+        behaviour for a program whose whole claim is that the footage is yours.
+
+        Three things about how it is done:
+
+        **The password, again.** A live session is not proof that the person
+        holding the phone is the person who owns the account. Every other
+        destructive step in this app asks — turning two-step off does — and
+        this is the most destructive one there is.
+
+        **Everything, in one place.** The account store, the films, the
+        messages, the profile, the pictures, the plans and the templates. Each
+        of those is its own file and none of them knows about the others, so
+        the only way this stays complete is for one function to do all of it
+        and one test to check that nothing survives.
+
+        **The files, not only the rows.** A film row removed while its mp4 is
+        still on disk is footage somebody asked to have deleted, still there.
+        """
+        who = self.current_user() or ""
+        payload = self._json_body()
+        self.accounts.refresh()
+        account = self.accounts.get(who)
+        if account is None:
+            self._json({"error": "Please sign in."}, 401)
+            return
+        if not account.check(str(payload.get("password") or "")):
+            self._json({"error": "That password does not match."}, 403)
+            return
+        # Typed out in full, so a tap and a mis-tap are different things.
+        if str(payload.get("confirm") or "").strip().lower() != "delete":
+            self._json({"error": 'Type the word "delete" to confirm.'}, 400)
+            return
+
+        gone = self.films.forget_everything_by(who)
+        for path in gone:
+            for candidate in (Path(path), Path(path).with_suffix(".poster.jpg")):
+                try:
+                    candidate.unlink(missing_ok=True)
+                except OSError as exc:  # noqa: PERF203 - one bad path is not the rest
+                    log.warning("could not remove %s: %s", candidate.name, exc)
+        self.messages.forget_everything_with(who)
+        self.profiles.forget(who)
+        self.reports.forget_everything_about(who)
+        if self.board is not None:
+            self.board.forget_everyones(who)
+        # The reels somebody added as templates, which live under their name.
+        templates = self.studio.workspace / "templates" / f"{_safe_name(who)}.json"
+        try:
+            templates.unlink(missing_ok=True)
+        except OSError as exc:  # noqa: BLE001 - reported, not fatal
+            log.warning("could not remove templates: %s", exc)
+        self.accounts.remove(who)
+        log.info("account and everything in it removed")
+
+        self._send(
+            200,
+            json.dumps({"ok": True, "films": len(gone)}).encode(),
+            "application/json; charset=utf-8",
+            extra={"Set-Cookie": self._clear_session_cookie(), "Cache-Control": "no-store"},
+        )
+
     def _follow(self, who: str) -> None:
         me = self.current_user() or ""
         who = unquote(who).strip()
@@ -1239,7 +1428,8 @@ class Handler(BaseHTTPRequestHandler):
         """
         who = self.current_user() or ""
         self.accounts.refresh()
-        names = sorted(n for n in self.accounts.accounts if n != who)
+        apart = self.profiles.apart(who)
+        names = sorted(n for n in self.accounts.accounts if n != who and n not in apart)
         counts = {n: len(self.films.by(n, limit=999)) for n in names}
         cards = self.profiles.cards(names)
         mine = set(self.profiles.following_of(who))
@@ -1254,7 +1444,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _inbox(self) -> None:
         who = self.current_user() or ""
-        rows = self.messages.conversations(who)
+        apart = self.profiles.apart(who)
+        rows = [r for r in self.messages.conversations(who) if r["who"] not in apart]
         self._json({"conversations": rows, "unread": sum(r["unread"] for r in rows), "me": who})
 
     def _thread(self, other: str) -> None:
@@ -1262,6 +1453,14 @@ class Handler(BaseHTTPRequestHandler):
         other = other.strip()
         if not other:
             self._json({"error": "who with?"}, 400)
+            return
+        if other in self.profiles.apart(who):
+            # Deliberately the same answer either way round. Telling somebody
+            # "you have been blocked" turns a wall into a notification, which
+            # is the thing people blocking somebody are usually trying to
+            # avoid; and the person who did the blocking does not need to be
+            # told either, they know.
+            self._json({"who": other, "messages": [], "films": {}, "closed": True})
             return
         notes = self.messages.thread(who, other)
         # Reading a conversation is what marks it read. Doing it on a separate
@@ -1283,6 +1482,9 @@ class Handler(BaseHTTPRequestHandler):
         self.accounts.refresh()
         if to not in self.accounts.accounts:
             self._json({"error": "no one here by that name"}, 404)
+            return
+        if to in self.profiles.apart(who):
+            self._json({"error": "That conversation is closed."}, 403)
             return
         note = self.messages.send(
             who,
@@ -1369,6 +1571,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
+        if path in ("/terms", "/terms.html"):
+            self._static(STATIC / "terms.html", "text/html; charset=utf-8")
+            return
         if path in ("/privacy", "/privacy.html"):
             self._static(STATIC / "privacy.html", "text/html; charset=utf-8")
             return
@@ -1475,12 +1680,17 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/profile":
             self._my_profile()
             return
+        if path == "/api/reports":
+            self._my_reports()
+            return
         if path.startswith("/api/profiles/"):
             parts = path.strip("/").split("/")
             name = parts[2] if len(parts) > 2 else ""
             what = parts[3] if len(parts) > 3 else ""
             if what == "picture":
                 self._profile_picture(name)
+            elif what == "block":
+                self._json({"error": "not found"}, 404)
             elif what in ("following", "followers"):
                 self._profile_people(name, what)
             elif what:
@@ -2629,6 +2839,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/profile/picture/remove":
             self._clear_picture()
             return
+        if path == "/api/profile/delete":
+            self._delete_account()
+            return
+        if path == "/api/report":
+            self._report()
+            return
+        if path.startswith("/api/profiles/") and path.endswith("/block"):
+            self._block(path.split("/")[3])
+            return
         if path.startswith("/api/profiles/") and path.endswith("/follow"):
             self._follow(path.split("/")[3])
             return
@@ -3007,6 +3226,7 @@ def serve(
     from ..manager import Board
     from . import oidc
     from .profiles import Profiles
+    from .safety import Reports
     from .social import Films, Messages
 
     assets.ensure(STATIC)
@@ -3020,6 +3240,8 @@ def serve(
     Handler.messages = Messages(Messages.default_path(root))
     # Who everybody is: the picture, the name they chose, and who they follow.
     Handler.profiles = Profiles(Profiles.default_path(root), root / "pictures")
+    # What anybody has reported, and what was done about it.
+    Handler.reports = Reports(Reports.default_path(root))
     Handler.board = Board(Board.default_path(root))
     # Credentials from the workspace or the environment, never the repo.
     Handler.sign_in_with = oidc.load(root)

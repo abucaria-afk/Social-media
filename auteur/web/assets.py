@@ -143,11 +143,35 @@ def _as_html(markdown: str) -> str:
     return "\n".join(out)
 
 
-def privacy_page(source: Path, static: Path) -> Path | None:
-    """PRIVACY.md as a page anybody can open, generated rather than kept twice.
+def _with_contact(markdown: str) -> str:
+    """Fill in the `<!-- CONTACT -->` marker with the published address.
 
-    The App Store requires a public privacy policy URL, and a policy that is
-    maintained in two places is a policy that is wrong in one of them.
+    Guideline 1.2 requires published contact information for an app carrying
+    other people's content, and the address lives in `auteur/identity.py` with
+    the other things only a publisher can fill in. Written in here rather than
+    into the markdown so there is one copy of it, and so a fork that sets
+    AUTEUR_SUPPORT_EMAIL gets its own without editing a policy document.
+    """
+    from ..identity import IDENTITY
+
+    return markdown.replace(
+        "<!-- CONTACT -->",
+        f"**{IDENTITY.support_email}**\n\n"
+        f"Auteur is published by {IDENTITY.developer}. Reports about content on "
+        f"an instance go to whoever runs that instance, from inside the app; "
+        f"this address is for the app itself.",
+    )
+
+
+def policy_page(source: Path, static: Path, name: str, title: str) -> Path | None:
+    """A markdown policy as a page anybody can open, generated rather than kept
+    twice.
+
+    The App Store requires a reachable privacy policy URL, and — for an app
+    with a feed and an inbox — terms that say there is no tolerance for
+    objectionable content. A policy maintained in two places is a policy that
+    is wrong in one of them, so both of these are one file each, converted
+    here and published to GitHub Pages by the same function.
     """
     if not source.is_file():
         return None
@@ -165,26 +189,34 @@ def privacy_page(source: Path, static: Path) -> Path | None:
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/style.css">
 <link rel="stylesheet" href="/static/prose.css">
-<title>Auteur — privacy</title>
+<title>Auteur — {title}</title>
 </head>
 <body>
 <main class="prose">
-{_as_html(source.read_text(encoding="utf-8"))}
+{_as_html(_with_contact(source.read_text(encoding="utf-8")))}
+<p class="prose-away"><a href="/">Back to the app</a></p>
 </main>
 </body>
 </html>
 """
-    out = Path(static) / "privacy.html"
+    out = Path(static) / name
     if not out.is_file() or out.read_text(encoding="utf-8") != page:
         out.write_text(page, encoding="utf-8")
     return out
+
+
+def privacy_page(source: Path, static: Path) -> Path | None:
+    """Kept as its own name because three callers already use it."""
+    return policy_page(source, static, "privacy.html", "privacy")
 
 
 def ensure(static: Path) -> None:
     """Write the generated assets. Safe to call on every start."""
     static = Path(static)
     static.mkdir(parents=True, exist_ok=True)
-    privacy_page(Path(__file__).resolve().parents[2] / "PRIVACY.md", static)
+    root = Path(__file__).resolve().parents[2]
+    privacy_page(root / "PRIVACY.md", static)
+    policy_page(root / "TERMS.md", static, "terms.html", "terms")
 
     # The palette, written out as CSS. Always rewritten: it is cheap, and a
     # stale copy would silently pin the interface to an old theme.

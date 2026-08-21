@@ -301,3 +301,50 @@
    margin — that pull lands the text on top of the last row of buttons. So on
    this page the caption after settings keeps its own space. */
 .settings + .group-caption { margin-top: 4px; }
+
+/* -- deleting the account ------------------------------------------------ */
+
+/* What goes with it, listed rather than summarised. "Everything in it" is a
+   phrase somebody can agree to without knowing what they agreed to. */
+.going {
+  margin: 0 0 12px;
+  padding: 0 0 0 20px;
+  color: var(--text-muted);
+  font-size: var(--text-subhead);
+  line-height: 1.45;
+}
+
+.going li { margin: 3px 0; }
+
+
+/* -- what I reported ----------------------------------------------------- */
+
+.reported { margin: 0 0 14px; padding: 0; list-style: none; }
+
+.reported li {
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--text-subhead);
+}
+
+.reported li:last-child { border-bottom: 0; }
+.reported-when { display: block; color: var(--text-faint); font-size: var(--text-footnote); }
+
+/* The verdict. Three states and three colours, because "open" and "removed"
+   are the two the person who reported it actually wants to tell apart. */
+.reported-state { font-weight: 600; }
+.reported-state.is-open { color: var(--text-muted); }
+.reported-state.is-removed { color: var(--moss); }
+.reported-state.is-kept { color: var(--text-faint); }
+
+.unblock-row {
+  margin-left: auto;
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--text);
+  font: 600 var(--text-footnote)/1 var(--font-display);
+  cursor: pointer;
+}

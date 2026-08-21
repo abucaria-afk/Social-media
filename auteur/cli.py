@@ -292,6 +292,31 @@ def _build_parser() -> argparse.ArgumentParser:
     account.add_argument("-u", "--user", default=None, help="username")
     account.add_argument("-e", "--email", default=None, help="email, for password resets")
 
+    moderate = sub.add_parser(
+        "moderate",
+        help="what people have reported on your instance, and what to do about it",
+    )
+    moderate.add_argument(
+        "action",
+        nargs="?",
+        default="show",
+        choices=["show", "remove", "keep", "close"],
+        help=(
+            "show what is waiting (default), remove the film a report is about, "
+            "keep it, or close somebody's account"
+        ),
+    )
+    moderate.add_argument("target", nargs="?", help="a report id, or a username for `close`")
+    moderate.add_argument(
+        "-o",
+        "--out",
+        default=None,
+        metavar="FOLDER",
+        help="the serve folder this instance uses (default ./auteur-web)",
+    )
+    moderate.add_argument("--note", default="", help="why, kept with the report")
+    moderate.add_argument("--all", action="store_true", help="include reports already decided")
+
     analyse = sub.add_parser("analyse", help="show what the agent sees in your footage")
     analyse.add_argument("paths", nargs="+", metavar="FOOTAGE")
     analyse.add_argument("--json", action="store_true", help="machine-readable output")
@@ -878,6 +903,118 @@ def _run_account(args: argparse.Namespace, say: Reporter) -> int:
             f"\n  changed the password for {username}"
             f"\n  every signed-in device has been signed out\n"
         )
+    return 0
+
+
+def _run_moderate(args: argparse.Namespace, say: Reporter) -> int:
+    """The operator's side of reporting.
+
+    On an instance this size the moderator is the person whose computer it is,
+    and this is their whole set of tools: see what was reported, remove the
+    film, or close the account. That is a small set on purpose — it is also
+    exactly the set the App Store asks for, and every one of these does the
+    thing it says rather than filing a ticket somewhere.
+    """
+    import time
+
+    from .manager import Board
+    from .web.auth import Accounts
+    from .web.profiles import Profiles
+    from .web.safety import REASONS, Reports
+    from .web.social import Films, Messages
+
+    root = Path(args.out) if args.out else Path.cwd() / "auteur-web"
+    reports = Reports(Reports.default_path(root))
+    films = Films(Films.default_path(root))
+
+    def ago(stamp: float) -> str:
+        gap = max(0.0, time.time() - stamp)
+        if gap < 3600:
+            return f"{int(gap // 60)}m ago"
+        if gap < 86400:
+            return f"{int(gap // 3600)}h ago"
+        return f"{int(gap // 86400)}d ago"
+
+    if args.action == "show":
+        rows = list(reports.reports.values()) if args.all else reports.open_ones()
+        rows = sorted(rows, key=lambda r: (r.state != "open", not r.urgent, -r.at))
+        print()
+        print(f"  reports on {reports.path}")
+        print()
+        if not rows:
+            print("     nothing reported")
+            print()
+            return 0
+        for report in rows:
+            mark = "  !" if report.urgent and report.state == "open" else "   "
+            print(f"  {mark} {report.id}  {REASONS.get(report.reason, report.reason)}")
+            print(
+                f"        a {report.kind} by {report.about_who}, "
+                f"reported by {report.by}, {ago(report.at)}"
+            )
+            if report.note:
+                print(f"        “{report.note}”")
+            if report.kind == "film":
+                film = films.get(report.about)
+                where = film.video if film is not None else "gone already"
+                print(f"        {where}")
+            if report.state != "open":
+                print(
+                    f"        -> {report.state}{', ' + report.decided_note if report.decided_note else ''}"
+                )
+        print()
+        print("     auteur moderate remove <id>     take the film down")
+        print("     auteur moderate keep <id>       leave it, and say so")
+        print("     auteur moderate close <person>  close their account entirely")
+        print()
+        return 0
+
+    if args.action == "close":
+        who = args.target or ""
+        if not who:
+            say.failure("which account?", "auteur moderate close <username>")
+            return 2
+        accounts = Accounts(Accounts.default_path(root))
+        if accounts.get(who) is None:
+            say.failure(f"no account called {who!r}")
+            return 1
+        who = accounts.get(who).username
+        gone = films.forget_everything_by(who)
+        for path in gone:
+            for candidate in (Path(path), Path(path).with_suffix(".poster.jpg")):
+                candidate.unlink(missing_ok=True)
+        Messages(Messages.default_path(root)).forget_everything_with(who)
+        Profiles(Profiles.default_path(root), root / "pictures").forget(who)
+        Board(Board.default_path(root)).forget_everyones(who)
+        reports.forget_everything_about(who)
+        accounts.remove(who)
+        print(f"\n  closed {who}: {len(gone)} film(s), their messages, plans and profile\n")
+        return 0
+
+    report = reports.get(args.target or "")
+    if report is None:
+        say.failure("no report with that id", "auteur moderate show")
+        return 1
+
+    if args.action == "remove":
+        if report.kind == "film":
+            where = films.remove_any(report.about)
+            if where:
+                for candidate in (Path(where), Path(where).with_suffix(".poster.jpg")):
+                    candidate.unlink(missing_ok=True)
+                print("\n  removed the film and its file\n")
+            else:
+                print("\n  that film had already gone\n")
+        else:
+            print(
+                f"\n  marked removed. A {report.kind} is not something this can delete for you —"
+                f"\n  `auteur moderate close {report.about_who}` closes the account behind it.\n"
+            )
+        reports.decide(report.id, "removed", args.note)
+        return 0
+
+    reports.decide(report.id, "kept", args.note)
+    print("\n  marked kept. The person who reported it can see that in the app.\n")
     return 0
 
 
@@ -2059,6 +2196,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_serve(args, say)
         if args.command == "account":
             return _run_account(args, say)
+        if args.command == "moderate":
+            return _run_moderate(args, say)
         if args.command == "analyse":
             return _run_analyse(args, say)
         if args.command == "looks":

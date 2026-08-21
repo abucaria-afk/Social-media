@@ -271,6 +271,34 @@ class Accounts:
             self.sessions = {k: v for k, v in self.sessions.items() if v[0] != account.username}
             self._save()
 
+    def remove(self, username: str) -> bool:
+        """Delete an account and every session it holds. True if there was one.
+
+        The App Store requires this — an app that can make an account has to be
+        able to unmake one from inside itself, and pointing somebody at an
+        email address is explicitly not enough (guideline 5.1.1(v)). It is also
+        just correct: this program's whole claim is that your footage is yours,
+        and "yours" has to include being able to take it back.
+
+        What it does *not* do is the rest of the deletion. Films, messages,
+        profile and pictures live in their own stores and are removed by the
+        caller, because this class knows nothing about them and an account
+        store that reached into three other files would be the wrong shape. The
+        server has one place that does all of it — see `_delete_account`.
+
+        Sessions go first in the same lock: an account removed while a token
+        for it is still live is an account somebody is still signed in to.
+        """
+        key = (username or "").strip().lower()
+        with self.lock:
+            account = self.accounts.pop(key, None)
+            if account is None:
+                return False
+            self.sessions = {k: v for k, v in self.sessions.items() if v[0].lower() != key}
+            self._save()
+        log.info("account removed")
+        return True
+
     @property
     def empty(self) -> bool:
         return not self.accounts

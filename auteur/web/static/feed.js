@@ -102,6 +102,10 @@
           '<span class="rail-count">' + film.likes + "</span></button>" +
         '<button type="button" class="rail-button" data-send="' + film.id + '">' +
           SEND + "<span>Send</span></button>" +
+        (film.mine ? "" :
+          '<button type="button" class="rail-button more" data-more="' + film.id +
+          '" data-owner="' + escaped(film.owner) +
+          '" aria-label="Report or block">⋯</button>') +
       "</div>";
 
     /* A square or landscape film letterboxes rather than being cropped to a
@@ -197,7 +201,12 @@
       return;
     }
     var send = event.target.closest("[data-send]");
-    if (send) openSheet(send.dataset.send);
+    if (send) { openSheet(send.dataset.send); return; }
+    var more = event.target.closest("[data-more]");
+    if (more && window.auteurSafety) {
+      window.auteurSafety.open("film", more.dataset.more, more.dataset.owner,
+                               nameOf(more.dataset.owner));
+    }
   });
 
   /* -- sending ----------------------------------------------------------- */
@@ -315,6 +324,13 @@
     wanted = "";
     node.scrollIntoView();
     history.replaceState(null, "", location.pathname);
+  }
+
+  /* A film reported and its author blocked should leave the screen, not sit
+     there until a refresh. The feed is the one place where "I never want to
+     see this again" and "it is still on screen" are the same complaint. */
+  if (window.auteurSafety) {
+    window.auteurSafety.onDone = function () { load(true); };
   }
 
   load(true);

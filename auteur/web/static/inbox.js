@@ -147,6 +147,29 @@
 
   document.getElementById("thread-back").addEventListener("click", back);
 
+  /* Reporting a conversation reports its last message and, by default, blocks
+     the person — which is what somebody opening this menu almost always
+     wants, and making it two journeys through two screens is how people end
+     up doing neither. */
+  document.getElementById("thread-more").addEventListener("click", function () {
+    if (!open || !window.auteurSafety) { return; }
+    var last = bubbles.lastElementChild;
+    window.auteurSafety.open(
+      "message",
+      (last && last.dataset.note) || open,
+      open,
+      nameOf(open)
+    );
+  });
+
+  if (window.auteurSafety) {
+    /* Blocked from in here means this conversation is gone; the list behind
+       it is where there is still something to look at. */
+    window.auteurSafety.onDone = function (said) {
+      if (said && said.blocked) { back(); }
+    };
+  }
+
   var lastDrawn = "";
   function loadThread(jump) {
     if (!open) return;
@@ -154,6 +177,15 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
         if (!data || data.who !== open) return;
+        if (data.closed) {
+          /* Blocked, either way round. The same answer both ways on purpose:
+             telling somebody they have been blocked turns a wall into a
+             notification. */
+          bubbles.innerHTML = '<p class="bubble-note">This conversation is closed.</p>';
+          lastDrawn = "closed";
+          if (timer) { clearInterval(timer); timer = null; }
+          return;
+        }
         var notes = data.messages || [];
         var key = notes.map(function (n) { return n.id; }).join(",");
         /* Redrawing identical bubbles would restart any film playing in one. */
@@ -175,12 +207,14 @@
               return stamp + '<div class="bubble ' + side +
                 '"><em>that film is no longer here</em></div>';
             }
-            return stamp + '<figure class="bubble bubble-film ' + side + '">' +
+            return stamp + '<figure class="bubble bubble-film ' + side +
+              '" data-note="' + escaped(note.id) + '">' +
               '<video src="' + film.video + '" poster="' + film.poster +
               '" playsinline muted loop controls preload="none"></video>' +
               "<figcaption>" + escaped(film.heard || film.prompt) + "</figcaption></figure>";
           }
-          return stamp + '<div class="bubble ' + side + '">' + escaped(note.text) + "</div>";
+          return stamp + '<div class="bubble ' + side + '" data-note="' + escaped(note.id) +
+            '">' + escaped(note.text) + "</div>";
         }).join("");
         if (jump || true) bubbles.scrollIntoView({ block: "end" });
         if (window.auteurChrome) window.auteurChrome.refreshBadge();

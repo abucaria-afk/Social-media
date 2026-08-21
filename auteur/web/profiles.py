@@ -125,6 +125,10 @@ class Profile:
     picture: str = ""
     #: Usernames this person follows.
     following: list = field(default_factory=list)
+    #: Usernames this person has blocked. Stored on the blocker, like
+    #: `following`, and for the same reason: there is one place a block is
+    #: recorded, and it is the person who decided it.
+    blocked: list = field(default_factory=list)
     updated: float = field(default_factory=time.time)
 
     @property
@@ -154,6 +158,7 @@ class Profile:
         *,
         viewer: str = "",
         you_follow: bool = False,
+        you_block: bool = False,
         followers: int = 0,
         films: int = 0,
     ) -> dict:
@@ -175,6 +180,7 @@ class Profile:
             "followers": followers,
             "films": films,
             "you_follow": bool(viewer) and viewer != self.who and you_follow,
+            "you_block": bool(viewer) and viewer != self.who and you_block,
             "me": bool(viewer) and viewer == self.who,
         }
 
@@ -235,11 +241,73 @@ class Profiles:
     def follows(self, who: str, other: str) -> bool:
         return other in self.get(who).following
 
+    # -- blocking --------------------------------------------------------
+
+    def block(self, who: str, other: str) -> bool:
+        """Block somebody. True if this changed anything.
+
+        Following is undone at the same time, in both directions. A block that
+        left a follow in place would be a person still listed as a follower on
+        the profile of the person who blocked them, which is exactly the row
+        somebody blocking wanted to stop seeing.
+        """
+        if not who or not other or who == other:
+            return False
+        with self.lock:
+            mine = self._mutable(who)
+            theirs = self._mutable(other)
+            changed = other not in mine.blocked
+            if changed:
+                mine.blocked.append(other)
+            for profile, name in ((mine, other), (theirs, who)):
+                if name in profile.following:
+                    profile.following.remove(name)
+                    changed = True
+            if changed:
+                mine.updated = time.time()
+                self._save()
+            return changed
+
+    def unblock(self, who: str, other: str) -> bool:
+        with self.lock:
+            profile = self._mutable(who)
+            if other not in profile.blocked:
+                return False
+            profile.blocked.remove(other)
+            profile.updated = time.time()
+            self._save()
+            return True
+
+    def blocks(self, who: str, other: str) -> bool:
+        """Has `who` blocked `other`?"""
+        return bool(who) and other in self.get(who).blocked
+
+    def blocked_of(self, who: str) -> list[str]:
+        return sorted(self.get(who).blocked)
+
+    def apart(self, who: str) -> set[str]:
+        """Everybody who should not see `who`, or be seen by them.
+
+        Both directions in one set, which is the only way this stays right.
+        Filtering on "people I blocked" alone leaves somebody able to watch the
+        films of the person who blocked them and to keep writing to them —
+        which is not a block, it is a mute. Blocking has to be a wall, and a
+        wall has two sides.
+        """
+        if not who:
+            return set()
+        with self.lock:
+            mine = self.profiles.get(who)
+            out = set(mine.blocked) if mine is not None else set()
+            out |= {p.who for p in self.profiles.values() if who in p.blocked}
+        return out
+
     def public_of(self, who: str, *, viewer: str = "", films: int = 0) -> dict:
         """One profile as a page sees it, with the counts filled in."""
         return self.get(who).public(
             viewer=viewer,
             you_follow=bool(viewer) and self.follows(viewer, who),
+            you_block=bool(viewer) and self.blocks(viewer, who),
             followers=len(self.followers_of(who)),
             films=films,
         )
@@ -372,6 +440,27 @@ class Profiles:
             profile.updated = time.time()
             self._save()
             return True
+
+    def forget(self, who: str) -> None:
+        """Somebody's profile, their picture, and their name out of every
+        following list. Part of deleting an account.
+
+        The second half is the part that is easy to miss: removing the profile
+        alone leaves the name in everybody else's `following`, so their counts
+        stay one too high and the list under them has a row with nothing
+        behind it.
+        """
+        picture = self.get(who).picture
+        with self.lock:
+            self.profiles.pop(who, None)
+            for profile in self.profiles.values():
+                if who in profile.following:
+                    profile.following.remove(who)
+                if who in profile.blocked:
+                    profile.blocked.remove(who)
+            self._save()
+        if picture:
+            self._unlink(picture)
 
     def drop_unknown(self, known: set[str]) -> int:
         """Forget follows of accounts that no longer exist, and say how many.

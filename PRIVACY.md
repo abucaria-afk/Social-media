@@ -81,6 +81,23 @@ The shared secret never leaves the machine holding the accounts, and recovery
 codes are stored hashed — so the file that survives a lost phone is not also
 the file that replaces the second factor.
 
+## Your account, and getting rid of it
+
+**You can delete your account from inside the app.** *You &rarr; Delete my
+account*, which asks for your password and for the word "delete" to be typed.
+It removes the account, every film you made and the files behind them, every
+conversation you are part of, your profile and picture, your planned posts and
+any reels you added — from the machine running the instance, immediately, with
+no copy kept and no undo.
+
+**Reporting and blocking.** Every film, message and person carries a report
+control, and reporting also offers to block. Blocking is immediate, needs
+nobody's permission, and works in both directions: neither person can see the
+other's films or write to them. A report is stored on the instance and shown to
+whoever runs it — there is nowhere else for it to go, and it names what was
+reported, who by, and what was done about it. Reports about somebody whose
+account has since been deleted are removed with the account.
+
 ## Publishing
 
 Nothing in this program posts to Instagram, TikTok, YouTube or anywhere else.
@@ -95,6 +112,11 @@ This app is not directed at children and collects no data from anybody.
 ## Changes and contact
 
 If this document ever stops being true, the change will be in the repository's
-history alongside the code that made it untrue. Questions go to whoever
-publishes your copy of the app; if that is you, this file is yours to keep
-accurate.
+history alongside the code that made it untrue.
+
+Questions about the app itself:
+
+<!-- CONTACT -->
+
+Anything about content on an instance goes to whoever runs that instance, from
+inside the app — there is no service here that could receive it instead.

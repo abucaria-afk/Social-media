@@ -39,12 +39,20 @@
 <p><strong>The Scholar.</strong> If you give it an API key it sends the *question you typed* to Anthropic to answer it. It never sends your footage. Without a key it answers only from what it has measured locally, and says so.</p>
 <p><strong>When something breaks.</strong> A script error is written to a file beside the accounts on the machine running the app, and shown to you in a panel you can copy. That is a bug finder rather than telemetry, and the difference is not intent: there is no endpoint in this program that sends anything off the machine, so there is nowhere for a report to go except the disk it is already on.</p>
 <p><strong>Signing in.</strong> A password can be protected with two-step verification, which this app implements itself to the same standard every authenticator app uses. The shared secret never leaves the machine holding the accounts, and recovery codes are stored hashed — so the file that survives a lost phone is not also the file that replaces the second factor.</p>
+<h2>Your account, and getting rid of it</h2>
+<p><strong>You can delete your account from inside the app.</strong> *You &amp;rarr; Delete my account*, which asks for your password and for the word &quot;delete&quot; to be typed. It removes the account, every film you made and the files behind them, every conversation you are part of, your profile and picture, your planned posts and any reels you added — from the machine running the instance, immediately, with no copy kept and no undo.</p>
+<p><strong>Reporting and blocking.</strong> Every film, message and person carries a report control, and reporting also offers to block. Blocking is immediate, needs nobody&#x27;s permission, and works in both directions: neither person can see the other&#x27;s films or write to them. A report is stored on the instance and shown to whoever runs it — there is nowhere else for it to go, and it names what was reported, who by, and what was done about it. Reports about somebody whose account has since been deleted are removed with the account.</p>
 <h2>Publishing</h2>
 <p>Nothing in this program posts to Instagram, TikTok, YouTube or anywhere else. The manager plans posts, drafts captions and checks them; you post them. There is no code path that publishes to a service and no credentials for one — a test reads the source to keep it that way.</p>
 <h2>Children</h2>
 <p>This app is not directed at children and collects no data from anybody.</p>
 <h2>Changes and contact</h2>
-<p>If this document ever stops being true, the change will be in the repository&#x27;s history alongside the code that made it untrue. Questions go to whoever publishes your copy of the app; if that is you, this file is yours to keep accurate.</p>
+<p>If this document ever stops being true, the change will be in the repository&#x27;s history alongside the code that made it untrue.</p>
+<p>Questions about the app itself:</p>
+<p><strong>support@example.com</strong></p>
+<p>Auteur is published by Example Developer. Reports about content on an instance go to whoever runs that instance, from inside the app; this address is for the app itself.</p>
+<p>Anything about content on an instance goes to whoever runs that instance, from inside the app — there is no service here that could receive it instead.</p>
+<p class="prose-away"><a href="/">Back to the app</a></p>
 </main>
 </body>
 </html>

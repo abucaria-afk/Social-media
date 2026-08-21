@@ -94,14 +94,32 @@
       link.removeAttribute("href");
     }
 
+    var blocked = !mine && !!profile.you_block;
     $("edit-open").hidden = !mine;
     $("edit-profile").hidden = !mine;
-    $("follow").hidden = mine;
-    $("message").hidden = mine;
+    $("more").hidden = mine;
+    $("unblock").hidden = !blocked;
+    /* Blocked: the page stays — you may want to undo it — but there is
+       nothing on it to follow, write to, or watch. */
+    $("follow").hidden = mine || blocked;
+    $("message").hidden = mine || blocked;
+    $("blocked-note").hidden = !blocked;
+    if (blocked) {
+      $("blocked-note").textContent =
+        "You have blocked " + profile.name + ". Their films are out of your feed, " +
+        "neither of you can write to the other, and they cannot see yours.";
+    }
     $("mine").hidden = !mine;
     $("settings").hidden = !mine;
     $("back").hidden = mine;
     $("blank-go").hidden = !mine;
+
+    if (blocked) {
+      $("films-label").hidden = true;
+      $("films-blank").hidden = true;
+    } else {
+      $("films-label").hidden = false;
+    }
 
     if (!mine) {
       markFollow(profile.you_follow);
@@ -109,7 +127,7 @@
       $("blank-sub").textContent = "Films they finish here will show up on this page.";
     }
 
-    grid(films || [], profile);
+    grid(blocked ? [] : (films || []), profile);
   }
 
   function markFollow(following) {
@@ -122,6 +140,7 @@
   function grid(films, profile) {
     var box = $("films");
     $("films-label").textContent = profile.me ? "Your films" : "Films";
+    if (profile.you_block) { box.innerHTML = ""; $("films-blank").hidden = true; return; }
     if (!films.length) {
       box.innerHTML = "";
       $("films-blank").hidden = false;
@@ -161,6 +180,7 @@
           me = profile.who;
           $("email").textContent = profile.email || "not set";
           twoStepState();
+          reportsState();
         }
         draw(profile, got.data.films);
         /* `/api/profile` answers about you and does not carry films; the
@@ -350,6 +370,22 @@
       .catch(function () { markFollow(!wanted); });
   });
 
+  $("more").addEventListener("click", function () {
+    if (live && window.auteurSafety) {
+      window.auteurSafety.open("person", live.who, live.who, live.name);
+    }
+  });
+
+  $("unblock").addEventListener("click", function () {
+    if (!live || !window.auteurSafety) { return; }
+    window.auteurSafety.block(live.who, false).then(function (data) {
+      if (!data) { return; }
+      draw(data.profile, null);
+      load();
+      window.auteurSafety.said("Unblocked. You will see " + data.profile.name + " again.");
+    });
+  });
+
   $("message").addEventListener("click", function () {
     if (live) { location.href = "/inbox?who=" + encodeURIComponent(live.who); }
   });
@@ -406,6 +442,70 @@
       .catch(function () {});
   }
 
+  /* What you reported, and what came of it — plus who you have blocked, with
+     a way back. A report whose outcome you can never see is a button people
+     press once and then stop believing in. */
+  $("my-reports").addEventListener("click", function () {
+    $("reported-list").innerHTML = "";
+    $("blocked-list").innerHTML = "";
+    $("reported-empty").hidden = true;
+    $("blocked-label").hidden = true;
+    openSheet("reports");
+    fetch("/api/reports", { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) { return; }
+        var said = {
+          open: "Waiting on whoever runs this copy",
+          removed: "Removed",
+          kept: "Looked at, and left up"
+        };
+        if (!data.reports.length) {
+          $("reported-empty").hidden = false;
+        } else {
+          $("reported-list").innerHTML = data.reports.map(function (row) {
+            return "<li>" + escaped(data.reasons[row.reason] || row.reason) +
+              ', a ' + escaped(row.kind) +
+              '<span class="reported-when">' + when(row.at) + " · " +
+              '<span class="reported-state is-' + escaped(row.state) + '">' +
+              escaped(said[row.state] || row.state) + "</span></span></li>";
+          }).join("");
+        }
+        if (data.blocked.length) {
+          $("blocked-label").hidden = false;
+          $("blocked-list").innerHTML = data.blocked.map(function (name) {
+            return '<li class="people-row"><span class="avatar" style="--hue:' +
+              hueOf(name) + '" aria-hidden="true">' + escaped(name[0] || "?") + "</span>" +
+              '<span class="people-lines"><span class="people-name">@' + escaped(name) +
+              "</span></span>" +
+              '<button type="button" class="unblock-row" data-unblock="' + escaped(name) +
+              '">Unblock</button></li>';
+          }).join("");
+        }
+      })
+      .catch(function () {});
+  });
+
+  $("blocked-list").addEventListener("click", function (event) {
+    var button = event.target.closest("[data-unblock]");
+    if (!button || !window.auteurSafety) { return; }
+    button.disabled = true;
+    window.auteurSafety.block(button.dataset.unblock, false).then(function () {
+      button.closest("li").remove();
+      if (!$("blocked-list").children.length) { $("blocked-label").hidden = true; }
+    });
+  });
+
+  /* "now", "14m", "3h", "12 Mar" — the same ladder the inbox uses. */
+  function when(stamp) {
+    var ago = Date.now() / 1000 - stamp;
+    if (ago < 60) { return "just now"; }
+    if (ago < 3600) { return Math.floor(ago / 60) + "m ago"; }
+    if (ago < 86400) { return Math.floor(ago / 3600) + "h ago"; }
+    return new Date(stamp * 1000).toLocaleDateString(undefined,
+      { day: "numeric", month: "short" });
+  }
+
   $("open-followers").addEventListener("click", function () { people("followers"); });
   $("open-following").addEventListener("click", function () { people("following"); });
 
@@ -421,6 +521,58 @@
   });
 
   // ---------------------------------------------------------------- account
+
+  /* Deleting the account, which is the one thing in here that cannot be
+     undone. Two gates, both deliberate: the password, because a live session
+     is not proof of who is holding the phone; and the word typed out, because
+     the difference between a tap and a mis-tap has to be more than a
+     millimetre. */
+  $("delete-account").addEventListener("click", function () {
+    $("delete-password").value = "";
+    $("delete-confirm").value = "";
+    $("delete-error").hidden = true;
+    if (live) {
+      $("delete-what").textContent =
+        live.films === 1
+          ? "This removes your account, the film on it, and everything else you have made here."
+          : "This removes your account, your " + live.films +
+            " films, and everything else you have made here.";
+    }
+    openSheet("delete");
+  });
+
+  $("delete-go").addEventListener("click", function () {
+    var problem = $("delete-error");
+    var button = $("delete-go");
+    problem.hidden = true;
+    button.disabled = true;
+    fetch("/api/profile/delete", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        password: $("delete-password").value,
+        confirm: $("delete-confirm").value
+      })
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (got) {
+        button.disabled = false;
+        if (!got.ok) {
+          problem.textContent = got.d.error || "That did not work.";
+          problem.hidden = false;
+          return;
+        }
+        /* `replace`, not `href`: the profile is gone, and leaving it in the
+           history is a back button that lands on a 401. */
+        location.replace("/login");
+      })
+      .catch(function () {
+        button.disabled = false;
+        problem.textContent = "Could not reach the app.";
+        problem.hidden = false;
+      });
+  });
 
   $("sign-out").addEventListener("click", function () {
     fetch("/api/logout", { method: "POST", credentials: "same-origin" })
@@ -556,6 +708,25 @@
   })();
 
   function twoStepState() { if (window.twoStepState) { window.twoStepState(); } }
+
+  function reportsState() {
+    fetch("/api/reports", { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) { return; }
+        var waiting = data.reports.filter(function (r) { return r.state === "open"; }).length;
+        $("reports-state").textContent = waiting
+          ? waiting + " waiting"
+          : (data.blocked.length
+              ? data.blocked.length + (data.blocked.length === 1 ? " blocked" : " blocked")
+              : "");
+      })
+      .catch(function () {});
+  }
+
+  if (window.auteurSafety) {
+    window.auteurSafety.onDone = function () { load(); };
+  }
 
   load();
 })();

@@ -5,6 +5,175 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="color-scheme" content="dark light">
 <title>Auteur Edit Room</title>
+<!-- Before anything paints, and inlined from the app rather than rewritten:
+     appearance and the three accessibility settings. This is the same file the
+     served pages load in their head, which is what makes the switches on the
+     You tab the app's switches rather than a drawing of them. -->
+<script>
+/* How this app looks, decided by the person looking at it.
+ *
+ * Loaded from <head>, synchronously, on every page — and that is deliberate.
+ * These settings paint: a page that renders at the default size and then jumps
+ * to 140% once a deferred script runs has shown somebody who needs large text
+ * a screen of small text first. A blocking same-origin script is one cache hit
+ * and no flash.
+ *
+ * It replaces the eight-line theme snippet that was copied into the head of
+ * every page. Copied chrome is chrome that is right on nine pages and stale on
+ * the tenth, which is the argument chrome.js already makes about the tab bar.
+ *
+ * Four settings. Appearance is a preference; the other three are accessibility
+ * settings, and they follow a rule worth stating: **this app can turn an
+ * accessibility setting on, and never off.** Both phones already publish
+ * "reduce motion" and "increase contrast" to the browser, and somebody who has
+ * set those in the operating system has said something about themselves that
+ * an app has no business overriding. So the choices are Automatic and On, not
+ * Automatic, On and Off — the media queries stay live underneath in every
+ * case, and the attribute only ever adds.
+ *
+ * Text size is the exception, because it is the one the operating system does
+ * *not* publish. iOS keeps Settings > Display & Brightness > Text Size to
+ * itself, reachable from CSS only through the `-apple-system-*` shorthands
+ * (see the Dynamic Type block in style.css), so a page that wants a size
+ * control has to have its own. It scales the root font size, and every rung of
+ * the type scale is in rem, so all of it moves together.
+ */
+(function () {
+  "use strict";
+
+  var KEY = "auteur-settings";
+  /* The theme was stored under its own key before there was anything else to
+     store, and phones have it. Read it, honour it, and keep writing it, so a
+     browser that still has the old page cached and this one both agree. */
+  var THEME_KEY = "auteur-theme";
+
+  var GROUNDS = { dark: "#19181b", light: "#f7f5f2" };
+
+  /* Percentages rather than a free slider: four rungs somebody can hit with a
+     thumb, and each one is a real step rather than a number to fiddle with.
+     140% is where 17px body text reaches 24px, which is roughly the largest
+     non-accessibility Dynamic Type size on iOS. */
+  var TEXT = { default: 100, large: 112, larger: 125, largest: 140 };
+
+  var DEFAULTS = { theme: "system", text: "default", motion: "system", contrast: "system" };
+
+  function read() {
+    var saved = {};
+    try {
+      saved = JSON.parse(localStorage.getItem(KEY) || "{}") || {};
+    } catch (e) { saved = {}; }
+    if (typeof saved !== "object") { saved = {}; }
+    var out = {};
+    for (var key in DEFAULTS) {
+      if (Object.prototype.hasOwnProperty.call(DEFAULTS, key)) {
+        out[key] = typeof saved[key] === "string" ? saved[key] : DEFAULTS[key];
+      }
+    }
+    /* The older key wins only when the newer store has nothing to say, so
+       moving the switch on a new page does not get undone by a stale value. */
+    if (!saved.theme) {
+      try {
+        var legacy = localStorage.getItem(THEME_KEY);
+        if (legacy === "light" || legacy === "dark") { out.theme = legacy; }
+      } catch (e) { /* private mode */ }
+    }
+    return out;
+  }
+
+  function write(settings) {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(settings));
+      /* Kept in step for anything still reading the old key. */
+      localStorage.setItem(THEME_KEY, settings.theme);
+    } catch (e) { /* private mode: the choice lasts as long as the tab */ }
+  }
+
+  function apply(settings) {
+    var root = document.documentElement;
+
+    /* A page may lock its own theme, and one does: the feed is dark whatever
+       the rest of the app is set to, because a film is a picture on a black
+       surround everywhere it is ever watched. Without this check, applying
+       "Automatic" would strip that attribute and paint a bone-white page
+       around a 1080x1920 video. The other three settings still apply — text
+       size and contrast are not decoration and do not stop being needed on
+       the one screen that has an opinion about its own colour. */
+    if (!root.hasAttribute("data-theme-locked")) {
+      if (settings.theme === "light" || settings.theme === "dark") {
+        root.setAttribute("data-theme", settings.theme);
+      } else {
+        /* Automatic stamps nothing, which is what lets prefers-color-scheme
+           decide — theme.css is built around exactly that. */
+        root.removeAttribute("data-theme");
+      }
+    }
+
+    var percent = TEXT[settings.text] || 100;
+    if (percent === 100) {
+      root.style.removeProperty("font-size");
+    } else {
+      root.style.fontSize = percent + "%";
+    }
+    root.setAttribute("data-text", settings.text);
+
+    /* Add-only, as above: absent means "whatever the phone says". */
+    if (settings.motion === "still") {
+      root.setAttribute("data-motion", "still");
+    } else {
+      root.removeAttribute("data-motion");
+    }
+    if (settings.contrast === "more") {
+      root.setAttribute("data-contrast", "more");
+    } else {
+      root.removeAttribute("data-contrast");
+    }
+
+    /* The iOS status bar. The media-scoped <meta theme-color> tags handle
+       Automatic; an explicit choice needs the value written directly, and
+       removing the tag hands the question back to them. */
+    var bar = document.querySelector('meta[name="theme-color"]:not([media])');
+    if (root.hasAttribute("data-theme-locked")) {
+      /* Its own <meta> already says what colour it is. */
+    } else if (settings.theme === "system") {
+      if (bar) { bar.parentNode.removeChild(bar); }
+    } else {
+      if (!bar) {
+        bar = document.createElement("meta");
+        bar.setAttribute("name", "theme-color");
+        (document.head || root).appendChild(bar);
+      }
+      bar.setAttribute("content", GROUNDS[settings.theme]);
+    }
+  }
+
+  var current = read();
+  apply(current);
+
+  window.auteurSettings = {
+    get: function () {
+      var copy = {};
+      for (var key in current) {
+        if (Object.prototype.hasOwnProperty.call(current, key)) { copy[key] = current[key]; }
+      }
+      return copy;
+    },
+    set: function (key, value) {
+      if (!Object.prototype.hasOwnProperty.call(DEFAULTS, key)) { return; }
+      current[key] = value;
+      apply(current);
+      write(current);
+      /* So a switch shown in more than one place on the same document moves
+         with it. The published single-page build has three of them, and a page
+         that disagrees with itself about what theme it is in is the bug this
+         event exists to prevent. */
+      try {
+        document.dispatchEvent(new CustomEvent("auteur:settings", { detail: this.get() }));
+      } catch (e) { /* very old browser: the switches just do not sync */ }
+    }
+  };
+})();
+
+</script>
 <style>
 /* Generated from auteur/theme.py. Do not edit by hand — edit the palette. */
 
@@ -24,6 +193,7 @@
   --cream: #edd6c0;
   --moss: #72bccb;
   --rust: #ee8777;
+  --scrim: #0000008c;
 }
 
 /* System setting, unless the reader has overridden it. */
@@ -42,6 +212,7 @@
     --cream: #f7e7d4;
     --moss: #286571;
     --rust: #ab3321;
+    --scrim: #00000066;
   }
 }
 
@@ -61,6 +232,7 @@
   --cream: #f7e7d4;
   --moss: #286571;
   --rust: #ab3321;
+  --scrim: #00000066;
 }
 
 :root[data-theme="dark"] {
@@ -78,6 +250,7 @@
   --cream: #edd6c0;
   --moss: #72bccb;
   --rust: #ee8777;
+  --scrim: #0000008c;
 }
 
 /* The edit room, on a phone.
@@ -804,6 +977,26 @@ input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   text-align: center;
 }
 
+/* -- The page ------------------------------------------------------------
+   The column every screen that is not the feed is laid out in: a gutter down
+   both sides, and a ceiling on the width so it does not become a line of text
+   the width of a laptop.
+
+   This was written out identically in inbox.css and in manager.css, which is
+   two copies of one rule and no copy at all for any page that loads neither.
+   The profile was that page: its title started at x=0, its picture was clipped
+   by the left edge of the screen, and its Follow button ran off the right one.
+   Third time this exact shape of bug has turned up — `.topbar-back`, then the
+   sheet, now this — so the rule is worth stating plainly: chrome that more
+   than one screen uses lives here, not in the stylesheet of whichever screen
+   happened to need it first. */
+.page {
+  --pad: 16px;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 var(--pad);
+}
+
 /* Everything that scrolls has to end above the bar. */
 body.has-tabbar #app,
 body.has-tabbar .page {
@@ -860,6 +1053,13 @@ body.has-tabbar .page {
 }
 
 .avatar-sm { width: 30px; height: 30px; font-size: var(--step--1); }
+
+/* And a real picture, once somebody sets one. `overflow: hidden` on the disc
+   rather than a radius on the image, so a picture that is not quite square —
+   which the server does not allow, but a cached one from before it did might
+   be — is still clipped to the circle instead of overhanging it. */
+.avatar { overflow: hidden; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 
 /* One row for the one room that is not in the bar. */
@@ -1037,12 +1237,36 @@ body.has-tabbar .page {
 /* -- Increased contrast and reduced motion --------------------------------
    Both are operating-system accessibility settings — on either phone — and
    both are readable from CSS. Honouring them is not decoration: the whole app
-   is a surface somebody looks at for a long time. */
+   is a surface somebody looks at for a long time.
+
+   Each has a second selector, `[data-contrast="more"]` and
+   `[data-motion="still"]`, stamped on the root by settings.js when somebody
+   turns it on inside the app. Note what is *not* here: there is no attribute
+   that turns either of these off. Somebody who set "reduce motion" in their
+   phone's settings has said something about themselves, and an app's own
+   switch has no business contradicting it — so the media queries stay live
+   underneath in every case and the in-app control only ever adds. That is why
+   these are two selectors on one rule rather than the `:root:not([data-…])`
+   guard the theme uses: the theme is a preference and can go either way, and
+   these cannot. */
 @media (prefers-contrast: more) {
   :root { --line: var(--text-faint); }
   .card, .inset-group { border: 1px solid var(--line); }
   .card-hint, .group-caption, .fineprint { color: var(--text-muted); }
 }
+
+:root[data-contrast="more"] { --line: var(--text-faint); }
+:root[data-contrast="more"] .card,
+:root[data-contrast="more"] .inset-group { border: 1px solid var(--line); }
+:root[data-contrast="more"] .card-hint,
+:root[data-contrast="more"] .group-caption,
+:root[data-contrast="more"] .fineprint { color: var(--text-muted); }
+/* The faint rungs of the palette are the ones that fail first when somebody
+   asks for more contrast, and they are also the ones carrying secondary text
+   on every list row in the app. Moved up to the muted rung, which clears AA
+   against `raised` — the surface it is most often on — rather than only
+   against `ground`. */
+:root[data-contrast="more"] { --text-faint: var(--text-muted); }
 
 @media (prefers-reduced-motion: reduce) {
   * {
@@ -1051,6 +1275,13 @@ body.has-tabbar .page {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+:root[data-motion="still"] * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }
 
 /* -- Standalone ------------------------------------------------------------
@@ -1147,6 +1378,73 @@ body.has-tabbar .page {
   cursor: pointer;
 }
 
+/* -- Sheets ---------------------------------------------------------------
+   A panel that comes up from the bottom edge, with the page dimmed behind it.
+   It is the share sheet, the action sheet and the form sheet on both phones,
+   and it is what every one of the reference apps uses for a choice that
+   belongs to the screen you are already on rather than to a new one.
+
+   Shared, not per-page. This was in feed.css when the feed was the only screen
+   with a sheet; the edit room's two-step dialog then used the same classes
+   without that file and came out as a static block under a full-page scrim. */
+.sheet { position: fixed; inset: 0; z-index: 80; }
+.sheet-scrim { position: absolute; inset: 0; background: var(--scrim); }
+
+.sheet-body {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 72dvh;
+  overflow-y: auto;
+  padding: 8px 16px calc(var(--safe-bottom) + 18px);
+  border-radius: 18px 18px 0 0;
+  background: var(--surface);
+  color: var(--text);
+  animation: sheet-up 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .sheet-body { animation: none; } }
+:root[data-motion="still"] .sheet-body { animation: none; }
+
+.sheet-grip {
+  width: 36px;
+  height: 4px;
+  margin: 4px auto 10px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.sheet-title { margin: 0 0 10px; font: 700 var(--step-1)/1.2 var(--font-display); }
+.sheet-note { margin: 10px 0; color: var(--moss); font-size: var(--step--1); }
+
+.people { margin: 0 0 12px; padding: 0; list-style: none; }
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.person-name { font: 600 var(--step-0)/1.2 var(--font-display); }
+.person-note { display: block; color: var(--text-faint); font-size: var(--step--1); }
+.person-sent { margin-left: auto; color: var(--moss); font-size: var(--step--1); }
+
+/* A sheet is a modal: the page behind it must not scroll under your thumb
+   while it is open, which is what this class on <body> is for. */
+body.sheet-open { overflow: hidden; }
+
 /* -- signing in with somebody else's account ------------------------------
    Listed whether or not this copy has been configured for them. A provider
    that is simply absent reads as a capability the app does not have; a row
@@ -1222,6 +1520,75 @@ body.has-tabbar .page {
    is injected by a script; a page with no routes has to carry its own. */
 .rooms-flat { display: grid; gap: 8px; margin-top: 18px; }
 .rooms-flat .onward { margin-top: 0; }
+
+/* The shared secret, and the recovery codes. Both are read off the screen and
+   typed somewhere else, so both are monospace with room between characters —
+   O and 0 at body size in a proportional face is how a code gets mistyped
+   three times and blamed on the server. */
+.two-step-secret {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  font: var(--text-callout)/1.6 var(--font-mono);
+  letter-spacing: 0.08em;
+  word-break: break-all;
+  -webkit-user-select: all;
+  user-select: all;
+}
+
+.recovery {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  margin: 12px 0 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  list-style: none;
+  font: var(--text-footnote)/1.7 var(--font-mono);
+  letter-spacing: 0.04em;
+  -webkit-user-select: all;
+  user-select: all;
+}
+
+/* What went wrong. A panel rather than an alert: an alert stops the page, and
+   the commonest script error is one that has already broken something else —
+   interrupting on top of that turns a degraded screen into an unusable one. */
+.trouble {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(var(--tabbar) + var(--safe-bottom) + 12px);
+  z-index: 90;
+  padding: 12px 14px;
+  border: 1px solid var(--rust);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--ground) 55%, transparent);
+}
+
+.trouble-what { margin: 0 0 4px; font: 600 var(--text-callout)/1.3 var(--font-display); }
+
+.trouble-detail {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font: var(--text-caption)/1.45 var(--font-mono);
+  word-break: break-word;
+}
+
+.trouble-acts { display: flex; gap: 8px; }
+
+.trouble-acts button {
+  flex: 1;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--text);
+  font: 600 var(--text-footnote)/1 var(--font-display);
+  cursor: pointer;
+}
 
 /* animations.css — Scroll reveals, zooms, transitions, and motion design.
  *
@@ -2142,6 +2509,310 @@ body.has-tabbar .studio-wrap {
 .card.picker.block { display: block; }
 .card.picker.block .card-body { display: block; }
 
+/* The profile: who somebody is, what they have made, and how this app looks.
+ *
+ * Two screens in one document. Your own profile carries the settings; anybody
+ * else's carries a Follow button and stops. Which one you get is decided by
+ * the address, and everything account-shaped is `hidden` until the server has
+ * said the profile is yours — never the other way round, because a settings
+ * panel that flashes on somebody else's page before a script hides it is a
+ * settings panel that was on somebody else's page.
+ */
+
+/* -- the header ---------------------------------------------------------- */
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin: 4px 0 14px;
+}
+
+/* The picture. A button on your own profile and a plain disc on anybody
+   else's — same box either way, so the layout does not move when the page
+   works out whose it is. */
+.who-pic {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 88px;
+  height: 88px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  /* The hue comes from the name, the same hash the feed and the inbox use, so
+     somebody without a picture is at least the same colour everywhere. */
+  --hue: 28;
+  background: hsl(var(--hue) 40% 44%);
+  color: hsl(var(--hue) 55% 97%);
+  overflow: hidden;
+  cursor: default;
+}
+
+.who-pic[data-mine="1"] { cursor: pointer; }
+
+.who-pic img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* The picture is stored square, but a browser that has not finished loading
+     it still lays the box out — without this the initial underneath shows
+     through the gap for a frame. */
+  display: block;
+}
+
+.who-initial {
+  font: 600 var(--text-title-1)/1 var(--font-display);
+  text-transform: uppercase;
+}
+
+/* The little plus over the corner of your own picture, which is the whole
+   affordance saying the disc is a control. Positioned against the disc, not
+   the section — a badge anchored to the wrong ancestor is the bug the tab
+   bar's unread count already had. */
+.who-pic-badge {
+  position: absolute;
+  right: 0;
+  bottom: 2px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--ground);
+  background: var(--ember);
+  color: var(--on-ember);
+  font: 600 var(--text-footnote)/1 var(--font-display);
+}
+
+.counts {
+  display: flex;
+  flex: 1 1 auto;
+  justify-content: space-around;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.count { text-align: center; }
+
+/* Two of the three are buttons and one is not, so the button has to carry no
+   styling of its own or the counts sit at different heights. */
+.count-open {
+  display: block;
+  min-width: 56px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.count-number {
+  display: block;
+  font: 700 var(--text-title-3)/1.15 var(--font-display);
+  /* Counts sit in a row and change; proportional digits make 11 and 41
+     different widths and the row jitters as they load. */
+  font-variant-numeric: tabular-nums;
+}
+
+.count-label {
+  display: block;
+  color: var(--text-faint);
+  font-size: var(--text-footnote);
+}
+
+.who-bio {
+  margin: 0 0 6px;
+  font-size: var(--text-subhead);
+  line-height: 1.4;
+}
+
+.who-link {
+  display: inline-block;
+  margin: 0 0 14px;
+  color: var(--ember-text);
+  font-size: var(--text-subhead);
+  font-weight: 600;
+  text-decoration: none;
+  /* A link somebody typed can be longer than the screen. */
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.who-actions {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 22px;
+}
+
+.who-actions button { flex: 1 1 0; margin: 0; }
+.who-actions button[hidden] { display: none; }
+
+/* Following somebody is the state, so the button stops shouting once it is
+   done — filled to act, outlined to undo, which is the pattern both reference
+   apps use and the reason nobody has to read it twice. */
+#follow.is-following {
+  background: var(--raised);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+/* -- the films ----------------------------------------------------------- */
+
+/* Three across, square, one pixel apart. This is the grid on the profile tab
+   of every app this one is trying to feel like, and the reason it is squares
+   rather than the feed's full-bleed reels is that a profile is for finding one
+   film, not for watching them. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  margin: 0 calc(var(--pad) * -1) 22px;
+}
+
+.grid-cell {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  border: 0;
+  padding: 0;
+  background: var(--raised);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.grid-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* The play mark, so a square reads as a film rather than a photograph. */
+.grid-cell::after {
+  content: "▶";
+  position: absolute;
+  right: 6px;
+  top: 5px;
+  color: #fff;
+  font-size: var(--text-caption-2);
+  /* On a bright frame a white glyph disappears; the shadow is what makes it
+     legible on both without a plate behind it. */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+.grid-likes {
+  position: absolute;
+  left: 6px;
+  bottom: 5px;
+  color: #fff;
+  font: 600 var(--text-caption-2)/1 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+/* -- the settings -------------------------------------------------------- */
+
+.settings-sub {
+  display: block;
+  margin: 0 0 2px;
+  color: var(--text-faint);
+  font-size: var(--text-footnote);
+  font-weight: 600;
+  text-transform: none;
+}
+
+/* Four rungs across a phone. The label under each is what makes this a size
+   control rather than four identical buttons with different letters. */
+.choices.sizes .choice {
+  flex-direction: column;
+  gap: 2px;
+  min-height: 60px;
+  padding: 8px 4px;
+}
+
+.size-a { font-family: var(--font-display); font-weight: 700; line-height: 1; }
+/* Fixed px, not rem: this is a *sample* of what each rung does, and a sample
+   that itself scales with the setting shows the same four sizes at every
+   setting — which is no information at all. */
+.size-a-1 { font-size: 13px; }
+.size-a-2 { font-size: 15px; }
+.size-a-3 { font-size: 18px; }
+.size-a-4 { font-size: 21px; }
+
+/* Sign out is destructive-ish and reads as such, in the palette's own red
+   rather than a hard-coded one. */
+.inset-row.danger .inset-label { color: var(--rust); }
+
+/* -- the edit sheet ------------------------------------------------------ */
+
+#edit-sheet input,
+#edit-sheet textarea {
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--ground);
+  color: var(--text);
+  /* 17px or larger, or iOS Safari zooms the whole page in on focus and there
+     is no way back out of it with a pinch. */
+  font: var(--text-body)/1.35 var(--font-body);
+  resize: none;
+}
+
+#edit-sheet input:focus-visible,
+#edit-sheet textarea:focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 1px;
+}
+
+.counter {
+  margin: 0 0 10px;
+  color: var(--text-faint);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.counter.is-full { color: var(--rust); }
+
+/* -- the people sheet ---------------------------------------------------- */
+
+.people-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 6px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.people-row:last-child { border-bottom: 0; }
+.people-lines { flex: 1; min-width: 0; }
+.people-name { display: block; font: 600 var(--text-body)/1.2 var(--font-display); }
+.people-who { display: block; color: var(--text-faint); font-size: var(--text-footnote); }
+.people-mark { flex: 0 0 auto; color: var(--text-faint); font-size: var(--text-footnote); }
+
+/* A caption belongs to the group above it, and `.group-caption` pulls itself
+   up by 14px to hug one. After a `.settings` block — which has its own bottom
+   margin — that pull lands the text on top of the last row of buttons. So on
+   this page the caption after settings keeps its own space. */
+.settings + .group-caption { margin-top: 4px; }
+
 
 .demo-note {
   /* A grid, not `float: right` on the version. Floating it put the eyebrow
@@ -2199,7 +2870,7 @@ body { background: var(--ground); }
 </style>
 
 <div class="demo-note" role="note">
-  <span class="demo-version">v8 — a tab bar, and a manager that plans</span>
+  <span class="demo-version">v9 — a You tab, and settings that are really yours</span>
   <strong>This cuts a real film, here, from your camera roll.</strong>
   Video and photographs both, plus a music file if you pick one. Say what you
   want and the page frames every shot, cuts to the cadence your words ask for,
@@ -2333,6 +3004,10 @@ body { background: var(--ground); }
     <!-- Where it goes. The other four rooms are in the bar along the bottom
          now; this one is not a place you spend time, it is a setting, so it
          stays here as one row rather than taking a fifth of the bar. -->
+    <!-- Your account, your picture and the accessibility settings all live on
+         the You tab now. This row is the way in from here; the two-step
+         control that used to sit inline is on that page, with the rest of the
+         account settings, rather than halfway down the create screen. -->
     <div class="settings">
       <span class="settings-label">Appearance</span>
       <div class="choices appearance" role="radiogroup" aria-label="Appearance">
@@ -2384,6 +3059,7 @@ body { background: var(--ground); }
   </section>
 
 </main>
+
 
 
 
@@ -2513,6 +3189,7 @@ body { background: var(--ground); }
 
 
 
+
 </div>
 <div id="animation-page" hidden>
 
@@ -2579,6 +3256,7 @@ body { background: var(--ground); }
 
 
 
+
 </div>
 <div id="templates-page" hidden>
 
@@ -2627,8 +3305,117 @@ body { background: var(--ground); }
 
 
 
+
 </div>
-<nav class="tabbar" aria-label="Main"><a class="tab tab-big" href="#" data-goto="home" data-tab="home"><span class="tab-icon">＋</span><span class="tab-label">Create</span></a><a class="tab" href="#" data-goto="templates" data-tab="templates"><span class="tab-icon">▚</span><span class="tab-label">Templates</span></a><a class="tab" href="#" data-goto="animation" data-tab="animation"><span class="tab-icon">◎</span><span class="tab-label">Animation</span></a><a class="tab" href="#" data-goto="studio" data-tab="studio"><span class="tab-icon">◱</span><span class="tab-label">Studio</span></a></nav>
+<div id="you-page" hidden>
+
+<main class="page" id="you">
+  <header class="topbar">
+    <h1>You</h1>
+    <span class="topbar-right">
+      <button type="button" class="chip-button" id="a-edit-open">Edit</button>
+    </span>
+  </header>
+
+  <h2 class="large-title" id="a-big-name">You</h2>
+
+  <section class="who">
+    <button type="button" class="who-pic" id="a-picture" data-mine="1"
+            aria-label="Change your picture">
+      <img id="a-picture-img" alt="" hidden>
+      <span class="who-initial" id="a-picture-initial" aria-hidden="true">Y</span>
+      <span class="who-pic-badge" aria-hidden="true">&#65291;</span>
+    </button>
+    <p class="card-hint" id="a-picture-note">
+      Tap the circle to set a picture. It is squared, scaled to 512px and kept
+      on this device &mdash; nothing is uploaded from this page.
+    </p>
+  </section>
+
+  <p class="who-bio" id="a-bio" hidden></p>
+  <a class="who-link" id="a-link" href="#" rel="noopener noreferrer nofollow ugc"
+     target="_blank" hidden></a>
+
+  <div class="who-actions">
+    <button type="button" class="ghost" id="a-edit-profile">Edit profile</button>
+  </div>
+
+  <p class="group-caption" style="margin-top: 0">
+    Followers, following and the films on your profile need an instance to be
+    about more than one person, so they are not drawn here. Run
+    <code>auteur serve</code> and they are the same screen with the counts
+    filled in.
+  </p>
+
+  <h3 class="settings-label">Appearance</h3>
+  <div class="settings">
+    <div class="choices appearance" role="radiogroup" aria-label="Appearance">
+      <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
+      <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
+      <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
+    </div>
+  </div>
+
+  <h3 class="settings-label">Accessibility</h3>
+  <div class="settings">
+    <span class="settings-label settings-sub" id="a-text-label">Text size</span>
+    <div class="choices sizes" data-setting="text" role="radiogroup" aria-labelledby="a-text-label">
+      <button type="button" class="choice" data-value="default" role="radio" aria-checked="false"><span class="size-a size-a-1">A</span><small>Default</small></button>
+      <button type="button" class="choice" data-value="large" role="radio" aria-checked="false"><span class="size-a size-a-2">A</span><small>Large</small></button>
+      <button type="button" class="choice" data-value="larger" role="radio" aria-checked="false"><span class="size-a size-a-3">A</span><small>Larger</small></button>
+      <button type="button" class="choice" data-value="largest" role="radio" aria-checked="false"><span class="size-a size-a-4">A</span><small>Largest</small></button>
+    </div>
+  </div>
+
+  <div class="settings">
+    <span class="settings-label settings-sub" id="a-motion-label">Motion</span>
+    <div class="choices" data-setting="motion" role="radiogroup" aria-labelledby="a-motion-label">
+      <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
+      <button type="button" class="choice" data-value="still" role="radio" aria-checked="false">Reduce motion<small>no sliding or fading</small></button>
+    </div>
+  </div>
+
+  <div class="settings">
+    <span class="settings-label settings-sub" id="a-contrast-label">Contrast</span>
+    <div class="choices" data-setting="contrast" role="radiogroup" aria-labelledby="a-contrast-label">
+      <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
+      <button type="button" class="choice" data-value="more" role="radio" aria-checked="false">Increase contrast<small>stronger edges and text</small></button>
+    </div>
+  </div>
+
+  <p class="group-caption">
+    All four are kept on this device. If your phone already asks for less
+    motion or more contrast, that is followed here whatever this says &mdash;
+    Automatic never turns either off.
+  </p>
+</main>
+
+<div class="sheet" id="a-edit-sheet" hidden>
+  <div class="sheet-scrim" data-a-close="1"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Edit profile">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Edit profile</h2>
+    <label class="field-label" for="a-edit-name">Name</label>
+    <input type="text" id="a-edit-name" maxlength="40"
+           placeholder="What you would like to be called">
+    <label class="field-label" for="a-edit-bio">Bio</label>
+    <textarea id="a-edit-bio" maxlength="150" rows="3"
+              placeholder="One or two lines about what you make"></textarea>
+    <p class="counter"><span id="a-bio-left">150</span> left</p>
+    <label class="field-label" for="a-edit-link">Link</label>
+    <input type="url" id="a-edit-link" maxlength="120" inputmode="url"
+           autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://">
+    <p class="error" id="a-edit-error" role="alert" hidden></p>
+    <button type="button" class="go" id="a-edit-save">Save</button>
+    <button type="button" class="ghost" id="a-picture-remove" hidden>Remove my picture</button>
+    <button type="button" class="ghost" data-a-close="1">Cancel</button>
+  </div>
+</div>
+
+<input type="file" id="a-picture-file" accept="image/*" hidden>
+
+</div>
+<nav class="tabbar" aria-label="Main"><a class="tab tab-big" href="#" data-goto="home" data-tab="home"><span class="tab-icon">＋</span><span class="tab-label">Create</span></a><a class="tab" href="#" data-goto="templates" data-tab="templates"><span class="tab-icon">▚</span><span class="tab-label">Templates</span></a><a class="tab" href="#" data-goto="animation" data-tab="animation"><span class="tab-icon">◎</span><span class="tab-label">Animation</span></a><a class="tab" href="#" data-goto="studio" data-tab="studio"><span class="tab-icon">◱</span><span class="tab-label">Studio</span></a><a class="tab" href="#" data-goto="you" data-tab="you"><span class="tab-icon">◉</span><span class="tab-label">You</span></a></nav>
 <script>
 /* The graphics vocabulary, drawn in a browser.
  *
@@ -12009,15 +12796,11 @@ window.auteurTemplates = [
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
 
-  /* -- theme, exactly as the app does it ---------------------------- */
-  function applyTheme(choice) {
-    if (choice === "system") { document.documentElement.removeAttribute("data-theme"); }
-    else { document.documentElement.setAttribute("data-theme", choice); }
-    try { localStorage.setItem("auteur-theme", choice); } catch (e) {}
-  }
-  var saved = "system";
-  try { saved = localStorage.getItem("auteur-theme") || "system"; } catch (e) {}
-  applyTheme(saved);
+  /* Appearance and the accessibility settings are not reimplemented here any
+     more: settings.js and theme.js are inlined from the app, so the switches
+     on this page are the app's switches running the app's code. What was here
+     was a third copy of the same logic, and it had already drifted — it knew
+     about the theme and nothing about text size, reduced motion or contrast. */
 
   function wireChoices(container, onPick) {
     if (!container) { return; }
@@ -12031,20 +12814,11 @@ window.auteurTemplates = [
       onPick(button.dataset.value);
     });
   }
-  /* Every appearance switch on the page, not the first. This build puts the
-     edit room, the studio and the animation tab in one document, so there are
-     three of them and `getElementById` only ever found one. */
-  function markAppearance(choice) {
-    Array.prototype.forEach.call(document.querySelectorAll(".appearance .choice"), function (b) {
-      var on = b.dataset.value === choice;
-      b.classList.toggle("is-on", on);
-      b.setAttribute("aria-checked", on ? "true" : "false");
-    });
-  }
-  Array.prototype.forEach.call(document.querySelectorAll(".appearance"), function (group) {
-    wireChoices(group, function (choice) { markAppearance(choice); applyTheme(choice); });
-  });
-  markAppearance(saved);
+  /* Appearance and the accessibility settings are not reimplemented here any
+     more: settings.js and theme.js are inlined from the app, so the switches
+     on this page are the app's switches running the app's code. What was here
+     was a third copy of the same logic, and it had already drifted — it knew
+     about the theme and nothing about text size, reduced motion or contrast. */
 
   var state = { shape: "reel", seconds: "", era: "", template: "", clips: 0 };
   wireChoices($("shape"), function (v) { state.shape = v; });
@@ -12141,7 +12915,7 @@ window.auteurTemplates = [
   /* Four pages on one, since a published page has no routes: the edit room,
      the studio, the animation tab and the templates. */
   var PAGES = { studio: "studio-page", animation: "animation-page",
-                templates: "templates-page" };
+                templates: "templates-page", you: "you-page" };
   var screens = ["screen-start", "screen-working", "screen-done", "screen-error"];
   function goto(to) {
     Object.keys(PAGES).forEach(function (name) {
@@ -12696,6 +13470,202 @@ window.auteurTemplates = [
   sg.fillStyle = frameColour(0);
   sg.fillRect(0, 0, stage.width, stage.height);
   play();
+})();
+
+</script>
+<script>
+/* The switches that drive settings.js, wherever a page shows them.
+ *
+ * settings.js decides how the page looks and does it before anything paints.
+ * This is only the wiring for the controls: it finds every switch on the
+ * document, marks the live choice, and hands a tap back to `auteurSettings`.
+ *
+ * "Every switch on the document", not the one with the id — the published
+ * single-page build puts three appearance switches in one document, and
+ * `getElementById` returns the first, so the studio's switch and the animation
+ * tab's did nothing at all, silently. That is also why the marking runs off
+ * the `auteur:settings` event rather than only off the click: two switches for
+ * one setting must never be able to disagree about what it is set to.
+ */
+(function () {
+  "use strict";
+
+  if (!window.auteurSettings) { return; }
+
+  /* A group says which setting it drives. `.appearance` is the older markup —
+     it is in index.html and studio.html and in the published build — and it
+     means the theme, so it is read as `data-setting="theme"` without having to
+     be edited everywhere. */
+  function settingOf(group) {
+    return group.getAttribute("data-setting") || (group.classList.contains("appearance") ? "theme" : "");
+  }
+
+  var groups = Array.prototype.filter.call(
+    document.querySelectorAll(".appearance, [data-setting]"),
+    function (group) { return !!settingOf(group); }
+  );
+  if (!groups.length) { return; }
+
+  function mark(settings) {
+    groups.forEach(function (group) {
+      var key = settingOf(group);
+      var live = settings[key];
+      Array.prototype.forEach.call(group.querySelectorAll(".choice"), function (button) {
+        var on = button.dataset.value === live;
+        button.classList.toggle("is-on", on);
+        /* radio, so aria-checked; a control that only changes colour is a
+           control a screen reader cannot report the state of. */
+        button.setAttribute("aria-checked", on ? "true" : "false");
+      });
+    });
+  }
+
+  mark(window.auteurSettings.get());
+  document.addEventListener("auteur:settings", function (event) { mark(event.detail); });
+
+  groups.forEach(function (group) {
+    group.addEventListener("click", function (event) {
+      var button = event.target.closest(".choice");
+      if (!button || !group.contains(button)) { return; }
+      window.auteurSettings.set(settingOf(group), button.dataset.value);
+    });
+  });
+})();
+
+</script>
+<script>
+
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var KEY = "auteur-you";
+  var me = { name: "", bio: "", link: "", picture: "" };
+  try { me = Object.assign(me, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) {}
+
+  function oneLine(text, limit) {
+    return String(text || "").replace(/\s+/g, " ").trim().slice(0, limit);
+  }
+
+  /* Same rule as auteur/web/profiles.py: repaired input is how a `javascript:`
+     eventually gets repaired into something a tap runs. */
+  function tidyLink(link) {
+    var raw = oneLine(link, 120);
+    if (!raw) { return ""; }
+    if (/^https?:\/\//i.test(raw)) { return raw; }
+    if (raw.split("/")[0].indexOf(":") !== -1) { return null; }
+    return "https://" + raw;
+  }
+
+  function keep() {
+    try { localStorage.setItem(KEY, JSON.stringify(me)); } catch (e) {}
+  }
+
+  function draw() {
+    $("a-big-name").textContent = me.name || "You";
+    $("a-picture-initial").textContent = (me.name || "You")[0];
+    var img = $("a-picture-img");
+    if (me.picture) {
+      img.src = me.picture;
+      img.hidden = false;
+      $("a-picture-initial").hidden = true;
+    } else {
+      img.hidden = true;
+      img.removeAttribute("src");
+      $("a-picture-initial").hidden = false;
+    }
+    $("a-bio").textContent = me.bio || "";
+    $("a-bio").hidden = !me.bio;
+    var link = $("a-link");
+    if (me.link) {
+      link.href = me.link;
+      link.textContent = me.link.replace(/^https?:\/\//, "").replace(/\/$/, "");
+      link.hidden = false;
+    } else {
+      link.hidden = true;
+      link.removeAttribute("href");
+    }
+    $("a-picture-note").hidden = !!me.picture;
+  }
+
+  function open() {
+    $("a-edit-name").value = me.name;
+    $("a-edit-bio").value = me.bio;
+    $("a-edit-link").value = me.link;
+    $("a-picture-remove").hidden = !me.picture;
+    $("a-edit-error").hidden = true;
+    count();
+    $("a-edit-sheet").hidden = false;
+    document.body.classList.add("sheet-open");
+  }
+
+  function close() {
+    $("a-edit-sheet").hidden = true;
+    document.body.classList.remove("sheet-open");
+  }
+
+  function count() {
+    var left = 150 - $("a-edit-bio").value.length;
+    $("a-bio-left").textContent = left;
+    $("a-bio-left").parentNode.classList.toggle("is-full", left <= 0);
+  }
+
+  $("a-edit-open").addEventListener("click", open);
+  $("a-edit-profile").addEventListener("click", open);
+  $("a-edit-bio").addEventListener("input", count);
+  document.addEventListener("click", function (event) {
+    if (event.target.closest("[data-a-close]")) { close(); }
+  });
+
+  $("a-edit-save").addEventListener("click", function () {
+    var link = tidyLink($("a-edit-link").value);
+    if (link === null) {
+      $("a-edit-error").textContent = "That link needs to start with http:// or https://";
+      $("a-edit-error").hidden = false;
+      return;
+    }
+    me.name = oneLine($("a-edit-name").value, 40);
+    me.bio = oneLine($("a-edit-bio").value, 150);
+    me.link = link;
+    keep();
+    draw();
+    close();
+  });
+
+  $("a-picture").addEventListener("click", function () { $("a-picture-file").click(); });
+  $("a-picture-remove").addEventListener("click", function () {
+    me.picture = "";
+    keep();
+    draw();
+    close();
+  });
+
+  /* Squared and scaled in a canvas, which is also what the app does before it
+     sends anything — and here it is the whole of it, because there is nowhere
+     to send it to. A four-megabyte photograph becomes about sixty kilobytes,
+     which matters when the store it goes into is localStorage. */
+  $("a-picture-file").addEventListener("change", function () {
+    var file = this.files && this.files[0];
+    this.value = "";
+    if (!file || !window.createImageBitmap) { return; }
+    createImageBitmap(file, { imageOrientation: "from-image" }).then(function (bitmap) {
+      var side = Math.min(bitmap.width, bitmap.height);
+      var out = Math.min(side, 512);
+      var canvas = document.createElement("canvas");
+      canvas.width = out;
+      canvas.height = out;
+      canvas.getContext("2d").drawImage(
+        bitmap,
+        (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side,
+        0, 0, out, out
+      );
+      bitmap.close();
+      me.picture = canvas.toDataURL("image/jpeg", 0.86);
+      keep();
+      draw();
+    }).catch(function () {});
+  });
+
+  draw();
 })();
 
 </script>

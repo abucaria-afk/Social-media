@@ -26,6 +26,8 @@
     <h1 id="bar-name">Profile</h1>
     <span class="topbar-right">
       <button type="button" class="chip-button" id="edit-open" hidden>Edit</button>
+      <button type="button" class="more" id="more" hidden
+              aria-label="Report or block this person">⋯</button>
     </span>
   </header>
 
@@ -68,10 +70,13 @@
   <a class="who-link" id="link" href="#" rel="noopener noreferrer nofollow ugc"
      target="_blank" hidden></a>
 
+  <p class="blocked-note" id="blocked-note" hidden></p>
+
   <div class="who-actions" id="actions">
     <button type="button" class="go" id="follow" hidden>Follow</button>
     <button type="button" class="ghost" id="message" hidden>Message</button>
     <button type="button" class="ghost" id="edit-profile" hidden>Edit profile</button>
+    <button type="button" class="ghost" id="unblock" hidden>Unblock</button>
   </div>
 
   <p class="error" id="page-error" role="alert" hidden></p>
@@ -121,6 +126,15 @@
         <span class="inset-label">Privacy</span>
         <span class="chevron" aria-hidden="true">›</span>
       </a>
+      <a class="inset-row" href="/terms">
+        <span class="inset-label">Terms of use</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </a>
+      <button type="button" class="inset-row" id="my-reports">
+        <span class="inset-label">Things I reported</span>
+        <span class="inset-value" id="reports-state"></span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </button>
     </div>
     <p class="group-caption">
       A password that has leaked somewhere else stops being enough on its own.
@@ -174,7 +188,16 @@
       <button type="button" class="inset-row danger" id="sign-out">
         <span class="inset-label">Sign out</span>
       </button>
+      <button type="button" class="inset-row danger" id="delete-account">
+        <span class="inset-label">Delete my account</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </button>
     </div>
+    <p class="group-caption">
+      Deleting takes your films, your messages, your plans and your picture
+      with it, off this computer, straight away. There is no undo and no copy
+      kept anywhere.
+    </p>
   </div>
 </main>
 
@@ -203,6 +226,55 @@
     <button type="button" class="go" id="edit-save">Save</button>
     <button type="button" class="ghost" id="picture-remove" hidden>Remove my picture</button>
     <button type="button" class="ghost" data-close="edit">Cancel</button>
+  </div>
+</div>
+
+<!-- Deleting the account. Password and a typed word, because a live session is
+     not proof that the person holding the phone is the person who owns it, and
+     because a single tap should not be able to do this. -->
+<div class="sheet" id="delete-sheet" hidden>
+  <div class="sheet-scrim" data-close="delete"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Delete my account">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Delete my account</h2>
+    <p class="sheet-note" id="delete-what">
+      This removes your account and everything in it.
+    </p>
+    <ul class="going" id="delete-list">
+      <li>Every film you have made here, and the files behind them</li>
+      <li>Every conversation you are part of, both sides of it</li>
+      <li>Your picture, your name, your bio and who you follow</li>
+      <li>Every planned post on your board, and any reels you added</li>
+    </ul>
+    <p class="sheet-note">
+      It happens on this computer, straight away. Nothing is kept and there is
+      no undo.
+    </p>
+    <label class="field-label" for="delete-password">Your password</label>
+    <input type="password" id="delete-password" autocomplete="current-password">
+    <label class="field-label" for="delete-confirm">Type <strong>delete</strong> to confirm</label>
+    <input type="text" id="delete-confirm" autocapitalize="off" autocorrect="off"
+           spellcheck="false" placeholder="delete">
+    <p class="error" id="delete-error" role="alert" hidden></p>
+    <button type="button" class="go danger-go" id="delete-go">Delete my account</button>
+    <button type="button" class="ghost" data-close="delete">Keep my account</button>
+  </div>
+</div>
+
+<!-- What this person has reported, and what came of it. A report that
+     disappears is a button people stop pressing. -->
+<div class="sheet" id="reports-sheet" hidden>
+  <div class="sheet-scrim" data-close="reports"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Things I reported">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Things I reported</h2>
+    <ul class="reported" id="reported-list"></ul>
+    <p class="sheet-note" id="reported-empty" hidden>
+      You have not reported anything.
+    </p>
+    <h3 class="settings-label" id="blocked-label" hidden>Blocked</h3>
+    <ul class="people" id="blocked-list"></ul>
+    <button type="button" class="ghost" data-close="reports">Close</button>
   </div>
 </div>
 
@@ -276,6 +348,7 @@
 <script src="/static/trouble.js"></script>
 <script src="/static/chrome.js"></script>
 <script src="/static/theme.js"></script>
+<script src="/static/safety.js"></script>
 <script src="/static/profile.js"></script>
 </body>
 </html>
