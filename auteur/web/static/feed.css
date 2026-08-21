@@ -65,6 +65,25 @@
    CSS cannot ask how tall a video is. */
 .reel.is-wide video,
 .reel.is-wide .reel-poster { object-fit: contain; }
+
+/* -- on a screen that is not a phone --------------------------------------
+   `cover` on an iPad is not a 9% crop, it is a slice: a 9:16 film on a
+   1024x1366 screen loses about half its width, and what is left is a strip
+   through the middle of somebody's composition. It also reads exactly as the
+   thing App Review dislikes about an iPad build — the phone app, stretched.
+
+   The fix is one rule, not six: narrow the *reel* to the shape a reel is and
+   centre it. Everything inside is positioned against `.reel`, so the film,
+   the gradient, the caption and the rail all come with it and none of them
+   needs its own arithmetic. The black surround is the page, which is already
+   black. */
+@media (min-width: 700px) {
+  .reel {
+    width: min(100%, calc(100dvh * 9 / 16));
+    margin: 0 auto;
+  }
+}
+
 .reel.is-playing .reel-poster { opacity: 0; transition: opacity 160ms linear; }
 
 /* The gradient under the caption. Without it, light footage eats white text. */

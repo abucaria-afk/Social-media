@@ -18,7 +18,8 @@
   // `seconds: ""` means "no length given" — the prompt decides. Anything else
   // is an explicit override the person tapped.
   var state = { jobId: null, timer: null, shape: "reel", seconds: "", era: "",
-               template: "", videoUrl: null, lastStage: "", lastPercent: -1 };
+               template: "", project: "", videoUrl: null, lastStage: "",
+               lastPercent: -1 };
 
   function show(name) {
     Object.keys(screens).forEach(function (key) {
@@ -44,6 +45,30 @@
   wireChoices($("shape"), function (value) { state.shape = value; });
   wireChoices($("seconds"), function (value) { state.seconds = value; });
   wireChoices($("era"), function (value) { state.era = value; });
+  wireChoices($("project"), function (value) { state.project = value; });
+
+  /* The projects somebody has, offered as a place to file the film. Fetched
+     rather than hard-coded, and the card stays hidden when there are none —
+     a control for a thing you do not have is a question you cannot answer. */
+  fetch("/api/projects", { credentials: "same-origin", cache: "no-store" })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      var all = (data && data.projects) || [];
+      if (!all.length) { return; }
+      var host = $("project");
+      all.slice(0, 8).forEach(function (row) {
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "choice";
+        button.setAttribute("role", "radio");
+        button.setAttribute("aria-checked", "false");
+        button.dataset.value = row.id;
+        button.textContent = row.name;
+        host.appendChild(button);
+      });
+      $("project-card").hidden = false;
+    })
+    .catch(function () { /* the card stays hidden, and nothing else changes */ });
 
   /* The template lives on its own tab now.
    *
@@ -223,6 +248,7 @@
        control that sets a variable nobody transmits is a control that does
        nothing, which is worse than not offering one. */
     form.append("era", state.era);
+    form.append("project", state.project || "");
     form.append("template", state.template);
     for (var i = 0; i < clips.files.length; i++) {
       form.append("clips", clips.files[i], clips.files[i].name);

@@ -39,12 +39,39 @@ IOS = ROOT / "ios"
 APP = IOS / "Auteur"
 STATIC = ROOT / "auteur" / "web" / "static"
 
-#: The screenshot sizes App Store Connect accepts for iPhone and iPad, in
-#: pixels, either way up. From Apple's specification — a screenshot one pixel
-#: off is refused by the upload form with no explanation of which dimension is
-#: wrong.
-IPHONE_SIZES = {(1290, 2796), (1320, 2868), (1284, 2778), (1242, 2688), (1179, 2556)}
-IPAD_SIZES = {(2048, 2732), (2064, 2752), (1668, 2388)}
+#: The screenshot sizes App Store Connect accepts, in pixels. From Apple's own
+#: page, fetched rather than remembered:
+#: developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/
+#:
+#: A screenshot one pixel off is refused by the upload form with no
+#: explanation of which dimension is wrong — and a list that is *too short* is
+#: as bad, because this check would then reject a size Apple accepts. The
+#: first version of this list was written from memory and was missing four
+#: valid iPhone sizes and two iPad ones.
+#:
+#: Portrait only here; `check_screenshots` compares both ways up.
+IPHONE_SIZES = {
+    (1290, 2796),  # 6.9" — the required slot
+    (1320, 2868),  # 6.9", newer
+    (1206, 2622),  # 6.3"
+    (1179, 2556),  # 6.1"
+    (1284, 2778),  # 6.5"
+    (1242, 2688),  # 6.5" — accepted if no 6.9" is supplied
+    (1170, 2532),  # 5.8"/6.1"
+    (1125, 2436),
+    (1080, 2340),
+    (1242, 2208),  # 5.5"
+    (750, 1334),  # 4.7"
+    (640, 1136),  # 4"
+}
+IPAD_SIZES = {
+    (2064, 2752),  # 13" — the required slot when the app runs on iPad
+    (2048, 2732),  # 12.9", accepted in the same class
+    (1668, 2420),  # 11" / iPad (A16)
+    (1668, 2388),  # 11"
+    (1668, 2224),  # 10.5"
+    (1536, 2048),  # 9.7"
+}
 
 #: Every permission iOS will refuse to ask for without a string, mapped to the
 #: thing in this app that asks. A usage description with nothing behind it is
@@ -244,6 +271,13 @@ def check_icon() -> list[Note]:
     return out
 
 
+def _size(path: Path) -> tuple[int, int]:
+    from PIL import Image
+
+    with Image.open(path) as art:
+        return art.size
+
+
 def check_screenshots(folder: Path) -> list[Note]:
     from PIL import Image
 
@@ -265,9 +299,10 @@ def check_screenshots(folder: Path) -> list[Note]:
     for shot in shots:
         with Image.open(shot) as art:
             size = art.size
-        if size in IPHONE_SIZES:
+        turned = (size[1], size[0])
+        if size in IPHONE_SIZES or turned in IPHONE_SIZES:
             phone += 1
-        elif size in IPAD_SIZES:
+        elif size in IPAD_SIZES or turned in IPAD_SIZES:
             ipad += 1
         else:
             out.append(
@@ -279,6 +314,26 @@ def check_screenshots(folder: Path) -> list[Note]:
             )
     # Apple requires at least one iPhone screenshot; three is the number that
     # actually fills the product page without a gap.
+    # The two slots Apple actually requires, rather than "some of each".
+    if (1290, 2796) not in {_size(p) for p in shots} and (1320, 2868) not in {
+        _size(p) for p in shots
+    }:
+        out.append(
+            Note(
+                False,
+                "no 6.9-inch iPhone screenshot",
+                "1290x2796 or 1320x2868 — the slot every iPhone submission needs",
+            )
+        )
+    if ipad and (2064, 2752) not in {_size(p) for p in shots}:
+        out.append(
+            Note(
+                True,
+                "no 13-inch iPad screenshot",
+                "2064x2752 is the required iPad slot; smaller ones are scaled up from it",
+                soft=True,
+            )
+        )
     if phone < 3:
         out.append(
             Note(False, f"only {phone} iPhone screenshot(s)", "three or more fills the page")

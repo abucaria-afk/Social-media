@@ -48,7 +48,11 @@ THEM, THEIR_WORD = "grace", "another-long-password"
 #: the assertion below is what ties the two together.
 DEVICES = (
     ("iphone-6.9", 430, 932, 3, (1290, 2796)),
-    ("ipad-12.9", 1024, 1366, 2, (2048, 2732)),
+    # 13", not 12.9". Apple's page marks the 13" slot "required if app runs on
+    # iPad" and scales the smaller classes up from it, so producing 12.9" was
+    # filling the legacy slot and leaving the required one empty. 1032 x 1376
+    # points at two pixels per point is 2064 x 2752.
+    ("ipad-13", 1032, 1376, 2, (2064, 2752)),
 )
 
 

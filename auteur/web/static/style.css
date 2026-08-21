@@ -1462,3 +1462,63 @@ body.sheet-open { overflow: hidden; }
   background: var(--rust);
   color: var(--on-rust);
 }
+
+/* -- A grid of films ------------------------------------------------------
+   Three across, square, one pixel apart: the grid on the profile tab of
+   every app this one is trying to feel like, and now also the album of a
+   project. Squares rather than the feed's full-bleed reels because a grid
+   is for finding one film, not for watching them. */
+
+/* Three across, square, one pixel apart. This is the grid on the profile tab
+   of every app this one is trying to feel like, and the reason it is squares
+   rather than the feed's full-bleed reels is that a profile is for finding one
+   film, not for watching them. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  margin: 0 calc(var(--pad) * -1) 22px;
+}
+
+.grid-cell {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  border: 0;
+  padding: 0;
+  background: var(--raised);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.grid-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* The play mark, so a square reads as a film rather than a photograph. */
+.grid-cell::after {
+  content: "▶";
+  position: absolute;
+  right: 6px;
+  top: 5px;
+  color: var(--on-photo);
+  font-size: var(--text-caption-2);
+  /* On a bright frame a white glyph disappears; the shadow is what makes it
+     legible on both without a plate behind it. Built from `scrim`, the
+     palette's own dim, rather than a literal black. */
+  text-shadow: 0 1px 3px var(--scrim);
+}
+
+.grid-likes {
+  position: absolute;
+  left: 6px;
+  bottom: 5px;
+  color: var(--on-photo);
+  font: 600 var(--text-caption-2)/1 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px var(--scrim);
+}
+

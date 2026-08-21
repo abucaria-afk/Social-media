@@ -342,6 +342,12 @@
 
   function count(n, one) { return n + " " + (n === 1 ? one : one + "s"); }
 
+  fill("more-projects", "/api/projects", function (said) {
+    var all = said.projects || [];
+    if (!all.length) { return "none yet"; }
+    var films = all.reduce(function (sum, p) { return sum + p.films; }, 0);
+    return count(all.length, "project") + (films ? " · " + count(films, "film") : "");
+  });
   fill("more-manager", "/api/plans", function (said) {
     var live = (said.plans || []).filter(function (p) {
       return p.status !== "posted" && p.status !== "dropped";

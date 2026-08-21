@@ -58,6 +58,7 @@ ROLES: dict[str, str] = {
     "rust": "it did not work, or needs attention",
     "on_rust": "text sitting on a rust fill — the one destructive button",
     "scrim": "the dim behind a sheet — the one role that carries its own alpha",
+    "on_photo": "text and marks drawn on top of somebody's footage",
 }
 
 #: Night. A soft ink rather than a black — the ground a modern phone app
@@ -87,6 +88,12 @@ DARK: dict[str, str] = {
     # rgba() in style.css for the same reason everything else does — one
     # palette, in one file, or the stylesheet drifts away from it.
     "scrim": "#0000008c",
+    # White in both schemes, and that is the point rather than an oversight.
+    # The ground under this is a frame of somebody's film, not the theme's
+    # surface — a play mark that went dark in daylight would be a dark mark on
+    # whatever the footage happens to be, which is a coin toss. It is paired
+    # with a shadow built from `scrim` so it holds on a bright frame too.
+    "on_photo": "#ffffff",
 }
 
 #: Daylight. Bone paper, not white: the same warm lobe the accent comes
@@ -115,6 +122,7 @@ LIGHT: dict[str, str] = {
     # over a near-black page reads as a blackout over a bone one, and the
     # content behind a sheet is meant to still be visible.
     "scrim": "#00000066",
+    "on_photo": "#ffffff",
 }
 
 SCHEMES: dict[str, dict[str, str]] = {"dark": DARK, "light": LIGHT}

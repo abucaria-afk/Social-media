@@ -248,6 +248,10 @@ class Plan:
     alt_text: str = ""
     #: Set once a film has been made for this plan.
     film: str = ""
+    #: The project this plan belongs to, or "". Carried on the plan for the
+    #: same reason a film carries its project: one place the association
+    #: lives, and the album is that question asked the other way round.
+    project: str = ""
     note: str = ""
     created: float = field(default_factory=time.time)
 

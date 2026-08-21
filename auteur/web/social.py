@@ -84,6 +84,10 @@ class Film:
     created: float = field(default_factory=time.time)
     #: Who has liked it. A set of names, kept as a list for JSON.
     liked_by: list[str] = field(default_factory=list)
+    #: The project this was cut for, or "". A film carries its project rather
+    #: than a project carrying a list of films: one place the association
+    #: lives, and no second list to fall out of step with it.
+    project: str = ""
     #: Held back from accounts with the content restriction on. Set by whoever
     #: made the film, or by the operator working through a report. There is no
     #: classifier behind this and there is not going to be one: a program that
@@ -114,6 +118,7 @@ class Film:
             "poster": f"/api/films/{self.id}/poster",
             "mine": bool(who) and who == self.owner,
             "sensitive": self.sensitive,
+            "project": self.project,
         }
 
 
@@ -172,6 +177,25 @@ class Films:
                 film.liked_by.append(who)
             self._save()
             return film
+
+    def belongs(self, film_id: str, project: str, who: str) -> Film | None:
+        """Put a film in a project's album, or take it out with "".
+
+        Only its own author may. A project is one person's way of organising
+        their own work, and moving somebody else's film into it would be
+        filing their footage under your name.
+        """
+        with self.lock:
+            film = self.films.get(film_id)
+            if film is None or film.owner != who:
+                return None
+            film.project = project or ""
+            self._save()
+            return film
+
+    def in_project(self, project: str) -> list[Film]:
+        with self.lock:
+            return [f for f in self._newest_first() if f.project == project]
 
     def mark(self, film_id: str, sensitive: bool, who: str = "") -> Film | None:
         """Flag a film as sensitive, or unflag it.

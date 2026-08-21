@@ -36,6 +36,7 @@ from urllib.parse import parse_qs, unquote
 
 from ..config import FORMATS, QUALITIES, Settings
 from ..ui import Reporter, describe_count, describe_duration, describe_shape
+from .. import projects
 from . import auth, profiles, safety
 from .social import PAGE
 
@@ -180,6 +181,10 @@ class Job:
     id: str
     prompt: str
     folder: Path
+    #: The project this was made for, or "". Carried on the job rather than
+    #: passed to `_run`, because it is not something the render uses — it is
+    #: only where the finished film gets filed.
+    project: str = ""
     #: Who asked for it. A job id is not a secret — it sits in the address bar
     #: and in history — so being signed in is not by itself permission to read
     #: somebody else's footage.
@@ -295,12 +300,13 @@ class Studio:
         owner: str = "",
         template: str = "",
         era: str = "",
+        project: str = "",
     ) -> Job:
         self.sweep()
         job_id = uuid.uuid4().hex[:12]
         folder = self.workspace / job_id
         (folder / "clips").mkdir(parents=True, exist_ok=True)
-        job = Job(id=job_id, prompt=prompt, folder=folder, owner=owner)
+        job = Job(id=job_id, prompt=prompt, folder=folder, owner=owner, project=project)
         job.thread = threading.Thread(
             target=self._run, args=(job, shape, seconds, template, era), daemon=True
         )
@@ -444,6 +450,7 @@ class Studio:
                             heard=heard,
                             template=template,
                             era=era,
+                            project=job.project,
                         )
                     except Exception as exc:  # noqa: BLE001 - the film is made
                         log.warning("could not publish %s to the feed: %s", job.id, exc)
@@ -578,6 +585,7 @@ class Handler(BaseHTTPRequestHandler):
     messages: Any = None  # a social.Messages once serve() has run
     profiles: Any = None  # a profiles.Profiles once serve() has run
     reports: Any = None  # a safety.Reports once serve() has run
+    projects: Any = None  # a projects.Projects once serve() has run
     board: Any = None  # a manager.Board once serve() has run
     sign_in_with: Any = None  # provider settings once serve() has run
     attempts: Any = None  # an oidc.Attempts once serve() has run
@@ -1205,6 +1213,185 @@ class Handler(BaseHTTPRequestHandler):
         }
         return out
 
+    # -------------------------------------------------------------- projects
+
+    def _own_project(self, project_id: str) -> str:
+        """A project id, but only if it is this person's. "" otherwise."""
+        who = self.current_user() or ""
+        if not project_id or self.projects is None:
+            return ""
+        return project_id if self.projects.get(project_id, who) is not None else ""
+
+    def _album_of(self, project) -> tuple[list, list]:
+        """What belongs to a project: its films, and its plans.
+
+        Asked the other way round rather than stored. A film carries the
+        project it was made for; the album is "which films say this", which
+        means there is one place the association lives and no second list to
+        fall out of step with it.
+        """
+        who = project.owner
+        films = [f for f in self.films.by(who, limit=999) if f.project == project.id]
+        plans = []
+        if self.board is not None:
+            plans = [p for p in self.board.by(who) if getattr(p, "project", "") == project.id]
+        return films, plans
+
+    def _projects(self) -> None:
+        who = self.current_user() or ""
+        rows = []
+        for project in self.projects.by(who):
+            films, plans = self._album_of(project)
+            row = project.public(films=len(films), plans=len(plans))
+            # A cover to draw the album with: the one they chose, or the
+            # newest film in it. An album of forty clips drawn as a grey
+            # rectangle is an album nobody opens.
+            cover = next((f for f in films if f.id == project.cover), None) or (
+                films[0] if films else None
+            )
+            row["poster"] = f"/api/films/{cover.id}/poster" if cover else ""
+            rows.append(row)
+        self._json({"projects": rows, "kinds": projects.KINDS})
+
+    def _project(self, project_id: str) -> None:
+        who = self.current_user() or ""
+        project = self.projects.get(project_id, who)
+        if project is None:
+            self._json({"error": "not found"}, 404)
+            return
+        films, plans = self._album_of(project)
+        self._json(
+            {
+                "project": project.whole(
+                    films=[f.public(who) for f in films],
+                    plans=[self._plan_json(p) for p in plans],
+                )
+            }
+        )
+
+    def _make_project(self) -> None:
+        who = self.current_user() or ""
+        payload = self._json_body()
+        project = self.projects.make(
+            who,
+            str(payload.get("name") or ""),
+            note=payload.get("note"),
+            place=payload.get("place"),
+            starts=payload.get("starts"),
+            ends=payload.get("ends"),
+        )
+        if project is None:
+            self._json({"error": "Give it a name."}, 400)
+            return
+        log.info("%s started a project", _for_log(who))
+        self._json({"project": project.public()}, 201)
+
+    def _edit_project(self, project_id: str) -> None:
+        who = self.current_user() or ""
+        payload = self._json_body()
+        project = self.projects.edit(
+            project_id,
+            who,
+            **{
+                key: payload[key]
+                for key in ("name", "note", "place", "starts", "ends", "cover")
+                if key in payload
+            },
+        )
+        if project is None:
+            self._json({"error": "not found"}, 404)
+            return
+        self._json({"project": project.public()})
+
+    def _drop_project(self, project_id: str) -> None:
+        who = self.current_user() or ""
+        if not self.projects.drop(project_id, who):
+            self._json({"error": "not found"}, 404)
+            return
+        # The films it held are untouched, and the answer says so — deleting a
+        # way of looking at footage should never read as deleting the footage.
+        self._json({"ok": True, "films_kept": True})
+
+    def _project_node(self, project_id: str) -> None:
+        """Add a node, or move a handful of them after a drag."""
+        who = self.current_user() or ""
+        payload = self._json_body()
+
+        moves = payload.get("moves")
+        if isinstance(moves, dict):
+            moved = self.projects.move_nodes(project_id, who, moves)
+            self._json({"moved": moved})
+            return
+
+        node = self.projects.add_node(
+            project_id,
+            who,
+            kind=str(payload.get("kind") or ""),
+            text=payload.get("text", ""),
+            ref=payload.get("ref", ""),
+            **{k: payload[k] for k in ("x", "y") if k in payload},
+        )
+        if node is None:
+            self._json({"error": "That is not a kind of node."}, 400)
+            return
+        self._json({"node": node.public()}, 201)
+
+    def _project_node_one(self, project_id: str, node_id: str, what: str) -> None:
+        who = self.current_user() or ""
+        if what == "drop":
+            if not self.projects.drop_node(project_id, who, node_id):
+                self._json({"error": "not found"}, 404)
+                return
+            self._json({"ok": True})
+            return
+        payload = self._json_body()
+        node = self.projects.edit_node(
+            project_id,
+            who,
+            node_id,
+            **{k: payload[k] for k in ("text", "ref", "kind", "done") if k in payload},
+        )
+        if node is None:
+            self._json({"error": "not found"}, 404)
+            return
+        self._json({"node": node.public()})
+
+    def _project_link(self, project_id: str) -> None:
+        who = self.current_user() or ""
+        payload = self._json_body()
+        made = self.projects.link(
+            project_id,
+            who,
+            str(payload.get("a") or ""),
+            str(payload.get("b") or ""),
+            str(payload.get("note") or ""),
+        )
+        if made is None:
+            self._json({"error": "Those two cannot be joined."}, 400)
+            return
+        self._json({"link": made.public()}, 201)
+
+    def _project_unlink(self, project_id: str, link_id: str) -> None:
+        who = self.current_user() or ""
+        if not self.projects.unlink(project_id, who, link_id):
+            self._json({"error": "not found"}, 404)
+            return
+        self._json({"ok": True})
+
+    def _gather(self, project_id: str) -> None:
+        """Put a film into a project's album, or take it out."""
+        who = self.current_user() or ""
+        payload = self._json_body()
+        wanted = str(payload.get("project") if "project" in payload else project_id or "")
+        if wanted and self.projects.get(wanted, who) is None:
+            self._json({"error": "not found"}, 404)
+            return
+        film = self.films.belongs(str(payload.get("film") or ""), wanted, who)
+        if film is None:
+            self._json({"error": "that is not yours to move"}, 403)
+            return
+        self._json({"film": film.public(who)})
+
     # ---------------------------------------------------------------- safety
 
     def _restriction_state(self) -> None:
@@ -1439,6 +1626,7 @@ class Handler(BaseHTTPRequestHandler):
         self.messages.forget_everything_with(who)
         self.profiles.forget(who)
         self.reports.forget_everything_about(who)
+        self.projects.forget_everything_by(who)
         if self.board is not None:
             self.board.forget_everyones(who)
         # The reels somebody added as templates, which live under their name.
@@ -1743,6 +1931,15 @@ class Handler(BaseHTTPRequestHandler):
             # work between two people's profiles.
             self._static(STATIC / "profile.html", "text/html; charset=utf-8")
             return
+        if path in ("/projects", "/projects.html") or path.startswith("/project/"):
+            # `/project/<id>` so one project is a place you can be, with a
+            # back button that goes to the list rather than to wherever you
+            # happened to come from.
+            self._static(
+                STATIC / ("project.html" if path.startswith("/project/") else "projects.html"),
+                "text/html; charset=utf-8",
+            )
+            return
         if path in ("/manager", "/manager.html", "/plan"):
             self._static(STATIC / "manager.html", "text/html; charset=utf-8")
             return
@@ -1779,6 +1976,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/reports":
             self._my_reports()
+            return
+        if path == "/api/projects":
+            self._projects()
+            return
+        if path.startswith("/api/projects/"):
+            self._project(path.strip("/").split("/")[2])
             return
         if path == "/api/restriction":
             self._restriction_state()
@@ -2615,6 +2818,7 @@ class Handler(BaseHTTPRequestHandler):
                 :30
             ],
             alt_text=str(payload.get("alt_text") or "")[:500],
+            project=str(payload.get("project") or "")[:64],
         )
         log.info("%s planned %s", _for_log(who), _for_log(plan.title))
         self._json({"plan": self._plan_json(plan, checked=True)}, 201)
@@ -2971,6 +3175,28 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/restriction":
             self._set_restriction()
             return
+        if path == "/api/projects":
+            self._make_project()
+            return
+        if path.startswith("/api/projects/"):
+            parts = path.strip("/").split("/")
+            project_id = parts[2] if len(parts) > 2 else ""
+            what = parts[3] if len(parts) > 3 else ""
+            if what == "drop":
+                self._drop_project(project_id)
+            elif what == "node" and len(parts) > 4:
+                self._project_node_one(project_id, parts[4], parts[5] if len(parts) > 5 else "")
+            elif what == "node":
+                self._project_node(project_id)
+            elif what == "link" and len(parts) > 4:
+                self._project_unlink(project_id, parts[4])
+            elif what == "link":
+                self._project_link(project_id)
+            elif what == "gather":
+                self._gather(project_id)
+            else:
+                self._edit_project(project_id)
+            return
         if path.startswith("/api/profiles/") and path.endswith("/block"):
             self._block(path.split("/")[3])
             return
@@ -3057,6 +3283,10 @@ class Handler(BaseHTTPRequestHandler):
             owner=self.current_user() or "",
             template=fields.get("template", "").strip(),
             era=fields.get("era", "").strip(),
+            # Checked, not trusted: a project id from a form is a project id
+            # somebody could have typed, and filing a film under somebody
+            # else's project would be filing their footage under your name.
+            project=self._own_project(fields.get("project", "").strip()),
         )
         clips = job.folder / "clips"
         for index, (filename, payload) in enumerate(files):
@@ -3355,6 +3585,7 @@ def serve(
     from ..manager import Board
     from . import oidc
     from .profiles import Profiles
+    from ..projects import Projects
     from .safety import Reports
     from .social import Films, Messages
 
@@ -3371,6 +3602,9 @@ def serve(
     Handler.profiles = Profiles(Profiles.default_path(root), root / "pictures")
     # What anybody has reported, and what was done about it.
     Handler.reports = Reports(Reports.default_path(root))
+    # A project: the album of what came back, and the map of what you were
+    # thinking before you went.
+    Handler.projects = Projects(Projects.default_path(root))
     Handler.board = Board(Board.default_path(root))
     # Credentials from the workspace or the environment, never the repo.
     Handler.sign_in_with = oidc.load(root)

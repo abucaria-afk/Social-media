@@ -74,8 +74,8 @@
     if (path.indexOf("/inbox") === 0 || path.indexOf("/messages") === 0) return "inbox";
     if (path.indexOf("/profile") === 0 || path.indexOf("/me") === 0 ||
         path.indexOf("/u/") === 0) return "profile";
-    /* The studio, /ask, /overlays and /connect are all reached from your own
-     * profile, so that is the slot that lights up on them. Five slots is the
+    /* The studio, /projects, /ask, /overlays and /connect are all reached from
+     * your own profile, so that is the slot that lights up on them. Five slots is the
      * point, and a bar that highlights nothing on a third of the app reads as
      * broken. */
     return "profile";

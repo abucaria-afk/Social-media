@@ -147,6 +147,17 @@
         </span>
       </div>
 
+      <!-- Which project it belongs to. Hidden until there is one to pick, so
+           somebody who has never made a project never sees a control for a
+           thing they do not have. -->
+      <div class="card block" id="project-card" hidden>
+        <span class="card-title">Part of</span>
+        <div class="choices projects" id="project" role="radiogroup" aria-label="Project">
+          <button type="button" class="choice is-on" data-value="" role="radio" aria-checked="true">Nothing<small>on its own</small></button>
+        </div>
+        <span class="card-hint">The finished film lands in that project's album.</span>
+      </div>
+
 
       <p class="error" id="start-error" role="alert" hidden></p>
 

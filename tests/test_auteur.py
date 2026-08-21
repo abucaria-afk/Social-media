@@ -1225,6 +1225,8 @@ def web_server(tmp_path):
     from urllib.request import Request, urlopen
     from auteur.web import assets, server as web
     from auteur.web.auth import Accounts
+    from auteur.manager import Board
+    from auteur.projects import Projects
     from auteur.web.profiles import Profiles
     from auteur.web.safety import Reports
     from auteur.web.social import Films, Messages
@@ -1243,6 +1245,8 @@ def web_server(tmp_path):
     web.Handler.messages = Messages(root / "messages.json")
     web.Handler.profiles = Profiles(root / "profiles.json", root / "pictures")
     web.Handler.reports = Reports(root / "reports.json")
+    web.Handler.projects = Projects(root / "projects.json")
+    web.Handler.board = Board(Board.default_path(root))
 
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -1267,6 +1271,8 @@ def web_server(tmp_path):
         web.Handler.messages = None
         web.Handler.profiles = None
         web.Handler.reports = None
+        web.Handler.projects = None
+        web.Handler.board = None
 
 
 def test_the_shell_and_icons_are_reachable(web_server):
@@ -10100,3 +10106,242 @@ def test_the_rating_the_listing_declares_is_the_one_the_app_enforces():
     preflight = _tool("preflight")
     notes = preflight.check_age()
     assert notes and all(note.ok for note in notes), [n.what for n in notes if not n.ok]
+
+
+# ---------------------------------------------------------------------------
+# Projects: an album, and a map
+# ---------------------------------------------------------------------------
+
+
+def test_a_project_holds_a_trip_the_way_a_trip_happens(tmp_path):
+    from auteur.projects import Projects
+
+    store = Projects(tmp_path / "projects.json")
+    project = store.make(
+        "ada",
+        "  Portugal, June  ",
+        place="Lisbon",
+        starts="2026-06-14",
+        ends="2026-06-02",
+        note="slow  mornings\n\n\n\nharbour at six",
+    )
+    assert project.name == "Portugal, June"
+    # Typed backwards is not an error worth refusing, but the album sorts by
+    # these, so they are put the right way round rather than left to sort wrong.
+    assert project.dated == "2026-06-02 to 2026-06-14"
+    # The note keeps the break somebody typed and loses the run of blank lines.
+    assert project.note == "slow mornings\n\nharbour at six"
+    assert store.make("ada", "   ") is None
+
+
+def test_a_project_is_not_readable_by_anybody_else(tmp_path):
+    """Planning is one person's own. There is no route that shares it, and the
+    check is in `get` rather than in each route because every route needs it
+    and one of them will forget."""
+    from auteur.projects import Projects
+
+    store = Projects(tmp_path / "projects.json")
+    project = store.make("ada", "Portugal")
+    assert store.get(project.id, "grace") is None
+    assert store.edit(project.id, "grace", name="Mine now") is None
+    assert store.drop(project.id, "grace") is False
+    assert store.add_node(project.id, "grace", kind="idea") is None
+    assert store.get(project.id, "ada") is not None
+
+
+def test_dropping_a_node_takes_the_arrows_that_touched_it(tmp_path):
+    """A link to a node that is gone is an arrow to nowhere, and it draws as
+    one."""
+    from auteur.projects import Projects
+
+    store = Projects(tmp_path / "projects.json")
+    project = store.make("ada", "Portugal")
+    a = store.add_node(project.id, "ada", kind="idea", text="start on the water")
+    b = store.add_node(project.id, "ada", kind="shot", text="ferry leaving")
+    c = store.add_node(project.id, "ada", kind="place", text="the harbour")
+    store.link(project.id, "ada", a.id, b.id)
+    store.link(project.id, "ada", b.id, c.id)
+    assert len(store.get(project.id, "ada").links) == 2
+
+    store.drop_node(project.id, "ada", b.id)
+    assert len(store.get(project.id, "ada").nodes) == 2
+    assert store.get(project.id, "ada").links == []
+
+
+def test_two_nodes_are_joined_or_they_are_not(tmp_path):
+    """A second arrow back the other way is a duplicate, not a different fact."""
+    from auteur.projects import Projects
+
+    store = Projects(tmp_path / "projects.json")
+    project = store.make("ada", "Portugal")
+    a = store.add_node(project.id, "ada", kind="idea")
+    b = store.add_node(project.id, "ada", kind="shot")
+
+    first = store.link(project.id, "ada", a.id, b.id)
+    again = store.link(project.id, "ada", b.id, a.id)
+    assert first.id == again.id
+    assert len(store.get(project.id, "ada").links) == 1
+    # Nothing joins to itself, and nothing joins to a node that is not there.
+    assert store.link(project.id, "ada", a.id, a.id) is None
+    assert store.link(project.id, "ada", a.id, "nonsense") is None
+
+
+def test_a_drag_is_saved_once_rather_than_sixty_times_a_second(tmp_path):
+    """A drag emits a position every frame. The page sends where things ended
+    up, and this is what receives it."""
+    from auteur.projects import Projects
+
+    store = Projects(tmp_path / "projects.json")
+    project = store.make("ada", "Portugal")
+    a = store.add_node(project.id, "ada", kind="idea")
+    b = store.add_node(project.id, "ada", kind="shot")
+
+    moved = store.move_nodes(project.id, "ada", {a.id: [40.5, 900], b.id: [-12, 3]})
+    assert moved == 2
+    fresh = Projects(tmp_path / "projects.json").get(project.id, "ada")
+    where = {n["id"]: (n["x"], n["y"]) for n in fresh.nodes}
+    assert where[a.id] == (40.5, 900.0)
+    assert where[b.id] == (-12.0, 3.0)
+    # Nonsense in a batch is skipped rather than taking the batch down.
+    assert store.move_nodes(project.id, "ada", {a.id: ["over", "there"]}) == 0
+
+
+def test_deleting_a_project_never_deletes_the_footage(tmp_path):
+    """A project is a way of looking at footage. Deleting the way of looking
+    must not delete what it was looking at."""
+    from auteur.projects import Projects
+    from auteur.web.social import Films
+
+    store = Projects(tmp_path / "projects.json")
+    films = Films(tmp_path / "films.json")
+    project = store.make("ada", "Portugal")
+    film = films.add(owner="ada", prompt="the harbour", video=str(tmp_path / "x.mp4"))
+    films.belongs(film.id, project.id, "ada")
+    assert films.in_project(project.id) == [film]
+
+    assert store.drop(project.id, "ada") is True
+    assert films.get(film.id) is not None
+    assert films.get(film.id).video == str(tmp_path / "x.mp4")
+
+
+def test_a_film_can_only_be_filed_by_the_person_who_made_it(tmp_path):
+    from auteur.web.social import Films
+
+    films = Films(tmp_path / "films.json")
+    film = films.add(owner="grace", prompt="theirs", video=str(tmp_path / "x.mp4"))
+    assert films.belongs(film.id, "somebody", "ada") is None
+    assert films.get(film.id).project == ""
+    assert films.belongs(film.id, "somebody", "grace") is not None
+
+
+# -- as served --------------------------------------------------------------
+
+
+def test_a_project_answers_with_its_map_and_its_album_in_one_request(web_server):
+    """A page that fetches the project, then its nodes, then its links, then
+    its films is a page that renders four times and lays out differently each
+    time."""
+    from auteur.web import server as web
+
+    base, studio, cookie = web_server
+    made = _api_post(base, "/api/projects", cookie, {"name": "Portugal", "place": "Lisbon"})
+    project_id = made["project"]["id"]
+
+    clip = studio.workspace / "one.mp4"
+    clip.parent.mkdir(parents=True, exist_ok=True)
+    clip.write_bytes(b"not really an mp4")
+    film = web.Handler.films.add(owner="tester", prompt="the harbour", video=str(clip))
+    _api_post(base, f"/api/projects/{project_id}/gather", cookie, {"film": film.id})
+    _api_post(base, f"/api/projects/{project_id}/node", cookie, {"kind": "idea", "text": "water"})
+
+    whole = _api_get(base, f"/api/projects/{project_id}", cookie)["project"]
+    assert whole["name"] == "Portugal"
+    assert len(whole["map"]["nodes"]) == 1
+    assert [f["prompt"] for f in whole["album"]["films"]] == ["the harbour"]
+    assert "idea" in whole["kinds"]
+
+
+def test_a_film_cannot_be_filed_into_somebody_elses_project(web_server):
+    """A project id from a form is a project id somebody could have typed."""
+    from urllib.error import HTTPError
+
+    from auteur.projects import Projects
+    from auteur.web import server as web
+
+    base, studio, cookie = web_server
+    theirs = web.Handler.projects.make("grace", "Theirs")
+    clip = studio.workspace / "mine.mp4"
+    clip.parent.mkdir(parents=True, exist_ok=True)
+    clip.write_bytes(b"not really an mp4")
+    film = web.Handler.films.add(owner="tester", prompt="mine", video=str(clip))
+
+    with pytest.raises(HTTPError) as raised:
+        _api_post(base, f"/api/projects/{theirs.id}/gather", cookie, {"film": film.id})
+    assert raised.value.code == 404
+    assert web.Handler.films.get(film.id).project == ""
+    assert isinstance(web.Handler.projects, Projects)
+
+
+def test_a_shot_on_the_map_becomes_a_real_plan(web_server):
+    """The reason the nodes are typed. A note that says "ferry leaving" is a
+    note; a *shot* that says it is something the board can hold."""
+    from auteur.web import server as web
+
+    base, _, cookie = web_server
+    made = _api_post(base, "/api/projects", cookie, {"name": "Portugal"})
+    project_id = made["project"]["id"]
+    node = _api_post(
+        base,
+        f"/api/projects/{project_id}/node",
+        cookie,
+        {"kind": "shot", "text": "ferry leaving, from the rail"},
+    )["node"]
+
+    _api_post(
+        base,
+        "/api/plans",
+        cookie,
+        {"prompt": node["text"], "project": project_id, "title": "Portugal — ferry"},
+    )
+    _api_post(base, f"/api/projects/{project_id}/node/{node['id']}", cookie, {"done": True})
+
+    plans = web.Handler.board.by("tester")
+    assert len(plans) == 1 and plans[0].project == project_id
+    whole = _api_get(base, f"/api/projects/{project_id}", cookie)["project"]
+    assert whole["map"]["nodes"][0]["done"] is True
+    assert len(whole["album"]["plans"]) == 1
+
+
+def test_deleting_an_account_takes_its_projects(web_server):
+    from auteur.web import server as web
+
+    base, _, cookie = web_server
+    _api_post(base, "/api/projects", cookie, {"name": "Portugal"})
+    assert web.Handler.projects.by("tester")
+
+    _api_post(
+        base,
+        "/api/profile/delete",
+        cookie,
+        {"password": "a-long-enough-one", "confirm": "delete"},
+    )
+    assert web.Handler.projects.by("tester") == []
+
+
+def test_the_map_is_built_from_elements_a_person_can_reach():
+    """A 2D canvas would be fewer lines and would throw away everything the
+    browser already does — Tab, a screen reader, the browser's own find, and
+    whatever text size somebody has set."""
+    from auteur.web import server
+
+    page = (server.STATIC / "project.js").read_text()
+    assert 'createElement("button")' in page
+    assert "getContext" not in page, "the map must not be drawn on a canvas"
+    # Reachable and movable without a pointer.
+    assert "ArrowLeft" in page and "focusin" in page
+    # Zoom has buttons, not only a pinch.
+    assert "zoom-in" in page and "zoom-fit" in page
+
+    css = (server.STATIC / "projects.css").read_text()
+    # The browser must not claim the gestures, or a drag scrolls the page.
+    assert "touch-action: none" in css

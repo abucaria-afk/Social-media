@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#19181b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f7f5f2" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="One project: the map of what you were thinking, and the album of what came back.">
+<script src="/static/settings.js"></script>
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/projects.css">
+<title>Auteur — project</title>
+</head>
+<body>
+
+<main class="page project-page" id="project-page">
+  <header class="topbar">
+    <a class="topbar-back" href="/projects" aria-label="Back to projects">←</a>
+    <h1 id="bar-name">…</h1>
+    <span class="topbar-right">
+      <button type="button" class="more" id="project-more" aria-label="Edit this project">⋯</button>
+    </span>
+  </header>
+
+  <h2 class="large-title" id="big-name">…</h2>
+  <p class="project-when" id="project-when" hidden></p>
+  <p class="project-note" id="project-note" hidden></p>
+
+  <!-- Two faces of one thing. Tabs rather than two pages, because moving
+       between what you planned and what came back is the whole point, and a
+       navigation would throw away the map's pan and zoom every time. -->
+  <div class="faces" role="tablist" aria-label="This project">
+    <button type="button" class="face is-on" id="face-map" role="tab" aria-selected="true"
+            aria-controls="map-face">The map</button>
+    <button type="button" class="face" id="face-album" role="tab" aria-selected="false"
+            aria-controls="album-face">The album</button>
+  </div>
+
+  <!-- The map ---------------------------------------------------------- -->
+  <section id="map-face" role="tabpanel" aria-labelledby="face-map">
+    <div class="map" id="map">
+      <div class="map-world" id="world">
+        <svg class="map-links" id="links" aria-hidden="true"></svg>
+      </div>
+
+      <p class="map-blank" id="map-blank" hidden>
+        Nothing on the map yet. Add a thought, or a shot you want.
+      </p>
+
+      <!-- Zoom as buttons as well as a pinch. A pinch is not reachable from a
+           keyboard, and on a trackpad it needs a modifier nobody is told
+           about. -->
+      <div class="map-zoom">
+        <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+        <button type="button" id="zoom-fit" aria-label="Fit everything on screen">⤢</button>
+        <button type="button" id="zoom-in" aria-label="Zoom in">＋</button>
+      </div>
+    </div>
+
+    <!-- What you can add. The kinds are things the app already has an opinion
+         about, which is why they are buttons rather than a free canvas: a
+         shot becomes a real capture, a look sets the grade. -->
+    <div class="adders" id="adders" aria-label="Add to the map"></div>
+    <p class="group-caption" id="map-hint">
+      Drag to move things. Tap one to open it, or to join it to another.
+    </p>
+  </section>
+
+  <!-- The album -------------------------------------------------------- -->
+  <section id="album-face" role="tabpanel" aria-labelledby="face-album" hidden>
+    <h3 class="settings-label">Films from this</h3>
+    <div class="grid" id="films"></div>
+    <p class="group-caption" id="films-blank" hidden>
+      Nothing cut yet. A film you add below, or make while this project is
+      picked, lands here.
+    </p>
+
+    <h3 class="settings-label">Planned posts</h3>
+    <ul class="inset-group" id="plans"></ul>
+    <p class="group-caption" id="plans-blank" hidden>
+      Plans on the board that belong to this project show up here.
+    </p>
+
+    <h3 class="settings-label">Add a film you have already made</h3>
+    <ul class="people" id="loose"></ul>
+    <p class="group-caption" id="loose-blank" hidden>
+      Every film you have made is already in a project.
+    </p>
+  </section>
+</main>
+
+<!-- One node: what it says, what kind it is, and what to do with it. -->
+<div class="sheet" id="node-sheet" hidden>
+  <div class="sheet-scrim" data-close="node"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-labelledby="node-title">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title" id="node-title">Note</h2>
+    <p class="sheet-note" id="node-kind-note"></p>
+
+    <label class="field-label" for="node-text">What it says</label>
+    <textarea id="node-text" rows="2" maxlength="240"></textarea>
+
+    <div class="choices kinds" id="node-kinds" role="radiogroup" aria-label="What kind"></div>
+
+    <p class="error" id="node-error" role="alert" hidden></p>
+    <button type="button" class="go" id="node-save">Save</button>
+    <button type="button" class="ghost" id="node-link">Join this to another</button>
+    <button type="button" class="ghost" id="node-plan" hidden>Put this on the plan board</button>
+    <button type="button" class="ghost danger-go" id="node-drop">Remove it</button>
+    <button type="button" class="ghost" data-close="node">Close</button>
+  </div>
+</div>
+
+<!-- Editing the project itself. -->
+<div class="sheet" id="edit-sheet" hidden>
+  <div class="sheet-scrim" data-close="edit"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Edit this project">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">This project</h2>
+
+    <label class="field-label" for="edit-name">What it is</label>
+    <input type="text" id="edit-name" maxlength="80">
+
+    <label class="field-label" for="edit-place">Where</label>
+    <input type="text" id="edit-place" maxlength="80">
+
+    <div class="two-up">
+      <span>
+        <label class="field-label" for="edit-starts">From</label>
+        <input type="date" id="edit-starts">
+      </span>
+      <span>
+        <label class="field-label" for="edit-ends">To</label>
+        <input type="date" id="edit-ends">
+      </span>
+    </div>
+
+    <label class="field-label" for="edit-note">What it is about</label>
+    <textarea id="edit-note" rows="3" maxlength="600"></textarea>
+
+    <p class="error" id="edit-error" role="alert" hidden></p>
+    <button type="button" class="go" id="edit-save">Save</button>
+    <button type="button" class="ghost danger-go" id="edit-drop">Delete this project</button>
+    <p class="card-hint">
+      Deleting removes the project and its map. The films stay exactly where
+      they are — they just stop being labelled with it.
+    </p>
+    <button type="button" class="ghost" data-close="edit">Close</button>
+  </div>
+</div>
+
+<script src="/static/trouble.js"></script>
+<script src="/static/chrome.js"></script>
+<script src="/static/theme.js"></script>
+<script src="/static/safety.js"></script>
+<script src="/static/project.js"></script>
+</body>
+</html>
