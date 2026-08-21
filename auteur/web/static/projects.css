@@ -143,6 +143,10 @@
   align-items: start;
   gap: 8px;
   width: 170px;
+  /* A node is something you tap, so it is at least a thumb tall at life size.
+     Zoomed out it is smaller, which is what zooming out means — `MIN_ZOOM` in
+     project.js is the floor that keeps that from going silly. */
+  min-height: 44px;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius);

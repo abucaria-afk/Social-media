@@ -46,7 +46,11 @@
   // -- the world ---------------------------------------------------------
 
   var view = { x: 0, y: 0, zoom: 1 };
-  var MIN_ZOOM = 0.35;
+  /* 0.5, not 0.35. A node is 44px tall at life size; at a third of that it is
+     15px, which is a thing you can see and cannot reliably tap. Zooming out
+     makes everything smaller by definition — the floor is where that stops
+     being a view and starts being a picture of one. */
+  var MIN_ZOOM = 0.5;
   var MAX_ZOOM = 2.5;
 
   function paint() {

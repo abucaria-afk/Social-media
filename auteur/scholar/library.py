@@ -614,6 +614,13 @@ class TemplateShelf:
 #: sits at 0.167s, which is three cuts to a beat at 120bpm.
 HYPERCUT_HOLD = 0.20
 
+#: And a shot at or under *this* is still a montage rather than a held shot.
+#: The band between the two is where most of the corpus lives — thirteen of
+#: the twenty-three reels — and it had no name in this program, which is why
+#: the default style was cut at a number somebody made up. Above this a film
+#: is holding its shots on purpose and is no longer a montage.
+MONTAGE_HOLD = 0.75
+
 
 #: The named things a corpus of measured reels can be asked about, and the key
 #: each is measured on. The names matter as much as the numbers: this program
@@ -639,8 +646,25 @@ def conclude(store) -> list[Learning]:
             if key in (learning.measurements or {})
         ]
 
+    def paired(key: str, other: str, low: float, high: float) -> list[float]:
+        """The `other` measurement of every learning whose `key` sits in a band.
+
+        `gather` returns one column at a time, which is enough to take a median
+        of but not enough to ask "how fast do the reels in *this* band cut" —
+        that needs the two numbers to stay on the same reel.
+        """
+        out: list[float] = []
+        for learning in store._learnings:
+            numbers = learning.measurements or {}
+            if key not in numbers or other not in numbers:
+                continue
+            if low < float(numbers[key]) <= high:
+                out.append(float(numbers[other]))
+        return out
+
     holds = gather("shot_seconds")
     rates = gather("cuts_per_10s")
+    band_rates = paired("shot_seconds", "cuts_per_10s", HYPERCUT_HOLD, MONTAGE_HOLD)
     opens = gather("first_cut")
     lumas = gather("luma")
     motions = gather("motion")
@@ -692,24 +716,75 @@ def conclude(store) -> list[Learning]:
         )
 
     if len(holds) >= 3:
-        median = statistics.median(holds)
         fast = [h for h in holds if h <= HYPERCUT_HOLD]
+        # The median of the hypercut reels, not of every reel on the shelf.
+        # This learning is called "how fast a fast cut is" and answers the
+        # question somebody asks when they type the word, so averaging the
+        # held shots into it answers a different question: it used to report
+        # 0.208s, the middle of the whole corpus, while the director cut a
+        # hypercut at 0.167s. Two numbers for one word, and neither knew.
+        median = statistics.median(fast) if fast else statistics.median(holds)
+        # How that lands against a bar, computed rather than asserted. The
+        # sentence used to say "about three cuts to a beat at 120bpm" next to
+        # a number that was 2.4.
+        per_beat = 0.5 / median if median > 0 else 0.0
         out.append(
             across(
                 "hypercut — how fast a fast cut is",
                 f"Of {len(holds)} reels measured, {len(fast)} hold each shot "
-                f"{HYPERCUT_HOLD}s or less — a hypercut. The median across all of them is "
-                f"{median:.3f}s a shot, which is about three cuts to a beat at 120bpm. "
-                f"The fastest holds {min(holds):.3f}s.",
+                f"{HYPERCUT_HOLD}s or less — a hypercut. Their median is "
+                f"{median:.3f}s a shot, which is about {per_beat:.1f} cuts to a beat at "
+                f"120bpm. The fastest holds {min(holds):.3f}s.",
                 "when somebody asks for a hypercut, cut at the measured median rather "
                 "than at whatever 'fast' suggests",
                 [Discipline.MOVIE_MAKING, Discipline.PATTERN_RECOGNITION],
                 len(holds),
                 shot_seconds=median,
+                cuts_per_beat=per_beat,
                 hypercut_share=len(fast) / len(holds),
                 fastest=min(holds),
             )
         )
+
+    if len(holds) >= 3:
+        # The band between a hypercut and a held shot — where most of the
+        # corpus actually lives. Worth measuring on its own because "montage"
+        # is this program's *default* style: it is what every film is cut at
+        # when nobody says a pace word, and it was set to 0.9s by hand. The
+        # measurement below says 0.334s, so the default was two and a half
+        # times slower than the work it is held against — which is the kind of
+        # thing a number nobody measured does quietly, for months.
+        middle = [h for h in holds if HYPERCUT_HOLD < h <= MONTAGE_HOLD]
+        if len(middle) >= 3:
+            median = statistics.median(middle)
+            # How often those reels *actually* cut, rather than 10/median.
+            # The two disagree, and the arithmetic one is wrong: a reel that
+            # holds 0.334s a shot does not cut thirty times in ten seconds,
+            # because it also spends time on an opening hold and on the shots
+            # it lets run. Measured, the same thirteen reels cut about twenty
+            # times per ten seconds. Deriving the rate from the hold would put
+            # a number in this learning that the corpus it cites contradicts.
+            rate = statistics.median(band_rates) if band_rates else 10 / median
+            out.append(
+                across(
+                    "montage — the pace when it is not a hypercut",
+                    f"{len(middle)} of {len(holds)} reels cut between "
+                    f"{HYPERCUT_HOLD}s and {MONTAGE_HOLD}s a shot — not a hypercut, not a "
+                    f"held shot. Their median hold is {median:.3f}s and they cut "
+                    f"{rate:.1f} times every ten seconds. That is the pace of the corpus "
+                    "at rest, and it is still nearly three times faster than the 0.9s "
+                    "this program used to cut a montage at when nobody asked for "
+                    "anything.",
+                    "cut a montage at the measured median rather than at what a montage "
+                    "feels like it should be — the feeling is slower than the work",
+                    [Discipline.MOVIE_MAKING, Discipline.PATTERN_RECOGNITION],
+                    len(middle),
+                    shot_seconds=median,
+                    cuts_per_10s=rate,
+                    montage_share=len(middle) / len(holds),
+                    slowest=max(middle),
+                )
+            )
 
     if len(opens) >= 3:
         median = statistics.median(opens)

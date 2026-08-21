@@ -589,6 +589,64 @@ def test_cuts_only_brief_disables_transitions():
     assert parse_brief("hard cuts only montage").transitions == ("cut",)
 
 
+def test_the_default_montage_is_cut_at_the_pace_the_reference_reels_are_cut_at():
+    """`montage` is the style a film gets when nobody says a pace word.
+
+    Which makes it the most consequential number in the table, and it was the
+    one number in it nobody had measured: 0.9s a shot, invented. The reels the
+    program is held against cut their montages at a median of 0.334s — two and
+    a half times faster — so every film made without a pace word was slower
+    than the work it was being compared to, and no test noticed because no test
+    compared the default to the corpus.
+
+    The expected number is computed from the reels here rather than typed in,
+    so re-measuring the corpus moves the test and the default together.
+    """
+    import json
+    import statistics
+
+    from auteur.director.brief import PACE_WORDS
+    from auteur.scholar.library import HYPERCUT_HOLD, MONTAGE_HOLD
+
+    reels = json.loads(
+        (
+            Path(__file__).resolve().parent.parent / "tools" / "artifact" / "templates.json"
+        ).read_text(encoding="utf-8")
+    )
+    band = [
+        float(reel["hold"]) for reel in reels if HYPERCUT_HOLD < float(reel["hold"]) <= MONTAGE_HOLD
+    ]
+    assert len(band) >= 3, "the corpus no longer has a montage band to measure"
+
+    assert parse_brief("montage").base_shot_length == pytest.approx(
+        statistics.median(band), abs=0.005
+    ), "the default montage is not cut at the pace of the reels it is judged against"
+
+    # And it is genuinely the default: an empty prompt lands on it too.
+    assert parse_brief("").base_shot_length == parse_brief("montage").base_shot_length
+
+    # Faster than a montage is still a thing you can ask for, and slower still
+    # slower — measuring the default must not have flattened the scale.
+    assert parse_brief("a hypercut").base_shot_length < parse_brief("montage").base_shot_length
+    assert (
+        parse_brief("slow and cinematic").base_shot_length > parse_brief("montage").base_shot_length
+    )
+    assert set(PACE_WORDS), "the pace words are gone"
+
+
+def test_a_montage_that_fast_joins_its_shots_with_cuts_not_dissolves():
+    """Changing the number changes what the joins have to be.
+
+    A third of a second is not long enough to dissolve through — a 0.4s
+    crossfade over a 0.334s shot is a film with no shots in it, only
+    transitions. When the montage default moved, the transition vocabulary had
+    to move with it, and that pairing is what this holds.
+    """
+    joins = parse_brief("montage").transitions
+    assert joins, "a montage has no transitions at all"
+    assert joins.count("cut") >= len(joins) / 2, f"a 0.334s montage dissolves through {joins}"
+
+
 # ---------------------------------------------------------------------------
 # The director
 # ---------------------------------------------------------------------------
@@ -760,6 +818,153 @@ def test_beat_multiples_vary_without_leaving_the_grid():
     assert multiples == {1, 2}, "shots must still be whole numbers of beats"
     for shot in edl.shots:
         assert abs(shot.duration / beat - round(shot.duration / beat)) < 0.02
+
+
+def test_a_film_cut_faster_than_the_beat_is_varied_in_its_own_unit():
+    """Every rhythm pass assumed a shot lasts at least one beat.
+
+    It does not. A montage at 0.25s against a 120bpm track cuts twice a beat;
+    a hypercut cuts three or six times. `round(0.25 / 0.5)` is zero, and the
+    `max(1, ...)` guard turned that into "one beat" — so the fix for metronomic
+    cutting stretched every third shot to *two beats*, 1.0s, four times its
+    length. Measured on a real render: a montage planned at 31 shots over 10s
+    was delivered as 12, cut at 0.998s a shot, three times slower than asked.
+    """
+    beat = 0.5
+    for hold, expected_unit in ((0.25, 0.25), (0.167, 0.5 / 3)):
+        edl = EditDecisionList(shots=[_shot(clip=f"C{i:02d}", end=hold) for i in range(12)])
+        assert grammar.beat_unit(edl, beat) == pytest.approx(expected_unit, abs=0.01)
+
+        before = sum(shot.duration for shot in edl.shots)
+        assert grammar.vary_beat_multiples(edl, beat, every=3) > 0
+        after = [shot.duration for shot in edl.shots]
+
+        assert len({round(x, 3) for x in after}) > 1, "the pass varied nothing"
+        # Every hold is a whole number of the film's own units, and none is
+        # longer than the four-unit hold the phrase uses for punctuation. The
+        # failure this guards is a 0.25s shot arriving at 1.0s because the code
+        # rounded it up to "one beat" and then doubled that.
+        for length in after:
+            units = length / expected_unit
+            assert abs(units - round(units)) < 0.02, (
+                f"a {hold}s shot became {length:.3f}s, which is {units:.2f} units — "
+                "off the grid the film is cut on"
+            )
+        assert max(after) <= expected_unit * 4 + 0.01, (
+            f"a {hold}s shot was stretched to {max(after):.3f}s, beyond the longest "
+            "hold the phrase uses"
+        )
+        # Varying may lengthen the film a little; it must not transform it.
+        assert sum(after) < before * 1.5, "varying the rhythm rewrote the pace"
+
+
+def test_the_fix_for_metronomic_cutting_can_actually_clear_the_complaint():
+    """The repair produced two lengths; the critic demands three. Deadlock.
+
+    `critic.review` calls a film metronomic when its shots use fewer than three
+    distinct multiples of the unit, and `vary_beat_multiples` only ever doubled
+    — so a montage came out {1, 2}, one short, and every pass of the review
+    loop raised the same complaint against a film the repair had already done
+    all it could to. Measured on a real render: three passes, three identical
+    "every shot is the same length" notes.
+
+    The bar is not the thing at fault. Across the twenty-three reference reels
+    the median reel uses five distinct multiples of its own unit, and only
+    three of them get by on two — so the corpus is *more* varied than the bar
+    asks for, and it was the fix that fell short.
+    """
+    beat = 0.5
+    edl = EditDecisionList(shots=[_shot(clip=f"C{i:02d}", end=0.25) for i in range(24)])
+    unit = grammar.beat_unit(edl, beat)
+    assert grammar.vary_beat_multiples(edl, beat, every=3) > 0
+
+    multiples = {max(1, round(shot.duration / unit)) for shot in edl.shots}
+    assert len(multiples) >= 3, f"the repair can only ever produce {multiples}"
+    assert multiples <= {1, 2, 4}, f"{multiples} leaves the grid the film is cut on"
+
+    # Mostly short, as the reels are — the long holds are punctuation.
+    ones = sum(1 for shot in edl.shots if round(shot.duration / unit) == 1)
+    assert ones > len(edl.shots) / 2, "the film stopped being a montage"
+
+
+def test_the_reference_reels_vary_more_than_the_critic_demands():
+    """The bar of three distinct lengths is measured, not picked.
+
+    If the reels themselves cut with only one or two lengths, the critic would
+    be holding films to a standard the work it is judged against does not meet.
+    They do not: the median reel uses five.
+    """
+    import json
+    import statistics
+
+    reels = json.loads(
+        (
+            Path(__file__).resolve().parent.parent / "tools" / "artifact" / "templates.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    counts = []
+    for reel in reels:
+        holds = [float(beat[0]) for beat in reel["beats"] if float(beat[0]) > 0]
+        if len(holds) < 8:
+            continue
+        ordered = sorted(holds)
+        unit = ordered[len(ordered) // 4]
+        counts.append(len({max(1, int(round(hold / unit))) for hold in holds}))
+
+    assert counts, "the corpus no longer carries per-shot timings"
+    assert statistics.median(counts) >= 3, (
+        f"the reels use a median of {statistics.median(counts)} distinct shot lengths, "
+        "so the critic asks for more variety than the work it judges against"
+    )
+
+
+def test_a_slower_film_still_varies_in_whole_beats():
+    """The subdivision must not fire on a film that is cut on the beat."""
+    beat = 0.5
+    edl = EditDecisionList(shots=[_shot(clip=f"C{i:02d}", end=beat) for i in range(9)])
+    assert grammar.beat_unit(edl, beat) == pytest.approx(beat)
+    assert grammar.vary_beat_multiples(edl, beat, every=3) > 0
+    assert {round(shot.duration / beat) for shot in edl.shots} == {1, 2}
+
+
+def test_the_critic_measures_a_fast_cut_against_the_grid_it_is_cut_on():
+    """Two faults the critic could never stop reporting, on any fast film.
+
+    A montage alternating 0.25s and 0.5s has an audible two-to-one rhythm, and
+    counting whole beats collapsed both to "1 beat" — so `metronomic` fired
+    forever and the repair loop kept trying. The same assumption made
+    `off-beat` unfixable: a film cut on eighths puts half its cuts between
+    beats deliberately, so it could never score above 50% against a whole-beat
+    grid, and 55% was the bar.
+    """
+    from auteur.analysis.audio import AudioAnalysis
+
+    beat = 0.5
+    lengths = [0.25 if index % 3 else 0.5 for index in range(24)]
+    edl = EditDecisionList(shots=[_shot(clip=f"C{i:02d}", end=x) for i, x in enumerate(lengths)])
+
+    unit = grammar.beat_unit(edl, beat)
+    assert unit == pytest.approx(0.25), "the film's grid is the eighth, not the beat"
+
+    # Rhythm: in the film's unit these are one and two, which is a rhythm.
+    assert {max(1, int(round(x / unit))) for x in lengths} == {1, 2}
+    # In whole beats they were indistinguishable, which was the bug.
+    assert {max(1, int(round(x / beat))) for x in lengths} == {1}
+
+    # Beat accuracy: every cut lands on the subdivided grid.
+    beats = [beat * n for n in range(1, 60)]
+    grid = grammar.subdivide(beats, beat, unit)
+    assert grid[:4] == pytest.approx([0.25, 0.5, 0.75, 1.0])
+
+    cursor, on_grid = 0.0, 0
+    for length in lengths:
+        cursor += length
+        if min(abs(line - cursor) for line in grid) < 0.09:
+            on_grid += 1
+    assert on_grid == len(lengths), "a film cut on the grid reads as off it"
+
+    assert AudioAnalysis is not None  # the critic's beat source, imported above
 
 
 def test_text_plates_are_named_per_format(tmp_path):
@@ -6792,6 +6997,24 @@ def test_the_app_can_ask_for_the_cadence_the_references_are_cut_at():
     styles = {parse_brief(prompt).style for prompt in prompts}
     assert "hypercut" in styles, "no chip reaches the reference cadence"
 
+    # And the pace the corpus sits at when it is not sprinting. This one was
+    # already the *default* style and still had no chip, so the thing most
+    # films are cut as was the one thing you could not ask for by name.
+    assert "montage" in styles, "no chip offers the pace most of the corpus cuts at"
+
+    # Every chip has to land where its own words point. A chip reading
+    # "Montage" whose prompt happens to contain a pace word would quietly cut
+    # at that word's pace instead, and the label would be a lie on the button.
+    by_label = dict(re.findall(r'data-prompt="([^"]+)"[^>]*>([^<]+)<', chips))
+    for prompt, label in by_label.items():
+        if label.strip().lower() in ("hypercut", "montage"):
+            expected = parse_brief(label.strip().lower()).base_shot_length
+            assert parse_brief(prompt).base_shot_length == pytest.approx(expected), (
+                f"the {label.strip()!r} chip cuts at "
+                f"{parse_brief(prompt).base_shot_length}s, not the {expected}s its "
+                "own name asks for"
+            )
+
 
 def test_the_studio_shows_what_the_films_agree_on(web_server):
     """The consensus is the only thing in the store an agent can be held to."""
@@ -7413,6 +7636,91 @@ def test_the_scholar_names_what_it_measures_not_just_the_files(tmp_path):
     found = store.recall("how fast do the reels cut?", limit=1)
     assert found, "the conclusion is in the store and cannot be recalled"
     assert "hypercut" in found[0].technique
+
+
+def test_the_shelf_knows_what_a_montage_is_and_quotes_the_rate_it_measured(tmp_path):
+    """The corpus is asked about its own default pace, using its own numbers.
+
+    Two things are held here. The first is that a conclusion about montage
+    forms at all — the band between a hypercut and a held shot is where most of
+    the shelf lives, and it had no name, which is how the default pace stayed
+    an invented number for so long.
+
+    The second is subtler and is why this test reads the real reels rather than
+    invented ones: the learning quotes a cut *rate*, and the tempting way to
+    get one is 10 / median_hold. That is wrong by half. A reel holding 0.334s a
+    shot does not cut thirty times in ten seconds, because it also spends time
+    on an opening hold and on the shots it lets run — measured, these thirteen
+    cut 20.1 times. A learning that cites the corpus must not state a number
+    the corpus contradicts.
+    """
+    import json
+    import statistics
+
+    from auteur.scholar.knowledge import Discipline, KnowledgeStore, Learning
+    from auteur.scholar.library import HYPERCUT_HOLD, MONTAGE_HOLD, conclude
+
+    reels = json.loads(
+        (
+            Path(__file__).resolve().parent.parent / "tools" / "artifact" / "templates.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    store = KnowledgeStore(tmp_path / "knowledge.jsonl")
+    for reel in reels:
+        store.add(
+            Learning(
+                learning_id=f"reel-{reel['id']}",
+                disciplines=[Discipline.MOVIE_MAKING],
+                insight=f"{reel['label']} holds each shot {reel['hold']}s",
+                technique="cutting rate",
+                application="hold the crew to this",
+                source_video_id=f"file:{reel['id']}.mp4",
+                source_channel=f"film:{reel['id']}",
+                source_title=reel["label"],
+                source_end_sec=float(reel["seconds"]),
+                measurements={
+                    "shot_seconds": float(reel["hold"]),
+                    "cuts_per_10s": float(reel["shots"]) / float(reel["seconds"]) * 10.0,
+                },
+            )
+        )
+
+    drawn = {learning.technique: learning for learning in conclude(store)}
+    montage = next((v for k, v in drawn.items() if k.startswith("montage")), None)
+    assert montage is not None, f"the shelf concluded {list(drawn)} and nothing about montage"
+
+    band = [r for r in reels if HYPERCUT_HOLD < float(r["hold"]) <= MONTAGE_HOLD]
+    assert montage.measurements["shot_seconds"] == pytest.approx(
+        statistics.median(float(r["hold"]) for r in band), abs=0.005
+    )
+
+    measured_rate = statistics.median(float(r["shots"]) / float(r["seconds"]) * 10.0 for r in band)
+    assert montage.measurements["cuts_per_10s"] == pytest.approx(measured_rate, abs=0.05)
+    derived_rate = 10.0 / montage.measurements["shot_seconds"]
+    assert abs(derived_rate - measured_rate) > 5, (
+        "the two ways of getting a rate now agree, so this test proves nothing — "
+        "re-measure the corpus"
+    )
+    assert f"{measured_rate:.1f}" in montage.insight, "the learning quotes an unmeasured rate"
+
+    # And what it concluded is what the director cuts a montage at.
+    assert parse_brief("montage").base_shot_length == pytest.approx(
+        montage.measurements["shot_seconds"], abs=0.005
+    ), "the Scholar measured one pace and the director cuts at another"
+
+    # The same seam on the other word. The hypercut learning took the median
+    # of *every* reel on the shelf — held shots included — while calling it
+    # how fast a fast cut is, so it reported 0.208s where the director cut
+    # 0.167s. One word, two numbers, and nothing compared them.
+    fast = drawn["hypercut — how fast a fast cut is"]
+    band = [float(r["hold"]) for r in reels if float(r["hold"]) <= HYPERCUT_HOLD]
+    assert fast.measurements["shot_seconds"] == pytest.approx(
+        statistics.median(band), abs=0.005
+    ), "the hypercut finding is measured over reels that are not hypercuts"
+    assert parse_brief("a hypercut").base_shot_length == pytest.approx(
+        fast.measurements["shot_seconds"], abs=0.005
+    ), "the Scholar measured one hypercut and the director cuts another"
 
 
 def test_a_conclusion_about_the_shelf_is_not_dropped_as_a_repeat(tmp_path):
@@ -10345,3 +10653,24 @@ def test_the_map_is_built_from_elements_a_person_can_reach():
     css = (server.STATIC / "projects.css").read_text()
     # The browser must not claim the gestures, or a drag scrolls the page.
     assert "touch-action: none" in css
+
+
+def test_a_node_on_the_map_is_a_thumb_tall_at_life_size():
+    """The UI review exempts a zoomable canvas from measuring tap targets on
+    screen — at 0.6 zoom everything is small, which is what zooming out means.
+    The invariant that survives that is the size at life size, and this is
+    where it is held.
+    """
+    from auteur.web import server
+
+    css = (server.STATIC / "projects.css").read_text()
+    block = css[css.index(".node {") : css.index(".node:active")]
+    assert "min-height: 44px" in block
+
+    # And the floor on zooming out, so "fit" cannot hand back a view where a
+    # node is fifteen pixels of nothing.
+    page = (server.STATIC / "project.js").read_text()
+    floor = float(re.search(r"MIN_ZOOM = ([\d.]+)", page).group(1))
+    assert floor >= 0.5, f"MIN_ZOOM is {floor}: a 44px node would be {44 * floor:.0f}px"
+    # Fit shrinks, never magnifies.
+    assert "Math.min(1, Math.min(MAX_ZOOM" in page

@@ -42,6 +42,22 @@ SCREENS = [
     ("studio", "/studio"),
     ("scholar", "/ask"),
     ("manager", "/manager"),
+    # Everything built since this list was last written. A review that covers
+    # the screens that already passed it is a review that cannot fail.
+    ("profile", "/profile"),
+    ("projects", "/projects"),
+    ("terms", "/terms"),
+    ("privacy", "/privacy"),
+]
+
+#: Screens that only exist once something has been made, and the sheets that
+#: only exist once something has been tapped. Reached by driving rather than by
+#: a URL — `openers` in `main` does the tapping.
+DEEPER = [
+    ("project-map", "/projects", "the map of one project"),
+    ("project-album", "/projects", "its album"),
+    ("report-sheet", "/feed", "reporting a film"),
+    ("restriction-sheet", "/profile", "hiding sensitive films"),
 ]
 
 #: WCAG AA for body text. The same bar the palette is already held to, applied
@@ -129,16 +145,34 @@ MEASURE = r"""
       el.parentElement &&
       el.parentElement.matches("p, li, span") &&
       (el.parentElement.textContent || "").trim().length > (el.textContent || "").trim().length + 4;
+    // Inside a canvas that zooms, the size on screen is whatever the person
+    // set it to — that is what a zoom *is*, and every map application works
+    // this way. The invariant that matters there is the size at life size,
+    // which is a rule about the stylesheet and is checked in the test suite
+    // rather than measured off a view somebody has pinched.
+    const inCanvas = !!el.closest(".map-world");
     const tappable =
       !inline &&
+      !inCanvas &&
       el.matches("a, button, [role=button], [role=radio], input, select, textarea, label.picker");
     if (tappable) {
+      // What a thumb can actually hit, which for a checkbox is its label. A
+      // 20px box inside a 44px <label> is a 44px target — tapping the words
+      // toggles it — and measuring the input alone reported that as a failure
+      // it is not. The label has to *contain* the control for this to hold,
+      // which is why it is `closest` rather than a `for=` lookup.
+      let hit = box;
+      const wrap = el.closest("label");
+      if (wrap && wrap !== el) {
+        const around = wrap.getBoundingClientRect();
+        if (around.height > hit.height) { hit = around; }
+      }
       small.push({
         tag: el.tagName.toLowerCase(),
         cls: (el.className || "").toString().slice(0, 40),
         label: (el.textContent || el.getAttribute("aria-label") || "").trim().slice(0, 30),
-        w: Math.round(box.width),
-        h: Math.round(box.height),
+        w: Math.round(hit.width),
+        h: Math.round(hit.height),
       });
     }
   });
@@ -179,6 +213,33 @@ MEASURE = r"""
 """
 
 
+def reach(page, name: str) -> None:
+    """Drive to a screen that has no address of its own."""
+    if name.startswith("project"):
+        page.wait_for_selector(".album, #blank", timeout=8000)
+        if page.is_visible("#blank"):
+            raise RuntimeError("no project to open")
+        page.click(".album")
+        page.wait_for_selector("#big-name", timeout=8000)
+        page.wait_for_timeout(900)
+        if name == "project-album":
+            page.click("#face-album")
+            page.wait_for_selector("#album-face:not([hidden])", timeout=6000)
+        return
+    if name == "report-sheet":
+        page.wait_for_selector(".reel [data-more]", timeout=12000)
+        page.click(".reel [data-more]")
+        page.wait_for_selector("#safety-sheet .sheet-body", state="visible", timeout=6000)
+        return
+    if name == "restriction-sheet":
+        page.wait_for_selector("#restriction-row", timeout=10000)
+        page.wait_for_timeout(700)
+        page.click("#restriction-row")
+        page.wait_for_selector("#restriction-sheet .sheet-body", state="visible", timeout=6000)
+        return
+    raise RuntimeError("no way in")
+
+
 def rule(title: str) -> None:
     print("\n" + "─" * 92)
     print(f"  {title}")
@@ -210,6 +271,20 @@ def main() -> int:
             for name, path in SCREENS:
                 page.goto(BASE + path)
                 page.wait_for_timeout(2200)
+                readings[(scheme, name)] = page.evaluate(MEASURE)
+
+            # The screens and sheets that only exist after something has been
+            # tapped. Measured the same way — a dialog is a screen, and the
+            # first version of this list quietly skipped every one of them.
+            for name, path, _what in DEEPER:
+                page.goto(BASE + path)
+                page.wait_for_timeout(1800)
+                try:
+                    reach(page, name)
+                except Exception as exc:  # noqa: BLE001 - a screen that is not there
+                    print(f"      · could not reach {name}: {exc}")
+                    continue
+                page.wait_for_timeout(900)
                 readings[(scheme, name)] = page.evaluate(MEASURE)
             ctx.close()
         browser.close()
@@ -256,7 +331,11 @@ def main() -> int:
     # ---- the Gaze agent --------------------------------------------------
     rule("THE GAZE AGENT — its own variety maths, over the screens instead of the shots")
     for scheme in ("dark", "light"):
-        rows = [readings[(scheme, name)] for name, _ in SCREENS]
+        rows = [
+            readings[(scheme, name)]
+            for name, *_ in SCREENS + [(d[0], d[1]) for d in DEEPER]
+            if (scheme, name) in readings
+        ]
         layouts = [r["layout"] for r in rows]
         grounds = [r["groundLuma"] for r in rows]
         leads = [r["fills"][0] if r["fills"] else "" for r in rows]

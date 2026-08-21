@@ -18,6 +18,69 @@ from ..edl import MIN_SHOT, EditDecisionList, Ramp, Shot, Transition
 
 log = logging.getLogger("auteur.craft.grammar")
 
+#: The subdivisions of a beat a film is allowed to cut on.
+#:
+#: Every rhythm pass below used to assume a shot lasts at least one beat, which
+#: is true of most films and false of exactly the ones this program is measured
+#: against. A montage cut at 0.334s against a 120bpm track is cutting three to
+#: the beat; a hypercut at 0.167s is cutting six. Both are on the grid — just
+#: not on the beat — and code that can only see beats reads them as one-beat
+#: shots and stretches them onto the beat, which is how a montage came out
+#: three times slower than it was planned.
+SUBDIVISIONS = (1, 2, 3, 4, 6, 8)
+
+
+def beat_unit(edl: EditDecisionList, beat: float) -> float:
+    """The grid this film is actually cut on, which may be finer than the beat.
+
+    Taken from the film as a whole rather than per shot, so every pass shares
+    one unit: a rhythm is a property of the edit, not of each cut in it.
+    """
+    if beat <= 0 or not edl.shots:
+        return beat
+    holds = sorted(shot.duration for shot in edl.shots)
+
+    # The quarter-point, not the median. A film with a genuine two-to-one
+    # rhythm — half its shots on the eighth, half on the beat — has a median
+    # sitting on the *longer* of the two, so a median-based unit calls the beat
+    # the grid and the rhythm it can see disappears: every length rounds to one
+    # beat, and the critic reports a varied film as metronomic. The grid is set
+    # by the finest cut the film makes habitually, which is what the quarter
+    # point finds while still ignoring one or two stray flash frames.
+    unit = holds[len(holds) // 4]
+    if unit <= 0 or unit >= beat * 0.75:
+        return beat
+    return beat / min(SUBDIVISIONS, key=lambda n: abs(beat / n - unit))
+
+
+def subdivide(beats: list[float], spacing: float, unit: float) -> list[float]:
+    """Fill in the grid lines between beats, at `unit` apart.
+
+    Each gap is divided by its own width rather than by a nominal tempo, so a
+    track that drifts keeps its subdivisions where the beats actually are.
+    """
+    if unit <= 0 or spacing <= 0 or not beats:
+        return sorted(beats)
+    divisions = max(1, round(spacing / unit))
+    if divisions == 1:
+        return sorted(beats)
+
+    grid: list[float] = []
+    for index, beat in enumerate(beats):
+        grid.append(beat)
+        gap = (beats[index + 1] - beat) if index + 1 < len(beats) else spacing
+        step = gap / divisions
+        grid.extend(beat + step * n for n in range(1, divisions))
+
+    # And backwards from the first beat. A film cut on eighths puts its opening
+    # cut half a beat in, before any beat has been detected — filling only
+    # forwards leaves that cut with no grid line to land on and marks the
+    # opening of every fast film as off the beat.
+    step = (beats[1] - beats[0]) / divisions if len(beats) > 1 else spacing / divisions
+    grid.extend(beats[0] - step * n for n in range(1, divisions))
+
+    return sorted(value for value in grid if value > 0)
+
 
 def _rescale_ramp(shot: Shot, new_duration: float) -> bool:
     """Change a shot's screen time by adjusting speed, not by re-trimming.
@@ -67,6 +130,17 @@ def snap_cuts_to_beats(
     beats = [beat - offset for beat in audio.beats if beat - offset > 0]
     if len(beats) < 2:
         return 0
+
+    # A film cut faster than the beat has no cut that can land on one, so
+    # snapping it to beats means either leaving it alone or doubling it. Give
+    # it the grid it is actually cut on: the beats, subdivided.
+    spacing = 60.0 / audio.tempo if audio.tempo > 0 else (beats[1] - beats[0])
+    unit = beat_unit(edl, spacing)
+    if 0 < unit < spacing * 0.75:
+        beats = subdivide(beats, spacing, unit)
+        # And a cut may only be nudged by a fraction of its own unit. The
+        # blanket 0.22s is most of a 0.25s shot.
+        tolerance = min(tolerance, unit * 0.45)
 
     snapped = 0
     cursor = 0.0
@@ -136,13 +210,29 @@ def vary_beat_multiples(edl: EditDecisionList, beat: float, *, every: int = 3) -
     if beat <= 0 or len(edl.shots) < every + 2:
         return 0
 
+    # Vary in the unit the film is cut in, not in beats. `round(0.25 / 0.5)` is
+    # zero, so a quarter-second shot on a 120bpm track used to be read as a
+    # one-beat shot and stretched to two beats — a 0.25s cut became 1.0s, and
+    # doing that to every third shot dragged the whole film with it.
+    unit = beat_unit(edl, beat)
+    if unit <= 0:
+        return 0
+
+    # Two lengths is not a rhythm the critic will accept, and it is right not
+    # to: measured across the twenty-three reference reels, the median reel
+    # uses *five* distinct multiples of its own unit, and only three of them
+    # get by on two. Holding every third shot for double left the film with
+    # exactly {1, 2} — one short of the three the critic asks for — so the
+    # complaint could never be cleared no matter how many passes ran. A longer
+    # hold every third time round gives the phrase somewhere to land.
     changed = 0
     for index in range(every, len(edl.shots), every):
         shot = edl.shots[index]
-        beats = max(1, round(shot.duration / beat))
-        if beats > 1:
+        units = max(1, round(shot.duration / unit))
+        if units > 1:
             continue  # this one already breaks the pattern
-        if _rescale_ramp(shot, beat * 2):
+        want = 4 if index % (every * 3) == 0 else 2
+        if _rescale_ramp(shot, unit * want):
             changed += 1
     return changed
 

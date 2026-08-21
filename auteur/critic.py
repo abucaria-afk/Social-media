@@ -175,7 +175,12 @@ def review(
         critique.measured["length_variety"] = variety
 
         if audio is not None and audio.has_beat and audio.tempo > 0:
-            beat = 60.0 / audio.tempo
+            # In the film's own unit, which for anything cut faster than the
+            # beat is a subdivision of it. Counting whole beats collapsed a
+            # montage alternating 0.25s and 0.5s — a two-to-one rhythm, plainly
+            # audible — into "every shot is 1 beat long", so the critic went on
+            # calling a varied film metronomic no matter what the fix did.
+            beat = grammar.beat_unit(edl, 60.0 / audio.tempo)
             multiples = {max(1, int(round(length / beat))) for length in lengths}
             critique.measured["beat_multiples"] = float(len(multiples))
             # With only a handful of shots there is no room for a
@@ -196,7 +201,17 @@ def review(
 
     # ---- beat accuracy ---------------------------------------------------
     if audio is not None and audio.has_beat and cuts:
-        grid = np.asarray([b - music_offset for b in audio.beats if b - music_offset > 0])
+        lines = [b - music_offset for b in audio.beats if b - music_offset > 0]
+        if audio.tempo > 0 and lines:
+            # A montage cut on eighths lands half its cuts between beats *by
+            # design*. Measured against whole beats it can never score above
+            # 50%, so the note fired on every pass of every fast film and no
+            # fix could clear it. Measure it against the grid it is cut on.
+            spacing = 60.0 / audio.tempo
+            unit = grammar.beat_unit(edl, spacing)
+            if 0 < unit < spacing * 0.75:
+                lines = grammar.subdivide(lines, spacing, unit)
+        grid = np.asarray(lines)
         if len(grid):
             errors = [float(np.min(np.abs(grid - cut))) for cut in cuts]
             on_beat = sum(1 for error in errors if error < 0.09) / len(errors)

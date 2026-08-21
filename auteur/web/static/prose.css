@@ -57,3 +57,16 @@
   font-family: var(--font-display);
   font-weight: 600;
 }
+
+/* The way back, at the foot of a policy page. A prose link is 20px tall, and
+   this one is a navigation control rather than a word in a sentence — so it
+   gets the height every other control in the app has. */
+.prose-away { margin: 32px 0 8px; }
+
+.prose-away a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 2px;
+  font-weight: 600;
+}
