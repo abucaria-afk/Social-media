@@ -140,6 +140,7 @@ TABS = (
     ("templates", "▚", "Templates"),
     ("animation", "◎", "Animation"),
     ("studio", "◱", "Studio"),
+    ("you", "◉", "You"),
 )
 TAB_BAR = (
     '<nav class="tabbar" aria-label="Main">'
@@ -183,7 +184,7 @@ for name, markup in (
 _targets = set()
 for markup in (home, studio, animation, templates):
     _targets.update(re.findall(r'data-goto="([^"]+)"', markup))
-_have = {"home", "studio", "animation", "templates"}
+_have = {"home", "studio", "animation", "templates", "you"}
 if not _targets <= _have:
     raise SystemExit(f"data-goto points at sections that do not exist: {sorted(_targets - _have)}")
 
@@ -196,6 +197,7 @@ css = "\n".join(
         "studio.css",
         "overlays.css",
         "templates.css",
+        "profile.css",
     )
 )
 
@@ -213,15 +215,11 @@ DEMO = r"""
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
 
-  /* -- theme, exactly as the app does it ---------------------------- */
-  function applyTheme(choice) {
-    if (choice === "system") { document.documentElement.removeAttribute("data-theme"); }
-    else { document.documentElement.setAttribute("data-theme", choice); }
-    try { localStorage.setItem("auteur-theme", choice); } catch (e) {}
-  }
-  var saved = "system";
-  try { saved = localStorage.getItem("auteur-theme") || "system"; } catch (e) {}
-  applyTheme(saved);
+  /* Appearance and the accessibility settings are not reimplemented here any
+     more: settings.js and theme.js are inlined from the app, so the switches
+     on this page are the app's switches running the app's code. What was here
+     was a third copy of the same logic, and it had already drifted — it knew
+     about the theme and nothing about text size, reduced motion or contrast. */
 
   function wireChoices(container, onPick) {
     if (!container) { return; }
@@ -235,20 +233,11 @@ DEMO = r"""
       onPick(button.dataset.value);
     });
   }
-  /* Every appearance switch on the page, not the first. This build puts the
-     edit room, the studio and the animation tab in one document, so there are
-     three of them and `getElementById` only ever found one. */
-  function markAppearance(choice) {
-    Array.prototype.forEach.call(document.querySelectorAll(".appearance .choice"), function (b) {
-      var on = b.dataset.value === choice;
-      b.classList.toggle("is-on", on);
-      b.setAttribute("aria-checked", on ? "true" : "false");
-    });
-  }
-  Array.prototype.forEach.call(document.querySelectorAll(".appearance"), function (group) {
-    wireChoices(group, function (choice) { markAppearance(choice); applyTheme(choice); });
-  });
-  markAppearance(saved);
+  /* Appearance and the accessibility settings are not reimplemented here any
+     more: settings.js and theme.js are inlined from the app, so the switches
+     on this page are the app's switches running the app's code. What was here
+     was a third copy of the same logic, and it had already drifted — it knew
+     about the theme and nothing about text size, reduced motion or contrast. */
 
   var state = { shape: "reel", seconds: "", era: "", template: "", clips: 0 };
   wireChoices($("shape"), function (v) { state.shape = v; });
@@ -345,7 +334,7 @@ DEMO = r"""
   /* Four pages on one, since a published page has no routes: the edit room,
      the studio, the animation tab and the templates. */
   var PAGES = { studio: "studio-page", animation: "animation-page",
-                templates: "templates-page" };
+                templates: "templates-page", you: "you-page" };
   var screens = ["screen-start", "screen-working", "screen-done", "screen-error"];
   function goto(to) {
     Object.keys(PAGES).forEach(function (name) {
@@ -680,7 +669,7 @@ DEMO = r"""
 
 #: Bumped on every publish and shown in the banner, so a screenshot of the
 #: page is enough to know which build it is. VERSIONS.md says what each was.
-VERSION = "v8 — a tab bar, and a manager that plans"
+VERSION = "v9 — a You tab, and settings that are really yours"
 
 BANNER = f"""
 <div class="demo-note" role="note">
@@ -771,7 +760,273 @@ TASTE = (HERE / "style.js").read_text(encoding="utf-8")
 SHAPES = read("overlay-draw.js")
 ANIMATION_TAB = read("overlays.js")
 
+# ---------------------------------------------------------------------------
+# The You tab
+# ---------------------------------------------------------------------------
+# The app's profile is a signed-in, server-backed screen: following, films and
+# messages are all about more than one person, and a published page has one.
+# So this is the half of it that is genuinely yours and genuinely local — your
+# picture, your name, your bio, and the four settings that decide how the app
+# looks to you. Those four are not a demonstration: settings.js is inlined
+# below, so the switches here are the app's switches running the app's code,
+# and what you set persists on this device exactly as it does in the app.
+#
+# What is missing says so, in one line, rather than being drawn as a number
+# that would always be zero.
+YOU = """
+<main class="page" id="you">
+  <header class="topbar">
+    <h1>You</h1>
+    <span class="topbar-right">
+      <button type="button" class="chip-button" id="a-edit-open">Edit</button>
+    </span>
+  </header>
+
+  <h2 class="large-title" id="a-big-name">You</h2>
+
+  <section class="who">
+    <button type="button" class="who-pic" id="a-picture" data-mine="1"
+            aria-label="Change your picture">
+      <img id="a-picture-img" alt="" hidden>
+      <span class="who-initial" id="a-picture-initial" aria-hidden="true">Y</span>
+      <span class="who-pic-badge" aria-hidden="true">&#65291;</span>
+    </button>
+    <p class="card-hint" id="a-picture-note">
+      Tap the circle to set a picture. It is squared, scaled to 512px and kept
+      on this device &mdash; nothing is uploaded from this page.
+    </p>
+  </section>
+
+  <p class="who-bio" id="a-bio" hidden></p>
+  <a class="who-link" id="a-link" href="#" rel="noopener noreferrer nofollow ugc"
+     target="_blank" hidden></a>
+
+  <div class="who-actions">
+    <button type="button" class="ghost" id="a-edit-profile">Edit profile</button>
+  </div>
+
+  <p class="group-caption" style="margin-top: 0">
+    Followers, following and the films on your profile need an instance to be
+    about more than one person, so they are not drawn here. Run
+    <code>auteur serve</code> and they are the same screen with the counts
+    filled in.
+  </p>
+
+  <h3 class="settings-label">Appearance</h3>
+  <div class="settings">
+    <div class="choices appearance" role="radiogroup" aria-label="Appearance">
+      <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
+      <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
+      <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
+    </div>
+  </div>
+
+  <h3 class="settings-label">Accessibility</h3>
+  <div class="settings">
+    <span class="settings-label settings-sub" id="a-text-label">Text size</span>
+    <div class="choices sizes" data-setting="text" role="radiogroup" aria-labelledby="a-text-label">
+      <button type="button" class="choice" data-value="default" role="radio" aria-checked="false"><span class="size-a size-a-1">A</span><small>Default</small></button>
+      <button type="button" class="choice" data-value="large" role="radio" aria-checked="false"><span class="size-a size-a-2">A</span><small>Large</small></button>
+      <button type="button" class="choice" data-value="larger" role="radio" aria-checked="false"><span class="size-a size-a-3">A</span><small>Larger</small></button>
+      <button type="button" class="choice" data-value="largest" role="radio" aria-checked="false"><span class="size-a size-a-4">A</span><small>Largest</small></button>
+    </div>
+  </div>
+
+  <div class="settings">
+    <span class="settings-label settings-sub" id="a-motion-label">Motion</span>
+    <div class="choices" data-setting="motion" role="radiogroup" aria-labelledby="a-motion-label">
+      <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
+      <button type="button" class="choice" data-value="still" role="radio" aria-checked="false">Reduce motion<small>no sliding or fading</small></button>
+    </div>
+  </div>
+
+  <div class="settings">
+    <span class="settings-label settings-sub" id="a-contrast-label">Contrast</span>
+    <div class="choices" data-setting="contrast" role="radiogroup" aria-labelledby="a-contrast-label">
+      <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
+      <button type="button" class="choice" data-value="more" role="radio" aria-checked="false">Increase contrast<small>stronger edges and text</small></button>
+    </div>
+  </div>
+
+  <p class="group-caption">
+    All four are kept on this device. If your phone already asks for less
+    motion or more contrast, that is followed here whatever this says &mdash;
+    Automatic never turns either off.
+  </p>
+</main>
+
+<div class="sheet" id="a-edit-sheet" hidden>
+  <div class="sheet-scrim" data-a-close="1"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Edit profile">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Edit profile</h2>
+    <label class="field-label" for="a-edit-name">Name</label>
+    <input type="text" id="a-edit-name" maxlength="40"
+           placeholder="What you would like to be called">
+    <label class="field-label" for="a-edit-bio">Bio</label>
+    <textarea id="a-edit-bio" maxlength="150" rows="3"
+              placeholder="One or two lines about what you make"></textarea>
+    <p class="counter"><span id="a-bio-left">150</span> left</p>
+    <label class="field-label" for="a-edit-link">Link</label>
+    <input type="url" id="a-edit-link" maxlength="120" inputmode="url"
+           autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://">
+    <p class="error" id="a-edit-error" role="alert" hidden></p>
+    <button type="button" class="go" id="a-edit-save">Save</button>
+    <button type="button" class="ghost" id="a-picture-remove" hidden>Remove my picture</button>
+    <button type="button" class="ghost" data-a-close="1">Cancel</button>
+  </div>
+</div>
+
+<input type="file" id="a-picture-file" accept="image/*" hidden>
+"""
+
+# The same three rules the app's own profile keeps, because they are about the
+# data and not about where it is stored: a bio is one line however it was
+# pasted, a link is refused unless it is plainly http or https, and a picture
+# is squared and scaled before it is kept.
+YOU_SCRIPT = r"""
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var KEY = "auteur-you";
+  var me = { name: "", bio: "", link: "", picture: "" };
+  try { me = Object.assign(me, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) {}
+
+  function oneLine(text, limit) {
+    return String(text || "").replace(/\s+/g, " ").trim().slice(0, limit);
+  }
+
+  /* Same rule as auteur/web/profiles.py: repaired input is how a `javascript:`
+     eventually gets repaired into something a tap runs. */
+  function tidyLink(link) {
+    var raw = oneLine(link, 120);
+    if (!raw) { return ""; }
+    if (/^https?:\/\//i.test(raw)) { return raw; }
+    if (raw.split("/")[0].indexOf(":") !== -1) { return null; }
+    return "https://" + raw;
+  }
+
+  function keep() {
+    try { localStorage.setItem(KEY, JSON.stringify(me)); } catch (e) {}
+  }
+
+  function draw() {
+    $("a-big-name").textContent = me.name || "You";
+    $("a-picture-initial").textContent = (me.name || "You")[0];
+    var img = $("a-picture-img");
+    if (me.picture) {
+      img.src = me.picture;
+      img.hidden = false;
+      $("a-picture-initial").hidden = true;
+    } else {
+      img.hidden = true;
+      img.removeAttribute("src");
+      $("a-picture-initial").hidden = false;
+    }
+    $("a-bio").textContent = me.bio || "";
+    $("a-bio").hidden = !me.bio;
+    var link = $("a-link");
+    if (me.link) {
+      link.href = me.link;
+      link.textContent = me.link.replace(/^https?:\/\//, "").replace(/\/$/, "");
+      link.hidden = false;
+    } else {
+      link.hidden = true;
+      link.removeAttribute("href");
+    }
+    $("a-picture-note").hidden = !!me.picture;
+  }
+
+  function open() {
+    $("a-edit-name").value = me.name;
+    $("a-edit-bio").value = me.bio;
+    $("a-edit-link").value = me.link;
+    $("a-picture-remove").hidden = !me.picture;
+    $("a-edit-error").hidden = true;
+    count();
+    $("a-edit-sheet").hidden = false;
+    document.body.classList.add("sheet-open");
+  }
+
+  function close() {
+    $("a-edit-sheet").hidden = true;
+    document.body.classList.remove("sheet-open");
+  }
+
+  function count() {
+    var left = 150 - $("a-edit-bio").value.length;
+    $("a-bio-left").textContent = left;
+    $("a-bio-left").parentNode.classList.toggle("is-full", left <= 0);
+  }
+
+  $("a-edit-open").addEventListener("click", open);
+  $("a-edit-profile").addEventListener("click", open);
+  $("a-edit-bio").addEventListener("input", count);
+  document.addEventListener("click", function (event) {
+    if (event.target.closest("[data-a-close]")) { close(); }
+  });
+
+  $("a-edit-save").addEventListener("click", function () {
+    var link = tidyLink($("a-edit-link").value);
+    if (link === null) {
+      $("a-edit-error").textContent = "That link needs to start with http:// or https://";
+      $("a-edit-error").hidden = false;
+      return;
+    }
+    me.name = oneLine($("a-edit-name").value, 40);
+    me.bio = oneLine($("a-edit-bio").value, 150);
+    me.link = link;
+    keep();
+    draw();
+    close();
+  });
+
+  $("a-picture").addEventListener("click", function () { $("a-picture-file").click(); });
+  $("a-picture-remove").addEventListener("click", function () {
+    me.picture = "";
+    keep();
+    draw();
+    close();
+  });
+
+  /* Squared and scaled in a canvas, which is also what the app does before it
+     sends anything — and here it is the whole of it, because there is nowhere
+     to send it to. A four-megabyte photograph becomes about sixty kilobytes,
+     which matters when the store it goes into is localStorage. */
+  $("a-picture-file").addEventListener("change", function () {
+    var file = this.files && this.files[0];
+    this.value = "";
+    if (!file || !window.createImageBitmap) { return; }
+    createImageBitmap(file, { imageOrientation: "from-image" }).then(function (bitmap) {
+      var side = Math.min(bitmap.width, bitmap.height);
+      var out = Math.min(side, 512);
+      var canvas = document.createElement("canvas");
+      canvas.width = out;
+      canvas.height = out;
+      canvas.getContext("2d").drawImage(
+        bitmap,
+        (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side,
+        0, 0, out, out
+      );
+      bitmap.close();
+      me.picture = canvas.toDataURL("image/jpeg", 0.86);
+      keep();
+      draw();
+    }).catch(function () {});
+  });
+
+  draw();
+})();
+"""
+
 page = f"""<title>Auteur Edit Room</title>
+<!-- Before anything paints, and inlined from the app rather than rewritten:
+     appearance and the three accessibility settings. This is the same file the
+     served pages load in their head, which is what makes the switches on the
+     You tab the app's switches rather than a drawing of them. -->
+<script>
+{read("settings.js")}
+</script>
 <style>
 {css}
 {EXTRA}
@@ -786,6 +1041,9 @@ page = f"""<title>Auteur Edit Room</title>
 </div>
 <div id="templates-page" hidden>
 {templates}
+</div>
+<div id="you-page" hidden>
+{YOU}
 </div>
 {TAB_BAR}
 <script>
@@ -811,6 +1069,12 @@ window.auteurTemplates = {TEMPLATES};
 </script>
 <script>
 {ANIMATION_TAB}
+</script>
+<script>
+{read("theme.js")}
+</script>
+<script>
+{YOU_SCRIPT}
 </script>
 """
 OUT.write_text(page, encoding="utf-8")
