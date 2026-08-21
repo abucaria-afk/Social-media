@@ -1218,6 +1218,11 @@ body.has-tabbar .page {
 
 .provider-mark::before { content: attr(data-mark); }
 
+/* The published page's own navigation. In the app this is the tab bar, which
+   is injected by a script; a page with no routes has to carry its own. */
+.rooms-flat { display: grid; gap: 8px; margin-top: 18px; }
+.rooms-flat .onward { margin-top: 0; }
+
 /* animations.css — Scroll reveals, zooms, transitions, and motion design.
  *
  * Every animation respects prefers-reduced-motion. When the reader has asked
@@ -2319,14 +2324,11 @@ body { background: var(--ground); }
     <!-- Where it goes. The other four rooms are in the bar along the bottom
          now; this one is not a place you spend time, it is a setting, so it
          stays here as one row rather than taking a fifth of the bar. -->
-    <a class="onward" href="/connect">
-      <span class="onward-mark" aria-hidden="true">⇢</span>
-      <span class="onward-lines">
-        <span class="onward-name">Where it goes</span>
-        <span class="onward-note">Instagram and TikTok · nothing here posts for you</span>
-      </span>
-      <span class="onward-state" id="room-connect"></span>
-    </a>
+    <nav class="rooms-flat" aria-label="The rest of this page">
+      <a class="onward" href="#" data-goto="templates"><span class="onward-mark" aria-hidden="true">▚</span><span class="onward-lines"><span class="onward-name">Templates</span><span class="onward-note">cut to a real reel's timing</span></span></a>
+      <a class="onward" href="#" data-goto="animation"><span class="onward-mark" aria-hidden="true">◎</span><span class="onward-lines"><span class="onward-name">Animation</span><span class="onward-note">what goes over the cut</span></span></a>
+      <a class="onward" href="#" data-goto="studio"><span class="onward-mark" aria-hidden="true">◱</span><span class="onward-lines"><span class="onward-name">Studio</span><span class="onward-note">what the numbers say</span></span></a>
+    </nav>
 
     <div class="settings">
       <span class="settings-label">Appearance</span>
@@ -2469,12 +2471,7 @@ body { background: var(--ground); }
     <h2 class="panel-title">Graphics over the cut</h2>
     <p class="panel-hint" id="graphics-state">checking…</p>
     <ul class="agreed" id="graphics-rules"></ul>
-    <a class="room room-wide" href="/overlays">
-      <span class="room-mark" aria-hidden="true">◎</span>
-      <span class="room-name">The animation tab</span>
-      <span class="room-note">Watch each shape move · pick which ones · how busy</span>
-    </a>
-  </section>
+    </section>
 
   <!-- /api/scholar existed and no page read it, so the Scholar studied in
        total silence: no way to tell whether it was running, what it knew, or
@@ -2488,12 +2485,7 @@ body { background: var(--ground); }
     <p class="studio-empty" id="scholar-empty" hidden>
       Nothing about this app yet — it studies the edit first.
     </p>
-    <a class="room room-wide" href="/ask">
-      <span class="room-mark" aria-hidden="true">✻</span>
-      <span class="room-name">Ask it something</span>
-      <span class="room-note">Put a question to it in your own words</span>
-    </a>
-  </section>
+    </section>
 
   <div class="settings">
     <span class="settings-label">Appearance</span>
@@ -2507,27 +2499,7 @@ body { background: var(--ground); }
   <button class="studio-go" id="run">Cut it</button>
   <h2 class="panel-title">The rest of it</h2>
   <div class="inset-group">
-    <a class="inset-row" href="/manager">
-      <span class="inset-label">Manager</span>
-      <span class="inset-value" id="more-manager"></span>
-      <span class="chevron" aria-hidden="true">›</span>
-    </a>
-    <a class="inset-row" href="/overlays">
-      <span class="inset-label">Animation</span>
-      <span class="inset-value" id="more-overlays"></span>
-      <span class="chevron" aria-hidden="true">›</span>
-    </a>
-    <a class="inset-row" href="/ask">
-      <span class="inset-label">The Scholar</span>
-      <span class="inset-value" id="more-scholar"></span>
-      <span class="chevron" aria-hidden="true">›</span>
-    </a>
-    <a class="inset-row" href="/connect">
-      <span class="inset-label">Where it goes</span>
-      <span class="inset-value">Instagram · TikTok</span>
-      <span class="chevron" aria-hidden="true">›</span>
-    </a>
-  </div>
+    </div>
   <p class="group-caption">
     Agents change the edit. They never post anywhere, and linking an account
     only stores the name.

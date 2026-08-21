@@ -1135,3 +1135,8 @@ body.has-tabbar .page {
 }
 
 .provider-mark::before { content: attr(data-mark); }
+
+/* The published page's own navigation. In the app this is the tab bar, which
+   is injected by a script; a page with no routes has to carry its own. */
+.rooms-flat { display: grid; gap: 8px; margin-top: 18px; }
+.rooms-flat .onward { margin-top: 0; }

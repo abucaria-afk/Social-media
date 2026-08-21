@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="robots" content="index">
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/prose.css">
+<title>Auteur — privacy</title>
+</head>
+<body>
+<main class="prose">
+<h1>Privacy</h1>
+<p><strong>Auteur collects nothing, tracks nothing, and sends nothing anywhere.</strong></p>
+<p>That is not a promise about intent. It is a property of how the app is built, and the parts of it that can be checked are checked by the test suite.</p>
+<h2>The iOS app</h2>
+<p>The app on the App Store contains a page loaded from inside the app itself and a small amount of native code. It makes <strong>no network requests of any kind</strong> — there is no analytics, no crash reporting, no advertising identifier, no account, and no server. It works with the phone in aeroplane mode, which is the simplest way to confirm it.</p>
+<p>What it asks for, and why:</p>
+<table><thead><tr><th>Permission</th><th>Asked when</th><th>What it is used for</th>
+</tr></thead><tbody>
+<tr><td>Add to Photos</td><td>the first time you save a film</td><td>writing the film you made into your camera roll</td></tr>
+<tr><td>Calendar (write only)</td><td>the first time you add a shoot</td><td>creating an event with its reminders</td></tr>
+</tbody></table>
+<p>Nothing else. The photo picker needs no permission at all — iOS hands the app only the items you choose and nothing else — so the app does not ask for access to your photo library, only for permission to *add* to it.</p>
+<p>Your photographs and clips are read on the device, cut on the device, and the finished film is written on the device. None of it is uploaded, because there is nowhere for it to be uploaded to.</p>
+<h2>The self-hosted version</h2>
+<p><code>auteur serve</code> runs a web app on your own machine, usually on your own wifi. Everything it holds — accounts, films, messages, plans — is in files on that machine, in a folder you chose. Nobody operates a service; there is no &quot;we&quot; who could receive your data.</p>
+<p>Three things are worth being precise about:</p>
+<p><strong>Sign-in with Google.</strong> If, and only if, you configure it, signing in sends you to Google and Google tells this app your email address so it can match an account that already exists here. Google will know you signed in to something. This app tells Google nothing about you and creates no account from it.</p>
+<p><strong>The calendar link.</strong> Subscribing puts your planned shoots in your calendar app, which may be synced by Apple or Google depending on which calendar you put it in. That is your calendar&#x27;s arrangement, not this app&#x27;s. The link contains a secret, which is why the app tells you to treat it as a password and lets you replace it.</p>
+<p><strong>The Scholar.</strong> If you give it an API key it sends the *question you typed* to Anthropic to answer it. It never sends your footage. Without a key it answers only from what it has measured locally, and says so.</p>
+<h2>Publishing</h2>
+<p>Nothing in this program posts to Instagram, TikTok, YouTube or anywhere else. The manager plans posts, drafts captions and checks them; you post them. There is no code path that publishes to a service and no credentials for one — a test reads the source to keep it that way.</p>
+<h2>Children</h2>
+<p>This app is not directed at children and collects no data from anybody.</p>
+<h2>Changes and contact</h2>
+<p>If this document ever stops being true, the change will be in the repository&#x27;s history alongside the code that made it untrue. Questions go to whoever publishes your copy of the app; if that is you, this file is yours to keep accurate.</p>
+</main>
+</body>
+</html>

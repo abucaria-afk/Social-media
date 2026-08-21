@@ -8631,3 +8631,124 @@ def test_the_readme_does_not_claim_gaps_that_have_been_closed():
     # are in the repository and pass.
     assert "hard-cuts" not in gaps
     assert "fails on purpose" not in gaps
+
+
+def test_the_published_page_offers_no_link_it_cannot_follow():
+    """The bundled page has four sections and the app has ten, so every link
+    to a room that is not there is a control a tap does nothing to. Ten of them
+    had accumulated: `/manager`, `/ask`, `/connect`. On a phone that is a dead
+    control; in an App Store review it is a rejection under 2.1."""
+    page = (
+        Path(__file__).resolve().parent.parent / "ios" / "Auteur" / "Web" / "index.html"
+    ).read_text()
+    server_links = re.findall(r'href="(/[^"]*)"', page)
+    assert server_links == [], f"links nothing can follow: {sorted(set(server_links))[:5]}"
+
+
+def test_every_section_of_the_published_page_can_be_reached():
+    """Worse than a dead link and harder to see: the tab bar is injected by a
+    script the build strips, so the page carried a studio, an animation tab and
+    a templates library that nothing navigated to. Dead *content*."""
+    page = (
+        Path(__file__).resolve().parent.parent / "ios" / "Auteur" / "Web" / "index.html"
+    ).read_text()
+
+    targets = set(re.findall(r'data-goto="([^"]+)"', page))
+    assert {"templates", "animation", "studio"} <= targets, f"unreachable sections: {targets}"
+
+    # And nothing points at a section that is not there.
+    for target in targets:
+        if target == "home":
+            continue
+        assert f'id="{target}-page"' in page, f"data-goto={target} names no section"
+
+    # Every section has a way back, or it is a trap.
+    for section in ("templates", "animation", "studio"):
+        after = page[page.index(f'id="{section}-page"') :]
+        assert 'data-goto="home"' in after[:4000], f"no way back out of {section}"
+
+
+def test_the_privacy_policy_is_reachable_without_signing_in():
+    """The App Store requires a policy at a URL anybody can open, and
+    "anybody" includes a reviewer who has not been given an account."""
+    from auteur.web import server
+
+    assert "/privacy" in server.PUBLIC_PATHS
+    assert (server.STATIC / "privacy.html").is_file()
+
+
+def test_the_privacy_policy_is_generated_from_the_one_source():
+    """A policy maintained in two places is a policy that is wrong in one."""
+    from auteur.web import assets, server
+
+    source = Path(__file__).resolve().parent.parent / "PRIVACY.md"
+    assert source.is_file()
+    page = (server.STATIC / "privacy.html").read_text()
+
+    # Every heading in the source survives into the page.
+    for line in source.read_text().splitlines():
+        if line.startswith("## "):
+            assert line[3:] in page, f"the page has lost the section {line[3:]!r}"
+
+    # And regenerating it changes nothing, which is what "generated" has to mean.
+    before = page
+    assets.privacy_page(source, server.STATIC)
+    assert (server.STATIC / "privacy.html").read_text() == before
+
+
+def test_the_policy_says_what_the_code_does():
+    """The two claims in it that a test can actually hold it to."""
+    policy = (Path(__file__).resolve().parent.parent / "PRIVACY.md").read_text()
+    assert "collects nothing" in policy.lower()
+
+    # "no network requests of any kind" about the iOS app.
+    bundled = (
+        Path(__file__).resolve().parent.parent / "ios" / "Auteur" / "Web" / "index.html"
+    ).read_text()
+    for reaching in ("fetch(", "XMLHttpRequest", "new WebSocket", "sendBeacon"):
+        assert reaching not in bundled, f"the policy says no network and the page has {reaching}"
+
+    # "no code path that publishes to a service".
+    import ast
+    import inspect
+
+    from auteur import manager
+
+    tree = ast.parse(inspect.getsource(manager))
+    reached = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            reached.update(a.name.split(".")[0] for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            reached.add(node.module.split(".")[0])
+    assert not (reached & {"urllib", "http", "requests", "socket"})
+
+
+def test_a_cookie_is_only_marked_secure_when_it_really_is():
+    """`X-Forwarded-Proto` is a header, so anybody can send it. Trusting it
+    unconditionally marks a cookie Secure on a plain connection; not trusting
+    it at all means a real HTTPS deployment never gets the flag. So it is
+    believed only when the operator says there is a proxy in front."""
+    import inspect
+
+    from auteur.web import server
+
+    # A property, so the function is behind `.fget`.
+    source = inspect.getsource(server.Handler._is_https.fget)
+    assert "TRUST_PROXY" in source
+    assert "PUBLIC_HTTPS" in source
+    # Off by default: the ordinary way to run this is a LAN over plain HTTP,
+    # where a Secure cookie simply never comes back.
+    assert server.PUBLIC_HTTPS is False
+    assert server.TRUST_PROXY is False
+
+
+def test_hsts_is_not_promised_from_a_plain_http_server():
+    """Sending it from a LAN server over plain HTTP tells every browser on the
+    network to refuse to reach it — for a year."""
+    from auteur.web import server
+
+    assert "Strict-Transport-Security" not in server.SAFETY_HEADERS
+    import inspect
+
+    assert "Strict-Transport-Security" in inspect.getsource(server.Handler._send)

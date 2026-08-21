@@ -65,6 +65,13 @@ MAX_UPLOAD = int(os.environ.get("AUTEUR_MAX_UPLOAD") or 512 * 1024 * 1024)
 #: RAM.
 SPOOL_TO_DISK = 16 * 1024 * 1024
 
+#: Whether this instance is reached over HTTPS, and whether there is a proxy in
+#: front of it whose forwarding headers can be believed. Both off by default,
+#: because the ordinary way to run this is on a LAN over plain HTTP — where a
+#: cookie marked Secure simply never comes back.
+PUBLIC_HTTPS = (os.environ.get("AUTEUR_PUBLIC_HTTPS") or "").lower() in ("1", "true", "yes")
+TRUST_PROXY = (os.environ.get("AUTEUR_TRUST_PROXY") or "").lower() in ("1", "true", "yes")
+
 #: Sent on every response.
 #:
 #: `Referrer-Policy` is the one that is load-bearing rather than tidy: the
@@ -84,6 +91,9 @@ SAFETY_HEADERS = {
     # Everything the pages need is served from this origin, and `blob:` is how
     # a finished film reaches the video element. No remote script, style, font
     # or frame is ever wanted, so none is allowed.
+    # No Strict-Transport-Security here: it is added below only when this
+    # instance is actually served over HTTPS. Sending it from a plain-HTTP LAN
+    # server would tell every browser on the network to refuse to reach it.
     "Content-Security-Policy": (
         "default-src 'self'; "
         "img-src 'self' data: blob:; "
@@ -131,6 +141,10 @@ PUBLIC_PATHS = frozenset(
         "/api/forgot",
         "/api/reset",
         "/api/sign-in-with",
+        # The App Store requires a privacy policy at a URL anybody can open,
+        # and "anybody" includes a reviewer who has not been given an account.
+        "/privacy",
+        "/privacy.html",
     }
 )
 
@@ -598,9 +612,31 @@ class Handler(BaseHTTPRequestHandler):
             "SameSite=Strict",
             f"Max-Age={SESSION_LIFETIME}",
         ]
-        if self.headers.get("X-Forwarded-Proto", "").lower() == "https":
+        if self._is_https:
             bits.append("Secure")
         return "; ".join(bits)
+
+    @property
+    def _is_https(self) -> bool:
+        """Whether this connection is really encrypted.
+
+        `X-Forwarded-Proto` is a header, which means anybody can send it, and
+        trusting it unconditionally is how a cookie ends up marked Secure on a
+        plain connection — or, worse in the other direction, how a deployment
+        that *is* behind TLS never gets the flag because the proxy spells it
+        differently. So the header is believed only when the operator has said
+        there is a proxy in front, and `--https` forces it on for anyone
+        terminating TLS some other way.
+
+        The default is the honest one for how this is usually run: on a LAN
+        over plain HTTP, where marking the cookie Secure would stop it sticking
+        at all.
+        """
+        if PUBLIC_HTTPS:
+            return True
+        if TRUST_PROXY:
+            return self.headers.get("X-Forwarded-Proto", "").lower() == "https"
+        return False
 
     def _clear_session_cookie(self) -> str:
         return f"{COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"
@@ -628,6 +664,8 @@ class Handler(BaseHTTPRequestHandler):
         for key, value in SAFETY_HEADERS.items():
             if key not in headers:
                 self.send_header(key, value)
+        if self._is_https and "Strict-Transport-Security" not in headers:
+            self.send_header("Strict-Transport-Security", "max-age=31536000")
         for key, value in headers.items():
             self.send_header(key, value)
         self.end_headers()
@@ -1152,6 +1190,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
+        if path in ("/privacy", "/privacy.html"):
+            self._static(STATIC / "privacy.html", "text/html; charset=utf-8")
+            return
         if path in ("/login", "/login.html", "/reset"):
             self._static(STATIC / "login.html", "text/html; charset=utf-8")
             return

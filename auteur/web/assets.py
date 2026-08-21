@@ -83,10 +83,104 @@ def _draw(size: int):
     return image
 
 
+#: The smallest markdown this project needs, which is exactly what PRIVACY.md
+#: uses. Not a general converter: a privacy policy rendered by a parser nobody
+#: reads is a policy that can silently stop saying what the file says.
+def _as_html(markdown: str) -> str:
+    import html as escaping
+    import re as patterns
+
+    def inline(text: str) -> str:
+        text = escaping.escape(text)
+        text = patterns.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+        return patterns.sub(r"`(.+?)`", r"<code>\1</code>", text)
+
+    out: list[str] = []
+    rows: list[str] = []
+
+    def close_table() -> None:
+        if not rows:
+            return
+        head, *body = [r for r in rows if not set(r.replace("|", "").strip()) <= {"-", " "}]
+        cells = [c.strip() for c in head.strip("|").split("|")]
+        out.append("<table><thead><tr>" + "".join(f"<th>{inline(c)}</th>" for c in cells))
+        out.append("</tr></thead><tbody>")
+        for row in body:
+            cells = [c.strip() for c in row.strip("|").split("|")]
+            out.append("<tr>" + "".join(f"<td>{inline(c)}</td>" for c in cells) + "</tr>")
+        out.append("</tbody></table>")
+        rows.clear()
+
+    para: list[str] = []
+
+    def close_para() -> None:
+        # A blank line ends a paragraph; a newline does not. Treating every
+        # source line as its own <p> is what the first version did, and a
+        # policy hard-wrapped at 78 characters came out as a column of
+        # three-line fragments with gaps between them.
+        if para:
+            out.append(f"<p>{inline(' '.join(para))}</p>")
+            para.clear()
+
+    for line in markdown.splitlines():
+        if line.startswith("|"):
+            close_para()
+            rows.append(line)
+            continue
+        close_table()
+        if line.startswith("## "):
+            close_para()
+            out.append(f"<h2>{inline(line[3:])}</h2>")
+        elif line.startswith("# "):
+            close_para()
+            out.append(f"<h1>{inline(line[2:])}</h1>")
+        elif line.strip():
+            para.append(line.strip())
+        else:
+            close_para()
+    close_para()
+    close_table()
+    return "\n".join(out)
+
+
+def privacy_page(source: Path, static: Path) -> Path | None:
+    """PRIVACY.md as a page anybody can open, generated rather than kept twice.
+
+    The App Store requires a public privacy policy URL, and a policy that is
+    maintained in two places is a policy that is wrong in one of them.
+    """
+    if not source.is_file():
+        return None
+    page = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="robots" content="index">
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/prose.css">
+<title>Auteur — privacy</title>
+</head>
+<body>
+<main class="prose">
+{_as_html(source.read_text(encoding="utf-8"))}
+</main>
+</body>
+</html>
+"""
+    out = Path(static) / "privacy.html"
+    if not out.is_file() or out.read_text(encoding="utf-8") != page:
+        out.write_text(page, encoding="utf-8")
+    return out
+
+
 def ensure(static: Path) -> None:
     """Write the generated assets. Safe to call on every start."""
     static = Path(static)
     static.mkdir(parents=True, exist_ok=True)
+    privacy_page(Path(__file__).resolve().parents[2] / "PRIVACY.md", static)
 
     # The palette, written out as CSS. Always rewritten: it is cheap, and a
     # stale copy would silently pin the interface to an old theme.

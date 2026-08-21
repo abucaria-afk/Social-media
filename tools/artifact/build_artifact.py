@@ -101,10 +101,90 @@ templates = re.sub(
 # "Where it goes" needs the server: the link store lives beside the accounts
 # file and a published page has neither. Stripped from the markup rather than
 # left to fail, so the page never offers a tab that cannot open.
-home = re.sub(r'<a class="studio-link" href="/connect".*?</a>\s*', "", home, flags=re.S)
 home = re.sub(r'<a class="go" id="save".*?</a>\s*', "", home, flags=re.S)
 home = re.sub(r'<a class="ghost" id="notes".*?</a>\s*', "", home, flags=re.S)
 
+
+# Anything still pointing at a server route, gone — with its row.
+#
+# This page has four sections and the app has ten, so every link to a room
+# that is not here has to be either re-pointed above or removed. Doing it by
+# name, one link at a time, is what was here before and it went stale the
+# moment a room was added: the published page ended up with ten links to
+# `/manager`, `/ask` and `/connect` that a tap did nothing to. On a phone that
+# is a dead control; in an App Store review it is a rejection.
+#
+# So: strip generically, then assert. An `<a>` cannot contain another `<a>`,
+# which is what makes the non-greedy match safe here.
+def _drop_server_links(markup: str) -> str:
+    # The whole row where there is one, so no empty chevron is left behind.
+    markup = re.sub(r'<a class="inset-row"[^>]*href="/[^"]*".*?</a>\s*', "", markup, flags=re.S)
+    markup = re.sub(r'<a class="onward"[^>]*href="/[^"]*".*?</a>\s*', "", markup, flags=re.S)
+    return re.sub(r'<a\b[^>]*href="/[^"]*".*?</a>\s*', "", markup, flags=re.S)
+
+
+# The way into the other three sections.
+#
+# In the app this is the tab bar, and the tab bar is injected by a script —
+# which this build strips, because a published page has no routes for it to
+# link to. So the page ended up carrying a studio, an animation tab and a
+# templates library that nothing could reach: not dead links this time, dead
+# *content*, which is harder to notice and worse.
+#
+# Built from the list of sections that exist rather than written out, so a
+# section added or removed cannot leave this pointing at nothing.
+ROOMS = (
+    ("templates", "▚", "Templates", "cut to a real reel's timing"),
+    ("animation", "◎", "Animation", "what goes over the cut"),
+    ("studio", "◱", "Studio", "what the numbers say"),
+)
+_nav = "\n".join(
+    f'      <a class="onward" href="#" data-goto="{key}">'
+    f'<span class="onward-mark" aria-hidden="true">{mark}</span>'
+    f'<span class="onward-lines"><span class="onward-name">{name}</span>'
+    f'<span class="onward-note">{note}</span></span></a>'
+    for key, mark, name, note in ROOMS
+)
+home = home.replace(
+    '<div class="settings">',
+    f'<nav class="rooms-flat" aria-label="The rest of this page">\n{_nav}\n    </nav>\n\n'
+    '    <div class="settings">',
+    1,
+)
+
+home = _drop_server_links(home)
+studio = _drop_server_links(studio)
+animation = _drop_server_links(animation)
+templates = _drop_server_links(templates)
+
+
+# The invariant, stated where it can fail loudly — the same shape as the
+# script and duplicate-id guards above. A link to a route this page does not
+# have is a control that does nothing, and the only reliable way to keep one
+# out is to refuse to build a page containing it.
+for name, markup in (
+    ("index.html", home),
+    ("studio.html", studio),
+    ("overlays.html", animation),
+    ("templates.html", templates),
+):
+    left = re.findall(r'href="(/[^"]*)"', markup)
+    if left:
+        raise SystemExit(
+            f"{name}: {len(left)} link(s) to a server route survived — {sorted(set(left))[:4]}. "
+            "Either point them at a section on this page with data-goto, or let "
+            "_drop_server_links remove them."
+        )
+
+# And the other half of it: every in-page destination has to exist. A
+# `data-goto` naming a section that is not here is the same dead control by a
+# different route.
+_targets = set()
+for markup in (home, studio, animation, templates):
+    _targets.update(re.findall(r'data-goto="([^"]+)"', markup))
+_have = {"home", "studio", "animation", "templates"}
+if not _targets <= _have:
+    raise SystemExit(f"data-goto points at sections that do not exist: {sorted(_targets - _have)}")
 
 css = "\n".join(
     read(n)
