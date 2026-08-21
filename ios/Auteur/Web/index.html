@@ -193,7 +193,9 @@
   --cream: #edd6c0;
   --moss: #72bccb;
   --rust: #ee8777;
+  --on-rust: #2c1807;
   --scrim: #0000008c;
+  --on-photo: #ffffff;
 }
 
 /* System setting, unless the reader has overridden it. */
@@ -212,7 +214,9 @@
     --cream: #f7e7d4;
     --moss: #286571;
     --rust: #ab3321;
+    --on-rust: #ffffff;
     --scrim: #00000066;
+    --on-photo: #ffffff;
   }
 }
 
@@ -232,7 +236,9 @@
   --cream: #f7e7d4;
   --moss: #286571;
   --rust: #ab3321;
+  --on-rust: #ffffff;
   --scrim: #00000066;
+  --on-photo: #ffffff;
 }
 
 :root[data-theme="dark"] {
@@ -250,7 +256,9 @@
   --cream: #edd6c0;
   --moss: #72bccb;
   --rust: #ee8777;
+  --on-rust: #2c1807;
   --scrim: #0000008c;
+  --on-photo: #ffffff;
 }
 
 /* The edit room, on a phone.
@@ -1395,7 +1403,9 @@ body.has-tabbar .page {
   left: 0;
   right: 0;
   bottom: 0;
-  max-height: 72dvh;
+  /* 82, not 72. A share sheet is a short list and 72 was right for it; the
+     report sheet is a form, and the two of them share this rule. */
+  max-height: 82dvh;
   overflow-y: auto;
   padding: 8px 16px calc(var(--safe-bottom) + 18px);
   border-radius: 18px 18px 0 0;
@@ -1589,6 +1599,192 @@ body.sheet-open { overflow: hidden; }
   font: 600 var(--text-footnote)/1 var(--font-display);
   cursor: pointer;
 }
+
+/* -- Reporting and blocking ------------------------------------------------
+   The dialog safety.js builds, and the two controls that open it. Shared,
+   because the feed, a profile and a conversation all raise the same one. */
+
+/* Two across, in a grid.
+   Wrapped flex put the eight reasons on seven rows of a phone, which pushed
+   the "Report it" button off the bottom of the sheet — the primary action of
+   a dialog reachable only by scrolling is a dialog people abandon. A grid
+   pairs them up and takes four rows, which fits with the button in view. */
+.choices.reasons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.choices.reasons .choice {
+  min-height: 44px;
+  padding: 8px 10px;
+  font-size: var(--text-footnote);
+  text-align: left;
+  line-height: 1.25;
+}
+
+#safety-sheet textarea {
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--ground);
+  color: var(--text);
+  /* 17px or larger, or iOS Safari zooms the page in on focus. */
+  font: var(--text-body)/1.35 var(--font-body);
+  resize: none;
+}
+
+/* A checkbox with its label as one 44px target, because a 13px tick box is
+   not something a thumb hits. */
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  margin: 0 0 6px;
+  font-size: var(--text-subhead);
+  cursor: pointer;
+}
+
+.check input { width: 20px; height: 20px; accent-color: var(--ember); }
+
+/* The line that says what just happened. Fixed above the tab bar, gone in a
+   few seconds — a report that produces no visible response is a button people
+   press twice. */
+.said {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(var(--tabbar) + var(--safe-bottom) + 14px);
+  z-index: 90;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--raised);
+  color: var(--text);
+  font-size: var(--text-subhead);
+  /* Built from the scrim rather than a literal black: the scrim is already
+     "the dim this theme uses", so the shadow gets lighter in daylight and
+     heavier at night without a second value to keep in step. */
+  box-shadow: 0 8px 30px color-mix(in srgb, var(--scrim) 60%, transparent);
+  animation: said-in 200ms ease-out;
+}
+
+@keyframes said-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .said { animation: none; } }
+:root[data-motion="still"] .said { animation: none; }
+
+/* The "more" control: three dots, on a film and in a top bar. Drawn small and
+   hit at 44. */
+.more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: var(--text-title-3);
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* Somebody you have blocked, on their own profile: the page still exists —
+   you may want to undo it — and it says plainly what state it is in. */
+.blocked-note {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--text-subhead);
+  line-height: 1.4;
+}
+
+/* The line above the button that makes an account. Not a tick box: agreement
+   is what making the account means, and it says so where the decision is. */
+.agreeing { margin: 14px 2px 10px; line-height: 1.45; }
+.agreeing a { color: var(--ember-text); }
+
+/* The button that destroys something. Filled, like the other primary buttons,
+   because a destructive action drawn as a quiet outline is one people tap by
+   mistake — and red, because that is the only signal that survives being read
+   quickly.
+
+   Here rather than in profile.css: safety.js raises its sheet on the feed and
+   the inbox too, and neither of those loads that file. Fourth time this shape
+   has turned up in this stylesheet, which is why the rule is written at the
+   top of the `.page` block. */
+.danger-go {
+  background: var(--rust);
+  color: var(--on-rust);
+}
+
+/* -- A grid of films ------------------------------------------------------
+   Three across, square, one pixel apart: the grid on the profile tab of
+   every app this one is trying to feel like, and now also the album of a
+   project. Squares rather than the feed's full-bleed reels because a grid
+   is for finding one film, not for watching them. */
+
+/* Three across, square, one pixel apart. This is the grid on the profile tab
+   of every app this one is trying to feel like, and the reason it is squares
+   rather than the feed's full-bleed reels is that a profile is for finding one
+   film, not for watching them. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  margin: 0 calc(var(--pad) * -1) 22px;
+}
+
+.grid-cell {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  border: 0;
+  padding: 0;
+  background: var(--raised);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.grid-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* The play mark, so a square reads as a film rather than a photograph. */
+.grid-cell::after {
+  content: "▶";
+  position: absolute;
+  right: 6px;
+  top: 5px;
+  color: var(--on-photo);
+  font-size: var(--text-caption-2);
+  /* On a bright frame a white glyph disappears; the shadow is what makes it
+     legible on both without a plate behind it. Built from `scrim`, the
+     palette's own dim, rather than a literal black. */
+  text-shadow: 0 1px 3px var(--scrim);
+}
+
+.grid-likes {
+  position: absolute;
+  left: 6px;
+  bottom: 5px;
+  color: var(--on-photo);
+  font: 600 var(--text-caption-2)/1 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px var(--scrim);
+}
+
 
 /* animations.css — Scroll reveals, zooms, transitions, and motion design.
  *
@@ -2662,59 +2858,10 @@ body.has-tabbar .studio-wrap {
   border: 1px solid var(--line);
 }
 
-/* -- the films ----------------------------------------------------------- */
-
-/* Three across, square, one pixel apart. This is the grid on the profile tab
-   of every app this one is trying to feel like, and the reason it is squares
-   rather than the feed's full-bleed reels is that a profile is for finding one
-   film, not for watching them. */
-.grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 2px;
-  margin: 0 calc(var(--pad) * -1) 22px;
-}
-
-.grid-cell {
-  position: relative;
-  display: block;
-  aspect-ratio: 1;
-  border: 0;
-  padding: 0;
-  background: var(--raised);
-  cursor: pointer;
-  overflow: hidden;
-}
-
-.grid-cell img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-/* The play mark, so a square reads as a film rather than a photograph. */
-.grid-cell::after {
-  content: "▶";
-  position: absolute;
-  right: 6px;
-  top: 5px;
-  color: #fff;
-  font-size: var(--text-caption-2);
-  /* On a bright frame a white glyph disappears; the shadow is what makes it
-     legible on both without a plate behind it. */
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
-}
-
-.grid-likes {
-  position: absolute;
-  left: 6px;
-  bottom: 5px;
-  color: #fff;
-  font: 600 var(--text-caption-2)/1 var(--font-display);
-  font-variant-numeric: tabular-nums;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
-}
+/* The film grid moved to style.css. The project page shows one too, and it
+   does not load this file — the album's single film came out as a full-page
+   rectangle. Fifth time this exact shape: chrome that more than one screen
+   uses lives in the shared stylesheet. */
 
 /* -- the settings -------------------------------------------------------- */
 
@@ -2812,6 +2959,53 @@ body.has-tabbar .studio-wrap {
    margin — that pull lands the text on top of the last row of buttons. So on
    this page the caption after settings keeps its own space. */
 .settings + .group-caption { margin-top: 4px; }
+
+/* -- deleting the account ------------------------------------------------ */
+
+/* What goes with it, listed rather than summarised. "Everything in it" is a
+   phrase somebody can agree to without knowing what they agreed to. */
+.going {
+  margin: 0 0 12px;
+  padding: 0 0 0 20px;
+  color: var(--text-muted);
+  font-size: var(--text-subhead);
+  line-height: 1.45;
+}
+
+.going li { margin: 3px 0; }
+
+
+/* -- what I reported ----------------------------------------------------- */
+
+.reported { margin: 0 0 14px; padding: 0; list-style: none; }
+
+.reported li {
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--text-subhead);
+}
+
+.reported li:last-child { border-bottom: 0; }
+.reported-when { display: block; color: var(--text-faint); font-size: var(--text-footnote); }
+
+/* The verdict. Three states and three colours, because "open" and "removed"
+   are the two the person who reported it actually wants to tell apart. */
+.reported-state { font-weight: 600; }
+.reported-state.is-open { color: var(--text-muted); }
+.reported-state.is-removed { color: var(--moss); }
+.reported-state.is-kept { color: var(--text-faint); }
+
+.unblock-row {
+  margin-left: auto;
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--text);
+  font: 600 var(--text-footnote)/1 var(--font-display);
+  cursor: pointer;
+}
 
 
 .demo-note {
@@ -2940,6 +3134,12 @@ body { background: var(--ground); }
                  a median 0.167s shot. Four ceilings in the code used to make it
                  unreachable and there was still no way to request it. -->
             <button type="button" class="chip" data-prompt="a hypercut, cut hard to the beat">Hypercut</button>
+            <!-- The pace the corpus sits at when it is not sprinting: 0.334s
+                 a shot, measured across the thirteen reels that are not
+                 hypercuts. It was already the default style and had no chip,
+                 so the one thing most films are cut as could not be asked
+                 for by name. -->
+            <button type="button" class="chip" data-prompt="a montage, cut at the pace of the reels">Montage</button>
             <button type="button" class="chip" data-prompt="fast neon montage">Neon</button>
             <button type="button" class="chip" data-prompt="warm summer memories, gentle">Warm</button>
             <button type="button" class="chip" data-prompt="slow and cinematic">Cinematic</button>
@@ -2992,6 +3192,17 @@ body { background: var(--ground); }
           </div>
           <span class="card-hint" id="era-hint">Photos get the real thing — tone curves, grain, halation. Clips get the colour but not the texture.</span>
         </span>
+      </div>
+
+      <!-- Which project it belongs to. Hidden until there is one to pick, so
+           somebody who has never made a project never sees a control for a
+           thing they do not have. -->
+      <div class="card block" id="project-card" hidden>
+        <span class="card-title">Part of</span>
+        <div class="choices projects" id="project" role="radiogroup" aria-label="Project">
+          <button type="button" class="choice is-on" data-value="" role="radio" aria-checked="true">Nothing<small>on its own</small></button>
+        </div>
+        <span class="card-hint">The finished film lands in that project's album.</span>
       </div>
 
 
@@ -11669,14 +11880,24 @@ window.auteurTemplates = [
     return LOOKS.house;
   }
 
-  /* The cadence, from the same words the director reads. A hypercut is the
-   * measured reference median: 0.167s a shot. */
+  /* The cadence, from the same words the director reads, at the same numbers.
+   *
+   * This table is the app's pace table written a second time, in a second
+   * language, for the published page that has no Python behind it — so every
+   * number in it is a number that can drift from the one the app uses, and two
+   * of them had. `montage` sat on the "fast, hard cuts" row at 0.5s while
+   * `brief.py` cut it at 0.334s, and the fallback below was 0.9s: the invented
+   * number the app had already stopped using. A test now holds the two tables
+   * to each other on every word they share. */
   var CADENCES = [
     [0.167, "a hypercut — three cuts a beat", wordy(/hypercut|rapid\s*fire|flurry|machine\s*gun|frantic|chaotic|blitz/)],
     [0.35, "very fast", wordy(/very\s*fast|super\s*fast|breakneck|relentless|hype|edm|techno|rave/)],
-    [0.5, "fast, hard cuts", wordy(/punchy|hard\s*to\s*the\s*beat|on\s*the\s*beat|fast|kinetic|snappy|quick|energet|gym|workout|sport|party|montage/)],
+    [0.5, "fast, hard cuts", wordy(/punchy|hard\s*to\s*the\s*beat|on\s*the\s*beat|fast|kinetic|snappy|quick|energet|gym|workout|sport|party/)],
     [1.8, "slow and held", wordy(/slow|cinematic|calm|gentle|meditative|dreamy|relaxed|ambient|peaceful|soft|tender/)],
-    [1.2, "unhurried", wordy(/steady|documentary|story|narrative|travel|landscape/)]
+    [1.2, "unhurried", wordy(/steady|documentary|story|narrative|travel|landscape/)],
+    /* Last, so "fast montage" still reads as fast. On its own the word means
+     * the pace thirteen of the twenty-three reference reels are cut at. */
+    [0.334, "a montage — the reference pace", wordy(/montage|recap|highlights/)]
   ];
 
   function cadenceFor(prompt) {
@@ -11696,7 +11917,10 @@ window.auteurTemplates = [
     for (var i = 0; i < CADENCES.length; i++) {
       if (CADENCES[i][2].test(p)) { return { hold: CADENCES[i][0], label: CADENCES[i][1] }; }
     }
-    return { hold: 0.9, label: "an even cut" };
+    /* No pace word at all. This is the most common case there is, and it was
+     * 0.9s — the one number in the app's table nobody had measured, kept alive
+     * here after the app stopped using it. */
+    return { hold: 0.334, label: "a montage — the reference pace" };
   }
 
   // Kept as the old name so anything calling it still works.

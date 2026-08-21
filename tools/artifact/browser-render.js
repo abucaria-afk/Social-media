@@ -170,14 +170,24 @@
     return LOOKS.house;
   }
 
-  /* The cadence, from the same words the director reads. A hypercut is the
-   * measured reference median: 0.167s a shot. */
+  /* The cadence, from the same words the director reads, at the same numbers.
+   *
+   * This table is the app's pace table written a second time, in a second
+   * language, for the published page that has no Python behind it — so every
+   * number in it is a number that can drift from the one the app uses, and two
+   * of them had. `montage` sat on the "fast, hard cuts" row at 0.5s while
+   * `brief.py` cut it at 0.334s, and the fallback below was 0.9s: the invented
+   * number the app had already stopped using. A test now holds the two tables
+   * to each other on every word they share. */
   var CADENCES = [
     [0.167, "a hypercut — three cuts a beat", wordy(/hypercut|rapid\s*fire|flurry|machine\s*gun|frantic|chaotic|blitz/)],
     [0.35, "very fast", wordy(/very\s*fast|super\s*fast|breakneck|relentless|hype|edm|techno|rave/)],
-    [0.5, "fast, hard cuts", wordy(/punchy|hard\s*to\s*the\s*beat|on\s*the\s*beat|fast|kinetic|snappy|quick|energet|gym|workout|sport|party|montage/)],
+    [0.5, "fast, hard cuts", wordy(/punchy|hard\s*to\s*the\s*beat|on\s*the\s*beat|fast|kinetic|snappy|quick|energet|gym|workout|sport|party/)],
     [1.8, "slow and held", wordy(/slow|cinematic|calm|gentle|meditative|dreamy|relaxed|ambient|peaceful|soft|tender/)],
-    [1.2, "unhurried", wordy(/steady|documentary|story|narrative|travel|landscape/)]
+    [1.2, "unhurried", wordy(/steady|documentary|story|narrative|travel|landscape/)],
+    /* Last, so "fast montage" still reads as fast. On its own the word means
+     * the pace thirteen of the twenty-three reference reels are cut at. */
+    [0.334, "a montage — the reference pace", wordy(/montage|recap|highlights/)]
   ];
 
   function cadenceFor(prompt) {
@@ -197,7 +207,10 @@
     for (var i = 0; i < CADENCES.length; i++) {
       if (CADENCES[i][2].test(p)) { return { hold: CADENCES[i][0], label: CADENCES[i][1] }; }
     }
-    return { hold: 0.9, label: "an even cut" };
+    /* No pace word at all. This is the most common case there is, and it was
+     * 0.9s — the one number in the app's table nobody had measured, kept alive
+     * here after the app stopped using it. */
+    return { hold: 0.334, label: "a montage — the reference pace" };
   }
 
   // Kept as the old name so anything calling it still works.

@@ -6980,6 +6980,57 @@ def test_the_trainer_can_reach_the_rate_it_is_chasing():
     assert low <= 0.125, "the fastest reference reel is outside the search space"
 
 
+def test_both_renderers_cut_the_same_word_at_the_same_pace():
+    """There are two pace tables, and nothing compared them.
+
+    The app cuts with Python; the published page has no Python behind it and
+    cuts with `browser-render.js`, which carries its own copy of the same
+    table. Two copies of a number drift, and these had: `montage` was 0.5s in
+    the browser against 0.334s in the app, and the browser's no-pace-word
+    fallback was still 0.9s — the invented number the app had already stopped
+    using. Somebody opening the published page got a different film from the
+    same words.
+
+    This reads the numbers out of the JavaScript rather than restating them, so
+    changing either side without the other fails here.
+    """
+    from auteur.director.brief import parse_brief
+
+    source = (
+        Path(__file__).resolve().parent.parent / "tools" / "artifact" / "browser-render.js"
+    ).read_text(encoding="utf-8")
+
+    table = re.search(r"var CADENCES = \[(.*?)\n  \];", source, re.S)
+    assert table, "the browser's cadence table is gone or renamed"
+
+    rows = re.findall(r'\[\s*([0-9.]+),\s*"[^"]*",\s*wordy\((/.*?/)\)\]', table.group(1))
+    assert len(rows) >= 4, f"only parsed {len(rows)} cadence rows"
+
+    # The word each row is really about, taken as the first literal alternative
+    # in its pattern — that is the word a person types.
+    checked = 0
+    for hold, pattern in rows:
+        first = re.match(r"/([a-z]+)", pattern)
+        if not first:
+            continue
+        word = first.group(1)
+        if word not in ("hypercut", "montage"):
+            continue  # the two the app names in its own table
+        assert float(hold) == pytest.approx(parse_brief(word).base_shot_length, abs=0.005), (
+            f"the browser cuts {word!r} at {hold}s and the app cuts it at "
+            f"{parse_brief(word).base_shot_length}s"
+        )
+        checked += 1
+    assert checked == 2, f"only checked {checked} of the two named paces"
+
+    # And the fallback, which is what most people get: no pace word at all.
+    fallback = re.search(r'return \{ hold: ([0-9.]+), label: "[^"]*" \};\s*\n  \}', source)
+    assert fallback, "the browser's no-pace-word fallback is gone or reshaped"
+    assert float(fallback.group(1)) == pytest.approx(
+        parse_brief("").base_shot_length, abs=0.005
+    ), "the two renderers disagree about a film nobody gave a pace for"
+
+
 def test_the_app_can_ask_for_the_cadence_the_references_are_cut_at():
     """The style existed and no chip offered it.
 
@@ -8744,6 +8795,72 @@ def test_a_platform_has_a_readable_title_that_is_not_its_lookup_key():
 # ---------------------------------------------------------------------------
 
 IOS = Path(__file__).resolve().parent.parent / "ios"
+
+
+def test_the_page_in_the_ios_bundle_is_the_page_the_build_produces():
+    """`ios/README.md` said this file is generated. Nothing generated it.
+
+    The generator was real — `ios/scripts/build_bundle.py` writes this file, and
+    the README says to run it. Nobody ran it. By the time the two were compared
+    the bundle was 350 lines behind the app: missing two theme roles, missing
+    the sheet-height fix, and missing the entire stylesheet for the report and
+    block dialog, so the iPhone build shipped the one screen App Store guideline
+    1.2 is about with no styling on it. Nobody had noticed, because noticing
+    meant diffing a 350KB file by hand.
+
+    A build step nothing checks is a build step that stops being run. This runs
+    it and compares the result to what is committed.
+    """
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parent.parent
+    bundle = IOS / "Auteur" / "Web" / "index.html"
+    assert bundle.is_file(), "the iOS bundle has no page in it"
+
+    before = bundle.read_text(encoding="utf-8")
+    artifact = root / "tools" / "artifact" / "auteur-app.html"
+    artifact_before = artifact.read_text(encoding="utf-8")
+    try:
+        for step in (
+            root / "tools" / "artifact" / "build_artifact.py",
+            root / "ios" / "scripts" / "build_bundle.py",
+        ):
+            done = subprocess.run(
+                [sys.executable, str(step)], capture_output=True, text=True, cwd=root
+            )
+            # `build_bundle.py` reports the placeholder identity as not ready to
+            # submit and exits non-zero for it. That is a different question
+            # from whether it wrote the page, so the page is what is checked.
+            assert "Traceback" not in done.stderr, f"{step.name} crashed: {done.stderr[-2000:]}"
+
+        assert bundle.read_text(encoding="utf-8") == before, (
+            "the page committed in the iOS bundle is not what the build produces — "
+            "run `python3 tools/artifact/build_artifact.py` then "
+            "`python3 ios/scripts/build_bundle.py`, and commit the result"
+        )
+    finally:
+        # Leave the tree as it was found, whichever way the assert went.
+        bundle.write_text(before, encoding="utf-8")
+        artifact.write_text(artifact_before, encoding="utf-8")
+
+
+def test_the_ios_bundle_carries_the_screens_the_app_store_asks_about():
+    """The stale bundle was missing these, which is how staleness showed up.
+
+    Guideline 1.2 wants reporting and blocking reachable in the shipped build,
+    not only in the served one. A rule that lives in the app's stylesheet and
+    not in the bundle is a dialog that renders unstyled on a phone.
+    """
+    page = (IOS / "Auteur" / "Web" / "index.html").read_text(encoding="utf-8")
+
+    for needed, why in (
+        (".choices.reasons", "the report sheet's reason grid"),
+        ("--on-photo", "the colour text takes when it sits on a photo"),
+        ("--on-rust", "the colour text takes on the accent"),
+        ('data-prompt="a montage', "the montage chip"),
+    ):
+        assert needed in page, f"the iOS bundle is missing {why} ({needed})"
 
 
 def test_the_app_icon_carries_no_alpha_channel():
