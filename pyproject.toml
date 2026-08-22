@@ -23,7 +23,7 @@ llm = ["anthropic>=0.40"]
 # The Scholar's only way to reach YouTube. Metadata and captions only — it never
 # downloads video. Without it the Scholar says it cannot study rather than
 # quietly reporting that it studied nothing.
-scholar = ["yt-dlp>=2024.8.6"]
+scholar = ["yt-dlp>=2026.7.4"]
 dev = ["pytest>=9.1.1"]
 
 [project.scripts]
