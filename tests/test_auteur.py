@@ -1551,6 +1551,61 @@ def test_video_is_served_in_ranges(web_server, tmp_path):
         assert response.read() == film.read_bytes()
 
 
+def test_an_upload_is_read_from_a_stream_that_only_has_read():
+    """Every multipart post failed on Python 3.10, and one test said so wrongly.
+
+    `_Prefixed` wraps the spooled body so the Content-Type header and the body
+    are read as one stream. It called `readinto` on that spool —
+    `SpooledTemporaryFile` only implements `readinto` from 3.11, having not
+    fully implemented `IOBase` before then. On 3.10 the call raised
+    `AttributeError`, every caller turns any exception into "I could not read
+    that upload", and so no film could be made, no reel added and no profile
+    picture set on a version this project's own CI tests.
+
+    What made it survive was that the only test to notice compared the *message*
+    and read as a wrong string rather than as an app that cannot accept a file.
+
+    This drives the shim with an object that has `read` and no `readinto`, so
+    the 3.10 path is exercised whichever interpreter is running.
+    """
+    import io
+
+    from auteur.web.server import _Prefixed, _parse_multipart_stream
+
+    class OnlyRead:
+        """A stream like 3.10's SpooledTemporaryFile: read, and no readinto."""
+
+        def __init__(self, raw: bytes) -> None:
+            self._inner = io.BytesIO(raw)
+
+        def read(self, size=-1):
+            return self._inner.read(size)
+
+    boundary = "----auteurtest"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="prompt"\r\n\r\n'
+        "a film\r\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="clips"; filename="one.mp4"\r\n'
+        "Content-Type: video/mp4\r\n\r\n"
+        "not really a film\r\n"
+        f"--{boundary}--\r\n"
+    ).encode()
+
+    assert not hasattr(OnlyRead(b""), "readinto"), "the stand-in is not standing in"
+
+    fields, files = _parse_multipart_stream(
+        OnlyRead(body), f"multipart/form-data; boundary={boundary}"
+    )
+    assert fields.get("prompt") == "a film", f"the field did not survive: {fields}"
+    assert files == [("one.mp4", b"not really a film")], f"the file did not survive: {files}"
+
+    # And the shim itself, directly: a header then a body with no readinto.
+    stream = _Prefixed(b"HEAD", OnlyRead(b"TAIL"))
+    assert stream.read() == b"HEADTAIL"
+
+
 def test_a_post_without_clips_says_so_in_plain_words(web_server):
     import json as _json
     from urllib.error import HTTPError
@@ -9393,7 +9448,10 @@ def test_the_page_in_the_ios_bundle_is_the_page_the_build_produces():
 
     before = bundle.read_text(encoding="utf-8")
     artifact = root / "tools" / "artifact" / "auteur-app.html"
-    artifact_before = artifact.read_text(encoding="utf-8")
+    # Generated and gitignored, so on a fresh checkout it does not exist yet.
+    # Reading it here unconditionally is why this test failed on every CI run
+    # while passing on every machine that had once built it by hand.
+    artifact_before = artifact.read_text(encoding="utf-8") if artifact.is_file() else None
     try:
         for step in (
             root / "tools" / "artifact" / "build_artifact.py",
@@ -9415,7 +9473,10 @@ def test_the_page_in_the_ios_bundle_is_the_page_the_build_produces():
     finally:
         # Leave the tree as it was found, whichever way the assert went.
         bundle.write_text(before, encoding="utf-8")
-        artifact.write_text(artifact_before, encoding="utf-8")
+        if artifact_before is None:
+            artifact.unlink(missing_ok=True)
+        else:
+            artifact.write_text(artifact_before, encoding="utf-8")
 
 
 def test_the_ios_bundle_carries_the_screens_the_app_store_asks_about():

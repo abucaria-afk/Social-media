@@ -15,6 +15,17 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent / "auteur" / "web" / "static"
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "auteur-app.html"
 
+# `theme.css` and `theme.js` are generated from `auteur/theme.py` and are not
+# committed, so a fresh checkout does not have them and the read below fails
+# with a bare FileNotFoundError naming a path that does not exist in the
+# repository. Generating them here rather than requiring a step beforehand:
+# the ordering trap is worth removing, not documenting. This is what `serve`
+# does on startup for the same reason.
+sys.path.insert(0, str(HERE.parent.parent))
+from auteur.web import assets  # noqa: E402
+
+assets.ensure(ROOT)
+
 
 def read(name):
     return (ROOT / name).read_text(encoding="utf-8")

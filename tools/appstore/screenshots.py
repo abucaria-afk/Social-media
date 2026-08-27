@@ -32,7 +32,12 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
-from playwright.sync_api import sync_playwright
+
+# Playwright is imported where it is used rather than here. `DEVICES` below is
+# the list of sizes App Store Connect accepts, and the preflight reads it to
+# check a screenshot's dimensions — a question that needs no browser. Importing
+# playwright at module scope made reading that table impossible without one,
+# which failed CI on every run while passing anywhere a browser was installed.
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -284,6 +289,8 @@ def shoot(page, base: str, folder: Path, wide: bool) -> list[str]:
 
 
 def main() -> int:
+    from playwright.sync_api import sync_playwright
+
     if OUT.exists():
         shutil.rmtree(OUT)
     workspace = Path(tempfile.mkdtemp(prefix="auteur-shots-"))

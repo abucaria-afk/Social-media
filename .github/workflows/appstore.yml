@@ -51,6 +51,15 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
+      - name: Build the page the app loads
+        # `tools/artifact/auteur-app.html` is generated and gitignored, so a
+        # fresh checkout does not have it and `build_bundle.py` exits with
+        # "run tools/artifact/build_artifact.py first" before doing anything.
+        # This workflow failed that way on every run from the day it was
+        # added — nine in a row — because the step below was the first one and
+        # the file it needs is only ever built by hand.
+        run: python3 tools/artifact/build_artifact.py
+
       - name: Regenerate the bundle from the palette and the identity
         # Also the thing that catches a project.yml and an identity.py that
         # have drifted, because it writes the file that ties them together.

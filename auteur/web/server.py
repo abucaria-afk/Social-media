@@ -558,6 +558,15 @@ class _Prefixed(io.RawIOBase):
     `BytesParser.parse` wants one stream carrying the Content-Type header and
     the body. Concatenating them would rebuild the copy this exists to avoid,
     so they are read in order instead.
+
+    `rest` is a `SpooledTemporaryFile`, which only grew a `readinto` in Python
+    3.11 — it did not fully implement `IOBase` before that. Calling it directly
+    raised `AttributeError` on 3.10, and every caller turns any exception into
+    "I could not read that upload", so on 3.10 *every* multipart post failed:
+    no film could be made, no reel added, no profile picture set. The whole app
+    was unusable on a version its own CI claims to support, and the only thing
+    that ever said so was one test asserting the wrong message. So the read is
+    done through whichever of the two the object actually has.
     """
 
     def __init__(self, header: bytes, rest) -> None:
@@ -571,7 +580,15 @@ class _Prefixed(io.RawIOBase):
         got = self._header.readinto(target)
         if got:
             return got
-        return self._rest.readinto(target)
+        if hasattr(self._rest, "readinto"):
+            return self._rest.readinto(target)
+        # Python 3.10's SpooledTemporaryFile. `read` into a memoryview of the
+        # target keeps this a copy of one block rather than of the whole body.
+        block = self._rest.read(len(target))
+        if not block:
+            return 0
+        target[: len(block)] = block
+        return len(block)
 
 
 class Handler(BaseHTTPRequestHandler):
