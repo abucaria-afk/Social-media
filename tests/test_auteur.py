@@ -10332,6 +10332,46 @@ def _api_post(base, path, cookie, payload=None):
         return _json.loads(response.read().decode())
 
 
+def test_every_tab_and_create_entry_points_at_a_route_the_app_serves():
+    """A tab bar slot leading to a 404 is the worst possible 404.
+
+    Made twice in one day. `brand.SHOTS` sourced a store screenshot from
+    "/looks", and the first draft of the rebuilt tab bar gave the second slot
+    to "/discover" — neither of which the server has ever served. Both were
+    found by asking the server rather than by reading the file, so that is what
+    this does: it reads the routes out of `server.py` and the destinations out
+    of `chrome.js`, and neither side can be edited alone.
+    """
+    from auteur.web import server
+
+    source = Path(server.__file__).read_text(encoding="utf-8")
+    routes = {
+        piece.strip().strip("\"'")
+        for group in re.findall(r"path in \(([^)]*)\)", source)
+        for piece in group.split(",")
+        if piece.strip()
+    }
+    routes.add("/")
+
+    chrome = (server.STATIC / "chrome.js").read_text(encoding="utf-8")
+
+    tabs = re.search(r"var TABS = \[(.*?)\n  \];", chrome, re.S)
+    assert tabs, "the tab bar no longer declares TABS"
+    creates = re.search(r"var CREATE = \[(.*?)\n  \];", chrome, re.S)
+    assert creates, "the create sheet no longer declares CREATE"
+
+    destinations = re.findall(r'href:\s*"([^"]+)"', tabs.group(1) + creates.group(1))
+    assert len(destinations) >= 9, f"only found {len(destinations)} destinations"
+
+    for href in destinations:
+        # A fragment is a place on a page, not a page.
+        path = href.split("#")[0] or "/"
+        assert path in routes, (
+            f"the navigation sends people to {href!r}, which the server does "
+            "not serve — see the /looks and /discover entries this guards"
+        )
+
+
 def test_every_promotional_still_is_shot_from_a_route_the_app_serves():
     """A screenshot plan pointing at a 404 produces no screenshot.
 

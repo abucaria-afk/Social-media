@@ -12,7 +12,7 @@
  * that is right on seven pages and stale on the eighth is worse than none.
  */
 (function () {
-  /* Five slots, and the fifth is you.
+  /* Five slots, the middle one opens rather than goes, and the fifth is you.
    *
    * It was the studio. Both apps this is modelled on end the bar with the
    * person using it — Home, Search, +, Reels, You on one; Home, Friends, +,
@@ -20,13 +20,82 @@
    * all. Instagram keeps its professional dashboard behind the profile tab,
    * which is exactly the shape the studio is: yours, entered deliberately, not
    * somewhere you flick to. So the studio moved to a row at the top of your
-   * own profile, and this slot is the profile itself. */
+   * own profile, and this slot is the profile itself.
+   *
+   * Templates had the second slot and no longer does. Making a template, using
+   * one, and cutting a film from scratch are the same activity — they are all
+   * "make something" — and putting one of the three in the bar while the other
+   * two live behind the plus said they were different kinds of thing. On both
+   * reference apps the plus is the only way into anything creative, and it
+   * does not navigate: it *opens*, and asks which kind. Instagram's asks Post,
+   * Story, Reel, Live. This one asks which of the things this app makes.
+   *
+   * The freed slot went to Schedule. On both reference apps the second slot is
+   * Discover — another feed to fall into — and this app is not for falling
+   * into. What it is for is the other half of the work: you made something,
+   * and now it has to go somewhere, at a time, on a platform, and you need to
+   * know whether the last one landed. That is the second most common thing
+   * somebody opens this app to do, so it is the second slot.
+   *
+   * (The first version of this bar put Discover here, pointing at /discover,
+   * which the server does not serve. That is the same defect as `brand.SHOTS`
+   * naming /looks — a navigation entry to a page that does not exist — and it
+   * was caught the same way, by asking the server rather than by reading.)
+   *
+   * Messages keep their own slot. They had one already, called Inbox; the name
+   * is the change. "Inbox" is where a system puts things it has decided to
+   * send you, and this is a tab where people you know write to you, which is a
+   * different promise. Both reference apps use the person-to-person word.
+   */
   var TABS = [
     { id: "feed", href: "/feed", label: "Feed", icon: "home" },
-    { id: "templates", href: "/templates", label: "Templates", icon: "grid" },
-    { id: "make", href: "/", label: "Create", icon: "plus", big: true },
-    { id: "inbox", href: "/inbox", label: "Inbox", icon: "chat" },
+    { id: "schedule", href: "/plan", label: "Schedule", icon: "calendar" },
+    /* No href: this one opens the sheet below. It is still an <a> with a real
+       target for the no-JavaScript case and for anybody who opens it in a new
+       tab — a control that does nothing without script is not a control. */
+    { id: "make", href: "/", label: "Create", icon: "plus", big: true, opens: "create" },
+    { id: "messages", href: "/inbox", label: "Messages", icon: "chat" },
     { id: "profile", href: "/profile", label: "You", icon: "person" }
+  ];
+
+  /* What the plus offers. Every creative surface in the app, in the order
+   * somebody meets them, with the one that is the whole product first.
+   *
+   * The rule for this list: an entry earns its place by *making something that
+   * did not exist*. The feed, the album and the settings are not here however
+   * often they are used, because a chooser that lists everything is a menu,
+   * and a menu is what the five stacked cards on the old home screen were. */
+  var CREATE = [
+    {
+      href: "/",
+      title: "Make a film",
+      note: "Pick clips, say what you want, get it cut.",
+      icon: "spark"
+    },
+    {
+      href: "/templates",
+      title: "Cut to a template",
+      note: "Use a reel's timing on your own footage.",
+      icon: "grid"
+    },
+    {
+      href: "/templates#add",
+      title: "Make a template",
+      note: "Upload a reel and keep where its cuts fall.",
+      icon: "plus"
+    },
+    {
+      href: "/overlays",
+      title: "Type and stickers",
+      note: "Words and marks that land on the beat.",
+      icon: "chat"
+    },
+    {
+      href: "/projects",
+      title: "Start a project",
+      note: "An album and a map for one piece of work.",
+      icon: "home"
+    }
   ];
 
   /* Line art, one weight, drawn on a 24 grid. Filled glyphs read as "selected"
@@ -47,6 +116,14 @@
       fill: true
     },
     plus: { line: "M12 6v12M6 12h12", fill: false },
+    /* A glass. Not filled when active — a magnifier with a solid lens reads as
+       a lollipop at 24px, so this one stays line art in both states. */
+    /* A month, not a clock. A clock says "when", a grid of days says "what is
+       already booked", which is the question this tab answers. */
+    calendar: {
+      line: "M4 6a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1zM4 10h16M8 3v4M16 3v4",
+      fill: false
+    },
     /* Head and shoulders, one path, so the filled variant works the same way
        the others do. */
     person: {
@@ -70,8 +147,13 @@
     var path = location.pathname.replace(/\.html$/, "");
     if (path === "" || path === "/" || path === "/index") return "make";
     if (path.indexOf("/feed") === 0) return "feed";
-    if (path.indexOf("/templates") === 0) return "templates";
-    if (path.indexOf("/inbox") === 0 || path.indexOf("/messages") === 0) return "inbox";
+    if (path.indexOf("/plan") === 0 || path.indexOf("/manager") === 0 ||
+        path.indexOf("/connect") === 0) return "schedule";
+    if (path.indexOf("/inbox") === 0 || path.indexOf("/messages") === 0) return "messages";
+    /* Templates, overlays and the plan board are all reached through the plus,
+       so the plus is what lights up while you are in one of them. A tab bar
+       that highlights nothing tells you that you are lost. */
+    if (path.indexOf("/templates") === 0 || path.indexOf("/overlays") === 0) return "make";
     if (path.indexOf("/profile") === 0 || path.indexOf("/me") === 0 ||
         path.indexOf("/u/") === 0) return "profile";
     /* The studio, /projects, /ask, /overlays and /connect are all reached from
@@ -115,7 +197,7 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
         if (!data) return;
-        var dot = document.querySelector('.tab[data-tab="inbox"] .tab-badge');
+        var dot = document.querySelector('.tab[data-tab="messages"] .tab-badge');
         if (!dot) return;
         if (data.unread > 0) {
           dot.textContent = data.unread > 9 ? "9+" : String(data.unread);

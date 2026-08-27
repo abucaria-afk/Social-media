@@ -27,6 +27,7 @@ from ..analysis.audio import AudioAnalysis
 from ..analysis.dossier import ClipDossier, Take
 from ..config import Settings
 from ..craft import color as color_craft
+from ..craft import story as story_craft
 from ..edl import (
     MIN_SHOT,
     EditDecisionList,
@@ -57,6 +58,15 @@ log = logging.getLogger("auteur.director.heuristic")
 #: there is one number.
 MIN_SLOT = MIN_SHOT
 MAX_SLOT = 5.0
+#: A held shot is allowed past `MAX_SLOT`, because that ceiling exists to stop
+#: an ordinary shot outstaying its welcome and a hold is the one shot whose job
+#: is exactly that. It is still capped as a fraction of the film below, so it
+#: cannot eat a short one.
+HELD_SLOT = 8.0
+#: The most of the film one held shot may occupy. A fifth is already a long
+#: time to look at one frame; past that it stops reading as emphasis and starts
+#: reading as the render having failed.
+HELD_SHARE = 0.2
 #: Frame difference that counts as "fully energetic" when matching shots to the arc.
 MOTION_FULL_SCALE = 0.12
 
@@ -68,6 +78,10 @@ class _Slot:
     end: float
     energy: float
     on_downbeat: bool = False
+    #: What this shot is *for*. Every decision below used to come from `energy`
+    #: alone, which is why they all moved together and none of them surprised
+    #: anybody. See `auteur/craft/story.py`.
+    beat: story_craft.Beat = story_craft.Beat.BUILD
 
     @property
     def length(self) -> float:
