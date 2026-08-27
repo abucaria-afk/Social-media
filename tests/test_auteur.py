@@ -7720,6 +7720,74 @@ def test_picking_a_decade_grades_the_whole_film_to_it():
     ), f"the page offers {offered - set(ERA_LOOKS)}, which is unwired"
 
 
+def test_a_film_can_be_accepted_and_still_never_be_seen():
+    """One ceiling could not say the thing that matters.
+
+    Instagram accepts a Reel of about twenty minutes and recommends one of
+    three, so a film can be entirely legal and entirely invisible — and a
+    single `max_seconds` has no way to express that. Checking the numbers
+    against current guidance is what surfaced it: three of the six limits in
+    the file had risen while it kept the old ones, so it was refusing films the
+    platforms would have taken, and saying nothing at all about the length that
+    actually decides whether anybody sees them.
+    """
+    from auteur.workflows.platforms import PLATFORMS
+
+    reach = {k: s for k, s in PLATFORMS.items() if s.reach_seconds}
+    assert reach, "no surface distinguishes what is accepted from what travels"
+
+    for key, spec in reach.items():
+        assert (
+            spec.reach_seconds < spec.max_seconds
+        ), f"{key}: the reach ceiling is not below the hard one, so it says nothing"
+        assert (
+            spec.ideal_seconds <= spec.reach_seconds
+        ), f"{key}: the length it aims for is already past the length that travels"
+
+        # Between the two: accepted, and a warning that it will not travel.
+        between = (spec.reach_seconds + spec.max_seconds) / 2
+        assert (
+            spec.duration_problem(between) == ""
+        ), f"{key}: {between:.0f}s is refused, and the platform would take it"
+        assert spec.reach_problem(
+            between
+        ), f"{key}: {between:.0f}s posts to nobody and nothing says so"
+
+        # Under the reach ceiling: nothing to report either way.
+        fine = spec.ideal_seconds
+        assert not spec.duration_problem(fine) and not spec.reach_problem(fine)
+
+    # Surfaces with a genuine hard stop and no cliff still behave.
+    for key, spec in PLATFORMS.items():
+        if not spec.reach_seconds:
+            assert (
+                spec.reach_problem(spec.max_seconds * 2) == ""
+            ), f"{key} has no reach ceiling but reports one"
+
+
+def test_what_each_surface_reports_is_the_number_that_changes_a_decision():
+    """ "3-3600s" is true and useless.
+
+    Once the hard limits were corrected they became twenty minutes and an hour,
+    and a span written from them tells a person nothing about the film they
+    should make. What gets shown is the length that still travels.
+    """
+    from auteur.workflows.platforms import AS_OF, PLATFORMS
+
+    assert re.fullmatch(r"\d{4}-\d{2}", AS_OF), f"{AS_OF!r} is not a checkable date"
+
+    for key, spec in PLATFORMS.items():
+        described = spec.describe()
+        ceiling = spec.reach_seconds or spec.max_seconds
+        assert (
+            f"{ceiling:.0f}s" in described
+        ), f"{key}: {described!r} does not name the ceiling that matters"
+        if spec.reach_seconds:
+            assert (
+                "allowed" in described
+            ), f"{key}: the hard limit is hidden entirely, so an allowed film looks refused"
+
+
 def test_the_scholar_has_a_source_that_is_not_this_repository(tmp_path):
     """Audited on the live store: 127 learnings, every one from inside.
 

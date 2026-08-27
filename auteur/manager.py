@@ -448,8 +448,14 @@ def check(plan: Plan, *, hold: float = 0.0, first_cut: float = 0.0, others=()) -
 
     # -- length ----------------------------------------------------------
     trouble = spec.duration_problem(plan.seconds)
+    reach = spec.reach_problem(plan.seconds)
     if trouble:
         add(Finding("length", "fail", trouble, f"{spec.service}'s published limits"))
+    elif reach:
+        # Not a failure: it will post. It just will not be shown to anybody who
+        # does not already follow you, which is a worse outcome than a refusal
+        # because nothing tells you it happened.
+        add(Finding("length", "warn", reach, f"{spec.service}'s recommendation limit"))
     elif abs(plan.seconds - spec.ideal_seconds) > spec.ideal_seconds * 0.5:
         add(
             Finding(
