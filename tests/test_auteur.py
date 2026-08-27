@@ -7720,6 +7720,113 @@ def test_picking_a_decade_grades_the_whole_film_to_it():
     ), f"the page offers {offered - set(ERA_LOOKS)}, which is unwired"
 
 
+def test_the_site_ships_the_palette_the_app_actually_uses():
+    """The site said it was generated from theme.py. Nothing generated it.
+
+    Measured before the fix: all thirteen colours it carried had drifted, in
+    both light and dark, and three roles were missing entirely. The most
+    visible was `--moss` — green on the site, teal in the app, for months. A
+    landing page showing a different-coloured product than the one it links to
+    is a landing page working against itself, and nothing could tell, because
+    the check was a comment.
+    """
+    from auteur import theme
+
+    site = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    head, marker, tail = site.partition("@media (prefers-color-scheme: light)")
+    assert marker, "the site has no light scheme at all"
+
+    for scheme, block in (("dark", head), ("light", tail)):
+        shipped = dict(re.findall(r"--([a-z-]+):\s*(#[0-9a-fA-F]{6,8})", block))
+        for role in theme.ROLES:
+            css = role.replace("_", "-")
+            want = theme.hex_of(role, scheme)
+            assert css in shipped, f"the site is missing --{css} in {scheme}"
+            assert shipped[css].lower() == want.lower(), (
+                f"{scheme} --{css}: the site ships {shipped[css]} and the app uses {want} — "
+                "run tools/site/build_site.py"
+            )
+
+
+def test_one_set_of_words_describes_this_app():
+    """There were three, and they had drifted.
+
+    The App Store listing had the current story, the site described the
+    command-line tool it was eighteen months ago, and Play had none. Three
+    stories is three products to anybody reading them, and which one a person
+    believes is decided by which they happen to meet first.
+    """
+    from auteur import brand
+
+    root = Path(__file__).resolve().parent.parent
+    site = (root / "docs" / "index.html").read_text(encoding="utf-8")
+    apple = (root / "tools" / "appstore" / "listing.py").read_text(encoding="utf-8")
+    play = (root / "tools" / "play" / "listing.py").read_text(encoding="utf-8")
+
+    # Both listings read the shared source rather than keeping a copy.
+    for name, text in (("the App Store listing", apple), ("the Play listing", play)):
+        assert "brand." in text, f"{name} does not read auteur/brand.py"
+
+    # And the site says the same things, because it is generated from it.
+    assert brand.TAGLINE in site, "the site does not carry the tagline"
+    for feature in brand.FEATURES:
+        assert feature.headline in site, f"the site is missing {feature.headline!r}"
+
+    # A claim the app cannot deliver on its own is marked as needing a server,
+    # rather than sitting on a landing page as though it were in the box.
+    needs_server = [f for f in brand.FEATURES if not f.on_device]
+    assert needs_server, "nothing is marked as needing an instance — check the flags"
+
+
+def test_the_copy_fits_both_stores_not_just_apple():
+    """Play's boxes are not Apple's boxes.
+
+    Play's short description takes 80 characters where Apple's subtitle takes
+    30, and Play has no keyword field at all. A listing written to Apple's
+    shape and pasted into Play is a listing that either overflows or wastes
+    most of the room it was given.
+    """
+    from auteur import brand
+
+    for store in ("apple", "play"):
+        assert brand.too_long(store) == [], f"{brand.LIMITS[store].store}: " + "; ".join(
+            brand.too_long(store)
+        )
+
+    limits = brand.LIMITS
+    assert limits["play"].short > limits["apple"].short, "the two stores' shapes have merged"
+    assert limits["play"].keywords == 0, "Play has no keyword field"
+
+    # The long description is built from the features, not typed beside them.
+    described = brand.description()
+    for feature in brand.FEATURES:
+        assert feature.headline in described, f"{feature.headline!r} is missing from the listing"
+
+
+def test_google_play_is_asked_the_questions_apple_never_asks():
+    """A preflight that covers one store tells you nothing about the other.
+
+    Play's two blockers are its own: a Data safety declaration it will not
+    infer from the binary, and working reviewer access for anything behind a
+    sign-in. This app has a sign-in for the instance features, so neither is
+    optional for it.
+    """
+    play = (Path(__file__).resolve().parent.parent / "tools" / "play" / "listing.py").read_text(
+        encoding="utf-8"
+    )
+
+    for needed, why in (
+        ("DATA_SAFETY", "the Data safety declaration"),
+        ("APP_ACCESS", "reviewer access for the sign-in"),
+        ("CONTENT_RATING", "the IARC questionnaire"),
+        ("aab", "the bundle format Play requires"),
+        ("Target API level", "the API floor that blocks uploads"),
+    ):
+        assert needed in play, f"the Play pack does not answer {why}"
+
+
 def test_a_film_can_be_accepted_and_still_never_be_seen():
     """One ceiling could not say the thing that matters.
 

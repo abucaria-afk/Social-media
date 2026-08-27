@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from auteur.web.auth import ADULT_AGE, MINIMUM_AGE  # noqa: E402
+from auteur import brand  # noqa: E402
 from auteur.identity import (  # noqa: E402
     DESCRIPTION_LIMIT,
     IDENTITY,
@@ -39,57 +40,13 @@ OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build" / "appstore"
 # 28 characters. The obvious "Cut a film from your camera roll" is 32, which
 # App Store Connect refuses — the length table below is what caught it, which
 # is the whole reason this file generates rather than being typed into a form.
-SUBTITLE = "A film from your camera roll"
+SUBTITLE = brand.TAGLINE
 
-PROMOTIONAL = (
-    "Say what you want in a sentence. It frames every shot, cuts to the "
-    "cadence of your words, grades it, and hands you the film."
-)
+PROMOTIONAL = brand.PROMISE
 
-KEYWORDS = "video editor,reels,montage,film,cut,edit,grade,vhs,super 8,offline,privacy"
+KEYWORDS = brand.KEYWORDS
 
-DESCRIPTION = """\
-Auteur turns what is already on your phone into a finished film.
-
-Say what you want in a sentence — "the long way home, unhurried, 90s" — and it
-frames every shot, cuts to the cadence your words ask for, grades the whole
-thing, and puts anything you wrote "in quotes" on screen. A hypercut really does
-come back cut at a sixth of a second a shot.
-
-WHAT IT DOES
-
-• Reads your clips and photographs and works out what is in them
-• Cuts to a rhythm rather than to a fixed interval
-• Grades for a decade if you ask: Super 8, VHS, Kodak, Y2K flash, faded 2010s
-• Cuts to the timing of a reel you liked, if you hand it one
-• Puts type and stickers on the beat
-• Delivers at the shape each platform wants
-
-PLAN BEFORE YOU SHOOT
-
-The manager plans a post before the photograph exists: a shot list grouped into
-setups you can actually shoot in one go, a caption, and a check on the things
-that decide whether anybody sees it. It does everything except post — every
-share is a deliberate action you take.
-
-IT RUNS ON YOUR DEVICE
-
-There is no account with anybody. The app makes no network requests on its own,
-works in aeroplane mode, and contains no analytics, no crash reporting service,
-no advertising identifier and no third-party software of any kind.
-
-If you run Auteur on your own computer, the app can connect to it — that is
-where the feed, the messages and the planning board live, on hardware you own,
-in a folder you chose. Nothing goes anywhere you did not put it.
-
-FOR EVERYONE
-
-Text size, reduced motion and increased contrast are settings in the app, and
-the system's own accessibility settings are always honoured.
-
-Auteur is for people 12 and over. An account for somebody under 18 starts with
-sensitive films hidden, and that can be locked with a code.
-"""
+DESCRIPTION = brand.description()
 
 REVIEW_NOTES = """\
 WHAT THIS APP IS

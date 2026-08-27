@@ -485,6 +485,65 @@ def check_safety() -> list[Note]:
     ]
 
 
+def check_play() -> list[Note]:
+    """What Google Play asks that the App Store does not.
+
+    This file was written when there was one store, and a check that only
+    covers one store reports "ready to submit" to somebody who is about to
+    submit to two. Play's blockers are its own: a Data safety declaration it
+    will not infer from the binary, working access for a reviewer when anything
+    sits behind a sign-in, and a listing whose short description is 80
+    characters rather than Apple's 30.
+    """
+    from auteur import brand
+
+    notes: list[Note] = []
+
+    over = brand.too_long("play")
+    notes.append(
+        Note(
+            not over,
+            "every field fits Play's limits" if not over else "; ".join(over),
+        )
+    )
+
+    pack = ROOT / "tools" / "play" / "listing.py"
+    notes.append(
+        Note(
+            pack.is_file(), "the Play listing generates" if pack.is_file() else f"{pack} is missing"
+        )
+    )
+
+    # Both stores tell the same story, or the copy has drifted again.
+    apple = ROOT / "tools" / "appstore" / "listing.py"
+    shared = apple.is_file() and "brand" in apple.read_text(encoding="utf-8")
+    notes.append(
+        Note(
+            shared,
+            (
+                "both listings read the same copy"
+                if shared
+                else "the App Store listing keeps its own copy — it will drift from Play's"
+            ),
+            soft=not shared,
+        )
+    )
+
+    # The package name is the one Play rejects outright, same as Apple.
+    reserved = IDENTITY.bundle_id.startswith("com.example")
+    notes.append(
+        Note(
+            not reserved,
+            (
+                f"package name is {IDENTITY.bundle_id}"
+                if not reserved
+                else f"package name is still {IDENTITY.bundle_id} — Play refuses com.example too"
+            ),
+        )
+    )
+    return notes
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -507,6 +566,7 @@ def main() -> int:
         ("URLs", check_urls(args.online)),
         ("Safety", check_safety()),
         ("Age", check_age()),
+        ("Google Play", check_play()),
     ]
 
     bad = 0
@@ -531,7 +591,7 @@ def main() -> int:
         print()
 
     if bad:
-        print(f"  {bad} thing(s) would come back from App Store Connect. Fix them first.")
+        print(f"  {bad} thing(s) would come back from a store review. Fix them first.")
         print()
         return 1
     print("  everything checkable from here is right.")
