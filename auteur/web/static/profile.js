@@ -443,6 +443,61 @@
       .catch(function () {});
   }
 
+  /* What this copy recorded about what you watched.
+   *
+   * Shown because the privacy policy says it is shown. A history somebody
+   * cannot look at is a history they have no way to judge, and "we measure
+   * watch time to rank the feed" is a sentence that should come with the
+   * numbers attached rather than as a claim in a document nobody opens. */
+  function watchRow(what, how, done) {
+    return '<div class="stack-row"><span class="what">' + escaped(what) +
+      '</span><span class="how' + (done ? " done" : "") + '">' +
+      escaped(how) + "</span></div>";
+  }
+
+  $("my-watching").addEventListener("click", function () {
+    $("watching-list").innerHTML = "";
+    $("watching-mine").innerHTML = "";
+    $("watching-mine-title").hidden = true;
+    openSheet("watching");
+    fetch("/api/watching", { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) { return; }
+        var seen = data.watched || [];
+        $("watching-list").innerHTML = seen.length
+          ? seen.map(function (row) {
+              var mins = row.seconds >= 60
+                ? Math.round(row.seconds / 60) + " min"
+                : Math.round(row.seconds) + "s";
+              return watchRow(
+                row.prompt || "a film since deleted",
+                (row.finished ? "finished · " : "") + mins +
+                  (row.plays > 1 ? " · " + row.plays + " times" : ""),
+                row.finished
+              );
+            }).join("")
+          : '<p class="stack-empty">Nothing yet. Watch something in the feed.</p>';
+
+        var mine = (data.films || []).filter(function (f) { return f.plays; });
+        if (mine.length) {
+          $("watching-mine-title").hidden = false;
+          $("watching-mine").innerHTML = mine.map(function (f) {
+            var done = f.plays ? Math.round((f.finishes / f.plays) * 100) : 0;
+            return watchRow(
+              f.prompt || f.film,
+              f.plays + (f.plays === 1 ? " play" : " plays") + " · " +
+                done + "% finished",
+              done >= 60
+            );
+          }).join("");
+        }
+      })
+      .catch(function () {});
+  });
+
+  $("watching-close").addEventListener("click", function () { closeSheet("watching"); });
+
   /* What you reported, and what came of it — plus who you have blocked, with
      a way back. A report whose outcome you can never see is a button people
      press once and then stop believing in. */

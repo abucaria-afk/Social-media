@@ -98,8 +98,15 @@ FEATURES: list[Feature] = [
     ),
     Feature(
         "It runs on your device",
-        "No account with anybody, no analytics, no advertising identifier, no "
-        "third-party code. It works in aeroplane mode.",
+        "No account with anybody, no third-party analytics, no advertising "
+        "identifier, no third-party code at all. It works in aeroplane mode.",
+    ),
+    Feature(
+        "A feed that learns, on your own machine",
+        "An instance measures how long its films are watched and what you "
+        "finish, and ranks with it. That is how a feed stops being a shuffle. "
+        "It stays on your hardware and your history is yours to delete.",
+        on_device=False,
     ),
     Feature(
         "A feed, if you want one",
@@ -247,7 +254,10 @@ SHOTS: list[Shot] = [
         "screenshot of homework.",
     ),
     Shot("say", "Say what you want", "/", "The one interaction the whole app is."),
-    Shot("looks", "Graded for a decade", "/looks", "The most visual screen there is."),
+    # "/looks" for months, which the app has never served. The decade grades
+    # are the `#era` group on the home screen, so that is where the still of
+    # them comes from.
+    Shot("looks", "Graded for a decade", "/", "The most visual control there is."),
     Shot("feed", "Films, if you run a copy", "/feed", "Shows it is more than a tool."),
     Shot("projects", "A map for the thinking", "/projects", "Nothing else looks like this."),
     Shot("you", "Yours to set", "/profile", "Accessibility and the age setting."),

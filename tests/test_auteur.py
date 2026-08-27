@@ -1435,6 +1435,7 @@ def web_server(tmp_path):
     from auteur.web.profiles import Profiles
     from auteur.web.safety import Reports
     from auteur.web.social import Films, Messages
+    from auteur.web.watching import Watching
 
     assets.ensure(web.STATIC)
     root = tmp_path / "web"
@@ -1452,6 +1453,7 @@ def web_server(tmp_path):
     web.Handler.reports = Reports(root / "reports.json")
     web.Handler.projects = Projects(root / "projects.json")
     web.Handler.board = Board(Board.default_path(root))
+    web.Handler.watching = Watching(root / "watching")
 
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -1478,6 +1480,7 @@ def web_server(tmp_path):
         web.Handler.reports = None
         web.Handler.projects = None
         web.Handler.board = None
+        web.Handler.watching = None
 
 
 def test_the_shell_and_icons_are_reachable(web_server):
@@ -1706,7 +1709,7 @@ def test_the_icon_and_the_page_use_the_same_palette():
     from auteur.web import assets, server
 
     assert assets.INK == theme.rgb_of("ground")
-    assert assets.AMBER == theme.rgb_of("ember")
+    assert assets.ACCENT == theme.rgb_of("ember")
 
     page = (server.STATIC / "index.html").read_text()
     assert f'content="{theme.THEME_COLOR}"' in page
@@ -7720,6 +7723,209 @@ def test_picking_a_decade_grades_the_whole_film_to_it():
     ), f"the page offers {offered - set(ERA_LOOKS)}, which is unwired"
 
 
+def test_a_view_reported_by_the_player_reaches_the_ranking(web_server):
+    """The whole round trip, over a socket, the way the phone does it.
+
+    Every other test of this drives the store directly. This one posts the same
+    JSON the feed's beacon sends, because a store that works and a route that
+    never reaches it look identical from inside the store.
+
+    The first version of this test asserted the wrong thing: it had one account
+    both watching and reading, then expected the film that account had watched
+    to the end to rank *first*. It ranks lower, deliberately — a feed that
+    leads with what you just finished is a feed with nothing new in it. Which
+    is why the account reading here is not the account that did the watching.
+    """
+    base, studio, cookie = web_server
+    from auteur.web import server as web
+
+    films = {}
+    for name in ("dull", "loved", "seen"):
+        film = web.Handler.films.add(
+            owner="grace",
+            prompt=f"a {name} one",
+            video=str(studio.workspace / f"{name}.mp4"),
+        )
+        films[name] = film.id
+
+    watching = web.Handler.watching
+
+    # Over the wire, as the player sends it: tester bounces off `dull` and
+    # watches `seen` to the end.
+    for _ in range(6):
+        posted = _api_post(
+            base, "/api/watched", cookie, {"film": films["dull"], "seconds": 1.2, "runtime": 12.0}
+        )
+        assert posted["ok"]
+    assert watching.reception(films["dull"]).plays == 6, "the route never reached the store"
+
+    _api_post(
+        base, "/api/watched", cookie, {"film": films["seen"], "seconds": 12.0, "runtime": 12.0}
+    )
+    assert watching.already_seen("tester") == {films["seen"]}
+
+    # And other people love `loved`, which tester has never opened.
+    for n in range(8):
+        watching.played(f"someone{n}", films["loved"], seconds=12.0, runtime=12.0)
+    watching.shared(films["loved"])
+
+    assert watching.merit(films["loved"]) > watching.merit(films["dull"])
+
+    order = [row["id"] for row in _api_get(base, "/api/feed", cookie)["films"]]
+    assert (
+        order[0] == films["loved"]
+    ), f"the feed did not lead with the best-received unseen film: {order}"
+    assert order.index(films["seen"]) > order.index(
+        films["loved"]
+    ), "a film this person already watched through outranks one they have not seen"
+
+    # And the person can see what the instance recorded about them.
+    mine = _api_get(base, "/api/watching", cookie)
+    watched = {row["film"]: row for row in mine["watched"]}
+    assert set(watched) == {films["dull"], films["seen"]}, "the history is wrong"
+    assert watched[films["seen"]]["finished"] is True
+    assert watched[films["dull"]]["finished"] is False
+    assert films["loved"] not in watched, "a film they never opened is in their history"
+    # The history is shown to a person, so it has to say what they watched
+    # rather than which row it was. It shipped once reading "8f3c1e2a — 41s".
+    assert all(
+        row["prompt"] for row in mine["watched"]
+    ), f"the history carries no prompts, only identifiers: {mine['watched']}"
+
+
+def test_the_feed_has_something_to_rank_by(tmp_path):
+    """It had nothing, and the insight layer was fitted to a simulation.
+
+    A recommender with no observations is a shuffle with extra steps. Worse,
+    `insight.dataset` had always been able to read a real export and never had
+    one, so every virality score came from a model fitted to invented rows.
+    """
+    from auteur.web.watching import Watching
+
+    w = Watching(tmp_path / "watching")
+
+    # Three people watch one film all the way through; six bounce off another.
+    for who in ("ana", "ben", "cy"):
+        w.played(who, "good", seconds=12.0, runtime=12.0)
+    w.shared("good")
+    for n in range(6):
+        w.played(f"p{n}", "poor", seconds=1.1, runtime=12.0)
+
+    good, poor = w.reception("good"), w.reception("poor")
+    assert good.completion_rate == 1.0 and poor.completion_rate == 0.0
+    assert good.three_second_watch_rate == 1.0 and poor.three_second_watch_rate == 0.0
+    assert w.merit("good") > w.merit("poor"), "the ranking cannot tell them apart"
+
+    # One play does not out-rank fifty. Confidence has to grow with evidence,
+    # or the newest thing posted is permanently the best thing on the instance.
+    w.played("dana", "lucky", seconds=12.0, runtime=12.0)
+    assert w.merit("lucky") < w.merit("good"), "a single play beat three"
+    assert 0.35 < w.merit("lucky") < 0.65, "one play should sit near the middle"
+
+    # And the rows reach the model that was waiting for them.
+    rows = {r["post_id"]: r for r in w.signals()}
+    assert rows["good"]["completion_rate"] == 1.0
+    assert rows["good"]["share_to_view_ratio"] > 0
+    assert set(rows["good"]) >= {
+        "three_second_watch_rate",
+        "completion_rate",
+        "avg_time_spent_sec",
+        "share_to_view_ratio",
+    }, "the export does not match what insight.schema reads"
+
+
+def test_a_hostile_client_cannot_buy_a_ranking(tmp_path):
+    """The numbers arrive from somebody else's machine.
+
+    A player reporting an hour of watch time on a twelve-second film is either
+    a stuck timer or somebody promoting their own work, and a ranking that
+    believes it is a ranking anybody can buy with a curl command.
+    """
+    from auteur.web.watching import Watching
+
+    w = Watching(tmp_path / "watching")
+    w.played("cheat", "mine", seconds=99999.0, runtime=12.0)
+    assert w.reception("mine").seconds < 100, "an hour was recorded for a 12s film"
+
+    # Looping is the honest way to exceed the runtime, and it is bounded too.
+    w.played("fan", "mine", seconds=60.0, runtime=12.0, looped=3)
+    assert w.reception("mine").seconds < 200
+
+
+def test_deleting_an_account_erases_what_that_person_watched(tmp_path):
+    """The half that is about a person has to go when the person does.
+
+    Per-film totals stay, and that is deliberate rather than an oversight:
+    they name nobody, and subtracting a departed viewer's seconds would rewrite
+    the performance history of films belonging to people who are still here
+    without making anybody more private.
+    """
+    from auteur.web.watching import Watching
+
+    w = Watching(tmp_path / "watching")
+    w.played("leaving", "film-a", seconds=12.0, runtime=12.0)
+    w.played("leaving", "film-b", seconds=5.0, runtime=12.0)
+    w.played("staying", "film-a", seconds=12.0, runtime=12.0)
+
+    assert len(w.history("leaving")) == 2
+    plays_before = w.reception("film-a").plays
+
+    removed = w.forget_everything_about("leaving")
+    assert removed == 2
+    assert w.history("leaving") == [], "the history survived deletion"
+    assert w.already_seen("leaving") == set()
+    assert w.history("staying"), "somebody else's history was taken too"
+    assert w.reception("film-a").plays == plays_before, "a film's totals were rewritten"
+
+    # And it is gone from the file, not just from memory.
+    reopened = Watching(tmp_path / "watching")
+    assert reopened.history("leaving") == [], "deletion did not reach the disk"
+
+    # Nothing anywhere in the stored aggregates names them.
+    text = (tmp_path / "watching" / "reception.json").read_text(encoding="utf-8")
+    assert "leaving" not in text, "the per-film file carries a viewer's name"
+
+
+def test_the_feed_learns_a_taste_without_burying_everything_else(tmp_path):
+    """Personalisation that cannot change the order is decoration.
+
+    And personalisation that ignores everything else is a bubble. Both are
+    checked here, because the failure mode is different at each end: a bonus
+    too small never fires, and one too large shows somebody only ever the first
+    maker they happened to finish.
+    """
+    from dataclasses import dataclass
+
+    from auteur.web.watching import Watching
+
+    @dataclass
+    class Made:
+        id: str
+        owner: str
+
+    films = [Made("a1", "ana"), Made("a2", "ana"), Made("b1", "ben"), Made("b2", "ben")]
+    made_by = {f.id: f.owner for f in films}
+
+    w = Watching(tmp_path / "watching")
+    # Everything is received identically, so nothing but taste can decide.
+    for n in range(10):
+        for film in films:
+            w.played(f"crowd{n}", film.id, seconds=10.0, runtime=12.0)
+
+    merits = {f.id: round(w.merit(f.id), 4) for f in films}
+    assert len(set(merits.values())) == 1, f"the tie is not a tie: {merits}"
+
+    # Somebody who finishes ana's work, repeatedly.
+    for _ in range(3):
+        w.played("dana", "a1", seconds=12.0, runtime=12.0)
+
+    order = [f.id for f in w.for_you("dana", films, made_by=made_by)]
+    assert order[0] == "a2", f"taste did not carry to the same maker's unseen film: {order}"
+    # Not a bubble: ben is still in the feed, and reachable.
+    assert set(order) == {"a1", "a2", "b1", "b2"}, "personalising removed films"
+    assert order.index("a1") > order.index("a2"), "a film already finished ranks first"
+
+
 def test_the_site_ships_the_palette_the_app_actually_uses():
     """The site said it was generated from theme.py. Nothing generated it.
 
@@ -10063,6 +10269,102 @@ def _api_post(base, path, cookie, payload=None):
     )
     with urlopen(request) as response:
         return _json.loads(response.read().decode())
+
+
+def test_every_promotional_still_is_shot_from_a_route_the_app_serves():
+    """A screenshot plan pointing at a 404 produces no screenshot.
+
+    `SHOTS` listed "/looks" as the source of the "Graded for a decade" still.
+    The app has never served that path — the decade grades are a control on the
+    home screen — so the capture for the most visual slot in both store
+    listings was a route that 404s, and the only thing that noticed was a
+    browser being driven by hand.
+    """
+    from auteur import brand
+    from auteur.web import server
+
+    served = set(re.findall(r"path in \(([^)]*)\)", Path(server.__file__).read_text()))
+    routes = {
+        piece.strip().strip("\"'")
+        for group in served
+        for piece in group.split(",")
+        if piece.strip()
+    }
+    routes.add("/")
+    for shot in brand.SHOTS:
+        assert shot.route in routes, (
+            f"the {shot.key!r} still is shot from {shot.route!r}, "
+            "which the server does not serve"
+        )
+
+
+def test_no_sheet_is_hidden_inside_another_sheet():
+    """A sheet nested in a sheet can never be opened, and nothing says so.
+
+    The watch-history sheet shipped one revision inside `#reports-sheet`.
+    Clicking its row cleared the inner `hidden` and the sheet still did not
+    appear, because the outer one was hidden and an ancestor's `hidden` wins.
+    Nothing failed: the handler ran, the fetch returned, the rows were built,
+    `innerText` even read back correctly. Only measuring the element in a
+    browser found it, at 0x0.
+
+    Every sheet in this app is a fixed-position overlay at `inset: 0`, so a
+    sheet is always a sibling of the others and never a child of one.
+    """
+    from html.parser import HTMLParser
+
+    class Sheets(HTMLParser):
+        VOID = {"br", "img", "meta", "link", "input", "hr", "source", "track"}
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.depth: list[bool] = []
+            self.nested: list[str] = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag in self.VOID:
+                return
+            found = dict(attrs)
+            is_sheet = "sheet" in (found.get("class") or "").split()
+            if is_sheet and any(self.depth):
+                self.nested.append(found.get("id") or "an unnamed sheet")
+            self.depth.append(is_sheet)
+
+        def handle_endtag(self, tag):
+            if tag not in self.VOID and self.depth:
+                self.depth.pop()
+
+    from auteur.web import server as web
+
+    pages = sorted(Path(web.STATIC).glob("*.html"))
+    assert pages, "no pages to check"
+    for page in pages:
+        reader = Sheets()
+        reader.feed(page.read_text(encoding="utf-8"))
+        assert not reader.nested, (
+            f"{page.name} nests {reader.nested} inside another sheet — "
+            "opening it will do nothing, because the outer sheet's hidden wins"
+        )
+
+
+def test_every_sheet_can_be_dismissed_without_finding_its_button():
+    """Tapping outside a sheet closes it, which means it needs a scrim.
+
+    The watch-history sheet was written without one, so the only way out was
+    the Done button — on a phone, where every other sheet in the app closes on
+    a tap anywhere outside it.
+    """
+    import re
+
+    from auteur.web import server as web
+
+    for page in sorted(Path(web.STATIC).glob("*.html")):
+        text = page.read_text(encoding="utf-8")
+        for block in re.findall(
+            r'<div class="sheet" id="([a-z-]+)-sheet"[^>]*>(.*?)\n</div>', text, re.S
+        ):
+            name, body = block
+            assert "sheet-scrim" in body, f"{page.name}: the {name} sheet has no scrim to tap"
 
 
 def test_the_profile_page_is_served_for_you_and_for_anybody_else(web_server):

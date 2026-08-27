@@ -11,8 +11,8 @@
     "minimal-ui"
   ],
   "orientation": "portrait",
-  "background_color": "#19181b",
-  "theme_color": "#19181b",
+  "background_color": "#131110",
+  "theme_color": "#131110",
   "categories": [
     "photo",
     "video",

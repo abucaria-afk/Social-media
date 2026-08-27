@@ -586,6 +586,7 @@ class Handler(BaseHTTPRequestHandler):
     profiles: Any = None  # a profiles.Profiles once serve() has run
     reports: Any = None  # a safety.Reports once serve() has run
     projects: Any = None  # a projects.Projects once serve() has run
+    watching: Any = None  # a watching.Watching once serve() has run
     board: Any = None  # a manager.Board once serve() has run
     sign_in_with: Any = None  # provider settings once serve() has run
     attempts: Any = None  # an oidc.Attempts once serve() has run
@@ -1059,7 +1060,19 @@ class Handler(BaseHTTPRequestHandler):
         else:
             films = self.films.feed(who, limit=999, before=before)
 
-        films = [f for f in films if f.owner not in apart and f.id not in held][:PAGE]
+        films = [f for f in films if f.owner not in apart and f.id not in held]
+
+        # Rank it, now that there is something to rank by.
+        #
+        # Only the "everybody" scope. `mine` and `following` are answers to a
+        # question the person asked in their own words — show me my films, show
+        # me the people I chose — and reordering those by merit answers a
+        # different question than the tab is labelled with. Newest-first stays
+        # the rule where the person did the choosing.
+        if scope not in ("mine", "following") and self.watching is not None and who:
+            films = self.watching.for_you(who, films, made_by={f.id: f.owner for f in films})
+
+        films = films[:PAGE]
         rows = [f.public(who) for f in films]
         self._json(
             {
@@ -1085,6 +1098,85 @@ class Handler(BaseHTTPRequestHandler):
         deleted.
         """
         return self.profiles.public_of(who, viewer=who, films=len(self.films.by(who, limit=999)))
+
+    def _record_watch(self) -> None:
+        """One view, reported by the player when it stops.
+
+        Sent as a beacon, so it has to be cheap and it has to be safe to
+        receive twice — a phone locking mid-scroll can fire the same one again.
+        Nothing here trusts the numbers: `played` clamps the seconds to what
+        the film could physically have played, because a client is a thing on
+        somebody else's machine and a ranking that believes it is a ranking
+        anybody can buy.
+        """
+        if self.watching is None:
+            self._json({"ok": True})
+            return
+        payload = self._json_body()
+        film = str(payload.get("film") or "").strip()
+        if not film:
+            self._json({"error": "which film?"}, 400)
+            return
+        try:
+            seconds = float(payload.get("seconds") or 0.0)
+            runtime = float(payload.get("runtime") or 0.0)
+            looped = int(payload.get("looped") or 0)
+        except (TypeError, ValueError):
+            self._json({"error": "that is not a number of seconds"}, 400)
+            return
+
+        if payload.get("shared"):
+            self.watching.shared(film)
+        record = self.watching.played(
+            self.current_user() or "",
+            film,
+            seconds=seconds,
+            runtime=runtime,
+            looped=looped,
+        )
+        self._json({"ok": True, "plays": record.plays})
+
+    def _my_watching(self) -> None:
+        """What this instance has recorded about the person asking.
+
+        Theirs to see, because a history somebody cannot look at is a history
+        they cannot judge. The per-film totals for their *own* films come with
+        it — that is the useful half for somebody who makes things.
+        """
+        who = self.current_user() or ""
+        if self.watching is None or not who:
+            self._json({"watched": [], "films": []})
+            return
+        mine = {f.id: f for f in self.films.by(who, limit=999)}
+        self._json(
+            {
+                "watched": [
+                    {
+                        "film": s.film,
+                        # The prompt, not the id. A history that reads
+                        # "f3a91c2e — 41s" tells somebody nothing about what
+                        # they watched, which defeats the point of showing it
+                        # to them. A film since deleted has no prompt to give,
+                        # and says so rather than showing a bare identifier.
+                        "prompt": (seen.prompt if (seen := self.films.get(s.film)) else ""),
+                        "plays": s.plays,
+                        "seconds": round(s.seconds, 1),
+                        "finished": s.finished,
+                        "last": s.last,
+                    }
+                    for s in self.watching.history(who)[:100]
+                ],
+                "films": [
+                    {
+                        "film": film_id,
+                        "prompt": film.prompt,
+                        **self.watching.reception(film_id).to_json(),
+                        "merit": round(self.watching.merit(film_id), 3),
+                    }
+                    for film_id, film in mine.items()
+                ],
+            }
+        )
 
     def _my_profile(self) -> None:
         """Everything the profile page needs about the person looking at it."""
@@ -1627,6 +1719,12 @@ class Handler(BaseHTTPRequestHandler):
         self.profiles.forget(who)
         self.reports.forget_everything_about(who)
         self.projects.forget_everything_by(who)
+        # The personal half of the watch record. The per-film totals stay:
+        # they name nobody, and unpicking a departed viewer's seconds from
+        # them would rewrite the performance history of films belonging to
+        # people who are still here without making anybody more private.
+        if self.watching is not None:
+            self.watching.forget_everything_about(who)
         if self.board is not None:
             self.board.forget_everyones(who)
         # The reels somebody added as templates, which live under their name.
@@ -1970,6 +2068,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/feed":
             self._feed()
+            return
+        if path == "/api/watching":
+            self._my_watching()
             return
         if path == "/api/profile":
             self._my_profile()
@@ -3172,6 +3273,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/report":
             self._report()
             return
+        if path == "/api/watched":
+            self._record_watch()
+            return
         if path == "/api/restriction":
             self._set_restriction()
             return
@@ -3588,6 +3692,7 @@ def serve(
     from ..projects import Projects
     from .safety import Reports
     from .social import Films, Messages
+    from .watching import Watching
 
     assets.ensure(STATIC)
     root = Path(workspace or Path.cwd() / "auteur-web")
@@ -3602,6 +3707,10 @@ def serve(
     Handler.profiles = Profiles(Profiles.default_path(root), root / "pictures")
     # What anybody has reported, and what was done about it.
     Handler.reports = Reports(Reports.default_path(root))
+    # What has been watched, and by whom. The feed had nothing to rank by and
+    # the insight layer was fitted to a simulation of itself; this is where the
+    # real numbers come from. It lives here, on this machine, and goes nowhere.
+    Handler.watching = Watching(root / "watching")
     # A project: the album of what came back, and the map of what you were
     # thinking before you went.
     Handler.projects = Projects(Projects.default_path(root))

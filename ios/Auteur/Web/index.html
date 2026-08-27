@@ -180,20 +180,20 @@
 /* Base: night. Also the fallback for anything that matches nothing else. */
 :root {
   color-scheme: dark light;
-  --ground: #19181b;
-  --surface: #232127;
-  --raised: #2f2d34;
-  --line: #3b3842;
-  --text: #f5f2ef;
-  --text-muted: #b5acb9;
-  --text-faint: #9e94a4;
-  --ember: #eca669;
-  --ember-text: #f1b47e;
-  --on-ember: #2c1807;
-  --cream: #edd6c0;
-  --moss: #72bccb;
-  --rust: #ee8777;
-  --on-rust: #2c1807;
+  --ground: #131110;
+  --surface: #1d1917;
+  --raised: #282320;
+  --line: #39322d;
+  --text: #f8f4ef;
+  --text-muted: #bfb3a8;
+  --text-faint: #a99c91;
+  --ember: #f0a55f;
+  --ember-text: #f5b779;
+  --on-ember: #2a1606;
+  --cream: #efd9bd;
+  --moss: #79c48d;
+  --rust: #f08878;
+  --on-rust: #2a1606;
   --scrim: #0000008c;
   --on-photo: #ffffff;
 }
@@ -201,21 +201,21 @@
 /* System setting, unless the reader has overridden it. */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
-    --ground: #f7f5f2;
+    --ground: #eef4fb;
     --surface: #ffffff;
-    --raised: #ede9e3;
-    --line: #ded7cf;
-    --text: #1c1a17;
-    --text-muted: #5d5751;
-    --text-faint: #68615a;
-    --ember: #efa15d;
-    --ember-text: #964b13;
-    --on-ember: #2c1807;
-    --cream: #f7e7d4;
-    --moss: #286571;
-    --rust: #ab3321;
+    --raised: #dfeaf7;
+    --line: #c6d8ec;
+    --text: #0d1b2c;
+    --text-muted: #48596e;
+    --text-faint: #536477;
+    --ember: #0b62c4;
+    --ember-text: #0a5099;
+    --on-ember: #ffffff;
+    --cream: #d5e6fa;
+    --moss: #0f6b5c;
+    --rust: #b3261e;
     --on-rust: #ffffff;
-    --scrim: #00000066;
+    --scrim: #0d1b2c66;
     --on-photo: #ffffff;
   }
 }
@@ -223,40 +223,40 @@
 /* An explicit choice wins over the system in both directions. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --ground: #f7f5f2;
+  --ground: #eef4fb;
   --surface: #ffffff;
-  --raised: #ede9e3;
-  --line: #ded7cf;
-  --text: #1c1a17;
-  --text-muted: #5d5751;
-  --text-faint: #68615a;
-  --ember: #efa15d;
-  --ember-text: #964b13;
-  --on-ember: #2c1807;
-  --cream: #f7e7d4;
-  --moss: #286571;
-  --rust: #ab3321;
+  --raised: #dfeaf7;
+  --line: #c6d8ec;
+  --text: #0d1b2c;
+  --text-muted: #48596e;
+  --text-faint: #536477;
+  --ember: #0b62c4;
+  --ember-text: #0a5099;
+  --on-ember: #ffffff;
+  --cream: #d5e6fa;
+  --moss: #0f6b5c;
+  --rust: #b3261e;
   --on-rust: #ffffff;
-  --scrim: #00000066;
+  --scrim: #0d1b2c66;
   --on-photo: #ffffff;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --ground: #19181b;
-  --surface: #232127;
-  --raised: #2f2d34;
-  --line: #3b3842;
-  --text: #f5f2ef;
-  --text-muted: #b5acb9;
-  --text-faint: #9e94a4;
-  --ember: #eca669;
-  --ember-text: #f1b47e;
-  --on-ember: #2c1807;
-  --cream: #edd6c0;
-  --moss: #72bccb;
-  --rust: #ee8777;
-  --on-rust: #2c1807;
+  --ground: #131110;
+  --surface: #1d1917;
+  --raised: #282320;
+  --line: #39322d;
+  --text: #f8f4ef;
+  --text-muted: #bfb3a8;
+  --text-faint: #a99c91;
+  --ember: #f0a55f;
+  --ember-text: #f5b779;
+  --on-ember: #2a1606;
+  --cream: #efd9bd;
+  --moss: #79c48d;
+  --rust: #f08878;
+  --on-rust: #2a1606;
   --scrim: #0000008c;
   --on-photo: #ffffff;
 }
@@ -1785,6 +1785,60 @@ body.sheet-open { overflow: hidden; }
   text-shadow: 0 1px 3px var(--scrim);
 }
 
+
+/* -- A list inside a sheet --------------------------------------------------
+   The watch history and the reception of your own films. In style.css rather
+   than profile.css because that mistake has been made six times in this
+   repository already: a rule that any page might raise a sheet from belongs
+   with the sheet, not with the first page that happened to need it. */
+.stack { display: grid; gap: 8px; margin: 0 0 18px; }
+
+.stack-row {
+  display: flex;
+  align-items: baseline;
+  /* Wraps, rather than pushing the right-hand half off the edge. At 390px a
+     row reading "the long way home  13 plays - 100% finished" does not fit on
+     one line, and without this the tail was clipped by the border: the count
+     was there, the word after it was not, and nothing about the row said so. */
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.stack-row .what {
+  color: var(--text);
+  /* Without min-width a flex item will not shrink below its content, so the
+     ellipsis below never had a chance to apply. */
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stack-row .how {
+  color: var(--text-muted);
+  font-size: 14px;
+  /* Pinned right on one line, and right on its own line once it wraps. */
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+.stack-row .how.done { color: var(--moss); }
+
+.sheet-subtitle {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+  margin: 4px 0 10px;
+}
+
+.stack-empty { color: var(--text-faint); margin: 0 0 18px; }
 
 /* animations.css — Scroll reveals, zooms, transitions, and motion design.
  *

@@ -175,6 +175,8 @@ def start(workspace: Path):
     from auteur.web.profiles import Profiles
     from auteur.web.safety import Reports
     from auteur.web.social import Films, Messages
+    from auteur.projects import Projects
+    from auteur.web.watching import Watching
 
     assets.ensure(web.STATIC)
     web.Handler.studio = web.Studio(workspace)
@@ -187,8 +189,16 @@ def start(workspace: Path):
     web.Handler.profiles = Profiles(workspace / "profiles.json", workspace / "pictures")
     web.Handler.reports = Reports(workspace / "reports.json")
     web.Handler.board = Board(Board.default_path(workspace))
+    # /api/projects raised AttributeError on every screenshot run because this
+    # was never set — a 500 on a route the shipped app serves, in the harness
+    # that photographs the app for the store.
+    web.Handler.projects = Projects(Projects.default_path(workspace))
     web.Handler.sign_in_with = oidc.load(workspace)
     web.Handler.attempts = oidc.Attempts()
+    # The feed ranks by what gets watched, so a harness that leaves this unset
+    # photographs a shuffle and calls it the product. The plays below are put in
+    # deliberately rather than left to whatever the browser happens to play.
+    web.Handler.watching = Watching(workspace / "watching")
 
     clips = workspace / "clips"
     clips.mkdir(parents=True, exist_ok=True)
@@ -209,6 +219,12 @@ def start(workspace: Path):
         if owner == THEM:
             web.Handler.films.like(film.id, WHO)
 
+    # A reception, so the feed on the screenshot is ordered by something. The
+    # harbour film is the one people finish; the market one they scroll past.
+    for film in web.Handler.films.feed(limit=99):
+        finishers, part = (7, 3.0) if film.owner == THEM else (4, 3.0)
+        for n in range(finishers):
+            web.Handler.watching.played(f"viewer{n}", film.id, seconds=part, runtime=3.0)
     web.Handler.profiles.edit(WHO, name="You, Actually", bio="cuts things in the kitchen")
     web.Handler.profiles.edit(THEM, name="Grace", bio="harbours, mostly")
     web.Handler.profiles.follow(WHO, THEM)

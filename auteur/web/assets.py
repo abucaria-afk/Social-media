@@ -24,7 +24,7 @@ log = logging.getLogger("auteur.web.assets")
 SIZES = (180, 192, 512)
 
 INK = theme.rgb_of("ground")
-AMBER = theme.rgb_of("ember")
+ACCENT = theme.rgb_of("ember")
 PAPER = theme.rgb_of("text")
 
 
@@ -69,16 +69,16 @@ def _draw(size: int):
         width=max(1, int(unit)),
     )
 
-    # The cut: one clean amber stroke straight through the frame. The whole
+    # The cut: one clean stroke of the accent straight through the frame. The whole
     # program is about where to put this line, so it is the whole icon.
     draw.line(
         [(34 * unit, size - 26 * unit), (size - 34 * unit, 26 * unit)],
-        fill=AMBER + (255,),
+        fill=ACCENT + (255,),
         width=int(7 * unit),
     )
     draw.ellipse(
         [size / 2 - 6 * unit, size / 2 - 6 * unit, size / 2 + 6 * unit, size / 2 + 6 * unit],
-        fill=AMBER + (255,),
+        fill=ACCENT + (255,),
     )
     return image
 

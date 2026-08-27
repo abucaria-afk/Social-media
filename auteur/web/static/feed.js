@@ -128,6 +128,23 @@
        slice of itself. Only the video knows its own shape, and only once it
        has read enough of the file to say. */
     var video = node.querySelector("video");
+    /* Each repeat is a person choosing to watch it again, which is the
+       strongest thing a silent muted feed can tell you. */
+    video.addEventListener("loop", function () {});
+    video.addEventListener("ended", function () {
+      var mark = timing[node.dataset.film];
+      if (mark) mark.loops += 1;
+    });
+    /* A looping <video> fires timeupdate and wraps rather than firing `ended`,
+       so the wrap is what gets counted. */
+    var wasAt = 0;
+    video.addEventListener("timeupdate", function () {
+      if (video.currentTime < wasAt - 0.5) {
+        var mark = timing[node.dataset.film];
+        if (mark) mark.loops += 1;
+      }
+      wasAt = video.currentTime;
+    });
     video.addEventListener("loadedmetadata", function () {
       if (video.videoWidth >= video.videoHeight) node.classList.add("is-wide");
     });
@@ -141,16 +158,75 @@
     return node;
   }
 
+  /* How long each film was actually watched.
+   *
+   * The feed had nothing to rank by, so this is where the numbers come from.
+   * Timed by the wall clock between play and stop rather than by
+   * `video.currentTime`, because a looping video resets that on every pass and
+   * the interesting quantity is how long somebody stayed, not where the
+   * playhead ended up. `loop` fires once per repeat, which is the other half.
+   *
+   * It reports on the way out — when the film scrolls away, when the tab is
+   * hidden, and on pagehide. Not on a timer: a beacon a second is a battery
+   * complaint, and nothing here needs to be live. */
+  var timing = {};
+
+  function beginWatch(node) {
+    var id = node.dataset.film;
+    if (!id) return;
+    timing[id] = { started: Date.now(), loops: 0 };
+  }
+
+  function endWatch(node) {
+    var id = node.dataset.film;
+    var mark = id && timing[id];
+    if (!mark) return;
+    delete timing[id];
+    var seconds = (Date.now() - mark.started) / 1000;
+    /* Under a second is a scroll passing through, not a view. */
+    if (seconds < 1) return;
+    var video = node.querySelector("video");
+    var body = JSON.stringify({
+      film: id,
+      seconds: seconds,
+      runtime: video && isFinite(video.duration) ? video.duration : 0,
+      looped: mark.loops
+    });
+    /* A beacon survives the page going away, which a fetch does not. */
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon("/api/watched", new Blob([body], { type: "application/json" }));
+    } else {
+      fetch("/api/watched", {
+        method: "POST", credentials: "same-origin", keepalive: true,
+        headers: { "Content-Type": "application/json" }, body: body
+      }).catch(function () {});
+    }
+  }
+
+  function endEveryWatch() {
+    Object.keys(timing).forEach(function (id) {
+      var node = reels.querySelector('[data-film="' + id + '"]');
+      if (node) endWatch(node);
+    });
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) endEveryWatch();
+  });
+  window.addEventListener("pagehide", endEveryWatch);
+
   var watcher = new IntersectionObserver(function (entries) {
     entries.forEach(function (entry) {
       var video = entry.target.querySelector("video");
       if (!video) return;
       if (entry.isIntersecting) {
         entry.target.classList.add("is-playing");
+        beginWatch(entry.target);
         video.play().catch(function () { /* a phone that wants a tap first */ });
         /* Near the bottom: fetch the next page before it is needed. */
         if (entry.target === reels.lastElementChild) load();
       } else {
+        endWatch(entry.target);
         video.pause();
         video.currentTime = 0;
         entry.target.classList.remove("is-playing");

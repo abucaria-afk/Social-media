@@ -129,9 +129,23 @@ they have to agree exactly or the upload is held.
 | Third-party SDKs | **None.** The app has no dependencies. |
 | Required-reason APIs declared | UserDefaults (CA92.1), file timestamp (C617.1), disk space (E174.1) |
 
-The App Privacy section will show "Data Not Collected", which is accurate: the
-app makes no network request of its own, and the only server it can be pointed
-at is one the person runs themselves.
+The App Privacy section will show "Data Not Collected", which is accurate under
+Apple's definition: data counts as collected when it is transmitted off device
+*and* held somewhere you or a partner can reach it. There is no service here to
+reach. The only server the app can be pointed at is one the person runs on
+their own machine, and the publisher has no access to it of any kind.
+
+**Play answers this differently, on purpose.** Google defines collection as
+transmitting off the device at all, regardless of destination — so the same
+build, honestly declared, is "collects app activity, not shared" on Play and
+"Data Not Collected" on the App Store. Two true answers to two different
+questions. `tools/play/listing.py` carries the reasoning for that side.
+
+**What an instance records, so this is on the record here too.** With
+`auteur serve` running, that machine keeps how long each film was watched,
+whether it finished, whether it looped, and whether share was tapped — per
+film, and per account. It ranks the feed with it. It goes nowhere else, and
+deleting an account erases that account's history along with everything else.
 """
 
 AGE_RATING = """\

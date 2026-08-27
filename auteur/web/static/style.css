@@ -1522,3 +1522,57 @@ body.sheet-open { overflow: hidden; }
   text-shadow: 0 1px 3px var(--scrim);
 }
 
+
+/* -- A list inside a sheet --------------------------------------------------
+   The watch history and the reception of your own films. In style.css rather
+   than profile.css because that mistake has been made six times in this
+   repository already: a rule that any page might raise a sheet from belongs
+   with the sheet, not with the first page that happened to need it. */
+.stack { display: grid; gap: 8px; margin: 0 0 18px; }
+
+.stack-row {
+  display: flex;
+  align-items: baseline;
+  /* Wraps, rather than pushing the right-hand half off the edge. At 390px a
+     row reading "the long way home  13 plays - 100% finished" does not fit on
+     one line, and without this the tail was clipped by the border: the count
+     was there, the word after it was not, and nothing about the row said so. */
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.stack-row .what {
+  color: var(--text);
+  /* Without min-width a flex item will not shrink below its content, so the
+     ellipsis below never had a chance to apply. */
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stack-row .how {
+  color: var(--text-muted);
+  font-size: 14px;
+  /* Pinned right on one line, and right on its own line once it wraps. */
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+.stack-row .how.done { color: var(--moss); }
+
+.sheet-subtitle {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+  margin: 4px 0 10px;
+}
+
+.stack-empty { color: var(--text-faint); margin: 0 0 18px; }

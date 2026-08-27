@@ -1,33 +1,38 @@
 """The palette, in one place, in two lightings.
 
 Every surface the program shows — the terminal, the web app, the home-screen
-icon — reads from this module. Colours defined twice drift apart, and a phone
-app that does not look like the tool it fronts reads as a different product.
+icon, the site, the store listings — reads from this module. Colours defined
+twice drift apart, and a phone app that does not look like the tool it fronts
+reads as a different product.
 
-Both palettes are taken from the reels this editor is built to make. Sampling
-the coloured pixels of thirty of them — dropping anything under 18% saturation,
-which is most of the frame — gives a strongly bimodal distribution: a warm lobe
-across 0-50 degrees holding 37% of them, and a teal lobe across 170-220 holding
-42%. What matters more than either hue is the *saturation*: the median coloured
-pixel sits at 0.40, nowhere near the neon these films are usually assumed to
-be. The Scholar reaches the same conclusion from its own reading of the corpus
-and reports 0.28 — a lower number because it takes the median across the whole
-frame rather than across the pixels that carry colour, and the greys count. Ask
-it: "how saturated are these films". They are muted, and they are bright — mean luma 0.249 on frames that are
-mostly dark, which means the colour that is there carries.
+**The two schemes are two white balances.** Cinema has exactly two, and every
+piece of footage this app touches was shot under one of them: daylight at
+5600K, which is blue, and tungsten at 3200K, which is orange. So daylight is
+the light scheme — blues and light blues on white — and tungsten is the dark
+one, an orange on near-black. The app is white-balanced to the light you are
+holding it in.
 
-So the palette is muted and bright rather than saturated and dark. `ember` is
-the warm lobe at the lightness it reads at, an apricot rather than the amber it
-used to be; `moss` is the teal lobe, doing the work a green usually does; the
-grounds are a soft ink and a bone paper, neither of them the black-and-white
-the palette reached for before. A near-black ground and a pure-white one are
-the two easiest colours to pick and the two that look least like anything.
+That is why `ember`, the accent, is a blue in one scheme and an orange in the
+other, which is not the usual arrangement and is the point. The palette this
+replaced ran an orange accent against blue-grey neutrals in *both* schemes, and
+an orange-on-blue-grey app with grey cards is a colourway a very large shop
+already owns; it read as that shop rather than as an editing tool. Splitting
+the two hues across the two lightings means they are never on screen together,
+so the resemblance is gone and each scheme gets a single temperature to be.
 
-Two roles exist only because a colour cannot always do both jobs. `ember` is
-the accent as a *fill* — the primary button, the progress bar — and it is free
-to be bright, because what has to be legible is the text sitting on it.
-`ember_text` is the accent as *text*, and on bone paper it has to darken
-sharply or it cannot be read.
+**No greys.** A neutral with no hue in it is the colour of something nobody
+chose. Daylight's neutrals carry the blue — the ground is a paper with sky in
+it and the cards are actually white — and tungsten's carry the warmth, so its
+near-blacks sit under the orange rather than fighting it.
+
+Two roles exist because a colour cannot always do both jobs. `ember` is the
+accent as a *fill* — the primary button, the progress bar — and it is free to
+be saturated, because what has to be legible is the text sitting on it.
+`ember_text` is the accent as *text*, and it has to darken on white paper or it
+cannot be read.
+
+`moss` is the "it worked" role and is deliberately not on either temperature
+axis: a green in both schemes, so success never reads as just more accent.
 
 Every role that carries text clears WCAG AA against **every surface it can sit
 on** — the ground, a card, and a control on a card — in both lightings, which
@@ -36,7 +41,8 @@ and that is a different question: `text_faint` cleared 5.46 on the ground and
 4.20 on a raised control, so seventy pieces of text in the app were under the
 bar while the palette test was green. Anything that only ever sits on the
 ground still has to clear the hardest case, because nothing stops the next
-screen from putting it on a card.
+screen from putting it on a card. The worst pair in this palette is 4.99:1 in
+daylight and 5.81:1 in tungsten.
 """
 
 from __future__ import annotations
@@ -54,34 +60,40 @@ ROLES: dict[str, str] = {
     "ember_text": "the accent as text, dark enough to read on this ground",
     "on_ember": "text sitting on an ember fill",
     "cream": "the accent's soft tint, for large gentle fills",
-    "moss": "it worked — the teal lobe of the footage, doing a green's job",
+    "moss": "it worked — a green in both schemes, on neither temperature axis",
     "rust": "it did not work, or needs attention",
     "on_rust": "text sitting on a rust fill — the one destructive button",
     "scrim": "the dim behind a sheet — the one role that carries its own alpha",
     "on_photo": "text and marks drawn on top of somebody's footage",
 }
 
-#: Night. A soft ink rather than a black — the ground a modern phone app
-#: sits on, and the one the reels' own shadows sit closest to.
+#: Tungsten, 3200K. Orange on near-black — the light a room is lit by
+#: after dark, and the warmer of cinema's two white balances.
 DARK: dict[str, str] = {
-    "ground": "#19181b",
-    "surface": "#232127",
-    "raised": "#2f2d34",
-    "line": "#3b3842",
-    "text": "#f5f2ef",
-    "text_muted": "#b5acb9",
-    "text_faint": "#9e94a4",
-    "ember": "#eca669",
-    "ember_text": "#f1b47e",
-    "on_ember": "#2c1807",
-    "cream": "#edd6c0",
-    "moss": "#72bccb",
-    "rust": "#ee8777",
+    # Tungsten. A near-black with warmth in it rather than a blue-grey ink:
+    # the accent above is an orange, and an orange on a cool grey is the
+    # combination this palette exists to stop looking like.
+    "ground": "#131110",
+    "surface": "#1d1917",
+    "raised": "#282320",
+    "line": "#39322d",
+    "text": "#f8f4ef",
+    "text_muted": "#bfb3a8",
+    "text_faint": "#a99c91",
+    "ember": "#f0a55f",
+    "ember_text": "#f5b779",
+    "on_ember": "#2a1606",
+    "cream": "#efd9bd",
+    # Green, not the light blue of the daylight scheme. "It worked" has to be
+    # its own colour in both lightings, and a blue here would put blue and
+    # orange back on the same screen.
+    "moss": "#79c48d",
+    "rust": "#f08878",
     # A near-black on the light salmon rust wears in the dark scheme, at
-    # 6.74:1. The same ink as `on_ember`, because both are "text on a bright
+    # 6.99:1. The same ink as `on_ember`, because both are "text on a bright
     # fill" and two different near-blacks a shade apart is a distinction
     # nobody can see and everybody has to maintain.
-    "on_rust": "#2c1807",
+    "on_rust": "#2a1606",
     # Eight digits: the last pair is the alpha. A scrim is not a colour the
     # page can be painted in, it is a dim over whatever is already there, so
     # it is the one role stored translucent. It lives here rather than as an
@@ -96,32 +108,39 @@ DARK: dict[str, str] = {
     "on_photo": "#ffffff",
 }
 
-#: Daylight. Bone paper, not white: the same warm lobe the accent comes
-#: from, taken up to a ground. text_muted and text_faint are darkened to
-#: clear AA on it, and ember_text darkened much further — a bright apricot
-#: is a fine button and an unreadable link.
+#: Daylight, 5600K. Blue and light blue on white — the cooler of cinema's
+#: two white balances, and the one a phone is usually held in.
 LIGHT: dict[str, str] = {
-    "ground": "#f7f5f2",
+    # Daylight. The ground is a paper with sky in it and the cards are
+    # actually white, so the lift off the page is real rather than a grey
+    # rectangle on a slightly different grey.
+    "ground": "#eef4fb",
     "surface": "#ffffff",
-    "raised": "#ede9e3",
-    "line": "#ded7cf",
-    "text": "#1c1a17",
-    "text_muted": "#5d5751",
-    "text_faint": "#68615a",
-    "ember": "#efa15d",
-    "ember_text": "#964b13",
-    "on_ember": "#2c1807",
-    "cream": "#f7e7d4",
-    "moss": "#286571",
-    "rust": "#ab3321",
-    # White, at 6.51:1 on the deep red rust wears in daylight. The cream would
-    # have been prettier and is 5.37 — still passing, but this is the button
+    "raised": "#dfeaf7",
+    "line": "#c6d8ec",
+    # Ink, not black: the same blue carried all the way down.
+    "text": "#0d1b2c",
+    "text_muted": "#48596e",
+    "text_faint": "#536477",
+    "ember": "#0b62c4",
+    # Darker than the fill by a long way. A button blue is a fine button and
+    # an unreadable link — this clears 8.01:1 on a white card.
+    "ember_text": "#0a5099",
+    "on_ember": "#ffffff",
+    # The light blue, doing the job a soft tint does: large gentle fills.
+    "cream": "#d5e6fa",
+    # A deep teal-green. Distinct from the blue accent at a glance, which a
+    # lighter green next to this much blue would not be.
+    "moss": "#0f6b5c",
+    "rust": "#b3261e",
+    # White, at 6.54:1 on the red rust wears in daylight. This is the button
     # that deletes an account and it can afford to be plain.
     "on_rust": "#ffffff",
-    # Lighter than the dark scheme's. The same 55% black that reads as a dim
-    # over a near-black page reads as a blackout over a bone one, and the
-    # content behind a sheet is meant to still be visible.
-    "scrim": "#00000066",
+    # Lighter than the dark scheme's, and tinted with the ink rather than pure
+    # black. The same 55% black that reads as a dim over a near-black page
+    # reads as a blackout over a bright one, and the content behind a sheet is
+    # meant to still be visible.
+    "scrim": "#0d1b2c66",
     "on_photo": "#ffffff",
 }
 

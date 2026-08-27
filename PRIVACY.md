@@ -12,7 +12,7 @@ can live inside a single phone: they need a server. The server is one *you*
 run, with `auteur serve`, usually on your own wifi, holding its files in a
 folder you chose. So "nothing leaves your phone" is not quite the right
 sentence, and the right one is longer: **nothing goes anywhere you did not put
-it.** There is no account with anybody, no analytics, no third party, and no
+it.** There is no account with anybody, no third-party analytics, and no
 address in this program that you did not type.
 
 ## The iOS app
@@ -68,6 +68,29 @@ replace it.
 Anthropic to answer it. It never sends your footage. Without a key it answers
 only from what it has measured locally, and says so.
 
+**What was watched.** The instance records how long each film was watched,
+whether it was played to the end, whether it looped, and whether anybody tapped
+share. It keeps that in two forms.
+
+Per film, it keeps the totals — how many plays, how many lasted three seconds,
+how many finished. There is no person in those numbers; they are facts about a
+film, in the way its runtime is.
+
+Per account, it keeps what you watched and how much of it. That is about you,
+and it is written down here rather than folded into an aggregate to sound
+smaller. It is what makes the feed learn what *you* like rather than what the
+average person likes, you can see all of it on your own profile, and deleting
+your account deletes it.
+
+None of it leaves the machine. There is no endpoint in this program that sends
+it anywhere, which is the same reason nothing else here does. If you never run
+an instance, none of this exists at all — a film cut on the phone and saved is
+not watched by anything.
+
+The reason this is measured rather than left alone: a feed that ranks by
+nothing is a shuffle, and an app that says it "learns" while refusing to
+observe anything is claiming something it cannot do.
+
 **When something breaks.** A script error is written to a file beside the
 accounts on the machine running the app, and shown to you in a panel you can
 copy. That is a bug finder rather than telemetry, and the difference is not
@@ -120,7 +143,7 @@ reads the source to keep it that way.
 
 ## Children
 
-This app is not directed at children and collects no data from anybody.
+This app is not directed at children. Nothing reaches the people who publish it. An instance you run records what was watched on it, on your own machine, and deleting an account erases that account's history.
 
 ## Changes and contact
 

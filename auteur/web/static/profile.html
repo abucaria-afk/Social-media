@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#19181b" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f7f5f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#131110" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef4fb" media="(prefers-color-scheme: light)">
 <meta name="color-scheme" content="dark light">
 <meta name="description" content="Your picture, your films, and how this app looks to you.">
 <!-- Before anything paints: appearance and the three accessibility settings.
@@ -133,6 +133,11 @@
       <button type="button" class="inset-row" id="my-reports">
         <span class="inset-label">Things I reported</span>
         <span class="inset-value" id="reports-state"></span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </button>
+      <button type="button" class="inset-row" id="my-watching">
+        <span class="inset-label">What I have watched</span>
+        <span class="inset-value" id="watching-state"></span>
         <span class="chevron" aria-hidden="true">›</span>
       </button>
     </div>
@@ -327,6 +332,27 @@
 
 <!-- What this person has reported, and what came of it. A report that
      disappears is a button people stop pressing. -->
+<!-- What this computer recorded about what you watched. Its own sheet, a
+     sibling of the others: it spent one revision nested inside the reports
+     sheet, where un-hiding it did nothing because its ancestor was still
+     hidden, and it measured 0x0 in the browser. -->
+<div class="sheet" id="watching-sheet" hidden>
+  <div class="sheet-scrim" data-close="watching"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="What I have watched">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">What I have watched</h2>
+    <p class="sheet-note">
+      This is what this computer recorded, and it is the reason the feed can
+      put anything in an order. It never leaves here, and deleting your
+      account deletes all of it.
+    </p>
+    <div id="watching-list" class="stack"></div>
+    <h3 class="sheet-subtitle" id="watching-mine-title" hidden>How yours did</h3>
+    <div id="watching-mine" class="stack"></div>
+    <button type="button" class="go quiet" id="watching-close">Done</button>
+  </div>
+</div>
+
 <div class="sheet" id="reports-sheet" hidden>
   <div class="sheet-scrim" data-close="reports"></div>
   <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Things I reported">

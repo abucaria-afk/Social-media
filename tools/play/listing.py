@@ -51,25 +51,49 @@ GRAPHICS = [
 #: shipped build, and every one is checkable: the app makes no network request
 #: of its own, carries no third-party SDK, and has no advertising identifier.
 DATA_SAFETY = """\
-**Does your app collect or share any of the required user data types?** No.
+**Does your app collect or share any of the required user data types?**
+Nothing is shared. Something is collected, and only on a server the user runs.
 
-That answer is only defensible because of what the build actually does, so here
-is the reasoning rather than the checkbox:
+The honest answer needs the distinction, because Play defines collection as
+transmitting data off the device — not as the developer receiving it. This app
+has no backend. There is no service operated by the publisher for anything to
+be transmitted *to*. What exists is `auteur serve`: a copy of the server a
+person runs on their own machine, which their phone talks to over their own
+network.
 
 | Question | Answer | Why |
 | --- | --- | --- |
-| Data collected | None | The app makes no network request of its own. |
-| Data shared | None | There is nowhere for it to be shared to. |
+| Shared with the developer | None | There is no developer-operated service. |
 | Third-party SDKs | None | No analytics, no crash reporting, no ad network. |
 | Advertising ID | Not used | Not requested, not linked, not present. |
-| Data encrypted in transit | N/A | Nothing is in transit. |
-| Deletion request route | Yes | Account deletion is inside the app. |
+| Data encrypted in transit | Yes, where configured | An instance is reached over the user's own network; HTTPS when they set it up. |
+| Deletion request route | Yes | Account deletion is in the app, and erases the watch history with it. |
 
-**The instance is the exception, and it is the user's own.** If somebody points
-the app at a copy of the server they run themselves, their films and messages go
-to that machine. That is not collection by this developer — it is the user's
-hardware and the user's folder — but it is a data flow and it is described in
-the privacy policy rather than hidden behind the No above.
+**With no instance, nothing is collected at all.** Making a film — choosing
+footage, writing the brief, cutting, grading, saving — happens entirely on the
+device and involves no network of any kind. A person who never runs a server
+never transmits anything.
+
+**With an instance, these are collected, to that person's own machine:**
+
+| Type | What | Why |
+| --- | --- | --- |
+| App activity — app interactions | How long each film was watched, whether it finished, whether it looped, whether share was tapped | Ranking the feed. A feed with no measurements is a shuffle. |
+| Photos and videos | The films the user makes and posts | That is the product. |
+| Messages | Messages between accounts on that instance | That is the feature. |
+| Personal info — name | The account name and profile the user chose | Identifying who made what. |
+
+Marked **collected** and **not shared**, linked to the user, and not used for
+advertising or tracking. The watch history is deletable in-app, which Play asks
+about separately and which is answered by the same account-deletion route
+Apple's guideline 5.1.1(v) requires.
+
+**Why this is not answered "No".** The previous version of this file said No,
+on the reasoning that the user's own hardware is not collection. That reasoning
+is defensible and it is not what Play's definition says: data leaves the device.
+Answering No because the destination is sympathetic is how a Data safety
+declaration becomes wrong, and a wrong declaration is a policy strike rather
+than a rejection you can fix and resubmit.
 """
 
 #: Play requires working access for the reviewer when anything is behind a
