@@ -166,11 +166,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="show what it is doing internally (-vv for every ffmpeg call)",
     )
 
-    sub = parser.add_subparsers(
-        dest="command",
-        required=True,
-        metavar="{edit,workflow,rehearse,benchmark,agents,scholar,insight,media,schedule,demo,serve,account,analyse,looks}",
-    )
+    # The metavar is set at the bottom of this function, from the commands
+    # that were actually added. It used to be typed out here, and by the time
+    # anybody compared the two, `auteur --help` was listing fourteen commands
+    # above a description of sixteen: `moderate` and `template` both existed,
+    # both worked, and neither appeared in the line that tells you what you
+    # can run. Nothing could catch it, because the list was a string that
+    # named the parsers and was never compared to them.
+    sub = parser.add_subparsers(dest="command", required=True)
 
     edit = sub.add_parser(
         "edit",
@@ -630,6 +633,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     schedule.add_argument("--gap", type=float, default=None, metavar="HOURS")
     schedule.add_argument("--per-day", type=int, default=None, metavar="N")
+
+    # Now that every command exists, say so. `sub.choices` is the registry
+    # argparse dispatches on, so the usage line and the dispatch cannot
+    # disagree — adding a command changes both or neither.
+    sub.metavar = "{" + ",".join(sub.choices) + "}"
     return parser
 
 

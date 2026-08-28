@@ -2217,6 +2217,7 @@ html {
   top: 0;
   z-index: 5;
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 0.7rem;
   padding: calc(0.7rem + env(safe-area-inset-top)) 1rem 0.7rem;
@@ -2254,6 +2255,12 @@ html {
    eventually push the content of the page down by three lines and stay there.
    The studio's provenance line is a whole sentence and did exactly that. The
    full text stays reachable as the title attribute. */
+/* The provenance line: where the numbers below it came from. It read
+   "fitted on 2000 simulated rows and no measured ones" and, at 390px, showed
+   "fitted on 2000 simulated rows and no m…" — the caveat elided, directly
+   above three large figures that then look measured. studio.js also sets it
+   as a `title`, which is a tooltip, which a phone has no way to summon. So on
+   a narrow screen it takes a line of its own and says all of it. */
 .sbar-note {
   margin-left: auto;
   min-width: 0;
@@ -2261,7 +2268,7 @@ html {
   font-size: var(--text-caption);
   text-align: right;
   line-height: 1.3;
-  white-space: nowrap;
+  white-space: normal;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -2727,6 +2734,16 @@ body.has-tabbar .studio-wrap {
 @media (prefers-reduced-motion: reduce) {
   .dial-fill { transition: none; }
   .platform { transition: none; }
+}
+
+/* Narrow enough that the note cannot share the line with the title without
+   losing most of itself. */
+@media (max-width: 560px) {
+  .sbar-note {
+    flex-basis: 100%;
+    margin-left: 0;
+    text-align: left;
+  }
 }
 
 /* The animation tab.

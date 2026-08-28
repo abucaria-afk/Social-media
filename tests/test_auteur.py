@@ -12262,7 +12262,15 @@ def test_the_app_calls_itself_what_the_store_listing_calls_it():
     for page in sorted(server.STATIC.glob("*.html")):
         markup = page.read_text(encoding="utf-8")
         title = re.search(r"<title>(.*?)</title>", markup, re.S)
-        if title and "Auteur" in title.group(1) and name not in title.group(1):
+        # Every title, not only the ones that already half-say it. The
+        # original condition was `"Auteur" in title and name not in title`,
+        # which skipped any title that did not already contain the capitalised
+        # word — so `<title>auteur · studio</title>`, the exact thing the
+        # rename left behind, sailed through the check written to catch it.
+        # Two pages kept the old name in the browser tab for as long as this
+        # guard has existed.
+        assert title, f"{page.name} has no <title> at all"
+        if name not in title.group(1):
             stale.append(f"{page.name} <title> says {title.group(1).strip()!r}")
         for content in re.findall(
             r'<meta name="apple-mobile-web-app-title" content="([^"]*)"', markup
@@ -12274,6 +12282,23 @@ def test_the_app_calls_itself_what_the_store_listing_calls_it():
     for key in ("name", "short_name"):
         if name not in manifest.get(key, ""):
             stale.append(f"manifest {key} is {manifest.get(key)!r}")
+
+    # The two places a person meets the name while actually using the thing:
+    # the terminal masthead and the line `serve` prints when it comes up. Both
+    # said "auteur" long after every store surface said "Auteur Atlas", and
+    # both were invisible to a check that only read the static files.
+    import io
+
+    from auteur.ui import Reporter
+
+    spoken = io.StringIO()
+    Reporter(stream=spoken).banner("a test prompt")
+    if name not in spoken.getvalue():
+        stale.append(f"the terminal masthead says {spoken.getvalue().strip().splitlines()[0]!r}")
+
+    source = Path(server.__file__).read_text(encoding="utf-8")
+    if 'print("  auteur' in source or "print('  auteur" in source:
+        stale.append("`serve` announces itself as auteur")
 
     assert not stale, f"the app names itself something other than {name!r}: " + "; ".join(stale)
 
@@ -13507,11 +13532,23 @@ def test_the_site_quotes_no_price_the_pricing_module_did_not_derive():
     from auteur import pricing
 
     root = Path(__file__).resolve().parent.parent
+    # Built with a checkout in place, so the page under test is the whole
+    # page — the discounted price and the promotion code only appear where
+    # there is somewhere to spend them, and a scan of a page missing half its
+    # figures proves nothing about the half it is missing.
     built = subprocess.run(
         [sys.executable, str(root / "tools" / "site" / "build_site.py"), "-"],
         capture_output=True,
         text=True,
         cwd=root,
+        env={
+            **os.environ,
+            **{
+                f"AUTEUR_CHECKOUT_{tier.key.upper()}": f"https://buy.stripe.com/9AQ{tier.key}"
+                for tier in pricing.TIERS
+                if tier.dollars
+            },
+        },
     )
     assert built.returncode == 0, built.stderr
     page = (root / "-").read_text(encoding="utf-8")
@@ -13528,9 +13565,11 @@ def test_the_site_quotes_no_price_the_pricing_module_did_not_derive():
     for price in allowed:
         assert price in page, f"{price} is a tier nobody can see on the page"
 
-    # And the two claims made in words rather than figures.
-    assert f"{pricing.TOP_TIER_OFF:.0%} off" in page
+    # The trial is offered only where it can be started. Promising fourteen
+    # free days above two plans that both say "Not open yet" is a page
+    # arguing with itself.
     assert f"{pricing.TRIAL_DAYS} days free" in page
+    assert f"{pricing.TOP_TIER_OFF:.0%} off" in page
 
 
 def test_the_arithmetic_behind_the_prices_can_be_retraced_from_the_repository():
@@ -13729,7 +13768,13 @@ def test_running_the_reconciler_twice_creates_nothing_the_second_time():
 
     from auteur import pricing
 
-    account: dict[str, dict] = {"products": {}, "prices": {}, "coupons": {}, "payment_links": {}}
+    account: dict[str, dict] = {
+        "products": {},
+        "prices": {},
+        "coupons": {},
+        "payment_links": {},
+        "promotion_codes": {},
+    }
     posted: list[str] = []
     counter = iter(range(1, 999))
 
@@ -13761,6 +13806,7 @@ def test_running_the_reconciler_twice_creates_nothing_the_second_time():
         row = {
             "id": identifier,
             "lookup_key": params.get("lookup_key") or None,
+            "code": params.get("code") or None,
             "unit_amount": int(params["unit_amount"]) if "unit_amount" in params else None,
             "active": True,
             "percent_off": float(params["percent_off"]) if "percent_off" in params else None,
@@ -13791,6 +13837,7 @@ def test_running_the_reconciler_twice_creates_nothing_the_second_time():
     paid = [tier for tier in pricing.TIERS if tier.dollars]
     assert len(account["products"]) == len(paid), account["products"]
     assert len(account["coupons"]) == 1, "the discount was created more than once"
+    assert len(account["promotion_codes"]) == 1, "the code was created more than once"
     assert first, "the first run created nothing at all"
 
     # And what it created is what the site quotes.
@@ -13799,3 +13846,363 @@ def test_running_the_reconciler_twice_creates_nothing_the_second_time():
         f"Stripe would charge {charged} and the site says " f"{sorted(tier.cents for tier in paid)}"
     )
     assert next(iter(account["coupons"].values()))["percent_off"] == pricing.TOP_TIER_OFF * 100
+
+    # A coupon nobody can type is not a discount. Stripe payment links take
+    # `allow_promotion_codes` and will not carry a coupon of their own, so the
+    # code has to exist and the site has to print it.
+    code = next(iter(account["promotion_codes"].values()))["code"]
+    assert code == pricing.PROMO_CODE, f"Stripe has {code}, the site prints {pricing.PROMO_CODE}"
+
+
+def test_the_discount_the_site_advertises_can_actually_be_claimed():
+    """A saving on a page with no way to claim it is a lie with a receipt.
+
+    This gap was invisible from inside the repository and showed up only by
+    driving the real Stripe API: a payment link takes `allow_promotion_codes`
+    and refuses a `discounts` parameter outright, so a coupon on its own is
+    something only the merchant can apply. The customer needs a code to type,
+    and therefore the page needs to print one.
+
+    Two halves, and both are checked here. The code has to name the percentage
+    it unlocks, so a coupon moved to fifteen per cent cannot leave `ROOM10`
+    advertising ten. And it appears **only where there is a checkout to type
+    it into** — a promotion code printed above "Not open yet" is an
+    instruction with nowhere to follow it.
+    """
+
+    from auteur import pricing
+
+    percent = round(pricing.TOP_TIER_OFF * 100)
+    assert str(percent) in pricing.PROMO_CODE, (
+        f"{pricing.PROMO_CODE} does not name the {percent}% it unlocks, so a "
+        "changed discount would leave it advertising the old one"
+    )
+
+    root = Path(__file__).resolve().parent.parent
+
+    def build(**overrides: str) -> str:
+        subprocess.run(
+            [sys.executable, str(root / "tools" / "site" / "build_site.py"), "-"],
+            check=True,
+            capture_output=True,
+            cwd=root,
+            env={**os.environ, **overrides},
+        )
+        page = (root / "-").read_text(encoding="utf-8")
+        (root / "-").unlink()
+        return page
+
+    open_for_business = build(
+        **{f"AUTEUR_CHECKOUT_{pricing.TOP_TIER.key.upper()}": "https://buy.stripe.com/9AQreal"}
+    )
+    assert (
+        pricing.PROMO_CODE in open_for_business
+    ), "the code exists in Stripe and nowhere a customer looks"
+    # Shown as a code rather than buried in a sentence: somebody has to
+    # transcribe it accurately into a checkout field.
+    assert f"<code>{pricing.PROMO_CODE}</code>" in open_for_business
+
+    shown = re.search(r"(\d+)% off with <code>", open_for_business)
+    assert shown and int(shown.group(1)) == percent, (
+        f"the page offers {shown.group(1) if shown else 'nothing'}% "
+        f"and the coupon gives {percent}%"
+    )
+
+    not_yet = build()
+    assert (
+        pricing.PROMO_CODE not in not_yet
+    ), "the page tells somebody to type a code at a checkout that does not exist"
+
+
+def test_a_stripe_test_link_cannot_reach_the_public_site():
+    """The mistake that is available right now, refused by shape.
+
+    Building this, I had two working test-mode checkout URLs in hand:
+
+        https://buy.stripe.com/test_14A5kD7jZgcx8sUdDN1B600
+
+    A live one looks the same minus four characters. Pasted onto the public
+    site it does not fail — it takes a card number that is not a card number,
+    tells the customer the payment worked, and creates nothing. There is no
+    error for anybody to notice; the first signal is somebody asking where
+    their subscription is.
+
+    So `CHECKOUT` is not a place a URL is merely written. It is read through
+    `checkout_for`, which refuses a test link rather than returning it.
+    """
+    from auteur import pricing
+
+    original = dict(pricing.CHECKOUT)
+    try:
+        for bad in (
+            "https://buy.stripe.com/test_14A5kD7jZgcx8sUdDN1B600",
+            "https://buy.stripe.com/test_3cIaEX9s72lHdNearB1B601",
+            "http://buy.stripe.com/9AQreal",
+        ):
+            pricing.CHECKOUT[pricing.SOLO.key] = bad
+            with pytest.raises(ValueError):
+                pricing.checkout_for(pricing.SOLO)
+
+        pricing.CHECKOUT[pricing.SOLO.key] = "https://buy.stripe.com/9AQ00realone"
+        assert pricing.checkout_for(pricing.SOLO).endswith("realone")
+    finally:
+        pricing.CHECKOUT.clear()
+        pricing.CHECKOUT.update(original)
+
+
+def test_a_plan_with_nowhere_to_pay_says_so_instead_of_offering_a_button():
+    """A button wired to nothing reads as broken. Absence reads as forthcoming.
+
+    The pricing table shipped before this with prices, a promotion code, a
+    trial length and no way to buy anything — a page that asks for a decision
+    and then does nothing with it. The fix is not to invent a button; it is to
+    say which plans can be bought and which cannot, and to let that follow
+    from whether a checkout URL exists rather than from anybody remembering to
+    change the page when one does.
+    """
+
+    from auteur import pricing
+
+    root = Path(__file__).resolve().parent.parent
+
+    def build(**overrides: str) -> str:
+        # A separate process, so the page is built the way it is really built
+        # rather than by a function called with the answer already in hand.
+        subprocess.run(
+            [sys.executable, str(root / "tools" / "site" / "build_site.py"), "-"],
+            check=True,
+            capture_output=True,
+            cwd=root,
+            env={**os.environ, **overrides},
+        )
+        page = (root / "-").read_text(encoding="utf-8")
+        (root / "-").unlink()
+        return page
+
+    paid = [tier for tier in pricing.TIERS if tier.dollars]
+
+    page = build()
+    assert page.count("Not open yet") == len(paid), "a paid plan with no checkout is not saying so"
+    assert "Start the" not in page, "a plan offers a trial it has nowhere to start"
+
+    page = build(AUTEUR_CHECKOUT_SOLO="https://buy.stripe.com/9AQ00realone")
+    assert 'href="https://buy.stripe.com/9AQ00realone">Start the' in page
+    assert (
+        page.count("Not open yet") == len(paid) - 1
+    ), "the tier that can be bought still says it cannot"
+
+    # And the refusal holds through the environment too, or the override is a
+    # way around the check rather than a way to configure it.
+    failed = subprocess.run(
+        [sys.executable, str(root / "tools" / "site" / "build_site.py"), "-"],
+        capture_output=True,
+        cwd=root,
+        env={**os.environ, "AUTEUR_CHECKOUT_SOLO": "https://buy.stripe.com/test_abc"},
+    )
+    assert failed.returncode != 0, "a test link went onto the page through the environment"
+
+
+def test_the_free_plan_sends_people_to_something_that_exists():
+    """ "Open it" has to open something.
+
+    The free tier is the only one whose button works today, so it is the only
+    one that can be wrong quietly. It points at whatever `TRY_IT` holds, and
+    the page's hero button points at the same place — two links, one value, so
+    they cannot diverge.
+    """
+
+    root = Path(__file__).resolve().parent.parent
+    subprocess.run(
+        [sys.executable, str(root / "tools" / "site" / "build_site.py"), "-"],
+        check=True,
+        capture_output=True,
+        cwd=root,
+    )
+    page = (root / "-").read_text(encoding="utf-8")
+    (root / "-").unlink()
+
+    targets = set(re.findall(r'href="(https://[^"]+)">(?:Open it|Make one in your browser)', page))
+    assert len(targets) == 1, f"the two 'try it' links disagree: {sorted(targets)}"
+
+
+def test_the_page_never_offers_a_trial_it_has_nowhere_to_start():
+    """The page and its own plans have to agree about whether it is open.
+
+    It did not. The headline read "14 days free, then $12.49 a month" over two
+    plans that both said "Not open yet", and the small print underneath
+    promised that "every paid plan starts with 14 days free". Three statements
+    on one screen, one of them true.
+
+    Nothing in the repository could see it, because each string was correct in
+    isolation — the trial really is fourteen days, the plans really are not
+    open. What was missing is the thing this whole file keeps finding: two
+    values that describe the same fact and are never compared.
+    """
+
+    from auteur import pricing
+
+    root = Path(__file__).resolve().parent.parent
+
+    def build(**overrides: str) -> str:
+        subprocess.run(
+            [sys.executable, str(root / "tools" / "site" / "build_site.py"), "-"],
+            check=True,
+            capture_output=True,
+            cwd=root,
+            env={**os.environ, **overrides},
+        )
+        page = (root / "-").read_text(encoding="utf-8")
+        (root / "-").unlink()
+        return page
+
+    shut = build()
+    assert "Not open yet" in shut, "no plan is shut, so there is nothing to be wrong about"
+    for promise in (f"{pricing.TRIAL_DAYS} days free", "days free and no card"):
+        assert promise not in shut, f"the page promises {promise!r} and has nowhere to start it"
+
+    everywhere = {
+        f"AUTEUR_CHECKOUT_{tier.key.upper()}": f"https://buy.stripe.com/9AQ{tier.key}"
+        for tier in pricing.TIERS
+        if tier.dollars
+    }
+    open_now = build(**everywhere)
+    assert "Not open yet" not in open_now, "a plan with a checkout still says it is shut"
+    assert (
+        f"{pricing.TRIAL_DAYS} days free" in open_now
+    ), "everything is open and the trial is not offered anywhere"
+
+
+def test_the_readme_tells_a_contributor_every_check_that_can_fail_them():
+    """The Development block, compared to the workflow it is describing.
+
+    It said `ruff check auteur tests` and did not mention black at all. CI runs
+    `ruff check .` and `black --check .`. So the documented route was: follow
+    the README, lint clean, push, and watch the lint job go red on a formatter
+    the README never named — over files (`tools/`) the README's narrower path
+    never looked at.
+
+    That strands exactly one person: whoever is contributing for the first
+    time, who has no reason to doubt the instructions. Everyone who already
+    knows never reads the block again, which is why it stayed wrong.
+    """
+
+    root = Path(__file__).resolve().parent.parent
+    workflow = (root / ".github" / "workflows" / "lint-and-type.yml").read_text(encoding="utf-8")
+    readme = (root / "README.md").read_text(encoding="utf-8")
+
+    block = re.search(r"## Development\n+```bash\n(.*?)```", readme, re.S)
+    assert block, "the README has no Development block to check"
+    instructions = block.group(1)
+
+    # Every `run:` line in the lint job that invokes a checker has to appear.
+    ran = re.findall(r"run: (?:python -m )?((?:ruff|black)[^\n|(]*)", workflow)
+    assert ran, "the lint workflow runs no checkers, which cannot be right"
+
+    for command in ran:
+        command = command.strip()
+        assert command in instructions, (
+            f"CI runs {command!r} and the README's Development block does not "
+            f"say to. It says:\n{instructions}"
+        )
+
+
+def test_the_usage_line_names_every_command_the_cli_can_run():
+    """`auteur --help` has to list what `auteur` accepts.
+
+    It did not. The subcommand metavar was typed out by hand and listed
+    fourteen commands, while the parser had sixteen: `moderate` and `template`
+    both existed, both worked, and neither appeared in the line that tells you
+    what you can run. The help text underneath described them, so the same
+    screen contradicted itself.
+
+    Nothing could catch that, because the list was a string that named the
+    parsers and was never compared to them — the same shape as every other
+    defect this file guards. The metavar is now built from `sub.choices`, so
+    adding a command changes the usage line and the dispatch together or
+    neither. This checks that it stayed built rather than being typed back in.
+    """
+    from auteur.cli import _build_parser
+
+    parser = _build_parser()
+    actions = [a for a in parser._actions if hasattr(a, "choices") and a.choices]
+    subcommands = next((set(a.choices) for a in actions if a.dest == "command"), set())
+    assert len(subcommands) > 10, f"only {len(subcommands)} commands found; the lookup is wrong"
+
+    usage = parser.format_usage()
+    for command in sorted(subcommands):
+        assert command in usage, f"`auteur {command}` runs and `auteur --help` never mentions it"
+
+    # And the reverse: nothing listed that cannot be run. A usage line
+    # offering a command that does not exist is the same bug pointed the other
+    # way, and it is the one a person actually trips over.
+    listed = re.search(r"\{([a-z,]+)\}", usage)
+    assert listed, f"the usage line has no command list at all:\n{usage}"
+    for name in listed.group(1).split(","):
+        assert name in subcommands, f"`auteur --help` offers {name!r}, which does not exist"
+
+
+def test_no_caveat_is_hidden_behind_a_tooltip_a_phone_cannot_summon():
+    """A disclaimer clipped to an ellipsis is a disclaimer nobody read.
+
+    The studio header carried
+
+        fitted on 2000 simulated rows and no measured ones — this predicts
+        the simulator, not any platform
+
+    and at 390px it showed "fitted on 2000 simulated rows and no m…", directly
+    above three large figures — 0.87, 0.06, 1.59 — which then read as
+    measurements of something real. The sentence saying they are not was the
+    part that got cut.
+
+    `studio.js` also set the same string as a `title`. That is the tell: a
+    `title` is a hover tooltip, and the phone this app is built for has no
+    hover, so the fallback was unreachable on the only device that mattered.
+    Setting one is a sign the author expected the text to be clipped — which
+    makes it the thing to look for, rather than the fix.
+
+    So the rule is general: where the app sets an element's `title` to the
+    same text it just put in that element, the element must not be styled to
+    truncate at phone width.
+    """
+
+    from auteur.web import server
+
+    static = server.STATIC
+    sheets = "\n".join(path.read_text(encoding="utf-8") for path in sorted(static.glob("*.css")))
+
+    offenders: list[str] = []
+    for script in sorted(static.glob("*.js")):
+        source = script.read_text(encoding="utf-8")
+        # `$("x").textContent = v;` followed by `$("x").title = v;`
+        for element, _value in re.findall(
+            r'\$\("([\w-]+)"\)\.textContent\s*=\s*([^;]+);\s*\$\("\1"\)\.title\s*=\s*\2;',
+            source,
+        ):
+            markup = "\n".join(
+                page.read_text(encoding="utf-8") for page in sorted(static.glob("*.html"))
+            )
+            found = re.search(rf'id="{element}"[^>]*class="([^"]*)"', markup) or re.search(
+                rf'class="([^"]*)"[^>]*id="{element}"', markup
+            )
+            if not found:
+                continue
+            for name in found.group(1).split():
+                rule = re.search(rf"\.{re.escape(name)}\s*\{{(.*?)\}}", sheets, re.S)
+                if not rule:
+                    continue
+                body = rule.group(1)
+                truncating = "nowrap" in body and "ellipsis" in body
+                # A phone-width override that lets it wrap is the fix, and it
+                # lives in a media query rather than in the base rule.
+                rescued = re.search(
+                    rf"@media[^{{]*max-width[^{{]*\{{.*?\.{re.escape(name)}\s*\{{",
+                    sheets,
+                    re.S,
+                )
+                if truncating and not rescued:
+                    offenders.append(
+                        f"#{element} (.{name}) is clipped, and its only full "
+                        f"copy is a title= tooltip a phone cannot show"
+                    )
+
+    assert not offenders, "; ".join(offenders)

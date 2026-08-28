@@ -322,7 +322,7 @@ average, a free trial, ten per cent off the highest tier.
 |---|---|---|
 | market average | $14.75 | $49.67 |
 | **monthly** | **$12.49** (15.3% under) | **$41.99** (15.5% under) |
-| after the advertised 10% | — | **$37.79** |
+| after the advertised 10% | — | **$37.79**, with the code `ROOM10` |
 
 Free is the browser build, which already ships and needs no account.
 
@@ -348,6 +348,24 @@ Adobe Premiere is not an AI-first consumer editor.
    towards "run a hosted instance as the default and keep self-hosting as an
    option". That is not a decision the code can make; it is one the founder
    should confirm or overturn, and §8.1 stays open until they do.
+
+**The discount needs a code, and the site prints it.** A Stripe payment link
+accepts `allow_promotion_codes` and refuses a `discounts` parameter outright —
+this was tried against the real API — so a coupon on its own is something only
+the merchant can apply. A 10% saving advertised with no code to type is a
+saving nobody can claim. `ROOM10` is derived from the percentage, so a discount
+changed to fifteen per cent cannot leave the old code redeemable beside it.
+
+**Nothing can be bought yet, and the page says so.** The live payment links do
+not exist — the Stripe key available to the code here is read-only in livemode,
+so the products are in test mode only. Every paid plan therefore reads "Not
+open yet", the headline leads with "Free in your browser today" rather than
+offering a trial, and the promotion code is not printed at all, because a code
+to type at a checkout that does not exist is an instruction with nowhere to
+follow it. Run `tools/stripe/sync_pricing.py --apply --live`, put the two URLs
+it prints into `pricing.CHECKOUT` (or set `AUTEUR_CHECKOUT_SOLO` and
+`AUTEUR_CHECKOUT_STUDIO`), and the whole page turns on together. It is item
+three on the §5.1a waiting list.
 
 **Nothing is typed twice.** Prices round *down* to the largest ordinary price
 that still satisfies the claim — fifteen per cent under $14.75 is $12.5375, and

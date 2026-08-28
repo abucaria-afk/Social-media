@@ -54,6 +54,37 @@ def _features() -> str:
     return "\n".join(out)
 
 
+def _smallprint_opening() -> str:
+    """The first sentence of the small print, which depends on the state.
+
+    Same rule as the headline: the page does not promise a trial it has
+    nowhere to start.
+    """
+    if pricing.open_for_business():
+        return (
+            f"Every paid plan starts with {pricing.TRIAL_DAYS} days free "
+            "and no card charged until they are up. "
+        )
+    return "The hosted plans are not open yet; the browser build is, and is free. "
+
+
+def _buy(tier: pricing.Tier) -> str:
+    """A button when there is somewhere to send them, words when there is not.
+
+    A pricing table with no way to buy asks for a decision and then does
+    nothing with it. A button wired to nothing is worse: it reads as broken
+    rather than as forthcoming. Until the live payment links exist, each paid
+    plan says so — the same answer this page already gives for a build that is
+    not yet on a store.
+    """
+    if not tier.dollars:
+        return f'<a class="go" href="{TRY_IT}">Open it</a>'
+    url = pricing.checkout_for(tier)
+    if not url:
+        return '<p class="soon">Not open yet.</p>'
+    return f'<a class="go" href="{url}">Start the {pricing.TRIAL_DAYS} free days</a>'
+
+
 def _plans() -> str:
     """The three tiers, from `auteur/pricing.py`.
 
@@ -65,14 +96,19 @@ def _plans() -> str:
     for tier in pricing.TIERS:
         classes = "plan featured" if tier is pricing.TOP_TIER else "plan"
         was = ""
-        if tier is pricing.TOP_TIER:
+        if tier is pricing.TOP_TIER and pricing.checkout_for(tier):
+            # Only where there is a checkout to type it into. A promotion code
+            # printed above "Not open yet" is an instruction with nowhere to
+            # follow it, and it reads as a page that has lost track of itself.
             was = (
                 '<p class="was">'
-                f"{pricing.TOP_TIER_OFF:.0%} off — "
+                f"{pricing.TOP_TIER_OFF:.0%} off with "
+                f"<code>{pricing.PROMO_CODE}</code> — "
                 f"<s>${tier.dollars:.2f}</s> ${pricing.discounted():.2f}/mo"
                 "</p>"
             )
         items = "\n".join(f"          <li>{html.escape(line)}</li>" for line in tier.includes)
+        buy = _buy(tier)
         every = "" if not tier.dollars else '<span class="per"> / month</span>'
         out.append(
             f'      <li class="{classes}">\n'
@@ -83,6 +119,7 @@ def _plans() -> str:
             "        <ul>\n"
             f"{items}\n"
             "        </ul>\n"
+            f"        {buy}\n"
             "      </li>"
         )
     return "\n".join(out)
@@ -199,6 +236,14 @@ PAGE = f"""<!DOCTYPE html>
   .plan .per {{ font-size: 15px; font-weight: 400; color: var(--text-muted); letter-spacing: 0; }}
   .plan .was {{ margin: 4px 0 0; font-size: 14px; font-weight: 600; color: var(--ember-text); }}
   .plan .was s {{ color: var(--text-faint); font-weight: 400; }}
+  /* The code has to be transcribable: a discount nobody can type accurately
+     is a discount nobody gets. Monospace, and spaced, so O and 0 are not the
+     same shape at fourteen pixels. */
+  .plan .was code {{
+    font: 600 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 0.06em; padding: 3px 6px; border-radius: 6px;
+    background: var(--raised); color: var(--text);
+  }}
   .plan .blurb {{ margin: 10px 0 0; color: var(--text-muted); font-size: 15px; }}
   .plan ul {{ list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; font-size: 15px; }}
   .plan li {{ padding-left: 20px; position: relative; }}
@@ -206,6 +251,8 @@ PAGE = f"""<!DOCTYPE html>
     content: ""; position: absolute; left: 2px; top: 0.62em;
     width: 8px; height: 8px; border-radius: 50%; background: var(--moss);
   }}
+  .plan .go {{ margin-top: 18px; align-self: flex-start; }}
+  .plan .soon {{ margin: 18px 0 0; color: var(--text-faint); font-size: 15px; }}
   .trial {{ font-size: 19px; margin: 0 0 22px; max-width: 60ch; }}
   .smallprint {{ color: var(--text-faint); font-size: 14px; margin: 18px 0 0; max-width: 66ch; }}
 
@@ -244,8 +291,7 @@ PAGE = f"""<!DOCTYPE html>
   <ul class="plans">
 {_plans()}
   </ul>
-  <p class="smallprint">Every paid plan starts with {pricing.TRIAL_DAYS} days free and no card
-    charged until they are up. Prices are compared against the advertised monthly rate of
+  <p class="smallprint">{_smallprint_opening()}Prices are compared against the advertised monthly rate of
     {", ".join(rival.name for rival in pricing.ENTRY_RIVALS)} and
     {", ".join(rival.name for rival in pricing.TOP_RIVALS)}, read {pricing.AS_OF}.
     The browser build stays free: it runs on your device, so it costs us nothing to give you.</p>

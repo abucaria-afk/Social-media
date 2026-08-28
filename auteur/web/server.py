@@ -34,7 +34,7 @@ from urllib.parse import parse_qs, unquote
 
 from ..config import FORMATS, QUALITIES, Settings
 from ..ui import Reporter, describe_count, describe_duration, describe_shape
-from .. import projects
+from .. import brand, projects
 from . import auth, profiles, safety
 from .social import PAGE
 
@@ -4165,7 +4165,7 @@ def serve(
     if announce:
         url = f"http://{local_address()}:{port}"
         print()
-        print("  auteur  ·  the edit room is open")
+        print(f"  {brand.NAME}  ·  the edit room is open")
         print()
         print(f"     on this computer   http://localhost:{port}")
         print(f"     on your phone      {url}")
