@@ -11516,6 +11516,143 @@ def test_the_type_scale_moves_together_when_the_text_size_does():
 # ---------------------------------------------------------------------------
 
 
+def test_every_import_is_either_installed_or_guarded():
+    """The container installs `requirements.txt` and nothing else.
+
+    So an import that is not in that file and not wrapped in a try is an
+    application that builds cleanly and dies on the first request that reaches
+    it — the worst possible time to find out, and invisible on a development
+    machine that happens to have the package.
+
+    `cryptography` was exactly that: imported for Apple's client secret,
+    guarded, and therefore not a crash — but also not installed, which meant
+    no deployment could offer Continue with Apple at all. This is the check
+    that found it, kept so it finds the next one.
+
+    Guarded imports are fine and stay fine: `imageio_ffmpeg` is a fallback for
+    finding ffmpeg and the code says so when it is absent. What is not fine is
+    an unguarded import of something nothing installs.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parent.parent
+    requirements = (root / "requirements.txt").read_text(encoding="utf-8").lower()
+
+    # Module name -> the distribution that provides it, where they differ.
+    DISTRIBUTION = {"PIL": "pillow", "yt_dlp": "yt-dlp", "imageio_ffmpeg": "imageio-ffmpeg"}
+
+    unguarded: list[str] = []
+    for source in sorted((root / "auteur").rglob("*.py")):
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+
+        # Every import statement that sits inside a try, at any depth.
+        sheltered: set[int] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Try):
+                for child in ast.walk(node):
+                    if isinstance(child, (ast.Import, ast.ImportFrom)):
+                        sheltered.add(id(child))
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [a.name.split(".")[0] for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module.split(".")[0]] if node.level == 0 and node.module else []
+            else:
+                continue
+            if id(node) in sheltered:
+                continue
+            for name in names:
+                if name in sys.stdlib_module_names or name == "auteur":
+                    continue
+                if DISTRIBUTION.get(name, name).lower() in requirements:
+                    continue
+                unguarded.append(f"{source.relative_to(root)}:{node.lineno} imports {name!r}")
+
+    assert not unguarded, (
+        "imported, not installed by requirements.txt, and not inside a try — "
+        "this is a container that builds and then dies: " + "; ".join(unguarded)
+    )
+
+
+def test_a_sign_in_option_the_deployment_cannot_offer_is_not_offered():
+    """`signed_secret` existed and nothing compared it to the install list.
+
+    Apple's client secret is an ES256 JWT the server signs itself, which needs
+    `cryptography`. No deployment installed it, so a hosted instance offered
+    Continue with Google and told anybody wanting Continue with Apple that it
+    could not — a dead end with no user remedy, and an App Store guideline 4.8
+    problem, since an app offering a third-party login has to offer an
+    equivalent privacy-preserving one.
+
+    Found by listing every third-party module `auteur/` imports and comparing
+    it to `requirements.txt`, which is a comparison nothing was making.
+    """
+    from auteur.web import oidc
+
+    requirements = (Path(__file__).resolve().parent.parent / "requirements.txt").read_text(
+        encoding="utf-8"
+    )
+    installed = {
+        line.split("=")[0].split(">")[0].split("<")[0].strip().lower()
+        for line in requirements.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+    signing = [key for key, p in oidc.PROVIDERS.items() if p.signed_secret]
+    assert signing, "no provider needs a signed secret — has the flag gone?"
+
+    assert "cryptography" in installed, (
+        "a deployment cannot sign a client secret, so "
+        f"{', '.join(signing)} cannot be offered: add cryptography to "
+        "requirements.txt"
+    )
+
+
+def test_a_broken_signing_library_does_not_take_the_sign_in_page_with_it(monkeypatch):
+    """`except Exception` is not enough, and the difference is a 500.
+
+    A broken `cryptography` — a stale wheel, a missing `_cffi_backend`, an ABI
+    mismatch after a base image moves — does not raise ImportError. The Rust
+    extension panics, and PyO3 surfaces that as `PanicException`, which
+    inherits from BaseException. So the guard written to make a *missing*
+    library harmless let the worst kind of *broken* library straight through,
+    and `offered()` raised on the one page somebody reaches before anything
+    else. Reproduced on a real machine before it was fixed: this sandbox has
+    exactly that broken install.
+
+    Only reachable when the provider is configured, which is why it survived
+    — an unconfigured Apple short-circuits before the check.
+    """
+    from auteur.web import oidc
+
+    class Panic(BaseException):
+        """What PyO3 raises. Not an Exception, which is the whole bug."""
+
+    apple = oidc.Settings(
+        client_id="com.auteurstudies.auteur",
+        redirect_uri="https://auteurstudies.com/oidc/apple",
+        team_id="TEAM123456",
+        key_id="KEY1234567",
+        private_key="-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----",
+    )
+    assert apple.usable, "the fixture no longer configures Apple, so nothing is tested"
+
+    for failure, expected in (
+        (Panic("panicked"), "not working"),
+        (ImportError("no"), "does not have"),
+    ):
+        monkeypatch.setattr(oidc, "_import_signing", lambda failure=failure: failure)
+        rows = oidc.offered({"apple": apple})
+        row = next(r for r in rows if r["key"] == "apple")
+        assert row["ready"] is False
+        assert expected in row["why"], (failure, row["why"])
+    monkeypatch.undo()
+
+    # And the real import path must not raise either, whatever is installed.
+    oidc.offered({"apple": apple})
+
+
 def test_the_licence_names_the_company_that_publishes_this():
     """Two copies of a company's legal name is one company as far as a lawyer
     is concerned and two as far as a reader is.

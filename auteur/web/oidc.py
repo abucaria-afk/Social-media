@@ -195,9 +195,18 @@ def offered(configured: dict[str, Settings]) -> list[dict]:
         why = ""
         if not ready:
             why = "not configured on this copy"
-        elif provider.signed_secret and not _can_sign():
+        elif provider.signed_secret and (failure := _import_signing()) is not None:
             ready = False
-            why = "needs a signing library this install does not have"
+            # Two different problems, and telling them apart is the difference
+            # between "install this" and "your install is broken". An
+            # ImportError is the library missing; anything else — a panic out
+            # of the Rust extension, a bad ABI — is a library that is present
+            # and does not work, and `pip install` alone will not fix it.
+            why = (
+                "needs a signing library this install does not have"
+                if isinstance(failure, ImportError)
+                else "has a signing library that is installed but not working"
+            )
         out.append(
             {
                 "key": key,
@@ -210,13 +219,34 @@ def offered(configured: dict[str, Settings]) -> list[dict]:
     return out
 
 
-def _can_sign() -> bool:
-    """Whether Apple's ES256 client secret can be produced here."""
+def _import_signing() -> BaseException | None:
+    """Try to load the signing library. Returns what went wrong, or None.
+
+    `except Exception` is not enough here and the difference is a 500 on the
+    sign-in page. A broken `cryptography` install — a stale wheel, a missing
+    `_cffi_backend`, an ABI mismatch after a base image moves — does not raise
+    ImportError. The Rust extension panics, and PyO3 surfaces that as
+    `pyo3_runtime.PanicException`, which inherits from BaseException and not
+    from Exception. So the guard that existed to make a missing library
+    harmless let the worst kind of broken library straight through, on the one
+    page somebody reaches before anything else.
+
+    Caught by base class rather than by name because importing PyO3's runtime
+    to name its exception is the same fragility one level down. The two
+    BaseExceptions that must never be swallowed are re-raised.
+    """
     try:  # pragma: no cover - depends on what is installed
         from cryptography.hazmat.primitives import hashes  # noqa: F401
-    except Exception:  # noqa: BLE001 - any import failure means no
-        return False
-    return True
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as exc:  # noqa: BLE001 - anything else means "no"
+        return exc
+    return None
+
+
+def _can_sign() -> bool:
+    """Whether Apple's ES256 client secret can be produced here."""
+    return _import_signing() is None
 
 
 # ---------------------------------------------------------------------------
@@ -389,10 +419,16 @@ def _apple_secret(settings: Settings) -> str:  # pragma: no cover - needs crypto
     try:
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import ec, utils
-    except Exception as exc:  # noqa: BLE001
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as exc:  # noqa: BLE001 - see `_import_signing`
+        # BaseException for the same reason as `_import_signing`: a broken
+        # install panics rather than raising ImportError, and a panic here
+        # escapes as a stack trace instead of the sentence below.
         raise ValueError(
             "signing in with Apple needs a crypto library this install does not "
-            "have; `pip install cryptography` and restart"
+            "have, or has one that is installed but broken; "
+            "`pip install --force-reinstall cryptography` and restart"
         ) from exc
 
     def segment(payload: dict) -> bytes:
