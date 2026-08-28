@@ -12262,7 +12262,15 @@ def test_the_app_calls_itself_what_the_store_listing_calls_it():
     for page in sorted(server.STATIC.glob("*.html")):
         markup = page.read_text(encoding="utf-8")
         title = re.search(r"<title>(.*?)</title>", markup, re.S)
-        if title and "Auteur" in title.group(1) and name not in title.group(1):
+        # Every title, not only the ones that already half-say it. The
+        # original condition was `"Auteur" in title and name not in title`,
+        # which skipped any title that did not already contain the capitalised
+        # word — so `<title>auteur · studio</title>`, the exact thing the
+        # rename left behind, sailed through the check written to catch it.
+        # Two pages kept the old name in the browser tab for as long as this
+        # guard has existed.
+        assert title, f"{page.name} has no <title> at all"
+        if name not in title.group(1):
             stale.append(f"{page.name} <title> says {title.group(1).strip()!r}")
         for content in re.findall(
             r'<meta name="apple-mobile-web-app-title" content="([^"]*)"', markup
@@ -12274,6 +12282,23 @@ def test_the_app_calls_itself_what_the_store_listing_calls_it():
     for key in ("name", "short_name"):
         if name not in manifest.get(key, ""):
             stale.append(f"manifest {key} is {manifest.get(key)!r}")
+
+    # The two places a person meets the name while actually using the thing:
+    # the terminal masthead and the line `serve` prints when it comes up. Both
+    # said "auteur" long after every store surface said "Auteur Atlas", and
+    # both were invisible to a check that only read the static files.
+    import io
+
+    from auteur.ui import Reporter
+
+    spoken = io.StringIO()
+    Reporter(stream=spoken).banner("a test prompt")
+    if name not in spoken.getvalue():
+        stale.append(f"the terminal masthead says {spoken.getvalue().strip().splitlines()[0]!r}")
+
+    source = Path(server.__file__).read_text(encoding="utf-8")
+    if 'print("  auteur' in source or "print('  auteur" in source:
+        stale.append("`serve` announces itself as auteur")
 
     assert not stale, f"the app names itself something other than {name!r}: " + "; ".join(stale)
 
@@ -14121,3 +14146,71 @@ def test_the_usage_line_names_every_command_the_cli_can_run():
     assert listed, f"the usage line has no command list at all:\n{usage}"
     for name in listed.group(1).split(","):
         assert name in subcommands, f"`auteur --help` offers {name!r}, which does not exist"
+
+
+def test_no_caveat_is_hidden_behind_a_tooltip_a_phone_cannot_summon():
+    """A disclaimer clipped to an ellipsis is a disclaimer nobody read.
+
+    The studio header carried
+
+        fitted on 2000 simulated rows and no measured ones — this predicts
+        the simulator, not any platform
+
+    and at 390px it showed "fitted on 2000 simulated rows and no m…", directly
+    above three large figures — 0.87, 0.06, 1.59 — which then read as
+    measurements of something real. The sentence saying they are not was the
+    part that got cut.
+
+    `studio.js` also set the same string as a `title`. That is the tell: a
+    `title` is a hover tooltip, and the phone this app is built for has no
+    hover, so the fallback was unreachable on the only device that mattered.
+    Setting one is a sign the author expected the text to be clipped — which
+    makes it the thing to look for, rather than the fix.
+
+    So the rule is general: where the app sets an element's `title` to the
+    same text it just put in that element, the element must not be styled to
+    truncate at phone width.
+    """
+    import re
+
+    from auteur.web import server
+
+    static = server.STATIC
+    sheets = "\n".join(path.read_text(encoding="utf-8") for path in sorted(static.glob("*.css")))
+
+    offenders: list[str] = []
+    for script in sorted(static.glob("*.js")):
+        source = script.read_text(encoding="utf-8")
+        # `$("x").textContent = v;` followed by `$("x").title = v;`
+        for element, _value in re.findall(
+            r'\$\("([\w-]+)"\)\.textContent\s*=\s*([^;]+);\s*\$\("\1"\)\.title\s*=\s*\2;',
+            source,
+        ):
+            markup = "\n".join(
+                page.read_text(encoding="utf-8") for page in sorted(static.glob("*.html"))
+            )
+            found = re.search(rf'id="{element}"[^>]*class="([^"]*)"', markup) or re.search(
+                rf'class="([^"]*)"[^>]*id="{element}"', markup
+            )
+            if not found:
+                continue
+            for name in found.group(1).split():
+                rule = re.search(rf"\.{re.escape(name)}\s*\{{(.*?)\}}", sheets, re.S)
+                if not rule:
+                    continue
+                body = rule.group(1)
+                truncating = "nowrap" in body and "ellipsis" in body
+                # A phone-width override that lets it wrap is the fix, and it
+                # lives in a media query rather than in the base rule.
+                rescued = re.search(
+                    rf"@media[^{{]*max-width[^{{]*\{{.*?\.{re.escape(name)}\s*\{{",
+                    sheets,
+                    re.S,
+                )
+                if truncating and not rescued:
+                    offenders.append(
+                        f"#{element} (.{name}) is clipped, and its only full "
+                        f"copy is a title= tooltip a phone cannot show"
+                    )
+
+    assert not offenders, "; ".join(offenders)

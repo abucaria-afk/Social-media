@@ -16,7 +16,7 @@ import shutil
 import sys
 from typing import TextIO
 
-from . import theme
+from . import brand, theme
 
 #: Left margin for everything under a step heading.
 INDENT = "     "
@@ -92,7 +92,7 @@ class Reporter:
     def banner(self, prompt: str) -> None:
         self._write()
         self._write(
-            "  " + self._tint("auteur", "accent", "1") + self._paint("  ·  the edit room", "2")
+            "  " + self._tint(brand.NAME, "accent", "1") + self._paint("  ·  the edit room", "2")
         )
         self._write("  " + self._paint(f'"{prompt}"', "2"))
         self._write()
