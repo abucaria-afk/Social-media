@@ -332,6 +332,21 @@ def pending(company: Company | None = None) -> list[Waiting]:
             ),
             confirm="python3 tools/appstore/preflight.py --online",
         ),
+        # The prices are decided and the site prints them. What is not done
+        # is the only part that takes money: the products exist in Stripe's
+        # test mode and not in live, because the key available to the code
+        # here cannot write to a live account.
+        Waiting(
+            what="create the live prices in Stripe",
+            consequence=(
+                "every paid plan on the site says 'Not open yet' because "
+                "there is no live payment link to send anybody to. The prices "
+                "are advertised and nothing can be bought. The script writes "
+                "them from auteur/pricing.py; its output is the URL that goes "
+                "in pricing.CHECKOUT"
+            ),
+            confirm="python3 tools/stripe/sync_pricing.py --apply --live",
+        ),
         Waiting(
             what=f"file {who.legal_name}",
             consequence=(

@@ -356,6 +356,17 @@ the merchant can apply. A 10% saving advertised with no code to type is a
 saving nobody can claim. `ROOM10` is derived from the percentage, so a discount
 changed to fifteen per cent cannot leave the old code redeemable beside it.
 
+**Nothing can be bought yet, and the page says so.** The live payment links do
+not exist — the Stripe key available to the code here is read-only in livemode,
+so the products are in test mode only. Every paid plan therefore reads "Not
+open yet", the headline leads with "Free in your browser today" rather than
+offering a trial, and the promotion code is not printed at all, because a code
+to type at a checkout that does not exist is an instruction with nowhere to
+follow it. Run `tools/stripe/sync_pricing.py --apply --live`, put the two URLs
+it prints into `pricing.CHECKOUT` (or set `AUTEUR_CHECKOUT_SOLO` and
+`AUTEUR_CHECKOUT_STUDIO`), and the whole page turns on together. It is item
+three on the §5.1a waiting list.
+
 **Nothing is typed twice.** Prices round *down* to the largest ordinary price
 that still satisfies the claim — fifteen per cent under $14.75 is $12.5375, and
 writing $12.99 because prices end in 99 would be 11.9% under on a page saying

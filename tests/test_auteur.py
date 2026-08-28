@@ -13507,11 +13507,23 @@ def test_the_site_quotes_no_price_the_pricing_module_did_not_derive():
     from auteur import pricing
 
     root = Path(__file__).resolve().parent.parent
+    # Built with a checkout in place, so the page under test is the whole
+    # page — the discounted price and the promotion code only appear where
+    # there is somewhere to spend them, and a scan of a page missing half its
+    # figures proves nothing about the half it is missing.
     built = subprocess.run(
         [sys.executable, str(root / "tools" / "site" / "build_site.py"), "-"],
         capture_output=True,
         text=True,
         cwd=root,
+        env={
+            **os.environ,
+            **{
+                f"AUTEUR_CHECKOUT_{tier.key.upper()}": f"https://buy.stripe.com/9AQ{tier.key}"
+                for tier in pricing.TIERS
+                if tier.dollars
+            },
+        },
     )
     assert built.returncode == 0, built.stderr
     page = (root / "-").read_text(encoding="utf-8")
@@ -13528,9 +13540,11 @@ def test_the_site_quotes_no_price_the_pricing_module_did_not_derive():
     for price in allowed:
         assert price in page, f"{price} is a tier nobody can see on the page"
 
-    # And the two claims made in words rather than figures.
-    assert f"{pricing.TOP_TIER_OFF:.0%} off" in page
+    # The trial is offered only where it can be started. Promising fourteen
+    # free days above two plans that both say "Not open yet" is a page
+    # arguing with itself.
     assert f"{pricing.TRIAL_DAYS} days free" in page
+    assert f"{pricing.TOP_TIER_OFF:.0%} off" in page
 
 
 def test_the_arithmetic_behind_the_prices_can_be_retraced_from_the_repository():
@@ -13824,10 +13838,11 @@ def test_the_discount_the_site_advertises_can_actually_be_claimed():
     something only the merchant can apply. The customer needs a code to type,
     and therefore the page needs to print one.
 
-    The code is derived from the percentage so the two cannot drift — a coupon
-    moved to fifteen per cent must not leave `ROOM10` on the page — and this
-    checks that derivation, the page, and the arithmetic the page shows beside
-    the code.
+    Two halves, and both are checked here. The code has to name the percentage
+    it unlocks, so a coupon moved to fifteen per cent cannot leave `ROOM10`
+    advertising ten. And it appears **only where there is a checkout to type
+    it into** — a promotion code printed above "Not open yet" is an
+    instruction with nowhere to follow it.
     """
     import re
     import subprocess
@@ -13841,6 +13856,142 @@ def test_the_discount_the_site_advertises_can_actually_be_claimed():
     )
 
     root = Path(__file__).resolve().parent.parent
+
+    def build(**overrides: str) -> str:
+        subprocess.run(
+            [sys.executable, str(root / "tools" / "site" / "build_site.py"), "-"],
+            check=True,
+            capture_output=True,
+            cwd=root,
+            env={**os.environ, **overrides},
+        )
+        page = (root / "-").read_text(encoding="utf-8")
+        (root / "-").unlink()
+        return page
+
+    open_for_business = build(
+        **{f"AUTEUR_CHECKOUT_{pricing.TOP_TIER.key.upper()}": "https://buy.stripe.com/9AQreal"}
+    )
+    assert (
+        pricing.PROMO_CODE in open_for_business
+    ), "the code exists in Stripe and nowhere a customer looks"
+    # Shown as a code rather than buried in a sentence: somebody has to
+    # transcribe it accurately into a checkout field.
+    assert f"<code>{pricing.PROMO_CODE}</code>" in open_for_business
+
+    shown = re.search(r"(\d+)% off with <code>", open_for_business)
+    assert shown and int(shown.group(1)) == percent, (
+        f"the page offers {shown.group(1) if shown else 'nothing'}% "
+        f"and the coupon gives {percent}%"
+    )
+
+    not_yet = build()
+    assert (
+        pricing.PROMO_CODE not in not_yet
+    ), "the page tells somebody to type a code at a checkout that does not exist"
+
+
+def test_a_stripe_test_link_cannot_reach_the_public_site():
+    """The mistake that is available right now, refused by shape.
+
+    Building this, I had two working test-mode checkout URLs in hand:
+
+        https://buy.stripe.com/test_14A5kD7jZgcx8sUdDN1B600
+
+    A live one looks the same minus four characters. Pasted onto the public
+    site it does not fail — it takes a card number that is not a card number,
+    tells the customer the payment worked, and creates nothing. There is no
+    error for anybody to notice; the first signal is somebody asking where
+    their subscription is.
+
+    So `CHECKOUT` is not a place a URL is merely written. It is read through
+    `checkout_for`, which refuses a test link rather than returning it.
+    """
+    from auteur import pricing
+
+    original = dict(pricing.CHECKOUT)
+    try:
+        for bad in (
+            "https://buy.stripe.com/test_14A5kD7jZgcx8sUdDN1B600",
+            "https://buy.stripe.com/test_3cIaEX9s72lHdNearB1B601",
+            "http://buy.stripe.com/9AQreal",
+        ):
+            pricing.CHECKOUT[pricing.SOLO.key] = bad
+            with pytest.raises(ValueError):
+                pricing.checkout_for(pricing.SOLO)
+
+        pricing.CHECKOUT[pricing.SOLO.key] = "https://buy.stripe.com/9AQ00realone"
+        assert pricing.checkout_for(pricing.SOLO).endswith("realone")
+    finally:
+        pricing.CHECKOUT.clear()
+        pricing.CHECKOUT.update(original)
+
+
+def test_a_plan_with_nowhere_to_pay_says_so_instead_of_offering_a_button():
+    """A button wired to nothing reads as broken. Absence reads as forthcoming.
+
+    The pricing table shipped before this with prices, a promotion code, a
+    trial length and no way to buy anything — a page that asks for a decision
+    and then does nothing with it. The fix is not to invent a button; it is to
+    say which plans can be bought and which cannot, and to let that follow
+    from whether a checkout URL exists rather than from anybody remembering to
+    change the page when one does.
+    """
+    import subprocess
+
+    from auteur import pricing
+
+    root = Path(__file__).resolve().parent.parent
+
+    def build(**overrides: str) -> str:
+        # A separate process, so the page is built the way it is really built
+        # rather than by a function called with the answer already in hand.
+        subprocess.run(
+            [sys.executable, str(root / "tools" / "site" / "build_site.py"), "-"],
+            check=True,
+            capture_output=True,
+            cwd=root,
+            env={**os.environ, **overrides},
+        )
+        page = (root / "-").read_text(encoding="utf-8")
+        (root / "-").unlink()
+        return page
+
+    paid = [tier for tier in pricing.TIERS if tier.dollars]
+
+    page = build()
+    assert page.count("Not open yet") == len(paid), "a paid plan with no checkout is not saying so"
+    assert "Start the" not in page, "a plan offers a trial it has nowhere to start"
+
+    page = build(AUTEUR_CHECKOUT_SOLO="https://buy.stripe.com/9AQ00realone")
+    assert 'href="https://buy.stripe.com/9AQ00realone">Start the' in page
+    assert (
+        page.count("Not open yet") == len(paid) - 1
+    ), "the tier that can be bought still says it cannot"
+
+    # And the refusal holds through the environment too, or the override is a
+    # way around the check rather than a way to configure it.
+    failed = subprocess.run(
+        [sys.executable, str(root / "tools" / "site" / "build_site.py"), "-"],
+        capture_output=True,
+        cwd=root,
+        env={**os.environ, "AUTEUR_CHECKOUT_SOLO": "https://buy.stripe.com/test_abc"},
+    )
+    assert failed.returncode != 0, "a test link went onto the page through the environment"
+
+
+def test_the_free_plan_sends_people_to_something_that_exists():
+    """ "Open it" has to open something.
+
+    The free tier is the only one whose button works today, so it is the only
+    one that can be wrong quietly. It points at whatever `TRY_IT` holds, and
+    the page's hero button points at the same place — two links, one value, so
+    they cannot diverge.
+    """
+    import re
+    import subprocess
+
+    root = Path(__file__).resolve().parent.parent
     subprocess.run(
         [sys.executable, str(root / "tools" / "site" / "build_site.py"), "-"],
         check=True,
@@ -13850,12 +14001,53 @@ def test_the_discount_the_site_advertises_can_actually_be_claimed():
     page = (root / "-").read_text(encoding="utf-8")
     (root / "-").unlink()
 
-    assert pricing.PROMO_CODE in page, "the code exists in Stripe and nowhere a customer looks"
-    # And it is shown as a code rather than buried in a sentence: somebody has
-    # to transcribe it accurately into a checkout field.
-    assert f"<code>{pricing.PROMO_CODE}</code>" in page
+    targets = set(re.findall(r'href="(https://[^"]+)">(?:Open it|Make one in your browser)', page))
+    assert len(targets) == 1, f"the two 'try it' links disagree: {sorted(targets)}"
 
-    shown = re.search(r"(\d+)% off with <code>", page)
+
+def test_the_page_never_offers_a_trial_it_has_nowhere_to_start():
+    """The page and its own plans have to agree about whether it is open.
+
+    It did not. The headline read "14 days free, then $12.49 a month" over two
+    plans that both said "Not open yet", and the small print underneath
+    promised that "every paid plan starts with 14 days free". Three statements
+    on one screen, one of them true.
+
+    Nothing in the repository could see it, because each string was correct in
+    isolation — the trial really is fourteen days, the plans really are not
+    open. What was missing is the thing this whole file keeps finding: two
+    values that describe the same fact and are never compared.
+    """
+    import subprocess
+
+    from auteur import pricing
+
+    root = Path(__file__).resolve().parent.parent
+
+    def build(**overrides: str) -> str:
+        subprocess.run(
+            [sys.executable, str(root / "tools" / "site" / "build_site.py"), "-"],
+            check=True,
+            capture_output=True,
+            cwd=root,
+            env={**os.environ, **overrides},
+        )
+        page = (root / "-").read_text(encoding="utf-8")
+        (root / "-").unlink()
+        return page
+
+    shut = build()
+    assert "Not open yet" in shut, "no plan is shut, so there is nothing to be wrong about"
+    for promise in (f"{pricing.TRIAL_DAYS} days free", "days free and no card"):
+        assert promise not in shut, f"the page promises {promise!r} and has nowhere to start it"
+
+    everywhere = {
+        f"AUTEUR_CHECKOUT_{tier.key.upper()}": f"https://buy.stripe.com/9AQ{tier.key}"
+        for tier in pricing.TIERS
+        if tier.dollars
+    }
+    open_now = build(**everywhere)
+    assert "Not open yet" not in open_now, "a plan with a checkout still says it is shut"
     assert (
-        shown and int(shown.group(1)) == percent
-    ), f"the page offers {shown.group(1) if shown else 'nothing'}% and the coupon gives {percent}%"
+        f"{pricing.TRIAL_DAYS} days free" in open_now
+    ), "everything is open and the trial is not offered anywhere"

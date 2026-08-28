@@ -37,6 +37,7 @@ free on the device would be charging for nothing.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 #: When the rival prices below were read off the rivals' own pages. Same
@@ -143,6 +144,33 @@ def undercut_of(price: float, rivals: list[Rival]) -> float:
     return (market - price) / market
 
 
+#: Where a person actually pays, per tier key. Empty until the live payment
+#: links exist, which is deliberate rather than unfinished.
+#:
+#: `tools/stripe/sync_pricing.py` prints a URL per tier on every run; those go
+#: here. Until then the site says the plan is not open yet rather than showing
+#: a button that goes nowhere — the same answer the store section already
+#: gives for a build that is not submitted.
+#:
+#: **A test-mode link must never land here.** Stripe's test links live on
+#: `buy.stripe.com/test_...` and look exactly like the real ones, and I have
+#: had a pair of them in hand while writing this file. A test link on the
+#: public site takes a card number that is not a card number and tells the
+#: customer it worked. `_checkout_problem` refuses them by shape.
+CHECKOUT: dict[str, str] = {}
+
+
+def _checkout_problem(url: str) -> str:
+    """Why this URL cannot go on the public site, or "" if it can."""
+    if not url:
+        return ""
+    if not url.startswith("https://"):
+        return "a checkout has to be https"
+    if "/test_" in url or url.startswith("https://buy.stripe.com/test"):
+        return "that is a Stripe test link — it takes fake cards and says they worked"
+    return ""
+
+
 @dataclass(frozen=True)
 class Tier:
     """One thing a person can buy, or not buy."""
@@ -223,6 +251,31 @@ STUDIO = Tier(
 
 TIERS: list[Tier] = [FREE, SOLO, STUDIO]
 
+
+def checkout_for(tier: Tier) -> str:
+    """The tier's checkout URL, or "" if there is not a usable one yet.
+
+    The environment wins over the table, the same way `identity._env` lets a
+    support address be overridden without a commit. A payment link is
+    deployment configuration rather than a fact about the product: it differs
+    between the live account and a test one, it is regenerated whenever a
+    price changes, and somebody staging the site should be able to point it at
+    a test checkout for an afternoon without editing a file that a test then
+    refuses to let them commit.
+
+        AUTEUR_CHECKOUT_SOLO=https://buy.stripe.com/... python3 tools/site/build_site.py
+
+    Both paths go through the same refusal, so the environment is not a way
+    around it — a test link is rejected however it arrives.
+    """
+    url = (os.environ.get(f"AUTEUR_CHECKOUT_{tier.key.upper()}", "") or "").strip()
+    url = url or CHECKOUT.get(tier.key, "").strip()
+    problem = _checkout_problem(url)
+    if problem:
+        raise ValueError(f"{tier.key}: {problem} ({url})")
+    return url
+
+
 #: The tier the ten per cent comes off. Named rather than indexed, because
 #: `TIERS[-1]` silently follows a new tier appended to the end.
 TOP_TIER = STUDIO
@@ -237,12 +290,30 @@ def discounted(tier: Tier = TOP_TIER) -> float:
     return int(tier.dollars * (1 - TOP_TIER_OFF) * 100) / 100
 
 
+def open_for_business() -> bool:
+    """Whether anything on this page can actually be bought today."""
+    return any(checkout_for(tier) for tier in TIERS if tier.dollars)
+
+
 def headline() -> str:
-    """The one sentence a landing page leads with."""
+    """The one sentence a landing page leads with.
+
+    Two sentences, depending on whether there is a checkout. Leading with
+    "14 days free" above two plans that both say "Not open yet" is a page
+    arguing with itself — it offers a trial and then, four inches lower,
+    admits there is nowhere to start one. The offer follows the state rather
+    than being written once and going stale the moment the state changes.
+    """
+    under = round(undercut_of(SOLO.dollars, ENTRY_RIVALS) * 100)
+    if open_for_business():
+        return (
+            f"{TRIAL_DAYS} days free, then ${SOLO.dollars:.2f} a month — "
+            f"{under}% under what the same thing costs everywhere else."
+        )
     return (
-        f"{TRIAL_DAYS} days free, then ${SOLO.dollars:.2f} a month — "
-        f"{round(undercut_of(SOLO.dollars, ENTRY_RIVALS) * 100)}% under what "
-        "the same thing costs everywhere else."
+        f"Free in your browser today. ${SOLO.dollars:.2f} a month when the "
+        f"hosted plans open — {under}% under what the same thing costs "
+        "everywhere else."
     )
 
 
