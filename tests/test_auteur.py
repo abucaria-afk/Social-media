@@ -13561,3 +13561,241 @@ def test_the_arithmetic_behind_the_prices_can_be_retraced_from_the_repository():
     # measured ones are listed. It is the only place a reader would look.
     assert "chosen default, not a measured figure" in report.lower()
     assert pricing.AS_OF in report, "prices with no date are prices nobody re-checks"
+
+
+def _sync_pricing():
+    """The Stripe reconciler, imported as a module rather than shelled out to."""
+    import importlib.util
+
+    root = Path(__file__).resolve().parent.parent
+    spec = importlib.util.spec_from_file_location(
+        "sync_pricing", root / "tools" / "stripe" / "sync_pricing.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_a_live_stripe_key_cannot_be_used_by_accident():
+    """Two things have to be true before anything reaches a real account.
+
+    The failure this stops is mundane and expensive: an `sk_live_` exported
+    into a shell an hour ago, a command re-run from history with `--apply`
+    still on it, and real products on a real account that nobody meant to
+    create. So the key's own prefix is not enough — `--live` has to be passed
+    as well, and passing `--live` with a test key is refused too, because that
+    combination means somebody believes they are doing something they are not.
+    """
+    sync = _sync_pricing()
+
+    def run(argv, key):
+        os.environ["STRIPE_SECRET_KEY"] = key
+        try:
+            return sync.main(argv)
+        finally:
+            os.environ.pop("STRIPE_SECRET_KEY", None)
+
+    assert run([], "") == 2, "it ran with no key at all"
+    assert run(["--apply"], "sk_live_pretend") == 2, "a live key went through without --live"
+    assert run(["--apply", "--live"], "sk_test_pretend") == 2, "--live took a test key"
+
+
+def test_the_reconciler_writes_nothing_unless_it_is_told_to():
+    """A dry run is the default, because the failure mode is running twice.
+
+    `post` and `delete` both record what they would send and return without
+    sending it. The check is on the client rather than on `main`, because that
+    is where the decision is made — one flag, in one place, rather than an
+    `if apply` at every call site where one can be forgotten.
+    """
+    sync = _sync_pricing()
+
+    rehearsal = sync.Stripe("sk_test_pretend", apply=False)
+    # No network: if this posted, urlopen would raise rather than return.
+    result = rehearsal.post("/products", {"name": "x"})
+    rehearsal.delete("/coupons/x")
+    assert result["dry_run"] is True
+    assert len(rehearsal.did) == 2, rehearsal.did
+    assert rehearsal.did[0].startswith("POST /products")
+    assert rehearsal.did[1] == "DELETE /coupons/x"
+
+
+def test_the_reconciler_encodes_what_stripe_actually_accepts():
+    """Stripe takes forms, not JSON, and nested values as `metadata[key]`.
+
+    Worth its own test because it is the part of this script that is wrong
+    silently: a dict posted as `{'metadata': {...}}` does not error, it
+    arrives as the literal string "{'derived_by': ...}" in a field nobody
+    reads until somebody opens the dashboard six months later wondering where
+    a price came from.
+    """
+    sync = _sync_pricing()
+    client = sync.Stripe("sk_test_pretend", apply=False)
+
+    pairs = dict(
+        client._form(
+            {
+                "unit_amount": 1249,
+                "recurring": {"interval": "month"},
+                "metadata": {"derived_by": "auteur/pricing.py"},
+                "line_items": [{"price": "price_x", "quantity": 1}],
+                "applies_to": {"products": ["prod_x"]},
+                "transfer_lookup_key": True,
+                "nickname": None,
+            }
+        )
+    )
+
+    assert pairs["unit_amount"] == "1249"
+    assert pairs["recurring[interval]"] == "month"
+    assert pairs["metadata[derived_by]"] == "auteur/pricing.py"
+    assert pairs["line_items[0][price]"] == "price_x"
+    assert pairs["line_items[0][quantity]"] == "1"
+    assert pairs["applies_to[products][0]"] == "prod_x"
+    assert pairs["transfer_lookup_key"] == "true", "Python's True is not Stripe's true"
+    assert "nickname" not in pairs, "None was sent as the string 'None'"
+
+
+def test_what_stripe_is_told_is_what_the_pricing_module_says():
+    """The account gets its numbers from the same place the site does.
+
+    This is the other half of the check that scans the built page. That one
+    stops a price being typed into the website by hand; this one stops it
+    being typed into Stripe by hand. Between them the number exists once.
+    """
+    sync = _sync_pricing()
+
+    from auteur import pricing
+
+    client = sync.Stripe("sk_test_pretend", apply=False)
+    tier = pricing.TOP_TIER
+    product = {"id": "prod_x", "dry_run": True}
+
+    # A dry run still reads, because it cannot say what it would do without
+    # knowing what is already there. Nothing is there.
+    original = sync.Stripe._send
+    sync.Stripe._send = lambda self, method, path, body: {"data": []}
+
+    price = client.post(
+        "/prices",
+        {
+            "product": product["id"],
+            "unit_amount": tier.cents,
+            "lookup_key": tier.lookup_key,
+        },
+    )
+    try:
+        sync._link(client, tier, {"id": "price_x"})
+    finally:
+        sync.Stripe._send = original
+
+    coupon = sync._coupon_params("prod_x")
+    assert coupon["percent_off"] == pricing.TOP_TIER_OFF * 100, (
+        f"the coupon is {coupon['percent_off']}% and the site advertises "
+        f"{pricing.TOP_TIER_OFF:.0%}"
+    )
+    assert coupon["applies_to"]["products"] == [
+        "prod_x"
+    ], "the discount is not restricted to the tier it is advertised on"
+
+    sent = " ".join(client.did)
+    assert str(tier.cents) in sent, f"the price sent is not {tier.monthly}"
+    assert tier.lookup_key in sent
+    assert (
+        f'"trial_period_days": {pricing.TRIAL_DAYS}' in sent
+    ), f"the payment link does not carry the {pricing.TRIAL_DAYS}-day trial the site advertises"
+    assert price["dry_run"] is True
+    # The cents are the dollars, which is the conversion nobody checks until
+    # somebody is charged $41.99 or $4199.
+    assert tier.cents == 4199 == round(tier.dollars * 100)
+
+
+def test_running_the_reconciler_twice_creates_nothing_the_second_time():
+    """Idempotency, which is the property that costs money when it is wrong.
+
+    A script pointed at a payments account gets run twice — after a network
+    blip, from shell history, by a second person who did not know the first
+    had done it. If it is not idempotent the account ends up with two products
+    called the same thing, two prices, two payment links, and a checkout that
+    charges from whichever one the site happened to be linking to.
+
+    So this drives the real `main`, with `--apply`, against a Stripe that
+    remembers what it was told, and requires the second run to send nothing.
+    The account is a dict rather than a mock: a mock returning `{}` would let
+    the lookup-by-metadata step pass without ever finding anything, which is
+    the exact bug this is here to catch.
+    """
+    sync = _sync_pricing()
+
+    from auteur import pricing
+
+    account: dict[str, dict] = {"products": {}, "prices": {}, "coupons": {}, "payment_links": {}}
+    posted: list[str] = []
+    counter = iter(range(1, 999))
+
+    def fake_send(self, method, path, body):
+        import urllib.parse
+
+        route, _, query = path.partition("?")
+        parts = [part for part in route.strip("/").split("/") if part]
+        collection = parts[0]
+        params = dict(urllib.parse.parse_qsl(body.decode())) if body else {}
+
+        if method == "GET":
+            wanted = dict(urllib.parse.parse_qsl(query))
+            rows = list(account[collection].values())
+            if "lookup_keys[0]" in wanted:
+                rows = [row for row in rows if row.get("lookup_key") == wanted["lookup_keys[0]"]]
+            return {"object": "list", "data": rows}
+
+        if method == "DELETE":
+            account[collection].pop(parts[1], None)
+            return {"deleted": True}
+
+        posted.append(path)
+        if len(parts) == 2:  # an update to an existing object
+            account[collection][parts[1]].update(params)
+            return account[collection][parts[1]]
+
+        identifier = params.get("id") or f"{collection[:4]}_{next(counter)}"
+        row = {
+            "id": identifier,
+            "lookup_key": params.get("lookup_key") or None,
+            "unit_amount": int(params["unit_amount"]) if "unit_amount" in params else None,
+            "active": True,
+            "percent_off": float(params["percent_off"]) if "percent_off" in params else None,
+            "metadata": {
+                key[len("metadata[") : -1]: value
+                for key, value in params.items()
+                if key.startswith("metadata[")
+            },
+            "url": f"https://buy.stripe.test/{identifier}",
+        }
+        account[collection][identifier] = row
+        return row
+
+    original = sync.Stripe._send
+    sync.Stripe._send = fake_send
+    os.environ["STRIPE_SECRET_KEY"] = "sk_test_pretend"
+    try:
+        assert sync.main(["--apply"]) == 0
+        first = list(posted)
+        posted.clear()
+        assert sync.main(["--apply"]) == 0
+    finally:
+        sync.Stripe._send = original
+        os.environ.pop("STRIPE_SECRET_KEY", None)
+
+    assert not posted, f"the second run created {posted}"
+
+    paid = [tier for tier in pricing.TIERS if tier.dollars]
+    assert len(account["products"]) == len(paid), account["products"]
+    assert len(account["coupons"]) == 1, "the discount was created more than once"
+    assert first, "the first run created nothing at all"
+
+    # And what it created is what the site quotes.
+    charged = sorted(price["unit_amount"] for price in account["prices"].values())
+    assert charged == sorted(tier.cents for tier in paid), (
+        f"Stripe would charge {charged} and the site says " f"{sorted(tier.cents for tier in paid)}"
+    )
+    assert next(iter(account["coupons"].values()))["percent_off"] == pricing.TOP_TIER_OFF * 100
