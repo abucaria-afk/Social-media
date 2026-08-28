@@ -1727,3 +1727,15 @@ body.sheet-open { overflow: hidden; }
   -webkit-user-select: all;
   user-select: all;
 }
+
+/* How long a render has been going, under its bar. Quiet: it is reassurance,
+   not the headline, and the headline is the stage above it. Tabular so the
+   seconds do not shuffle the line sideways once a second. */
+.waited {
+  margin: 8px 0 0;
+  color: var(--text-faint);
+  font-size: var(--text-footnote);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  min-height: 1.2em;
+}

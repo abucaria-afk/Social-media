@@ -8027,6 +8027,96 @@ def test_the_site_ships_the_palette_the_app_actually_uses():
             )
 
 
+def test_the_site_paints_its_main_action_the_colour_the_app_does():
+    """The site's call to action was the app's error colour.
+
+    `--rust` is what the app paints "Delete my account" and a failed sign-in.
+    The site painted "Make one in your browser" with it — so the one button
+    the whole landing page exists to get pressed was the red that everywhere
+    else means *stop*, while the app's own primary button was blue.
+
+    A palette test has guarded this file for a while and it passed throughout,
+    because it compares the site's *tokens* against `theme.py` and every token
+    was correct. What diverged was which token got used, and nothing compared
+    that to anything. So this compares it to the app: the same rule, in the
+    stylesheet the app actually serves.
+    """
+    import re
+
+    from auteur.web import server
+
+    root = Path(__file__).resolve().parent.parent
+    builder = (root / "tools" / "site" / "build_site.py").read_text(encoding="utf-8")
+    app_css = (server.STATIC / "style.css").read_text(encoding="utf-8")
+
+    def primary_of(css: str, where: str) -> tuple[str, str]:
+        block = re.search(r"\.go\s*\{([^}]*)\}", css)
+        assert block, f"{where} has no .go rule any more"
+        body = block.group(1)
+        background = re.search(r"background:\s*var\(--([a-z-]+)\)", body)
+        foreground = re.search(r"\bcolor:\s*var\(--([a-z-]+)\)", body)
+        assert background and foreground, f"{where}'s .go does not use tokens: {body}"
+        return background.group(1), foreground.group(1)
+
+    site = primary_of(builder, "the site builder")
+    app = primary_of(app_css, "the app stylesheet")
+
+    assert site == app, (
+        f"the site paints its primary button with {site} and the app uses "
+        f"{app} — the same control has to be the same colour in both"
+    )
+    # And not anywhere else on the page either. `theme.py` documents `rust` as
+    # "it did not work, or needs attention"; the landing page has no failure
+    # states at all, so any use of it is a mistake. The wordmark's dot was the
+    # other one — the brand mark itself, in the error colour.
+    site_html = (root / "docs" / "index.html").read_text(encoding="utf-8")
+    for token in ("--rust", "--on-rust"):
+        assert f"var({token})" not in site_html, (
+            f"the site paints something with {token}, which means "
+            '"it did not work" — the page has nothing that can fail'
+        )
+
+
+def test_the_site_that_is_committed_is_the_site_the_builder_makes():
+    """`docs/index.html` is generated, committed, and served to the public.
+
+    Generated-and-committed is the arrangement that drifts, and this one had:
+    the product was renamed to Auteur Atlas, every other surface followed —
+    the app, both store listings, the privacy policy, the terms, the iOS
+    bundle — and the website went on saying "auteur" because nobody re-ran the
+    builder. It is the page a stranger meets first.
+
+    A palette check has guarded this file for a while and caught colour drift
+    once. It guards one value. This regenerates the whole page and compares,
+    which is what already holds the iOS bundle to its build, and subsumes the
+    palette along with the name, the tagline and the feature list.
+    """
+    import subprocess
+
+    root = Path(__file__).resolve().parent.parent
+    site = root / "docs" / "index.html"
+    assert site.is_file(), "the site is not committed at all"
+
+    before = site.read_text(encoding="utf-8")
+    try:
+        done = subprocess.run(
+            [sys.executable, str(root / "tools" / "site" / "build_site.py"), str(site)],
+            capture_output=True,
+            text=True,
+            cwd=root,
+        )
+        assert "Traceback" not in done.stderr, done.stderr[-2000:]
+        after = site.read_text(encoding="utf-8")
+        assert after == before, (
+            "docs/index.html is not what tools/site/build_site.py produces — "
+            "run `python3 tools/site/build_site.py docs/index.html` and commit "
+            "the result"
+        )
+    finally:
+        # Leave the tree as it was found, whichever way the assert went.
+        site.write_text(before, encoding="utf-8")
+
+
 def test_one_set_of_words_describes_this_app():
     """There were three, and they had drifted.
 
@@ -11591,6 +11681,151 @@ def test_every_import_is_either_installed_or_guarded():
     )
 
 
+def test_an_uploaded_file_arrives_byte_for_byte():
+    """The app was corrupting every video and photo posted to it.
+
+    The multipart body was handed to `email.parser`, and the email package
+    parses a *text* format: it normalises line endings as it goes, turning
+    every CRLF into LF and every lone CR into LF. On prose that is invisible.
+    On an mp4 it deletes one byte for every CRLF that happens to occur in the
+    video stream — a 700KB clip arrived 16 bytes short, a 10MB one 168 short —
+    and rewrites every lone CR. ffprobe then refused the file and the app told
+    the person their footage was damaged. It was. The app had damaged it.
+
+    Found by uploading five real clips through a browser and comparing the
+    bytes on disk against the originals. Nothing caught it before because no
+    test compared what came out of the parser against what went in: the whole
+    upload path was exercised constantly and never *checked*, which is the
+    same shape as every other defect this file guards.
+
+    So this is that comparison, on payloads chosen to contain exactly what the
+    old parser destroyed.
+    """
+    from auteur.web.server import _parse_multipart
+
+    CRLF = b"\r\n"
+
+    def posted(payload: bytes, filename: str = "clip.mp4") -> bytes:
+        boundary = b"----AuteurBoundary"
+        body = (
+            b"--"
+            + boundary
+            + CRLF
+            + b'Content-Disposition: form-data; name="clips"; filename="'
+            + filename.encode()
+            + b'"'
+            + CRLF
+            + b"Content-Type: application/octet-stream"
+            + CRLF
+            + CRLF
+            + payload
+            + CRLF
+            + b"--"
+            + boundary
+            + b"--"
+            + CRLF
+        )
+        _fields, files = _parse_multipart(
+            body, 'multipart/form-data; boundary="----AuteurBoundary"'
+        )
+        assert files, "the parser found no file at all"
+        return files[0][1]
+
+    payloads = {
+        # The two the email parser rewrote, on their own and together.
+        "a lone carriage return": b"\x00\r\x01\r\x02",
+        "carriage return and newline": b"\x00" + CRLF + b"\x01" + CRLF,
+        "nothing but line endings": CRLF * 200,
+        # Every byte value, so nothing is quietly special-cased.
+        "every byte there is": bytes(range(256)) * 4,
+        # Shapes that sit against the delimiter logic.
+        "ends with a line ending": b"abc" + CRLF,
+        "starts with a line ending": CRLF + b"abc",
+        "empty": b"",
+        "looks like a delimiter": b"------AuteurBoundary-ish" + CRLF + b"more",
+    }
+    for description, payload in payloads.items():
+        got = posted(payload)
+        assert got == payload, (
+            f"{description}: {len(payload)} bytes in, {len(got)} out — "
+            "an upload is not arriving as it was sent"
+        )
+
+    # And a filename is a name, never a path: a browser sends the basename but
+    # a crafted post need not, and this one is used to build a path on disk.
+    boundary = b"----AuteurBoundary"
+    body = (
+        b"--"
+        + boundary
+        + CRLF
+        + b'Content-Disposition: form-data; name="clips"; filename="../../etc/passwd"'
+        + CRLF
+        + CRLF
+        + b"x"
+        + CRLF
+        + b"--"
+        + boundary
+        + b"--"
+        + CRLF
+    )
+    _fields, files = _parse_multipart(body, 'multipart/form-data; boundary="----AuteurBoundary"')
+    assert files[0][0] == "passwd", files[0][0]
+
+
+def test_a_form_carries_its_fields_and_its_files_together():
+    """One post holds the prompt and the footage, and both have to survive.
+
+    The prompt is text and the clips are not, and a parser that gets the split
+    wrong loses one or the other silently.
+    """
+    from auteur.web.server import _parse_multipart
+
+    CRLF = b"\r\n"
+    boundary = b"----Both"
+    body = (
+        b"--"
+        + boundary
+        + CRLF
+        + b'Content-Disposition: form-data; name="prompt"'
+        + CRLF
+        + CRLF
+        + b"fast neon montage, 12 seconds"
+        + CRLF
+        + b"--"
+        + boundary
+        + CRLF
+        + b'Content-Disposition: form-data; name="clips"; filename="one.mp4"'
+        + CRLF
+        + b"Content-Type: video/mp4"
+        + CRLF
+        + CRLF
+        + b"\x00"
+        + CRLF
+        + b"\xff"
+        + CRLF
+        + b"--"
+        + boundary
+        + CRLF
+        + b'Content-Disposition: form-data; name="clips"; filename="two.mp4"'
+        + CRLF
+        + b"Content-Type: video/mp4"
+        + CRLF
+        + CRLF
+        + b"second"
+        + CRLF
+        + b"--"
+        + boundary
+        + b"--"
+        + CRLF
+    )
+    fields, files = _parse_multipart(body, 'multipart/form-data; boundary="----Both"')
+
+    assert fields == {"prompt": "fast neon montage, 12 seconds"}
+    assert [name for name, _ in files] == ["one.mp4", "two.mp4"]
+    assert files[0][1] == b"\x00" + CRLF + b"\xff"
+    assert files[1][1] == b"second"
+
+
 def test_a_second_person_can_only_join_when_the_owner_says_so(web_server):
     """Sign-up used to close for good the moment the first account existed.
 
@@ -13121,3 +13356,208 @@ def test_a_node_on_the_map_is_a_thumb_tall_at_life_size():
     assert floor >= 0.5, f"MIN_ZOOM is {floor}: a 44px node would be {44 * floor:.0f}px"
     # Fit shrinks, never magnifies.
     assert "Math.min(1, Math.min(MAX_ZOOM" in page
+
+
+# ---------------------------------------------------------------------------
+# What it costs
+# ---------------------------------------------------------------------------
+
+
+def test_every_price_is_actually_under_the_market_it_claims_to_undercut():
+    """ "Fifteen per cent under" is arithmetic, so it is checked as arithmetic.
+
+    The failure this stops is not a typo, it is a rounding habit. Fifteen per
+    cent under an average of $14.75 is $12.5375, and the ordinary instinct is
+    to write $12.99 because prices end in 99. That is eleven and a half per
+    cent under, on a page that says fifteen — a false advertisement produced
+    by nobody doing anything wrong except rounding the way people round.
+
+    So `_charm` rounds down and this checks the result rather than the
+    intention. Every paid tier has to clear the claim its own page makes.
+    """
+    from auteur import pricing
+
+    paid = [tier for tier in pricing.TIERS if tier.dollars]
+    assert paid, "no paid tier at all — the comparison set decides nothing"
+
+    for tier in paid:
+        assert tier.rivals, f"{tier.key} has a price and nothing it was derived from"
+        actual = pricing.undercut_of(tier.dollars, tier.rivals)
+        assert actual >= pricing.UNDERCUT, (
+            f"{tier.name} is ${tier.dollars:.2f} against an average of "
+            f"${pricing.average(tier.rivals):.2f} — {actual:.1%} under, and the "
+            f"page claims {pricing.UNDERCUT:.0%}"
+        )
+        # And not so far under that the claim is the wrong claim: a tier
+        # priced at half the market is not "fifteen per cent under", it is a
+        # different decision that the copy no longer describes.
+        assert actual < pricing.UNDERCUT + 0.02, (
+            f"{tier.name} is {actual:.1%} under, which is not the "
+            f"{pricing.UNDERCUT:.0%} the page advertises"
+        )
+
+
+def test_every_rival_in_the_comparison_names_where_its_price_came_from():
+    """A price with no source is a price somebody remembered.
+
+    These four numbers are the entire basis for what this company charges. In
+    a year somebody will want to re-check them, and "Descript is about $16"
+    cannot be re-checked — the page it was read off can. Every entry carries
+    one, and every rival left out of the set carries the reason, so the
+    judgement about which competitors belong in which tier is arguable rather
+    than lost.
+    """
+    from auteur import pricing
+
+    for rivals in (pricing.ENTRY_RIVALS, pricing.TOP_RIVALS):
+        assert len(rivals) >= 3, "an average of two is not an average of a market"
+        for rival in rivals:
+            assert "." in rival.source, f"{rival.name}: {rival.source!r} names no page"
+            assert rival.dollars > 0, f"{rival.name} is priced at nothing"
+
+    assert pricing.EXCLUDED, "no exclusions recorded, which is itself unlikely"
+    for name, why in pricing.EXCLUDED.items():
+        assert len(why) > 20, f"{name} is excluded for {why!r}, which is not a reason"
+
+
+def test_the_saving_advertised_on_the_top_tier_is_the_saving_it_gives():
+    """Ten per cent off, checked against the price it comes off.
+
+    Two numbers have to agree here and they live in different systems: the
+    percentage on the page and the percentage on the Stripe coupon. Only one
+    of them is in this repository, so what is checked is that the page's own
+    arithmetic is right and that the price it discounts is the price it sells
+    — the coupon is then created from `TOP_TIER_OFF` rather than typed.
+    """
+    from auteur import pricing
+
+    top = pricing.TOP_TIER
+    assert top in pricing.TIERS, "the discounted tier is not one of the tiers"
+    assert top.dollars == max(
+        tier.dollars for tier in pricing.TIERS
+    ), f"{top.name} carries the discount and is not the highest tier"
+
+    after = pricing.discounted()
+    saving = (top.dollars - after) / top.dollars
+    assert saving >= pricing.TOP_TIER_OFF, (
+        f"${top.dollars:.2f} → ${after:.2f} is {saving:.2%} off, "
+        f"advertised as {pricing.TOP_TIER_OFF:.0%}"
+    )
+    # Rounded to a real cent, not a third of one.
+    assert after == round(after, 2)
+
+
+def test_every_priced_tier_can_be_found_in_the_account_that_charges_for_it():
+    """The lookup key is the only thing joining this file to Stripe.
+
+    Prices exist twice by necessity — here, and in an account this repository
+    cannot see. A lookup key is what makes the pair checkable at all: with
+    one, the price the site quotes can be fetched from Stripe and compared;
+    without one, the two numbers are related only by whoever typed the second.
+    """
+    from auteur import pricing
+
+    keys = [tier.lookup_key for tier in pricing.TIERS if tier.dollars]
+    assert all(keys), "a paid tier with no lookup key cannot be reconciled with Stripe"
+    assert len(set(keys)) == len(keys), f"two tiers share a lookup key: {keys}"
+    assert not pricing.FREE.lookup_key, "the free tier does not charge anybody"
+
+
+def test_the_free_tier_only_promises_what_runs_without_an_account():
+    """Free has to be the build that exists, not a build that would be nice.
+
+    Six of the eight features in `brand.FEATURES` are marked `on_device` and
+    the browser build already ships them. The two that are not — the feed
+    that learns and the feed itself — need a copy running somewhere, which is
+    what the paid tiers are. If the free tier ever advertised one of those,
+    the site would be giving away the only thing it sells.
+    """
+    from auteur import brand, pricing
+
+    hosted = [feature for feature in brand.FEATURES if not feature.on_device]
+    assert hosted, "nothing needs a hosted copy, so there is nothing to charge for"
+
+    free = " ".join(pricing.FREE.includes).lower()
+    for feature in hosted:
+        # The distinguishing word of each hosted feature. Both are about a
+        # feed, so that is the word: the free tier must not offer one.
+        assert "feed" not in free, (
+            f"the free tier offers a feed, which needs {feature.headline!r} — "
+            "a copy running somewhere"
+        )
+
+    paid = " ".join(
+        line.lower() for tier in pricing.TIERS if tier.dollars for line in tier.includes
+    )
+    assert "feed" in paid, "nothing paid for offers the feed, so the tiers sell nothing"
+
+
+def test_the_site_quotes_no_price_the_pricing_module_did_not_derive():
+    """Every dollar figure on the public page, compared to its source.
+
+    This is the check the whole module exists for. A landing page is where a
+    price gets typed by hand — a rounder number, a nicer number, a number from
+    an older draft — and the person who finds out is the one whose card was
+    charged the other one. So the built page is scanned for anything shaped
+    like money, and every hit has to be a figure `auteur/pricing.py` produced.
+    """
+    import re
+    import subprocess
+
+    from auteur import pricing
+
+    root = Path(__file__).resolve().parent.parent
+    built = subprocess.run(
+        [sys.executable, str(root / "tools" / "site" / "build_site.py"), "-"],
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
+    assert built.returncode == 0, built.stderr
+    page = (root / "-").read_text(encoding="utf-8")
+    (root / "-").unlink()
+
+    allowed = {f"${tier.dollars:.2f}" for tier in pricing.TIERS if tier.dollars}
+    allowed.add(f"${pricing.discounted():.2f}")
+
+    found = set(re.findall(r"\$\d+(?:\.\d{2})?", page))
+    assert found, "the page quotes no price at all"
+    assert (
+        found <= allowed
+    ), f"the site quotes {sorted(found - allowed)}, which pricing.py never produced"
+    for price in allowed:
+        assert price in page, f"{price} is a tier nobody can see on the page"
+
+    # And the two claims made in words rather than figures.
+    assert f"{pricing.TOP_TIER_OFF:.0%} off" in page
+    assert f"{pricing.TRIAL_DAYS} days free" in page
+
+
+def test_the_arithmetic_behind_the_prices_can_be_retraced_from_the_repository():
+    """`working()` has to be enough to check the prices without asking anybody.
+
+    Written down as a report rather than a comment because a comment is read
+    by whoever is already editing the file, and this needs to be readable by
+    whoever is deciding whether the price is right — which is a different
+    person, usually later, usually without the context.
+    """
+    from auteur import pricing
+
+    report = "\n".join(pricing.working())
+
+    for rivals in (pricing.ENTRY_RIVALS, pricing.TOP_RIVALS):
+        for rival in rivals:
+            assert rival.name in report, f"{rival.name} is in the average and not in the working"
+            assert rival.source in report
+
+    for tier in pricing.TIERS:
+        if tier.dollars:
+            assert f"${tier.dollars:.2f}" in report
+
+    for excluded in pricing.EXCLUDED:
+        assert excluded in report, f"{excluded} was left out silently"
+
+    # The one number in the module nobody measured says so, here, where the
+    # measured ones are listed. It is the only place a reader would look.
+    assert "chosen default, not a measured figure" in report.lower()
+    assert pricing.AS_OF in report, "prices with no date are prices nobody re-checks"

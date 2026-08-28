@@ -25,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from auteur import brand, theme  # noqa: E402
+from auteur import brand, pricing, theme  # noqa: E402
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "docs" / "index.html"
 
@@ -49,6 +49,40 @@ def _features() -> str:
             "      <li>\n"
             f"        <h3>{html.escape(feature.headline)}{note}</h3>\n"
             f"        <p>{html.escape(feature.body)}</p>\n"
+            "      </li>"
+        )
+    return "\n".join(out)
+
+
+def _plans() -> str:
+    """The three tiers, from `auteur/pricing.py`.
+
+    Nothing here is typed twice: the prices are derived from the comparison
+    set in that module, and the saving on the top tier is computed from the
+    same constant the Stripe coupon carries.
+    """
+    out = []
+    for tier in pricing.TIERS:
+        classes = "plan featured" if tier is pricing.TOP_TIER else "plan"
+        was = ""
+        if tier is pricing.TOP_TIER:
+            was = (
+                '<p class="was">'
+                f"{pricing.TOP_TIER_OFF:.0%} off — "
+                f"<s>${tier.dollars:.2f}</s> ${pricing.discounted():.2f}/mo"
+                "</p>"
+            )
+        items = "\n".join(f"          <li>{html.escape(line)}</li>" for line in tier.includes)
+        every = "" if not tier.dollars else '<span class="per"> / month</span>'
+        out.append(
+            f'      <li class="{classes}">\n'
+            f"        <h3>{html.escape(tier.name)}</h3>\n"
+            f'        <p class="price">{tier.monthly}{every}</p>\n'
+            f"        {was}\n"
+            f'        <p class="blurb">{html.escape(tier.blurb)}</p>\n'
+            "        <ul>\n"
+            f"{items}\n"
+            "        </ul>\n"
             "      </li>"
         )
     return "\n".join(out)
@@ -108,7 +142,10 @@ PAGE = f"""<!DOCTYPE html>
     width: 0.36em; height: 0.36em;
     margin-left: 0.1em;
     border-radius: 50%;
-    background: var(--rust);
+    /* The accent, not the error colour. `rust` is documented in theme.py as
+       "it did not work, or needs attention" — the app paints a failed sign-in
+       and the delete-account button with it. The wordmark is neither. */
+    background: var(--ember);
     vertical-align: baseline;
   }}
   .tagline {{ color: var(--text-muted); font-size: clamp(19px, 4.4vw, 23px); margin: 14px 0 0; }}
@@ -119,7 +156,7 @@ PAGE = f"""<!DOCTYPE html>
   .go {{
     display: inline-flex; align-items: center; min-height: 48px;
     padding: 0 22px; border-radius: 999px; text-decoration: none;
-    font-weight: 600; background: var(--rust); color: var(--on-rust);
+    font-weight: 600; background: var(--ember); color: var(--on-ember);
   }}
   .go.quiet {{ background: transparent; color: var(--text); border: 1px solid var(--line); }}
   .go:focus-visible, a:focus-visible {{ outline: 2px solid var(--ember); outline-offset: 3px; }}
@@ -144,6 +181,33 @@ PAGE = f"""<!DOCTYPE html>
     background: var(--surface); color: var(--text-muted); font-size: 15px;
   }}
   .stores strong {{ display: block; color: var(--text); font-size: 16px; }}
+
+  ul.plans {{ list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; }}
+  @media (min-width: 720px) {{ ul.plans {{ grid-template-columns: repeat(3, 1fr); }} }}
+  .plan {{
+    border: 1px solid var(--line); border-radius: 18px; padding: 22px 20px 24px;
+    background: var(--surface); display: flex; flex-direction: column; gap: 4px;
+  }}
+  /* The top tier carries the advertised discount, so it is the one the eye
+     should land on. It is marked with the accent as a border rather than as a
+     fill: `cream` would need a "text on cream" role that does not exist in
+     theme.py, and inventing one here is exactly how this page ended up with a
+     hand-copied palette thirteen colours out of date. */
+  .plan.featured {{ border-color: var(--ember); box-shadow: inset 0 0 0 1px var(--ember); }}
+  .plan h3 {{ font-size: 17px; margin: 0; }}
+  .plan .price {{ font-size: 34px; font-weight: 600; letter-spacing: -0.02em; margin: 6px 0 0; }}
+  .plan .per {{ font-size: 15px; font-weight: 400; color: var(--text-muted); letter-spacing: 0; }}
+  .plan .was {{ margin: 4px 0 0; font-size: 14px; font-weight: 600; color: var(--ember-text); }}
+  .plan .was s {{ color: var(--text-faint); font-weight: 400; }}
+  .plan .blurb {{ margin: 10px 0 0; color: var(--text-muted); font-size: 15px; }}
+  .plan ul {{ list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; font-size: 15px; }}
+  .plan li {{ padding-left: 20px; position: relative; }}
+  .plan li::before {{
+    content: ""; position: absolute; left: 2px; top: 0.62em;
+    width: 8px; height: 8px; border-radius: 50%; background: var(--moss);
+  }}
+  .trial {{ font-size: 19px; margin: 0 0 22px; max-width: 60ch; }}
+  .smallprint {{ color: var(--text-faint); font-size: 14px; margin: 18px 0 0; max-width: 66ch; }}
 
   footer {{ margin-top: 70px; color: var(--text-faint); font-size: 15px; }}
   footer a {{ margin-right: 18px; display: inline-block; min-height: 44px; line-height: 44px; }}
@@ -172,6 +236,19 @@ PAGE = f"""<!DOCTYPE html>
   <ul class="features">
 {_features()}
   </ul>
+
+  <hr>
+
+  <h2>What it costs</h2>
+  <p class="trial">{html.escape(pricing.headline())}</p>
+  <ul class="plans">
+{_plans()}
+  </ul>
+  <p class="smallprint">Every paid plan starts with {pricing.TRIAL_DAYS} days free and no card
+    charged until they are up. Prices are compared against the advertised monthly rate of
+    {", ".join(rival.name for rival in pricing.ENTRY_RIVALS)} and
+    {", ".join(rival.name for rival in pricing.TOP_RIVALS)}, read {pricing.AS_OF}.
+    The browser build stays free: it runs on your device, so it costs us nothing to give you.</p>
 
   <hr>
 
