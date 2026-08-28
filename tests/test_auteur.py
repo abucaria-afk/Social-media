@@ -11591,6 +11591,151 @@ def test_every_import_is_either_installed_or_guarded():
     )
 
 
+def test_an_uploaded_file_arrives_byte_for_byte():
+    """The app was corrupting every video and photo posted to it.
+
+    The multipart body was handed to `email.parser`, and the email package
+    parses a *text* format: it normalises line endings as it goes, turning
+    every CRLF into LF and every lone CR into LF. On prose that is invisible.
+    On an mp4 it deletes one byte for every CRLF that happens to occur in the
+    video stream — a 700KB clip arrived 16 bytes short, a 10MB one 168 short —
+    and rewrites every lone CR. ffprobe then refused the file and the app told
+    the person their footage was damaged. It was. The app had damaged it.
+
+    Found by uploading five real clips through a browser and comparing the
+    bytes on disk against the originals. Nothing caught it before because no
+    test compared what came out of the parser against what went in: the whole
+    upload path was exercised constantly and never *checked*, which is the
+    same shape as every other defect this file guards.
+
+    So this is that comparison, on payloads chosen to contain exactly what the
+    old parser destroyed.
+    """
+    from auteur.web.server import _parse_multipart
+
+    CRLF = b"\r\n"
+
+    def posted(payload: bytes, filename: str = "clip.mp4") -> bytes:
+        boundary = b"----AuteurBoundary"
+        body = (
+            b"--"
+            + boundary
+            + CRLF
+            + b'Content-Disposition: form-data; name="clips"; filename="'
+            + filename.encode()
+            + b'"'
+            + CRLF
+            + b"Content-Type: application/octet-stream"
+            + CRLF
+            + CRLF
+            + payload
+            + CRLF
+            + b"--"
+            + boundary
+            + b"--"
+            + CRLF
+        )
+        _fields, files = _parse_multipart(
+            body, 'multipart/form-data; boundary="----AuteurBoundary"'
+        )
+        assert files, "the parser found no file at all"
+        return files[0][1]
+
+    payloads = {
+        # The two the email parser rewrote, on their own and together.
+        "a lone carriage return": b"\x00\r\x01\r\x02",
+        "carriage return and newline": b"\x00" + CRLF + b"\x01" + CRLF,
+        "nothing but line endings": CRLF * 200,
+        # Every byte value, so nothing is quietly special-cased.
+        "every byte there is": bytes(range(256)) * 4,
+        # Shapes that sit against the delimiter logic.
+        "ends with a line ending": b"abc" + CRLF,
+        "starts with a line ending": CRLF + b"abc",
+        "empty": b"",
+        "looks like a delimiter": b"------AuteurBoundary-ish" + CRLF + b"more",
+    }
+    for description, payload in payloads.items():
+        got = posted(payload)
+        assert got == payload, (
+            f"{description}: {len(payload)} bytes in, {len(got)} out — "
+            "an upload is not arriving as it was sent"
+        )
+
+    # And a filename is a name, never a path: a browser sends the basename but
+    # a crafted post need not, and this one is used to build a path on disk.
+    boundary = b"----AuteurBoundary"
+    body = (
+        b"--"
+        + boundary
+        + CRLF
+        + b'Content-Disposition: form-data; name="clips"; filename="../../etc/passwd"'
+        + CRLF
+        + CRLF
+        + b"x"
+        + CRLF
+        + b"--"
+        + boundary
+        + b"--"
+        + CRLF
+    )
+    _fields, files = _parse_multipart(body, 'multipart/form-data; boundary="----AuteurBoundary"')
+    assert files[0][0] == "passwd", files[0][0]
+
+
+def test_a_form_carries_its_fields_and_its_files_together():
+    """One post holds the prompt and the footage, and both have to survive.
+
+    The prompt is text and the clips are not, and a parser that gets the split
+    wrong loses one or the other silently.
+    """
+    from auteur.web.server import _parse_multipart
+
+    CRLF = b"\r\n"
+    boundary = b"----Both"
+    body = (
+        b"--"
+        + boundary
+        + CRLF
+        + b'Content-Disposition: form-data; name="prompt"'
+        + CRLF
+        + CRLF
+        + b"fast neon montage, 12 seconds"
+        + CRLF
+        + b"--"
+        + boundary
+        + CRLF
+        + b'Content-Disposition: form-data; name="clips"; filename="one.mp4"'
+        + CRLF
+        + b"Content-Type: video/mp4"
+        + CRLF
+        + CRLF
+        + b"\x00"
+        + CRLF
+        + b"\xff"
+        + CRLF
+        + b"--"
+        + boundary
+        + CRLF
+        + b'Content-Disposition: form-data; name="clips"; filename="two.mp4"'
+        + CRLF
+        + b"Content-Type: video/mp4"
+        + CRLF
+        + CRLF
+        + b"second"
+        + CRLF
+        + b"--"
+        + boundary
+        + b"--"
+        + CRLF
+    )
+    fields, files = _parse_multipart(body, 'multipart/form-data; boundary="----Both"')
+
+    assert fields == {"prompt": "fast neon montage, 12 seconds"}
+    assert [name for name, _ in files] == ["one.mp4", "two.mp4"]
+    assert files[0][1] == b"\x00" + CRLF + b"\xff"
+    assert files[1][1] == b"second"
+
+
 def test_a_second_person_can_only_join_when_the_owner_says_so(web_server):
     """Sign-up used to close for good the moment the first account existed.
 

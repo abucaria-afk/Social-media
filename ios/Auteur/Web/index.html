@@ -1991,6 +1991,18 @@ body.sheet-open { overflow: hidden; }
   user-select: all;
 }
 
+/* How long a render has been going, under its bar. Quiet: it is reassurance,
+   not the headline, and the headline is the stage above it. Tabular so the
+   seconds do not shuffle the line sideways once a second. */
+.waited {
+  margin: 8px 0 0;
+  color: var(--text-faint);
+  font-size: var(--text-footnote);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  min-height: 1.2em;
+}
+
 /* animations.css — Scroll reveals, zooms, transitions, and motion design.
  *
  * Every animation respects prefers-reduced-motion. When the reader has asked
@@ -3439,6 +3451,12 @@ body { background: var(--ground); }
       <h2 id="stage">Getting ready</h2>
       <p class="detail" id="detail"></p>
       <div class="bar"><span id="bar-fill"></span></div>
+      <!-- How long, beside how far. A render is about two minutes and the
+           screen said nothing about that, so the only way to tell a slow one
+           from a stuck one was to wait and find out. Both numbers come from
+           the job's own clock — nothing here is estimated from a guess about
+           the machine. -->
+      <p class="waited" id="waited"></p>
       <ul class="log" id="log" aria-live="polite"></ul>
       <button type="button" class="ghost" id="cancel">Start over</button>
     </div>

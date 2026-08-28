@@ -11,8 +11,6 @@ Deliberately stdlib-only: no Flask, no FastAPI, nothing extra to install.
 
 from __future__ import annotations
 
-import email.parser
-import email.policy
 import gzip
 import io
 import json
@@ -30,7 +28,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import parse_qs, unquote
 
@@ -212,6 +210,13 @@ class Job:
             "status": self.status,
             "stage": self.stage,
             "percent": round(self.percent, 1),
+            # How long this has been going. `created` has been on this record
+            # since the first version and was never sent, so the page could
+            # show a percentage and a spinner and no sense of how long any of
+            # it takes — and a real film is about two minutes. A bar with no
+            # clock beside it is indistinguishable from a bar that has stopped,
+            # which is the wrong thing to be unsure about on your first film.
+            "elapsed": round(max(0.0, time.time() - self.created), 1),
             "detail": self.detail,
             "lines": self.lines[-40:],
             "error": self.error,
@@ -528,28 +533,115 @@ def _parse_multipart(
     return _parse_multipart_stream(io.BytesIO(body), content_type)
 
 
+def _boundary_of(content_type: str) -> bytes:
+    """The delimiter, out of the Content-Type header. Empty if there is none."""
+    _, _, rest = content_type.partition(";")
+    for parameter in rest.split(";"):
+        key, _, value = parameter.partition("=")
+        if key.strip().lower() == "boundary":
+            return value.strip().strip('"').encode("ascii", "ignore")
+    return b""
+
+
 def _parse_multipart_stream(
     body, content_type: str
 ) -> tuple[dict[str, str], list[tuple[str, bytes]]]:
-    """The same, from a file object, so the raw post is never copied."""
-    parser = email.parser.BytesParser(policy=email.policy.default)
-    header = b"Content-Type: " + content_type.encode() + b"\r\n\r\n"
-    message = parser.parse(_Prefixed(header, body))
+    """The same, from a file object, so the raw post is never copied.
 
+    Split by hand rather than handed to `email.parser`.
+
+    That is not a preference. This used `BytesParser`, and the email package
+    parses a *text* format: it normalises line endings as it goes, turning
+    every CRLF into LF and every lone CR into LF. On prose that is invisible.
+    On an mp4 it removes one byte for every CRLF that happens to occur in the
+    video stream and rewrites every lone CR — so a 700KB clip arrived 16 bytes
+    short and a 10MB one 168 bytes short, ffprobe refused them, and the app
+    told the person their file was damaged. It was: the app had damaged it.
+    Every video and every photo ever uploaded through the web app.
+
+    Nothing caught it because no test compared what came out against what went
+    in — the same shape of hole as every other one this file guards against.
+
+    The rules being implemented, from RFC 2046 §5.1.1 and RFC 7578: parts are
+    separated by CRLF + "--" + boundary; the first delimiter may open the body
+    with no CRLF before it; a delimiter followed by "--" ends the body; and
+    within a part, headers end at the first CRLF CRLF and the body runs to the
+    CRLF that begins the next delimiter — that CRLF belongs to the delimiter,
+    not to the file.
+    """
     fields: dict[str, str] = {}
     files: list[tuple[str, bytes]] = []
-    if not message.is_multipart():
+
+    boundary = _boundary_of(content_type)
+    if not boundary:
         return fields, files
 
-    for part in message.iter_parts():
-        name = part.get_param("name", header="content-disposition")
-        filename = part.get_filename()
-        payload = part.get_payload(decode=True) or b""
+    raw = body.read()
+    delimiter = b"--" + boundary
+
+    # The opening delimiter, which may or may not be preceded by a CRLF.
+    if raw.startswith(delimiter):
+        rest = raw[len(delimiter) :]
+    else:
+        opening = raw.find(b"\r\n" + delimiter)
+        if opening < 0:
+            return fields, files
+        rest = raw[opening + 2 + len(delimiter) :]
+
+    while True:
+        if rest.startswith(b"--"):  # the closing delimiter
+            break
+        if not rest.startswith(b"\r\n"):
+            break
+        rest = rest[2:]
+
+        blank = rest.find(b"\r\n\r\n")
+        if blank < 0:
+            break
+        raw_headers = rest[:blank]
+        rest = rest[blank + 4 :]
+
+        ending = rest.find(b"\r\n" + delimiter)
+        if ending < 0:
+            break
+        payload = rest[:ending]
+        rest = rest[ending + 2 + len(delimiter) :]
+
+        name, filename = _disposition_of(raw_headers)
         if filename:
             files.append((filename, payload))
         elif name:
             fields[name] = payload.decode("utf-8", "replace").strip()
+
     return fields, files
+
+
+def _disposition_of(raw_headers: bytes) -> tuple[str, str]:
+    """`name` and `filename` out of one part's headers.
+
+    The header block is ASCII by the time it gets here — a browser percent- or
+    RFC 2231-encodes anything else — so decoding it is safe in a way decoding
+    the body never is.
+    """
+    text = raw_headers.decode("utf-8", "replace")
+    disposition = ""
+    for line in text.split("\r\n"):
+        field, _, value = line.partition(":")
+        if field.strip().lower() == "content-disposition":
+            disposition = value
+            break
+    if not disposition:
+        return "", ""
+
+    found = {"name": "", "filename": ""}
+    for parameter in disposition.split(";")[1:]:
+        key, _, value = parameter.partition("=")
+        key = key.strip().lower()
+        if key in found and not found[key]:
+            found[key] = value.strip().strip('"')
+    # A browser sends the basename, but a crafted post need not: anything with
+    # a separator in it is somebody else's directory.
+    return found["name"], PurePosixPath(found["filename"]).name if found["filename"] else ""
 
 
 class _Prefixed(io.RawIOBase):

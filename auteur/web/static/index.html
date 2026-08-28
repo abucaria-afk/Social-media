@@ -212,6 +212,12 @@
       <h2 id="stage">Getting ready</h2>
       <p class="detail" id="detail"></p>
       <div class="bar"><span id="bar-fill"></span></div>
+      <!-- How long, beside how far. A render is about two minutes and the
+           screen said nothing about that, so the only way to tell a slow one
+           from a stuck one was to wait and find out. Both numbers come from
+           the job's own clock — nothing here is estimated from a guess about
+           the machine. -->
+      <p class="waited" id="waited"></p>
       <ul class="log" id="log" aria-live="polite"></ul>
       <button type="button" class="ghost" id="cancel">Start over</button>
     </div>

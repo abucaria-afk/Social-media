@@ -322,6 +322,7 @@
 
         setStage(job.stage, job.detail);
         setPercent(job.percent);
+        setWaited(job.elapsed, job.status);
         setLog(job.lines || []);
         if (job.status === "done") { finish(job); return; }
         schedulePoll(pollGap);
@@ -336,6 +337,37 @@
   function setStage(stage, detail) {
     $("stage").textContent = stage || "Working";
     $("detail").textContent = detail || "";
+  }
+
+  /* Seconds, as somebody would say them. */
+  function spoken(seconds) {
+    var whole = Math.round(seconds);
+    if (whole < 60) { return whole + "s"; }
+    var minutes = Math.floor(whole / 60);
+    var rest = whole % 60;
+    return minutes + ":" + (rest < 10 ? "0" : "") + rest;
+  }
+
+  /* Elapsed, and nothing else.
+   *
+   * The first version of this also showed what was left, extrapolated from
+   * elapsed divided by how far along the percentage said it was. Watching a
+   * real render is what killed it: the bar reaches the high nineties while
+   * the concat, the critic and the second pass are still to come, so the
+   * estimate read "nearly there" for fifty-three seconds — a small lie told
+   * eleven times, on the screen whose whole job is to be believed.
+   *
+   * Percent is not linear in time and one render is not enough to make it so.
+   * The clock is a fact; the estimate was a guess wearing a fact's clothes.
+   */
+  function setWaited(elapsed, status) {
+    var line = $("waited");
+    if (!line) { return; }
+    if (typeof elapsed !== "number" || status === "done" || status === "error") {
+      line.textContent = "";
+      return;
+    }
+    line.textContent = spoken(elapsed) + " so far";
   }
 
   function setPercent(percent) {
