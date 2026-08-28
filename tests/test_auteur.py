@@ -13869,8 +13869,6 @@ def test_the_discount_the_site_advertises_can_actually_be_claimed():
     it into** — a promotion code printed above "Not open yet" is an
     instruction with nowhere to follow it.
     """
-    import re
-    import subprocess
 
     from auteur import pricing
 
@@ -13962,7 +13960,6 @@ def test_a_plan_with_nowhere_to_pay_says_so_instead_of_offering_a_button():
     from whether a checkout URL exists rather than from anybody remembering to
     change the page when one does.
     """
-    import subprocess
 
     from auteur import pricing
 
@@ -14013,8 +14010,6 @@ def test_the_free_plan_sends_people_to_something_that_exists():
     the page's hero button points at the same place — two links, one value, so
     they cannot diverge.
     """
-    import re
-    import subprocess
 
     root = Path(__file__).resolve().parent.parent
     subprocess.run(
@@ -14043,7 +14038,6 @@ def test_the_page_never_offers_a_trial_it_has_nowhere_to_start():
     open. What was missing is the thing this whole file keeps finding: two
     values that describe the same fact and are never compared.
     """
-    import subprocess
 
     from auteur import pricing
 
@@ -14091,7 +14085,6 @@ def test_the_readme_tells_a_contributor_every_check_that_can_fail_them():
     time, who has no reason to doubt the instructions. Everyone who already
     knows never reads the block again, which is why it stayed wrong.
     """
-    import re
 
     root = Path(__file__).resolve().parent.parent
     workflow = (root / ".github" / "workflows" / "lint-and-type.yml").read_text(encoding="utf-8")
@@ -14171,7 +14164,6 @@ def test_no_caveat_is_hidden_behind_a_tooltip_a_phone_cannot_summon():
     same text it just put in that element, the element must not be styled to
     truncate at phone width.
     """
-    import re
 
     from auteur.web import server
 
