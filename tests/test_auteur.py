@@ -14206,3 +14206,66 @@ def test_no_caveat_is_hidden_behind_a_tooltip_a_phone_cannot_summon():
                     )
 
     assert not offenders, "; ".join(offenders)
+
+
+def test_the_critic_can_actually_fail_a_film(tmp_path):
+    """A score that is always high is not a review, it is a decoration.
+
+    `auteur demo` finishes by telling a person "it rates its own work 100%".
+    Every rule in `critic.review` had a test; the *score* had none, so nothing
+    established that the number could ever come out low, or that a worse film
+    scored worse than a better one. A verdict nothing can ever fail is exactly
+    the shape of defect this file exists to catch — a value that is produced
+    and never compared to anything.
+
+    So this renders the worst film the program can describe — a frozen grey
+    rectangle at twice its target runtime — and requires the critic to notice.
+    Not a particular number: the curve is a product decision and is documented
+    on `PENALTY_PER_SEVERITY` rather than pinned here. What is pinned is that
+    the critic discriminates, and that it says *why* in words a person can act
+    on rather than only in a number.
+    """
+    from auteur import ffmpeg
+    from auteur.critic import review
+    from auteur.edl import EditDecisionList, Shot
+
+    frozen = tmp_path / "frozen.mp4"
+    ffmpeg.run(
+        [
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=0x303030:s=256x456:d=12:r=24",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(frozen),
+        ]
+    )
+    assert frozen.is_file(), "the fixture did not render"
+
+    shots = [
+        Shot(clip_id=f"c{i}", source=frozen, start=i * 2.0, end=i * 2.0 + 2.0) for i in range(6)
+    ]
+    verdict = review(EditDecisionList(title="frozen", shots=shots), frozen, target_duration=6.0)
+
+    assert verdict.score < 0.9, (
+        f"a frozen rectangle at twice its runtime scored {verdict.score:.2f} — "
+        "the critic cannot fail anything"
+    )
+    rules = {note.rule for note in verdict.notes}
+    assert "dead-air" in rules, f"nothing moves for twelve seconds and the critic said {rules}"
+    assert "runtime" in rules, f"twice the target runtime went unremarked; said {rules}"
+
+    # Every note has to be a sentence somebody can act on, not just a weight.
+    for note in verdict.notes:
+        assert note.message.strip(), f"{note.rule} has a severity and nothing to read"
+        assert 0.0 < note.severity <= 1.0, note
+
+    # And a clean film has to come out above it, or "worse" means nothing.
+    clean = review(EditDecisionList(title="none", shots=[]), frozen, target_duration=12.0)
+    assert clean.score > verdict.score, (
+        f"the film with faults scored {verdict.score:.2f} and the one without "
+        f"scored {clean.score:.2f}"
+    )
