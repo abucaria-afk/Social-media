@@ -312,6 +312,55 @@ Re-check before relying on them.
   currently declares the TikTok/Instagram connections. Any change to what the
   app touches has to change this declaration **in the same release**.
 
+### 5.6 Pricing — set, derived, and partly ahead of §8.1
+
+There are now prices, and they live in `auteur/pricing.py` rather than on a
+page somebody edits. The instruction was: fifteen per cent under the market
+average, a free trial, ten per cent off the highest tier.
+
+| | Entry — "A copy that is yours" | Top — "A copy for the room" |
+|---|---|---|
+| market average | $14.75 | $49.67 |
+| **monthly** | **$12.49** (15.3% under) | **$41.99** (15.5% under) |
+| after the advertised 10% | — | **$37.79** |
+
+Free is the browser build, which already ships and needs no account.
+
+**Where the averages come from.** Entry: Runway Standard $12, CapCut Pro $15,
+Descript Hobbyist $16, Kapwing Pro $16. Top: VEED Pro $49, Descript Business
+$50, Kapwing Business $50. Each carries the page it was read off and the month
+it was read (2026-08) in the module. Three rivals are excluded on purpose,
+with reasons recorded: Runway Max $76 is priced around generative credits and
+this app renders on the customer's own device, so there is no per-film cost to
+price against; CapCut Team $24.99 is a small-team plan rather than a top tier;
+Adobe Premiere is not an AI-first consumer editor.
+
+**Three things to push back on if you disagree.**
+
+1. **The 14-day trial is chosen, not measured.** Nothing in the comparison set
+   produced it. It is labelled as chosen in the module, the report and a test
+   so it does not sit there looking like the sourced numbers.
+2. **Which rivals belong in which tier was a judgement call.** Adding Runway
+   Max would move the top average to $56 and the price to $47.99.
+3. **The prices presume the answer to §8.1.** A subscription only makes sense
+   for a hosted instance — every feature marked `on_device` runs free on the
+   customer's phone and always will. Setting these prices therefore leans
+   towards "run a hosted instance as the default and keep self-hosting as an
+   option". That is not a decision the code can make; it is one the founder
+   should confirm or overturn, and §8.1 stays open until they do.
+
+**Nothing is typed twice.** Prices round *down* to the largest ordinary price
+that still satisfies the claim — fifteen per cent under $14.75 is $12.5375, and
+writing $12.99 because prices end in 99 would be 11.9% under on a page saying
+15%. A test scans the built website for anything shaped like money and requires
+every hit to be a figure the module produced.
+`tools/stripe/sync_pricing.py` pushes the same numbers into Stripe, so the
+account is not hand-typed either; it shows before it does, needs `--apply` to
+write and `--live` as well as a live key to touch a real account, and running
+it twice creates nothing the second time.
+
+---
+
 ---
 
 ## 6. Positioning — what to build the story on
@@ -370,7 +419,9 @@ different privacy story, different obligations. Options: stay self-hosted and
 sell the app; run a hosted instance as the default and keep self-hosting as an
 option; or both, deliberately. This decision shapes pricing, the privacy copy,
 and the store listings. **This is now the largest open question in the
-document.**
+document** — and §5.6 has now leaned on it: there are prices, and a
+subscription only makes sense for a hosted instance. Confirm or overturn that
+lean before anything links to a checkout.
 
 **8.2 Entity — half decided.** The name is **Auteur Studies LLC**. What is not
 decided is the jurisdiction it is filed in, which depends on where the founder
