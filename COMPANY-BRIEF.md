@@ -1,4 +1,4 @@
-# auteur — company brief
+# Auteur Atlas — company brief
 
 **One file. Everything a collaborator outside this repository needs in order to
 help build the company around the product.**
@@ -41,8 +41,9 @@ The most useful thing you can produce is in §9.
 
 ## 1. What the product is
 
-**auteur** — an autonomous cinematic video editor that behaves like a social
-app, not a timeline tool.
+**Auteur Atlas** — an autonomous cinematic video editor that behaves like a
+social app, not a timeline tool. Auteur Studies LLC is the umbrella; Atlas is
+the app.
 
 > Say what you want in a sentence. It frames every shot, cuts to the cadence of
 > your words, grades it, and hands you the film.

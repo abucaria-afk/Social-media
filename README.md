@@ -1,4 +1,4 @@
-# 🎬 auteur — a film from your camera roll
+# 🎬 Auteur Atlas — a film from your camera roll
 
 ![Python CI](https://github.com/abucaria-afk/Social-media/actions/workflows/python-ci.yml/badge.svg?branch=main)
 ![CodeQL](https://github.com/abucaria-afk/Social-media/actions/workflows/codeql.yml/badge.svg?branch=main)

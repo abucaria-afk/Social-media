@@ -132,7 +132,7 @@ FEATURES: list[Feature] = [
 
 #: What a person is buying, in one paragraph, for the top of a page.
 POSITIONING = (
-    "Auteur turns what is already on your phone into a finished film. Not a "
+    f"{NAME} turns what is already on your phone into a finished film. Not a "
     "template you drop clips into — it reads the footage, decides what each "
     "shot is for, and cuts."
 )

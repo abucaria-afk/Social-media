@@ -108,7 +108,10 @@ PAGE = f"""<!DOCTYPE html>
     width: 0.36em; height: 0.36em;
     margin-left: 0.1em;
     border-radius: 50%;
-    background: var(--rust);
+    /* The accent, not the error colour. `rust` is documented in theme.py as
+       "it did not work, or needs attention" — the app paints a failed sign-in
+       and the delete-account button with it. The wordmark is neither. */
+    background: var(--ember);
     vertical-align: baseline;
   }}
   .tagline {{ color: var(--text-muted); font-size: clamp(19px, 4.4vw, 23px); margin: 14px 0 0; }}
@@ -119,7 +122,7 @@ PAGE = f"""<!DOCTYPE html>
   .go {{
     display: inline-flex; align-items: center; min-height: 48px;
     padding: 0 22px; border-radius: 999px; text-decoration: none;
-    font-weight: 600; background: var(--rust); color: var(--on-rust);
+    font-weight: 600; background: var(--ember); color: var(--on-ember);
   }}
   .go.quiet {{ background: transparent; color: var(--text); border: 1px solid var(--line); }}
   .go:focus-visible, a:focus-visible {{ outline: 2px solid var(--ember); outline-offset: 3px; }}

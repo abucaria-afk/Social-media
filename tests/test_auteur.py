@@ -8027,6 +8027,96 @@ def test_the_site_ships_the_palette_the_app_actually_uses():
             )
 
 
+def test_the_site_paints_its_main_action_the_colour_the_app_does():
+    """The site's call to action was the app's error colour.
+
+    `--rust` is what the app paints "Delete my account" and a failed sign-in.
+    The site painted "Make one in your browser" with it — so the one button
+    the whole landing page exists to get pressed was the red that everywhere
+    else means *stop*, while the app's own primary button was blue.
+
+    A palette test has guarded this file for a while and it passed throughout,
+    because it compares the site's *tokens* against `theme.py` and every token
+    was correct. What diverged was which token got used, and nothing compared
+    that to anything. So this compares it to the app: the same rule, in the
+    stylesheet the app actually serves.
+    """
+    import re
+
+    from auteur.web import server
+
+    root = Path(__file__).resolve().parent.parent
+    builder = (root / "tools" / "site" / "build_site.py").read_text(encoding="utf-8")
+    app_css = (server.STATIC / "style.css").read_text(encoding="utf-8")
+
+    def primary_of(css: str, where: str) -> tuple[str, str]:
+        block = re.search(r"\.go\s*\{([^}]*)\}", css)
+        assert block, f"{where} has no .go rule any more"
+        body = block.group(1)
+        background = re.search(r"background:\s*var\(--([a-z-]+)\)", body)
+        foreground = re.search(r"\bcolor:\s*var\(--([a-z-]+)\)", body)
+        assert background and foreground, f"{where}'s .go does not use tokens: {body}"
+        return background.group(1), foreground.group(1)
+
+    site = primary_of(builder, "the site builder")
+    app = primary_of(app_css, "the app stylesheet")
+
+    assert site == app, (
+        f"the site paints its primary button with {site} and the app uses "
+        f"{app} — the same control has to be the same colour in both"
+    )
+    # And not anywhere else on the page either. `theme.py` documents `rust` as
+    # "it did not work, or needs attention"; the landing page has no failure
+    # states at all, so any use of it is a mistake. The wordmark's dot was the
+    # other one — the brand mark itself, in the error colour.
+    site_html = (root / "docs" / "index.html").read_text(encoding="utf-8")
+    for token in ("--rust", "--on-rust"):
+        assert f"var({token})" not in site_html, (
+            f"the site paints something with {token}, which means "
+            '"it did not work" — the page has nothing that can fail'
+        )
+
+
+def test_the_site_that_is_committed_is_the_site_the_builder_makes():
+    """`docs/index.html` is generated, committed, and served to the public.
+
+    Generated-and-committed is the arrangement that drifts, and this one had:
+    the product was renamed to Auteur Atlas, every other surface followed —
+    the app, both store listings, the privacy policy, the terms, the iOS
+    bundle — and the website went on saying "auteur" because nobody re-ran the
+    builder. It is the page a stranger meets first.
+
+    A palette check has guarded this file for a while and caught colour drift
+    once. It guards one value. This regenerates the whole page and compares,
+    which is what already holds the iOS bundle to its build, and subsumes the
+    palette along with the name, the tagline and the feature list.
+    """
+    import subprocess
+
+    root = Path(__file__).resolve().parent.parent
+    site = root / "docs" / "index.html"
+    assert site.is_file(), "the site is not committed at all"
+
+    before = site.read_text(encoding="utf-8")
+    try:
+        done = subprocess.run(
+            [sys.executable, str(root / "tools" / "site" / "build_site.py"), str(site)],
+            capture_output=True,
+            text=True,
+            cwd=root,
+        )
+        assert "Traceback" not in done.stderr, done.stderr[-2000:]
+        after = site.read_text(encoding="utf-8")
+        assert after == before, (
+            "docs/index.html is not what tools/site/build_site.py produces — "
+            "run `python3 tools/site/build_site.py docs/index.html` and commit "
+            "the result"
+        )
+    finally:
+        # Leave the tree as it was found, whichever way the assert went.
+        site.write_text(before, encoding="utf-8")
+
+
 def test_one_set_of_words_describes_this_app():
     """There were three, and they had drifted.
 

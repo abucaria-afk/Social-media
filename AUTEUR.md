@@ -1,4 +1,4 @@
-# 🎬 auteur — an autonomous cinematic editor
+# 🎬 Auteur Atlas — an autonomous cinematic editor
 
 Point it at a pile of unsorted clips, give it a sentence of direction, and it
 returns a finished, graded, beat-cut, sound-designed short film.

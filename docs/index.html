@@ -6,9 +6,9 @@
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#131110" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#eef4fb" media="(prefers-color-scheme: light)">
-<title>auteur — a film from your camera roll</title>
+<title>Auteur Atlas — a film from your camera roll</title>
 <meta name="description" content="Say what you want in a sentence. It frames every shot, cuts to the cadence of your words, grades it, and hands you the film.">
-<meta property="og:title" content="auteur — A film from your camera roll">
+<meta property="og:title" content="Auteur Atlas — A film from your camera roll">
 <meta property="og:description" content="Say what you want in a sentence. It frames every shot, cuts to the cadence of your words, grades it, and hands you the film.">
 <meta property="og:type" content="website">
 <style>
@@ -82,7 +82,10 @@
     width: 0.36em; height: 0.36em;
     margin-left: 0.1em;
     border-radius: 50%;
-    background: var(--rust);
+    /* The accent, not the error colour. `rust` is documented in theme.py as
+       "it did not work, or needs attention" — the app paints a failed sign-in
+       and the delete-account button with it. The wordmark is neither. */
+    background: var(--ember);
     vertical-align: baseline;
   }
   .tagline { color: var(--text-muted); font-size: clamp(19px, 4.4vw, 23px); margin: 14px 0 0; }
@@ -93,7 +96,7 @@
   .go {
     display: inline-flex; align-items: center; min-height: 48px;
     padding: 0 22px; border-radius: 999px; text-decoration: none;
-    font-weight: 600; background: var(--rust); color: var(--on-rust);
+    font-weight: 600; background: var(--ember); color: var(--on-ember);
   }
   .go.quiet { background: transparent; color: var(--text); border: 1px solid var(--line); }
   .go:focus-visible, a:focus-visible { outline: 2px solid var(--ember); outline-offset: 3px; }
@@ -130,9 +133,9 @@
 </head>
 <body>
 <main>
-  <h1 class="mark">auteur</h1>
+  <h1 class="mark">Auteur Atlas</h1>
   <p class="tagline">A film from your camera roll</p>
-  <p class="positioning">Auteur turns what is already on your phone into a finished film. Not a template you drop clips into — it reads the footage, decides what each shot is for, and cuts.</p>
+  <p class="positioning">Auteur Atlas turns what is already on your phone into a finished film. Not a template you drop clips into — it reads the footage, decides what each shot is for, and cuts.</p>
   <p class="caveat">It does not post for you and it does not have an opinion about your follower count. Every share is something you do.</p>
 
   <div class="actions">
@@ -166,7 +169,7 @@
       </li>
       <li>
         <h3>It runs on your device</h3>
-        <p>No account with anybody, no third-party analytics, no advertising identifier, no third-party code at all. It works in aeroplane mode.</p>
+        <p>No third-party analytics, no advertising identifier, no third-party code. Making a film works in aeroplane mode. The only thing that ever talks to another company is a TikTok or Instagram account you connect yourself, to read back how a post did.</p>
       </li>
       <li>
         <h3>A feed that learns, on your own machine<span class="aside">needs a copy you run</span></h3>
