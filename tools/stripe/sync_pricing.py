@@ -105,7 +105,14 @@ class Stripe:
     def _send(self, method: str, path: str, body: bytes | None) -> dict:
         request = urllib.request.Request(f"{API}{path}", data=body, method=method)
         request.add_header("Authorization", f"Bearer {self.key}")
-        request.add_header("Stripe-Version", "2024-06-20")
+        # No pinned Stripe-Version, deliberately. The account's own default
+        # applies, which is the version this was verified against — and the
+        # shapes are not stable across versions: creating a promotion code
+        # took a top-level `coupon` on older versions and takes
+        # `promotion[type]=coupon` on current ones. Pinning a version this
+        # script has never actually been run against would trade a visible
+        # failure for a silent mismatch. If Stripe rejects a parameter, the
+        # error below names it.
         if body is not None:
             request.add_header("Content-Type", "application/x-www-form-urlencoded")
         try:
@@ -207,6 +214,34 @@ def _coupon(client: Stripe, product: dict) -> dict:
     return client.post("/coupons", _coupon_params(product["id"]))
 
 
+def _promotion_code(client: Stripe, coupon: dict) -> dict:
+    """The code a customer types. A coupon on its own cannot be redeemed.
+
+    This is the step the first version of this file did not have, and the gap
+    only showed up by driving the real API: a Stripe payment link takes
+    `allow_promotion_codes` and will not carry a coupon of its own — it was
+    tried, and `discounts` is not a parameter a payment link accepts. So a
+    coupon with no promotion code is a discount advertised on the website that
+    nobody at the checkout can claim. The site prints `PROMO_CODE` for exactly
+    this reason.
+
+    The code is derived from the percentage, so a coupon changed to fifteen
+    per cent cannot leave `ROOM10` redeemable next to it.
+    """
+    for existing in client.get("/promotion_codes", {"limit": 100, "active": True}).get("data", []):
+        if existing.get("code") == pricing.PROMO_CODE:
+            return existing
+
+    return client.post(
+        "/promotion_codes",
+        {
+            "promotion": {"type": "coupon", "coupon": coupon["id"]},
+            "code": pricing.PROMO_CODE,
+            "metadata": {"derived_by": "auteur/pricing.py", "auteur_tier": pricing.TOP_TIER.key},
+        },
+    )
+
+
 def _link(client: Stripe, tier: pricing.Tier, price: dict) -> dict:
     """A payment link carrying the trial, so the site can just point at it.
 
@@ -285,7 +320,11 @@ def main(argv: list[str]) -> int:
 
     top = _product_for(client, pricing.TOP_TIER)
     coupon = _coupon(client, top)
-    print(f"{pricing.TOP_TIER_OFF:.0%} off coupon: {coupon['id']}")
+    promotion = _promotion_code(client, coupon)
+    print(
+        f"{pricing.TOP_TIER_OFF:.0%} off: coupon {coupon['id']}, "
+        f"redeemed by typing {promotion.get('code') or pricing.PROMO_CODE}"
+    )
 
     if not apply:
         print()

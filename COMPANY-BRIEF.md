@@ -322,7 +322,7 @@ average, a free trial, ten per cent off the highest tier.
 |---|---|---|
 | market average | $14.75 | $49.67 |
 | **monthly** | **$12.49** (15.3% under) | **$41.99** (15.5% under) |
-| after the advertised 10% | — | **$37.79** |
+| after the advertised 10% | — | **$37.79**, with the code `ROOM10` |
 
 Free is the browser build, which already ships and needs no account.
 
@@ -348,6 +348,13 @@ Adobe Premiere is not an AI-first consumer editor.
    towards "run a hosted instance as the default and keep self-hosting as an
    option". That is not a decision the code can make; it is one the founder
    should confirm or overturn, and §8.1 stays open until they do.
+
+**The discount needs a code, and the site prints it.** A Stripe payment link
+accepts `allow_promotion_codes` and refuses a `discounts` parameter outright —
+this was tried against the real API — so a coupon on its own is something only
+the merchant can apply. A 10% saving advertised with no code to type is a
+saving nobody can claim. `ROOM10` is derived from the percentage, so a discount
+changed to fifteen per cent cannot leave the old code redeemable beside it.
 
 **Nothing is typed twice.** Prices round *down* to the largest ordinary price
 that still satisfies the claim — fifteen per cent under $14.75 is $12.5375, and

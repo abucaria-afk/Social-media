@@ -68,7 +68,8 @@ def _plans() -> str:
         if tier is pricing.TOP_TIER:
             was = (
                 '<p class="was">'
-                f"{pricing.TOP_TIER_OFF:.0%} off — "
+                f"{pricing.TOP_TIER_OFF:.0%} off with "
+                f"<code>{pricing.PROMO_CODE}</code> — "
                 f"<s>${tier.dollars:.2f}</s> ${pricing.discounted():.2f}/mo"
                 "</p>"
             )
@@ -199,6 +200,14 @@ PAGE = f"""<!DOCTYPE html>
   .plan .per {{ font-size: 15px; font-weight: 400; color: var(--text-muted); letter-spacing: 0; }}
   .plan .was {{ margin: 4px 0 0; font-size: 14px; font-weight: 600; color: var(--ember-text); }}
   .plan .was s {{ color: var(--text-faint); font-weight: 400; }}
+  /* The code has to be transcribable: a discount nobody can type accurately
+     is a discount nobody gets. Monospace, and spaced, so O and 0 are not the
+     same shape at fourteen pixels. */
+  .plan .was code {{
+    font: 600 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 0.06em; padding: 3px 6px; border-radius: 6px;
+    background: var(--raised); color: var(--text);
+  }}
   .plan .blurb {{ margin: 10px 0 0; color: var(--text-muted); font-size: 15px; }}
   .plan ul {{ list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; font-size: 15px; }}
   .plan li {{ padding-left: 20px; position: relative; }}

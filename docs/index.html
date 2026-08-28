@@ -139,6 +139,14 @@
   .plan .per { font-size: 15px; font-weight: 400; color: var(--text-muted); letter-spacing: 0; }
   .plan .was { margin: 4px 0 0; font-size: 14px; font-weight: 600; color: var(--ember-text); }
   .plan .was s { color: var(--text-faint); font-weight: 400; }
+  /* The code has to be transcribable: a discount nobody can type accurately
+     is a discount nobody gets. Monospace, and spaced, so O and 0 are not the
+     same shape at fourteen pixels. */
+  .plan .was code {
+    font: 600 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 0.06em; padding: 3px 6px; border-radius: 6px;
+    background: var(--raised); color: var(--text);
+  }
   .plan .blurb { margin: 10px 0 0; color: var(--text-muted); font-size: 15px; }
   .plan ul { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; font-size: 15px; }
   .plan li { padding-left: 20px; position: relative; }
@@ -240,7 +248,7 @@
       <li class="plan featured">
         <h3>A copy for the room</h3>
         <p class="price">$41.99<span class="per"> / month</span></p>
-        <p class="was">10% off — <s>$41.99</s> $37.79/mo</p>
+        <p class="was">10% off with <code>ROOM10</code> — <s>$41.99</s> $37.79/mo</p>
         <p class="blurb">One instance, everybody who is making the work on it.</p>
         <ul>
           <li>Everything in a copy that is yours</li>

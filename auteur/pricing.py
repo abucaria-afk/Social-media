@@ -58,6 +58,21 @@ TOP_TIER_OFF = 0.10
 #: sitting in a list of measured ones reads as measured.
 TRIAL_DAYS = 14
 
+#: The code a customer types to get the discount above.
+#:
+#: Derived from `TOP_TIER_OFF` rather than written, because the two are the
+#: same fact stated twice and the second one goes stale silently: a coupon
+#: changed to fifteen per cent leaves "ROOM10" printed on the site, and the
+#: page is then advertising a number that is no longer the number. Deriving it
+#: means the code cannot outlive the percentage it names.
+#:
+#: It has to be advertised, not merely to exist. A Stripe payment link takes
+#: `allow_promotion_codes` and nothing else — it will not carry a coupon of
+#: its own — so a discount nobody can type is a discount nobody can have. The
+#: first version of this created the coupon and stopped there, which is a 10%
+#: saving on the site and no way to claim it at the checkout.
+PROMO_CODE = f"ROOM{round(TOP_TIER_OFF * 100)}"
+
 
 @dataclass(frozen=True)
 class Rival:
@@ -252,7 +267,8 @@ def working() -> list[str]:
     lines += [f"  {name} — {why}" for name, why in EXCLUDED.items()]
     lines += [
         "",
-        f"{TOP_TIER_OFF:.0%} off {TOP_TIER.name}: ${TOP_TIER.dollars:.2f} → ${discounted():.2f}/mo",
+        f"{TOP_TIER_OFF:.0%} off {TOP_TIER.name}: ${TOP_TIER.dollars:.2f} → "
+        f"${discounted():.2f}/mo with the code {PROMO_CODE}",
         f"Free trial: {TRIAL_DAYS} days. A chosen default, not a measured figure.",
     ]
     return lines

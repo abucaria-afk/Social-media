@@ -13729,7 +13729,13 @@ def test_running_the_reconciler_twice_creates_nothing_the_second_time():
 
     from auteur import pricing
 
-    account: dict[str, dict] = {"products": {}, "prices": {}, "coupons": {}, "payment_links": {}}
+    account: dict[str, dict] = {
+        "products": {},
+        "prices": {},
+        "coupons": {},
+        "payment_links": {},
+        "promotion_codes": {},
+    }
     posted: list[str] = []
     counter = iter(range(1, 999))
 
@@ -13761,6 +13767,7 @@ def test_running_the_reconciler_twice_creates_nothing_the_second_time():
         row = {
             "id": identifier,
             "lookup_key": params.get("lookup_key") or None,
+            "code": params.get("code") or None,
             "unit_amount": int(params["unit_amount"]) if "unit_amount" in params else None,
             "active": True,
             "percent_off": float(params["percent_off"]) if "percent_off" in params else None,
@@ -13791,6 +13798,7 @@ def test_running_the_reconciler_twice_creates_nothing_the_second_time():
     paid = [tier for tier in pricing.TIERS if tier.dollars]
     assert len(account["products"]) == len(paid), account["products"]
     assert len(account["coupons"]) == 1, "the discount was created more than once"
+    assert len(account["promotion_codes"]) == 1, "the code was created more than once"
     assert first, "the first run created nothing at all"
 
     # And what it created is what the site quotes.
@@ -13799,3 +13807,55 @@ def test_running_the_reconciler_twice_creates_nothing_the_second_time():
         f"Stripe would charge {charged} and the site says " f"{sorted(tier.cents for tier in paid)}"
     )
     assert next(iter(account["coupons"].values()))["percent_off"] == pricing.TOP_TIER_OFF * 100
+
+    # A coupon nobody can type is not a discount. Stripe payment links take
+    # `allow_promotion_codes` and will not carry a coupon of their own, so the
+    # code has to exist and the site has to print it.
+    code = next(iter(account["promotion_codes"].values()))["code"]
+    assert code == pricing.PROMO_CODE, f"Stripe has {code}, the site prints {pricing.PROMO_CODE}"
+
+
+def test_the_discount_the_site_advertises_can_actually_be_claimed():
+    """A saving on a page with no way to claim it is a lie with a receipt.
+
+    This gap was invisible from inside the repository and showed up only by
+    driving the real Stripe API: a payment link takes `allow_promotion_codes`
+    and refuses a `discounts` parameter outright, so a coupon on its own is
+    something only the merchant can apply. The customer needs a code to type,
+    and therefore the page needs to print one.
+
+    The code is derived from the percentage so the two cannot drift — a coupon
+    moved to fifteen per cent must not leave `ROOM10` on the page — and this
+    checks that derivation, the page, and the arithmetic the page shows beside
+    the code.
+    """
+    import re
+    import subprocess
+
+    from auteur import pricing
+
+    percent = round(pricing.TOP_TIER_OFF * 100)
+    assert str(percent) in pricing.PROMO_CODE, (
+        f"{pricing.PROMO_CODE} does not name the {percent}% it unlocks, so a "
+        "changed discount would leave it advertising the old one"
+    )
+
+    root = Path(__file__).resolve().parent.parent
+    subprocess.run(
+        [sys.executable, str(root / "tools" / "site" / "build_site.py"), "-"],
+        check=True,
+        capture_output=True,
+        cwd=root,
+    )
+    page = (root / "-").read_text(encoding="utf-8")
+    (root / "-").unlink()
+
+    assert pricing.PROMO_CODE in page, "the code exists in Stripe and nowhere a customer looks"
+    # And it is shown as a code rather than buried in a sentence: somebody has
+    # to transcribe it accurately into a checkout field.
+    assert f"<code>{pricing.PROMO_CODE}</code>" in page
+
+    shown = re.search(r"(\d+)% off with <code>", page)
+    assert (
+        shown and int(shown.group(1)) == percent
+    ), f"the page offers {shown.group(1) if shown else 'nothing'}% and the coupon gives {percent}%"
