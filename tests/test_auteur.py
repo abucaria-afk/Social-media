@@ -10446,6 +10446,74 @@ def test_every_promotional_still_is_shot_from_a_route_the_app_serves():
         )
 
 
+def test_no_join_is_offset_past_the_end_of_what_it_joins():
+    """An xfade offset past the end of its first input truncates the film.
+
+    Silently. ffmpeg exits zero, writes a file, and the picture simply stops
+    there — a 20-second montage came back with 4.8 seconds of picture and 19.7
+    seconds of music over black, and the only thing that noticed was the critic
+    saying "it came out the wrong length" without saying how.
+
+    The offsets were summed from the EDL's *planned* shot durations. A segment
+    is a whole number of frames, so a shot planned at 0.250s renders at 0.233s
+    at 30fps, and the 7% shortfall accumulates until an offset outruns the
+    chain. It stayed hidden while every shot was about the same length; giving
+    films a held shot and real landings made the drift big enough to cross the
+    line.
+
+    So the offsets come from the measured segments now, and this is the
+    invariant that was missing: no join may begin after the end of the thing it
+    is joining onto.
+    """
+    import re
+
+    from auteur.edl import EditDecisionList, Shot, Transition
+
+    shots = []
+    for index in range(12):
+        shot = Shot(
+            clip_id=f"c{index}",
+            source="/nowhere.mp4",
+            start=0.0,
+            end=0.25,
+            transition_in=(Transition("cut", 0.0) if index % 4 else Transition("dissolve", 0.2)),
+        )
+        shots.append(shot)
+    shots[0].transition_in = Transition("cut", 0.0)
+    edl = EditDecisionList(shots=shots)
+
+    # What the renderer really gets back: every segment a little shorter than
+    # planned, because frames are whole.
+    measured = [0.233] * len(shots)
+
+    from auteur.render import _assemble_video
+
+    graph, _ = _assemble_video(edl, len(shots), measured)
+
+    running = measured[0]
+    for index in range(1, len(shots)):
+        found = re.search(rf"\[vin{index}\]xfade[^;]*?offset=([0-9.]+)", graph)
+        if found:
+            offset = float(found.group(1))
+            assert offset <= running + 1e-6, (
+                f"join {index} starts at {offset:.4f}s, past the {running:.4f}s "
+                "of picture actually in front of it — ffmpeg ends the film there"
+            )
+            running += measured[index] - shots[index].transition_in.duration
+        else:
+            running += measured[index]
+
+    # And the planned offsets must not be what is used: with the plan they are
+    # measurably larger, which is the bug this replaces.
+    stale, _ = _assemble_video(edl, len(shots), None)
+    first_measured = re.search(r"offset=([0-9.]+)", graph)
+    first_stale = re.search(r"offset=([0-9.]+)", stale)
+    assert first_measured and first_stale
+    assert float(first_measured.group(1)) < float(
+        first_stale.group(1)
+    ), "the measured offsets match the planned ones, so nothing is being measured"
+
+
 def test_a_film_has_a_shot_that_lands_and_one_that_holds():
     """The longest shot was exactly 2.00x the median in every film ever cut.
 
