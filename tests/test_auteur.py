@@ -10446,6 +10446,96 @@ def test_every_promotional_still_is_shot_from_a_route_the_app_serves():
         )
 
 
+def test_a_film_has_a_shot_that_lands_and_one_that_holds():
+    """The longest shot was exactly 2.00x the median in every film ever cut.
+
+    Not approximately. Exactly, from three different briefs — a 20s montage, a
+    15s hypercut and a 24s cinematic piece — which is a ceiling rather than a
+    coincidence. `shot_length_at` claims in its own docstring to span "roughly
+    4:1, the difference between a held beat and a flurry", and then the beat
+    quantiser rounded every slot to one or two grid units and the range
+    collapsed. A 61-shot montage was built from three distinct lengths.
+
+    That is what "computer-generated" means when somebody says it about an
+    edit: nothing is ever emphasised, so nothing is ever a decision. A film
+    needs shots that land and, once, a shot that holds.
+    """
+    import random
+
+    from auteur.craft import story
+    from auteur.director.brief import parse_brief
+    from auteur.director.heuristic import _build_slots
+
+    for prompt, runtime in (
+        ("a montage of the walk home", 20.0),
+        ("fast neon hypercut", 15.0),
+        ("a cinematic film about the long way home", 24.0),
+    ):
+        brief = parse_brief(prompt)
+        rng = random.Random(11)
+        rough = _build_slots(brief, runtime, None, 0.0, rng)
+        spread = 1.0
+        if rough:
+            shape = story.shape(len(rough), random.Random(11), arc=brief.arc)
+            spread = sum(story.STRESS[b] for b in shape.beats) / max(len(shape), 1)
+            shape = story.shape(
+                max(1, round(len(rough) / max(spread, 0.2))), random.Random(11), arc=brief.arc
+            )
+        slots = _build_slots(brief, runtime, None, 0.0, random.Random(11), shape)
+
+        lengths = sorted(slot.length for slot in slots)
+        median = lengths[len(lengths) // 2]
+        longest = lengths[-1]
+        assert longest / median >= 3.0, (
+            f"{prompt!r}: the longest shot is only {longest / median:.2f}x the "
+            "median, so nothing in the film is emphasised — this was 2.00 "
+            "exactly on every brief before the structure layer existed"
+        )
+        assert len({round(x, 3) for x in lengths}) >= 4, (
+            f"{prompt!r}: only {len({round(x, 3) for x in lengths})} distinct "
+            "shot lengths, which is a metronome rather than a rhythm"
+        )
+
+        # And the emphasis is where the structure asked for it, not wherever
+        # the footage happened to be long.
+        held = [slot for slot in slots if slot.beat is story.Beat.HOLD]
+        assert len(held) == 1, f"{prompt!r}: expected exactly one hold, got {len(held)}"
+        where = held[0].start / runtime
+        assert 0.45 < where < 0.9, f"{prompt!r}: the hold sits at {where:.0%} of the film"
+        assert held[0].length == max(s.length for s in slots), (
+            f"{prompt!r}: the held shot is not the longest one, so the quantiser "
+            "has handed it back to the rhythm it exists to break"
+        )
+
+
+def test_the_opening_shot_is_not_the_one_that_lingers():
+    """Two independent sources say the opening must be short, and the first
+    draft of `story.py` stretched it by 1.6x.
+
+    The Scholar, asked "what makes an opening hold a viewer", reports the
+    opening held 0.12s across 24 reels with 22 cutting inside half a second.
+    The APX craft rules fire `hook-length` above 2.0s from the other direction.
+    A shot that needs explaining has already been scrolled past.
+    """
+    import random
+
+    from auteur.craft import story
+    from auteur.director.brief import parse_brief
+    from auteur.director.heuristic import _build_slots
+
+    assert story.STRESS[story.Beat.OPEN] < 1.0, "the opening is being stretched"
+    assert story.STRESS[story.Beat.OPEN] < story.STRESS[story.Beat.BUILD]
+
+    for prompt in ("a montage of the walk home", "a cinematic film, slowly"):
+        brief = parse_brief(prompt)
+        shape = story.shape(20, random.Random(5), arc=brief.arc)
+        slots = _build_slots(brief, 20.0, None, 0.0, random.Random(5), shape)
+        assert not story.opening_is_too_long(slots[0].length), (
+            f"{prompt!r}: the film opens on a {slots[0].length:.2f}s shot, past "
+            f"the {story.OPENING_HOLD_LIMIT}s a hook has"
+        )
+
+
 def test_no_sheet_is_hidden_inside_another_sheet():
     """A sheet nested in a sheet can never be opened, and nothing says so.
 

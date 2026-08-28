@@ -250,6 +250,7 @@ def _fit_score(
     used_ranges: dict[str, list[tuple[float, float]]],
     recent_clips: list[str],
     is_hook: bool,
+    opening: tuple[Take, ...] = (),
 ) -> float:
     """How well this take serves this slot. Higher is better."""
     score = take.score * 1.0
@@ -264,8 +265,28 @@ def _fit_score(
         score -= min(spent / take.duration, 3.0) * 1.1
 
     # Energy match: the arc wants a certain amount of movement right here.
+    #
+    # For most of the film this is right — a calm passage wants a calm picture.
+    # At the hold it is exactly wrong, and it was the strongest single reason
+    # the films read as generated. `1.0 - abs(motion - energy)` gives the
+    # loudest moment the busiest shot, which is the picture saying the same
+    # thing the music is already saying. Everything agrees with everything and
+    # nothing is a decision.
+    #
+    # So at the hold the term inverts: the stillest available take wins. That
+    # is the whole trick of the withheld cut. The same still frame is
+    # unremarkable in a slow film and enormous after twelve fast ones, and it
+    # only works because the shot is long enough to notice and quiet enough to
+    # look at.
     motion_norm = float(np.clip(take.motion / MOTION_FULL_SCALE, 0.0, 1.0))
-    score += (1.0 - abs(motion_norm - slot.energy)) * 0.55
+    if story_craft.wants_stillness(slot.beat):
+        score += (1.0 - motion_norm) * 0.9
+        # And it has to survive being looked at. A soft frame is forgivable at
+        # a sixth of a second and is the only thing on screen for two seconds
+        # here.
+        score += take.sharpness * 0.5
+    else:
+        score += (1.0 - abs(motion_norm - slot.energy)) * 0.55
 
     # Coverage: the take should be able to fill the slot without absurd speeds.
     implied_speed = take.duration / max(slot.length, 1e-6)
@@ -302,6 +323,19 @@ def _fit_score(
     if is_hook:
         # The opening frame has one job: stop the scroll.
         score += take.sharpness * 0.5 + motion_norm * 0.6 + take.contrast * 0.4
+
+    if slot.beat is story_craft.Beat.RHYME and opening:
+        # Come back to where the film started. The reuse penalty above is
+        # deliberately outweighed rather than skipped: returning to the opening
+        # clip has to beat the general rule against repeating footage, and only
+        # here, or every shot drifts back to the same clip.
+        if any(take.clip_id == first.clip_id for first in opening):
+            score += 2.4
+            # The same clip, not the same frames. A rhyme is the place seen
+            # again, which is only a rhyme if something has changed about it —
+            # an identical shot reads as the render having stuttered.
+            if all(take.start >= first.end or take.end <= first.start for first in opening):
+                score += 0.8
 
     return score
 
@@ -698,7 +732,26 @@ def cut(
     target = float(np.clip(target, 3.0, max(4.0, available * 1.6)))
 
     offset = _music_offset(music_analysis, target)
+
+    # Two passes, because the structure needs to know how many shots there are
+    # and the shot count depends on the structure — a hold five times the
+    # ordinary length is four shots the film no longer has room for. The first
+    # pass has no structure and only exists to count; the second is the real
+    # one. A third pass would keep converging and is not worth it: `at()`
+    # returns BUILD past the end, so a tail a shot or two longer than the
+    # structure is simply unstressed, which is the right failure.
     slots = _build_slots(brief, target, music_analysis, offset, rng)
+    if slots:
+        rough = story_craft.shape(len(slots), random.Random(settings.seed), arc=brief.arc)
+        # How much longer the film gets per shot once every job is stressed.
+        spread = sum(story_craft.STRESS[b] for b in rough.beats) / max(len(rough), 1)
+        structure = story_craft.shape(
+            max(1, round(len(slots) / max(spread, 0.2))),
+            random.Random(settings.seed),
+            arc=brief.arc,
+        )
+        slots = _build_slots(brief, target, music_analysis, offset, rng, structure)
+        log.debug("structure: %s", structure.describe())
     if not slots:
         slots = [_Slot(0, 0.0, target, 0.6)]
 
@@ -719,6 +772,9 @@ def cut(
     used_ranges: dict[str, list[tuple[float, float]]] = {}
     recent_clips: list[str] = []
     previous_take: Take | None = None
+    #: What the film opened on, so the rhyme near the end has something to
+    #: reach back to. Two shots, because that is what a viewer remembers.
+    opening_takes: list[Take] = []
 
     for slot in slots:
         best: tuple[float, ClipDossier, Take] | None = None
@@ -731,6 +787,7 @@ def cut(
                 used_ranges=used_ranges,
                 recent_clips=recent_clips,
                 is_hook=slot.index == 0,
+                opening=tuple(opening_takes),
             )
             if best is None or score > best[0]:
                 best = (score, dossier, take)
@@ -777,6 +834,8 @@ def cut(
         used_ranges.setdefault(chosen.clip_id, []).append((chosen.start, chosen.end))
         recent_clips.append(chosen.clip_id)
         previous_take = chosen
+        if len(opening_takes) < story_craft.OPENING_SHOTS:
+            opening_takes.append(chosen)
 
     edl = EditDecisionList(
         title=brief.title,
