@@ -255,7 +255,69 @@
       }
     }
     if (out.length) { out[0].role = "hook"; }
-    return out;
+    return shape(out);
+  }
+
+  /* The structure above the bars.
+   *
+   * The bars give a film local rhythm — short short long, inside a phrase.
+   * They do not give it a shape, and measured across the six styles here the
+   * longest shot was **exactly twice the median on four of them**: hypercut
+   * 2.00, story 2.00, hype 2.00, dreamy 1.33, gallery 1.50. Only montage
+   * reached 4.00, and even that is a 4 that lands wherever its bar happens to
+   * fall rather than a held shot placed at the film's peak.
+   *
+   * That is the same ceiling the Python director had, found the same way, and
+   * it matters more here: this is the renderer behind the published link, so
+   * it is the film most people will ever see this app make.
+   *
+   * Three rules, and they are the same three `auteur/craft/story.py` applies,
+   * with the same constants — a test reads both and fails if they drift, the
+   * way the pace tables are already held together.
+   */
+  var STRUCTURE = {
+    /* The opening is the shortest shot, not the longest. Across the 24
+     * reference reels it is held 0.12s, and 22 of them cut inside half a
+     * second; the APX craft rules fire `hook-length` above 2.0s from the
+     * other direction. Both say the same thing. */
+    opening: 0.6,
+    /* One shot much longer than everything around it, past the peak. It is
+     * five rather than three because it has to clear a landing at two by
+     * enough that nobody reads it as another landing. */
+    hold: 5.0,
+    holdAt: 0.68,
+    /* Somewhere to put the viewer down. */
+    close: 2.5,
+    /* Below this a film is one phrase, and a hold would spend a third of it
+     * on one frame. */
+    leastShots: 9
+  };
+
+  function shape(bars) {
+    if (!bars.length) { return bars; }
+    /* Set, not multiplied.
+     *
+     * A bar already carries the local variation — 0.5 in a hypercut, 2 in a
+     * gallery — so multiplying compounds the two and the result depends on
+     * which bar the hold happens to land on. Measured that way: montage came
+     * out at ten times its median and hypercut at two and a half, from the
+     * same rule. These numbers are lengths in hold-units, which is exactly
+     * what `STRESS` is in `auteur/craft/story.py`, where BUILD is 1.0. */
+    bars[0].beats = STRUCTURE.opening;
+    if (bars.length >= STRUCTURE.leastShots) {
+      var at = Math.min(
+        bars.length - 2,
+        Math.max(2, Math.round(bars.length * STRUCTURE.holdAt))
+      );
+      bars[at].beats = STRUCTURE.hold;
+      /* Named, so the renderer below can choose the still shot for it rather
+       * than the busiest — which is the half of this that the length alone
+       * does not buy. */
+      bars[at].role = "hold";
+      bars[bars.length - 1].beats = STRUCTURE.close;
+      bars[bars.length - 1].role = "close";
+    }
+    return bars;
   }
 
   /* Everything about one shot that is a matter of taste rather than of
@@ -329,6 +391,7 @@
     ACCENTS: ACCENTS,
     styleFor: styleFor,
     arrange: arrange,
+    structure: STRUCTURE,
     choices: choices,
     pickFrom: pickFrom
   };

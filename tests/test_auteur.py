@@ -10815,6 +10815,52 @@ def test_no_join_is_offset_past_the_end_of_what_it_joins():
     ), "the measured offsets match the planned ones, so nothing is being measured"
 
 
+def test_both_renderers_shape_a_film_the_same_way():
+    """The published page is the film most people will ever see this app make.
+
+    It has its own cutting engine, because a published page has no server and
+    no Python behind it — and a second copy of a number drifts. That has
+    already happened once here over pace, and it happened again over shape:
+    the structure layer went into `auteur/craft/story.py` and the browser kept
+    arranging bars with no structure at all. Measured across its six styles,
+    the longest shot was **exactly twice the median on four of them** —
+    hypercut 2.00, story 2.00, hype 2.00 — which is the same ceiling, in the
+    same shape, in the other engine.
+
+    So the constants are read out of both and compared, the way the pace
+    tables already are. Changing one alone fails here.
+    """
+    import re
+
+    from auteur.craft import story
+
+    root = Path(__file__).resolve().parent.parent
+    js = (root / "tools" / "artifact" / "style.js").read_text(encoding="utf-8")
+
+    block = re.search(r"var STRUCTURE = \{(.*?)\n  \};", js, re.S)
+    assert block, "style.js no longer declares STRUCTURE"
+
+    def number(name: str) -> float:
+        found = re.search(rf"{name}:\s*([0-9.]+)", block.group(1))
+        assert found, f"STRUCTURE has no {name}"
+        return float(found.group(1))
+
+    assert (
+        number("opening") == story.STRESS[story.Beat.OPEN]
+    ), "the browser and the director disagree about how long an opening is"
+    assert (
+        number("hold") == story.STRESS[story.Beat.HOLD]
+    ), "the browser and the director disagree about the held shot"
+    assert (
+        number("close") == story.STRESS[story.Beat.CLOSE]
+    ), "the browser and the director disagree about the closing shot"
+    assert number("holdAt") == story.HOLD_AT
+    assert number("leastShots") == story.LEAST_SHOTS_FOR_A_HOLD
+
+    # And the shape is applied, not merely declared: `arrange` must return it.
+    assert "return shape(out);" in js, "style.js declares a structure and does not apply it"
+
+
 def test_a_film_has_a_shot_that_lands_and_one_that_holds():
     """The longest shot was exactly 2.00x the median in every film ever cut.
 
