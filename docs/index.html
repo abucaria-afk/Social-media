@@ -122,6 +122,33 @@
   }
   .stores strong { display: block; color: var(--text); font-size: 16px; }
 
+  ul.plans { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; }
+  @media (min-width: 720px) { ul.plans { grid-template-columns: repeat(3, 1fr); } }
+  .plan {
+    border: 1px solid var(--line); border-radius: 18px; padding: 22px 20px 24px;
+    background: var(--surface); display: flex; flex-direction: column; gap: 4px;
+  }
+  /* The top tier carries the advertised discount, so it is the one the eye
+     should land on. It is marked with the accent as a border rather than as a
+     fill: `cream` would need a "text on cream" role that does not exist in
+     theme.py, and inventing one here is exactly how this page ended up with a
+     hand-copied palette thirteen colours out of date. */
+  .plan.featured { border-color: var(--ember); box-shadow: inset 0 0 0 1px var(--ember); }
+  .plan h3 { font-size: 17px; margin: 0; }
+  .plan .price { font-size: 34px; font-weight: 600; letter-spacing: -0.02em; margin: 6px 0 0; }
+  .plan .per { font-size: 15px; font-weight: 400; color: var(--text-muted); letter-spacing: 0; }
+  .plan .was { margin: 4px 0 0; font-size: 14px; font-weight: 600; color: var(--ember-text); }
+  .plan .was s { color: var(--text-faint); font-weight: 400; }
+  .plan .blurb { margin: 10px 0 0; color: var(--text-muted); font-size: 15px; }
+  .plan ul { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; font-size: 15px; }
+  .plan li { padding-left: 20px; position: relative; }
+  .plan li::before {
+    content: ""; position: absolute; left: 2px; top: 0.62em;
+    width: 8px; height: 8px; border-radius: 50%; background: var(--moss);
+  }
+  .trial { font-size: 19px; margin: 0 0 22px; max-width: 60ch; }
+  .smallprint { color: var(--text-faint); font-size: 14px; margin: 18px 0 0; max-width: 66ch; }
+
   footer { margin-top: 70px; color: var(--text-faint); font-size: 15px; }
   footer a { margin-right: 18px; display: inline-block; min-height: 44px; line-height: 44px; }
 
@@ -180,6 +207,54 @@
         <p>Run a copy on your own computer and the app connects to it — the feed, the messages and the planning board live on hardware you own.</p>
       </li>
   </ul>
+
+  <hr>
+
+  <h2>What it costs</h2>
+  <p class="trial">14 days free, then $12.49 a month — 15% under what the same thing costs everywhere else.</p>
+  <ul class="plans">
+      <li class="plan">
+        <h3>In your browser</h3>
+        <p class="price">Free</p>
+        
+        <p class="blurb">Everything that runs on your device, which is most of it.</p>
+        <ul>
+          <li>Say the film you want in a sentence and get it cut</li>
+          <li>Every grade, every shape, type and stickers on the beat</li>
+          <li>Works in aeroplane mode — nothing leaves the device</li>
+          <li>No account</li>
+        </ul>
+      </li>
+      <li class="plan">
+        <h3>A copy that is yours</h3>
+        <p class="price">$12.49<span class="per"> / month</span></p>
+        
+        <p class="blurb">An instance that is running when you are not.</p>
+        <ul>
+          <li>Everything in the browser build</li>
+          <li>A feed that learns from what you finish, on your instance</li>
+          <li>The planning board and messages, kept between devices</li>
+          <li>Read back how a post did on an account you connect yourself</li>
+        </ul>
+      </li>
+      <li class="plan featured">
+        <h3>A copy for the room</h3>
+        <p class="price">$41.99<span class="per"> / month</span></p>
+        <p class="was">10% off — <s>$41.99</s> $37.79/mo</p>
+        <p class="blurb">One instance, everybody who is making the work on it.</p>
+        <ul>
+          <li>Everything in a copy that is yours</li>
+          <li>Invite the rest of the room onto the same instance</li>
+          <li>One planning board, one shot list, one calendar</li>
+          <li>The feed ranks across everything the room has made</li>
+        </ul>
+      </li>
+  </ul>
+  <p class="smallprint">Every paid plan starts with 14 days free and no card
+    charged until they are up. Prices are compared against the advertised monthly rate of
+    Runway Standard, CapCut Pro, Descript Hobbyist, Kapwing Pro and
+    VEED Pro, Descript Business, Kapwing Business, read 2026-08.
+    The browser build stays free: it runs on your device, so it costs us nothing to give you.</p>
 
   <hr>
 
