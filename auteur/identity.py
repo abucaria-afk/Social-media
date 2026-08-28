@@ -7,10 +7,27 @@ address is one edit rather than a search, and so that shipping with a
 placeholder still in it is something a check can catch rather than something
 App Store review catches for you.
 
+There are two of them, and the split is the point. A **company** publishes;
+a **product** is what it publishes. Auteur Studies LLC owns the legal name, the
+domain, the support address, the policy documents and the copyright line —
+those belong to the umbrella and every product under it inherits them. `auteur`
+owns its bundle identifier, its app name and its version. Kept apart, a second
+product gets the company's details right by construction rather than by
+somebody remembering to copy them, and the copyright line cannot say one thing
+while the App Store seller field says another.
+
 `ready()` is the whole point. It is called by `tools/appstore/preflight.py` and
 by the test suite, and it fails on anything still holding a placeholder, so the
 question "is this ready to submit" has an answer that is run rather than
 remembered.
+
+`problems()` and `pending()` answer two different questions and are not
+interchangeable. A *problem* is a value nobody has decided — a placeholder, and
+entirely within this repository's power to fix. Something *pending* has been
+decided and is waiting on the outside world: a domain registered, an entity
+filed, a developer account approved. The distinction matters because the second
+kind cannot be fixed by editing a file, and treating it as a failure would mean
+a red check that stays red no matter what anybody does to the code.
 
 None of this is a secret. A bundle identifier and a support address are on the
 App Store listing where everybody can read them; the credentials that actually
@@ -47,36 +64,114 @@ def _env(name: str, fallback: str) -> str:
     return os.environ.get(name, "").strip() or fallback
 
 
+#: The year on the copyright line. Not `datetime.now().year`: a copyright
+#: year that moves on its own says the work was created in whatever year the
+#: reader happens to run the code.
+FOUNDED = "2026"
+
+
+@dataclass(frozen=True)
+class Company:
+    """The umbrella. One of these; as many products under it as there are.
+
+    Everything here is a fact about the business rather than about any one
+    app, which is why it is not on `Identity`: the copyright line, the seller
+    name on both stores, the address a person writes to and the domain the
+    policy documents live on are the same whatever is being shipped. A second
+    product inherits them instead of restating them, and restating is how the
+    site ended up describing a command-line tool eighteen months after it
+    stopped being one.
+    """
+
+    #: The name on the incorporation paperwork, and therefore the name Apple
+    #: and Google show as the seller — both display the enrolled entity name
+    #: exactly, suffix included, so the suffix belongs in it.
+    legal_name: str = _env("AUTEUR_COMPANY", "Auteur Studies LLC")
+
+    #: What it is called in a sentence, without the suffix. Used in prose,
+    #: never on a form.
+    trading_name: str = _env("AUTEUR_COMPANY_SHORT", "Auteur Studies")
+
+    #: The domain the company controls. Everything below is derived from it,
+    #: so there is one place to change and no way for the bundle identifier
+    #: to name one domain while the privacy policy is served from another.
+    domain: str = _env("AUTEUR_DOMAIN", "auteurstudies.com")
+
+    #: Where somebody reports a problem. Apple guideline 1.2 requires
+    #: published contact information for any app carrying other people's
+    #: content, and this is it: the terms page, the store listing and the
+    #: review notes all read this one value.
+    support_email: str = _env("AUTEUR_SUPPORT_EMAIL", "support@auteurstudies.com")
+
+    @property
+    def reverse_dns(self) -> str:
+        """`auteurstudies.com` -> `com.auteurstudies`, which is what a bundle
+        identifier is built from. Apple requires reverse-DNS on a domain the
+        publisher controls, so deriving it is also the check: there is no way
+        to write an identifier for a domain the company does not claim."""
+        return ".".join(reversed(self.domain.split(".")))
+
+    @property
+    def copyright_line(self) -> str:
+        return f"Copyright (c) {FOUNDED} {self.legal_name}"
+
+    def _page(self, name: str) -> str:
+        # `.html` and not a bare path. GitHub Pages serves `privacy.html` at
+        # `/privacy.html` and gives `/privacy` a 404 — and a privacy policy
+        # URL that 404s is the single most common metadata rejection there
+        # is. The filename here is the filename `tools/site/build_site.py`
+        # actually writes, and a test holds the two together.
+        return f"https://{self.domain}/{name}"
+
+    @property
+    def support_url(self) -> str:
+        # The site's front page, which is what Apple's "Support URL" field
+        # wants: somewhere a person lands and finds a way to ask something.
+        return f"https://{self.domain}/"
+
+    @property
+    def privacy_url(self) -> str:
+        return self._page("privacy.html")
+
+    @property
+    def terms_url(self) -> str:
+        return self._page("terms.html")
+
+
+#: The live one.
+COMPANY = Company()
+
+
 @dataclass(frozen=True)
 class Identity:
     """Who is publishing this, and where people reach them."""
 
-    #: Reverse-DNS, and it has to be a domain the publisher controls. Apple
+    #: Reverse-DNS, and it has to be a domain the publisher controls, which is
+    #: why it is *derived* from the company's domain rather than typed. Apple
     #: rejects `com.example.*` outright — it is the reserved documentation
-    #: domain — so the default here is deliberately one that fails `ready()`
-    #: rather than one that looks plausible enough to ship by accident.
-    bundle_id: str = _env("AUTEUR_BUNDLE_ID", "com.example.auteur")
+    #: domain — and it also refuses to change a bundle identifier after the
+    #: first submission, so this is the one value here that is permanent.
+    bundle_id: str = _env("AUTEUR_BUNDLE_ID", f"{COMPANY.reverse_dns}.auteur")
 
-    #: The name on the App Store listing, and in the copyright line.
-    developer: str = _env("AUTEUR_DEVELOPER", "Example Developer")
+    #: The seller name on both stores, and the name in the copyright line.
+    #: The company's, because that is whose name it is.
+    developer: str = _env("AUTEUR_DEVELOPER", COMPANY.legal_name)
 
-    #: Where somebody reports a problem. Apple requires published contact
-    #: information for any app carrying other people's content (guideline
-    #: 1.2), and this is it — it goes in the terms page, the App Store listing
-    #: and the review notes.
-    support_email: str = _env("AUTEUR_SUPPORT_EMAIL", "support@example.com")
+    #: Also the company's: one address for everything it publishes.
+    support_email: str = _env("AUTEUR_SUPPORT_EMAIL", COMPANY.support_email)
 
-    #: The three URLs App Store Connect asks for. The defaults are the GitHub
-    #: Pages addresses this repository actually publishes to — see
-    #: `.github/workflows/pages.yml` — so they are real as soon as Pages is
-    #: turned on, rather than being somewhere to fill in later.
-    support_url: str = _env("AUTEUR_SUPPORT_URL", "https://abucaria-afk.github.io/Social-media/")
-    privacy_url: str = _env(
-        "AUTEUR_PRIVACY_URL", "https://abucaria-afk.github.io/Social-media/privacy.html"
-    )
-    terms_url: str = _env(
-        "AUTEUR_TERMS_URL", "https://abucaria-afk.github.io/Social-media/terms.html"
-    )
+    #: The three URLs App Store Connect asks for, on the company's own domain.
+    #:
+    #: These used to default to this repository's GitHub Pages addresses,
+    #: which had the great virtue of being live. They are now the company's,
+    #: which is where they belong and where they are not yet live — so
+    #: `pending()` names the registration as the thing standing between here
+    #: and a submission, and `preflight.py --online` fetches all three and
+    #: fails on a 404. A privacy policy URL that does not resolve is the
+    #: single most common metadata rejection there is.
+    support_url: str = _env("AUTEUR_SUPPORT_URL", COMPANY.support_url)
+    privacy_url: str = _env("AUTEUR_PRIVACY_URL", COMPANY.privacy_url)
+    terms_url: str = _env("AUTEUR_TERMS_URL", COMPANY.terms_url)
 
     #: What the app is called on the home screen and in the store. Checked
     #: against Apple's 30-character limit, which is not advice.
@@ -155,6 +250,77 @@ def problems(identity: Identity | None = None) -> list[str]:
         out.append(f"build number {who.build_number!r} is not a whole number.")
 
     return out
+
+
+@dataclass(frozen=True)
+class Waiting:
+    """Something decided, not yet true, and not fixable from inside the repo."""
+
+    #: What is being waited on, in four or five words.
+    what: str
+
+    #: What breaks while it is not true. Not "it would be nice": the concrete
+    #: failure, because a checklist item with no consequence is one nobody
+    #: does.
+    consequence: str
+
+    #: The command that says whether it has become true. Every one of these is
+    #: a command this repository actually provides — held to that by a test,
+    #: because "run the preflight" is worth nothing if the preflight does not
+    #: check the thing.
+    confirm: str
+
+
+def pending(company: Company | None = None) -> list[Waiting]:
+    """Decided, and waiting on the world. Not the same list as `problems()`.
+
+    `problems()` is placeholders: values nobody has chosen, fixable with an
+    edit, and a legitimate reason for a check to be red. This is the other
+    kind — the domain is registered or it is not, and no amount of editing
+    makes it so. Keeping them apart is what stops a permanently-red check,
+    which is a check people learn to ignore.
+
+    The order is the order to do them in: each one blocks the next.
+    """
+    who = company or COMPANY
+    return [
+        Waiting(
+            what=f"register {who.domain}",
+            consequence=(
+                "the bundle identifier claims a domain the publisher does not "
+                "control, and all three store URLs 404 — a privacy policy URL "
+                "that does not resolve is the most common metadata rejection "
+                "there is"
+            ),
+            confirm="python3 tools/appstore/preflight.py --online",
+        ),
+        Waiting(
+            what=f"file {who.legal_name}",
+            consequence=(
+                "both stores show the enrolled entity name as the seller, and "
+                "organisation enrolment cannot start without one"
+            ),
+            confirm="python3 tools/appstore/preflight.py",
+        ),
+        Waiting(
+            what=f"make {who.support_email} receive mail",
+            consequence=(
+                "Apple guideline 1.2 requires published contact information "
+                "for an app carrying other people's content, and review does "
+                "write to it"
+            ),
+            confirm="python3 tools/appstore/preflight.py --online",
+        ),
+        Waiting(
+            what="point the domain at the published site",
+            consequence=(
+                "the policy documents are generated and deployed by "
+                ".github/workflows/pages.yml, and until the domain resolves "
+                "there they are published at an address no listing names"
+            ),
+            confirm="python3 tools/appstore/preflight.py --online",
+        ),
+    ]
 
 
 def ready(identity: Identity | None = None) -> bool:

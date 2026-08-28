@@ -33,7 +33,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from auteur.identity import IDENTITY, problems  # noqa: E402
+from auteur.identity import IDENTITY, pending, problems  # noqa: E402
 
 IOS = ROOT / "ios"
 APP = IOS / "Auteur"
@@ -590,11 +590,30 @@ def main() -> int:
                     print(f"          {chunk.rstrip()}")
         print()
 
+    # Everything above is a fact about this repository. This is the other
+    # half, and printing it here is the point: "everything checkable from
+    # here is right" is a true sentence that reads like "ready to submit",
+    # and it is not the same sentence. The domain being registered is not
+    # checkable from here, and it blocks the upload just as hard as a missing
+    # icon does.
+    waiting = pending()
+    if waiting:
+        print("  still waiting on the world")
+        for item in waiting:
+            print(f"      ☐ {item.what}")
+            for chunk in re.findall(r".{1,68}(?:\s|$)", item.consequence):
+                if chunk.strip():
+                    print(f"          {chunk.rstrip()}")
+            print(f"          confirm with: {item.confirm}")
+        print()
+
     if bad:
         print(f"  {bad} thing(s) would come back from a store review. Fix them first.")
         print()
         return 1
     print("  everything checkable from here is right.")
+    if waiting:
+        print(f"  {len(waiting)} thing(s) above are not checkable from here.")
     print()
     return 0
 

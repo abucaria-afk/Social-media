@@ -3,8 +3,12 @@
 **One file. Everything a collaborator outside this repository needs in order to
 help build the company around the product.**
 
-Last updated 2026-08-28. Product state verified against a 582-test suite and a
+Last updated 2026-08-28. Product state verified against a 587-test suite and a
 real browser at a 390×844 phone viewport on the same day.
+
+**The umbrella corp is Auteur Studies LLC, on auteurstudies.com.** That is
+decided and now carried by the code — see §5.1. What it is still waiting on is
+§5.1a.
 
 ---
 
@@ -102,7 +106,7 @@ behaviour are checked by running the thing.
 - **Store readiness.** App Store submission pack, Google Play listing, generated
   screenshots, a 12+ age gate with a lockable content restriction, published
   privacy policy and terms.
-- **Engineering hygiene.** 582 tests green. CI runs pytest, ruff, black, CodeQL,
+- **Engineering hygiene.** 587 tests green. CI runs pytest, ruff, black, CodeQL,
   pip-audit and coverage on every push. MIT licensed.
 - **Deployment.** `Dockerfile`, `docker-compose.yml`, `render.yaml` and
   `fly.toml` are all in the repository and all point at the same container.
@@ -124,7 +128,9 @@ Plan against this list, not against optimism.
   lists everybody, which is fine for tens of people and wrong for thousands.
 - **No push notifications** beyond an app badge on an installed PWA.
 - **No payment, subscription or billing of any kind.**
-- **No company.** No entity, no domain, no bank account, no publisher identity.
+- **No entity yet, and no domain yet.** The name is decided — Auteur Studies
+  LLC on auteurstudies.com — and the code carries it, but nothing has been
+  filed and nothing has been registered. No bank account. (§5.1a)
 - **Single-instance by design.** Every deployment is somebody's own server.
   There is no multi-tenant hosted product, and whether there should be is the
   biggest open strategic question in this document. (§8.1)
@@ -161,29 +167,65 @@ not ship until it has been checked against the code.
 
 ## 5. The company work — this is your side
 
-### 5.1 Publisher identity — three values, blocking everything else
+### 5.1 Publisher identity — decided, and now in the code
 
-The app refuses to call itself submittable while these are placeholders, and the
-check runs in CI. Both stores reject the reserved `com.example` domain outright.
+**The umbrella corp is Auteur Studies LLC, on auteurstudies.com.** As of
+2026-08-28 that is no longer a placeholder anywhere: the repository carries it,
+the App Store and Play listings regenerate from it, the in-app privacy and terms
+pages name it, the iOS project's bundle identifier is built from it, and the
+LICENCE copyright line reads it.
 
-| Value | Now | Needs to be |
+The structure matters and is worth keeping. A **company** publishes; a
+**product** is what it publishes. The company owns the legal name, the domain,
+the support address, the policy documents and the copyright line — a second
+product under the umbrella inherits all of them. `auteur` owns only its bundle
+identifier, its app name and its version.
+
+| Value | Now | Where it comes from |
 | --- | --- | --- |
-| `AUTEUR_BUNDLE_ID` | `com.example.auteur` | Reverse-DNS on a domain the publisher **owns**, e.g. `com.yourcompany.auteur` |
-| `AUTEUR_DEVELOPER` | `Example Developer` | The legal name that will appear on the store listing and in the copyright line |
-| `AUTEUR_SUPPORT_EMAIL` | `support@example.com` | A monitored address. Apple guideline 1.2 **requires** published contact information for an app carrying other people's content |
+| Legal name | `Auteur Studies LLC` | the company; both stores show the enrolled entity name as the seller, suffix included |
+| Domain | `auteurstudies.com` | the company |
+| Bundle identifier | `com.auteurstudies.auteur` | **derived** from the domain, so it cannot name a domain the company does not claim |
+| Support address | `support@auteurstudies.com` | the company |
+| Support URL | `https://auteurstudies.com/` | the company |
+| Privacy policy | `https://auteurstudies.com/privacy.html` | the company |
+| Terms | `https://auteurstudies.com/terms.html` | the company |
+| Copyright | `Copyright (c) 2026 Auteur Studies LLC` | the company |
 
-These three imply an earlier decision: **a name and a domain**. Reverse-DNS on a
-domain you do not own is a rejection. So the order is: pick the trading name →
-check it is clear → register the domain → then these three values fall out.
+Two details that are easy to get wrong and are now held by tests:
 
-Already set and real, as long as GitHub Pages is switched on
-(Settings → Pages → Source: GitHub Actions):
+- **The bundle identifier can never be changed after the first submission.**
+  Ship `com.auteurstudios.auteur` against `auteurstudies.com` and the app
+  carries a misspelling of its own company forever. It is derived rather than
+  typed for exactly that reason.
+- **The policy URLs end in `.html`.** GitHub Pages serves `privacy.html` at
+  `/privacy.html` and gives `/privacy` a 404, and a privacy policy URL that
+  404s is the most common metadata rejection there is. The filenames in the
+  URLs are checked against the filenames the site builder actually writes.
 
-- Support URL — `https://abucaria-afk.github.io/Social-media/`
-- Privacy policy — `https://abucaria-afk.github.io/Social-media/privacy.html`
-- Terms — `https://abucaria-afk.github.io/Social-media/terms.html`
+### 5.1a What is now waiting on you — in this order
 
-These should move to the real domain once it exists. Treat that as a task.
+These are decided and not yet true, and none of them can be fixed by editing
+code. `python3 tools/appstore/preflight.py` prints this list every time it runs,
+so it cannot quietly stop being true.
+
+1. **Register `auteurstudies.com`.** Everything else waits on it: the bundle
+   identifier claims a domain the publisher must control, and all three store
+   URLs 404 until it resolves. Check the name is clear for a trademark in the
+   relevant class before registering, not after.
+2. **File Auteur Studies LLC.** Both stores show the enrolled entity name as
+   the seller, and organisation enrolment cannot start without one. §8.2 has
+   what still needs deciding here.
+3. **Make `support@auteurstudies.com` receive mail.** Apple guideline 1.2
+   requires published contact information for an app carrying other people's
+   content, and review does write to it.
+4. **Point the domain at the published site.** The policy documents are already
+   generated and deployed by `.github/workflows/pages.yml`; until the domain
+   resolves there, they are published at an address no listing names. This also
+   needs GitHub Pages switched on: Settings → Pages → Source: GitHub Actions.
+
+Confirm all four at once with `python3 tools/appstore/preflight.py --online`,
+which fetches the three URLs and fails on anything that is not a 200.
 
 ### 5.2 Accounts and registrations to open
 
@@ -191,9 +233,11 @@ Ordered by how long they take to clear, not by cost.
 
 | What | Why it is needed | Note |
 | --- | --- | --- |
-| Legal entity | Owns the app, the domain, the developer accounts and any revenue | Decision: see §8.2 |
-| Domain | Required by the bundle identifier before anything else | Do this first |
-| Apple Developer Program | Any App Store submission | Annual fee; organisation enrolment needs a legal entity and can take weeks |
+| Trademark search — "Auteur Studies" | Everything below is expensive to undo | **Do this first.** §8.6 |
+| `auteurstudies.com` | The bundle identifier claims it, and the store URLs live on it | Blocks all three store URLs |
+| **Auteur Studies LLC** | Owns the app, the domain, the developer accounts and any revenue | Name decided; jurisdiction is §8.2 |
+| `support@auteurstudies.com` | Apple guideline 1.2 published contact information | Follows the domain |
+| Apple Developer Program | Any App Store submission | Annual fee; organisation enrolment needs the filed entity and a D-U-N-S number, and can take weeks |
 | Google Play Console | Any Play submission | One-time fee; personal accounts now face identity verification and, for new personal developers, a closed-testing requirement before production |
 | TikTok for Developers | Reading back TikTok numbers | See §5.4 |
 | Meta / Instagram developer app | Reading back Instagram numbers | See §5.4 |
@@ -316,7 +360,7 @@ and it is §8.3.
 
 ## 8. Open decisions — put these to the founder
 
-These are the ones that change what gets built next. Each needs a
+Two of these are now closed. The rest change what gets built next; each needs a
 recommendation, not a survey.
 
 **8.1 One product or two?** Today every deployment is somebody's own server. A
@@ -324,11 +368,16 @@ hosted multi-tenant version would be a different company — different costs,
 different privacy story, different obligations. Options: stay self-hosted and
 sell the app; run a hosted instance as the default and keep self-hosting as an
 option; or both, deliberately. This decision shapes pricing, the privacy copy,
-and the store listings.
+and the store listings. **This is now the largest open question in the
+document.**
 
-**8.2 Entity, and where.** Depends on where the founder is resident and whether
-outside money is ever likely. Note the current copyright line reads
-`Copyright (c) 2026 abucaria-afk` — it should become the entity's legal name.
+**8.2 Entity — half decided.** The name is **Auteur Studies LLC**. What is not
+decided is the jurisdiction it is filed in, which depends on where the founder
+is resident and on whether outside money is ever likely. Note that "LLC" as a
+suffix presumes a US-style filing; if the answer to the jurisdiction question is
+somewhere that does not have LLCs, the suffix has to change and so does every
+place it appears — which is one edit, in `Company.legal_name`, because the code
+derives the rest. Worth confirming before the filing, not after.
 
 **8.3 Who is it for, first?** Creator, privacy-conscious individual, or social
 media manager (§6). Pick one for the first launch; the other two stay in the
@@ -343,8 +392,13 @@ first submission, not after.
 instance is the only one that needs no store approval and could be live this
 week. That argues for it as the beachhead regardless of the answer to 8.1.
 
-**8.6 The name.** "auteur" is descriptive and memorable but needs a trademark
-and domain check before it goes on a legal document or a bundle identifier.
+**8.6 The name — decided.** **Auteur Studies**, trading, **Auteur Studies LLC**
+as the entity, on **auteurstudies.com**. It reads deliberately: auteur theory,
+film studies, and the app's own Scholar that studies reference reels to derive
+the cutting rhythms. One task remains and it is not a decision: **clear the
+trademark before registering the domain**, in whichever class covers downloadable
+software, and check it is not confusable with an existing mark. Do that first;
+everything in §5.1a is downstream of it.
 
 ---
 
@@ -354,10 +408,14 @@ The most useful output is something the founder can act on without translation.
 Please return, in this order:
 
 1. **A dated list of anything in §5 that has changed** — fees, timelines,
-   policies — with the source you checked and when.
-2. **A recommendation on each open decision in §8**, one short paragraph each:
-   the call, the single strongest reason, and the one thing that would change
-   your mind.
+   policies — with the source you checked and when. Include a trademark and
+   domain-availability read on "Auteur Studies" (§8.6): that one is on the
+   critical path and everything else in §5.1a is downstream of it.
+2. **A recommendation on each still-open decision in §8** (8.1, 8.2's
+   jurisdiction, 8.3, 8.4, 8.5), one short paragraph each: the call, the single
+   strongest reason, and the one thing that would change your mind. 8.2's name
+   and 8.6 are closed — do not reopen them, and do not propose alternative
+   company names.
 3. **A critical-path plan** to the first thing a stranger can use, with owners
    and rough durations. Mark each step *decision* or *task*.
 4. **Draft copy** for whatever you can write without new product facts —

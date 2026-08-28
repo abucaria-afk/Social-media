@@ -11516,6 +11516,175 @@ def test_the_type_scale_moves_together_when_the_text_size_does():
 # ---------------------------------------------------------------------------
 
 
+def test_the_licence_names_the_company_that_publishes_this():
+    """Two copies of a company's legal name is one company as far as a lawyer
+    is concerned and two as far as a reader is.
+
+    The LICENCE said `abucaria-afk` — a GitHub handle, which is not an entity
+    and cannot hold a copyright the way an LLC can — while the App Store
+    seller field was about to say Auteur Studies LLC. Nothing compared them,
+    which is the same defect as the site shipping a thirteen-colour-old
+    palette under a comment claiming it was generated from `theme.py`.
+    """
+    from auteur.identity import COMPANY
+
+    licence = (Path(__file__).resolve().parent.parent / "LICENSE").read_text(encoding="utf-8")
+
+    assert (
+        COMPANY.copyright_line in licence
+    ), f"the LICENCE does not carry {COMPANY.copyright_line!r} — it says " + next(
+        (line for line in licence.splitlines() if line.startswith("Copyright")),
+        "nothing about copyright at all",
+    )
+
+
+def test_the_bundle_identifier_claims_a_domain_the_company_owns():
+    """Apple requires reverse-DNS on a domain the publisher controls, and it
+    will not let the identifier be changed after the first submission.
+
+    So the failure this guards is permanent: ship `com.auteurstudios.auteur`
+    against `auteurstudies.com` and the app carries a misspelling of its own
+    company forever. `Identity.bundle_id` is derived from `COMPANY.domain`
+    for that reason, and this holds the derivation to the domain rather than
+    trusting that nobody will type it out again.
+    """
+    from auteur.identity import COMPANY, IDENTITY
+
+    assert COMPANY.reverse_dns == "com.auteurstudies", COMPANY.reverse_dns
+    assert IDENTITY.bundle_id.startswith(COMPANY.reverse_dns + "."), (
+        f"the bundle identifier {IDENTITY.bundle_id!r} does not sit under "
+        f"{COMPANY.domain!r}, which is the domain the company claims"
+    )
+    # Reverse-DNS: at least two dots, and nothing but letters, digits, dots
+    # and hyphens. Apple's rule, not a preference.
+    assert IDENTITY.bundle_id.count(".") >= 2
+    assert re.fullmatch(r"[A-Za-z0-9.-]+", IDENTITY.bundle_id)
+
+
+def test_every_store_url_names_a_page_the_site_actually_builds():
+    """GitHub Pages serves `privacy.html` and gives `/privacy` a 404.
+
+    Apple fetches the privacy policy URL during review, and a 404 there is the
+    most common metadata rejection there is. The URLs are derived from the
+    company's domain, so the half that can still be wrong is the filename —
+    and the filenames the site writes are in `tools/site/build_site.py`, which
+    is what this reads rather than assuming.
+    """
+    from auteur.identity import COMPANY, IDENTITY
+
+    builder = (
+        Path(__file__).resolve().parent.parent / "tools" / "site" / "build_site.py"
+    ).read_text(encoding="utf-8")
+    built = set(re.findall(r'"([a-z-]+\.html)"', builder))
+    assert "index.html" in built, "the site builder no longer names its own pages"
+
+    for label, url in (
+        ("support", IDENTITY.support_url),
+        ("privacy policy", IDENTITY.privacy_url),
+        ("terms", IDENTITY.terms_url),
+    ):
+        assert url.startswith(
+            f"https://{COMPANY.domain}"
+        ), f"the {label} URL is {url!r}, which is not on the company's domain"
+        page = url.rsplit("/", 1)[-1]
+        # The bare domain is the front page and needs no filename.
+        if page:
+            assert page in built, (
+                f"the {label} URL points at {page!r}, which "
+                "tools/site/build_site.py does not write — that is a 404 at "
+                "review time"
+            )
+
+
+def test_the_submission_preflight_says_what_it_cannot_check():
+    """ "Everything checkable from here is right" reads like "ready to submit".
+
+    It is not the same sentence, and the gap between them is the whole company
+    side of this: the domain, the entity and the mailbox all block the upload
+    exactly as hard as a missing icon does, and none of them can be seen from
+    inside the repository. The preflight used to end on the reassuring half
+    alone.
+
+    So it prints `pending()` too — and this holds it to that, because a list
+    that exists and is never printed is the same defect one level up.
+    """
+    import contextlib
+    import importlib.util
+    import io
+
+    from auteur.identity import pending
+
+    root = Path(__file__).resolve().parent.parent
+    spec = importlib.util.spec_from_file_location(
+        "_preflight", root / "tools" / "appstore" / "preflight.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    # Registered before it runs: `Note` is a dataclass, and dataclasses
+    # resolve their annotations through `sys.modules[cls.__module__]`, which
+    # is None for a module that has been built but not registered.
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        caught = io.StringIO()
+        # argv, because `main` parses it and under pytest it is full of
+        # pytest's own flags — which is a SystemExit(2), not a failure of the
+        # thing being tested.
+        argv = sys.argv
+        sys.argv = ["preflight.py"]
+        try:
+            with contextlib.redirect_stdout(caught):
+                code = module.main()
+        finally:
+            sys.argv = argv
+        printed = caught.getvalue()
+    finally:
+        sys.modules.pop(spec.name, None)
+
+    assert code == 0, f"the preflight fails offline:\n{printed}"
+
+    for item in pending():
+        assert item.what in printed, (
+            f"the preflight never mentions {item.what!r}, so somebody reading "
+            "its last line would think this was ready to upload"
+        )
+    assert "not checkable from here" in printed
+
+
+def test_everything_waiting_on_the_world_names_a_check_that_exists():
+    """A checklist item whose verification is imaginary is a checklist item
+    nobody can finish.
+
+    `pending()` says what is decided and not yet true — the domain, the
+    entity, the mailbox. Each carries the command that confirms it, and the
+    whole value of that field is that the command is real. The same shape as
+    every other bug this file guards: a string that reads like a check and is
+    never compared to anything.
+    """
+    from auteur.identity import pending
+
+    root = Path(__file__).resolve().parent.parent
+
+    waiting = pending()
+    assert waiting, "nothing is waiting on the world, which cannot be right yet"
+
+    for item in waiting:
+        assert item.what and item.consequence, item
+        parts = item.confirm.split()
+        assert parts[0] == "python3", f"{item.confirm!r} is not a command this repo runs"
+        script = root / parts[1]
+        assert script.exists(), (
+            f"{item.what!r} says to confirm it with {item.confirm!r}, and "
+            f"{parts[1]} does not exist"
+        )
+        # The flags too: `--online` is what makes the URL check fetch anything,
+        # and naming a flag the tool does not have is the same defect one
+        # level down.
+        source = script.read_text(encoding="utf-8")
+        for flag in parts[2:]:
+            assert f'"{flag}"' in source, f"{parts[1]} has no {flag} option"
+
+
 def test_the_reserved_example_domain_is_refused_as_a_bundle_identifier():
     """`com.example.*` is the documentation domain and Apple rejects it.
 
@@ -11524,8 +11693,23 @@ def test_the_reserved_example_domain_is_refused_as_a_bundle_identifier():
     """
     from auteur.identity import Identity, problems, ready
 
-    assert not ready()  # the repository ships with placeholders, on purpose
-    assert any("com.example" in line for line in problems())
+    # The repository used to ship with placeholders on purpose and this test
+    # asserted that. It no longer does: the publisher is Auteur Studies LLC on
+    # auteurstudies.com, decided rather than deferred, so the assertion moved
+    # to the thing that is actually being guarded — the reserved domain is
+    # refused whenever anybody sets it, which is what Apple does.
+    assert ready(), f"the repository's own identity is not submittable: {problems()}"
+
+    reserved = Identity(
+        bundle_id="com.example.auteur",
+        developer="Somebody",
+        support_email="hello@somebody.com",
+        support_url="https://somebody.com/auteur",
+        privacy_url="https://somebody.com/auteur/privacy",
+        terms_url="https://somebody.com/auteur/terms",
+    )
+    assert any("com.example" in line for line in problems(reserved))
+    assert not ready(reserved)
 
     filled = Identity(
         bundle_id="com.somebody.auteur",
