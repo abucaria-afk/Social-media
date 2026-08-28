@@ -142,14 +142,17 @@ def main() -> int:
 
     # The custom domain, which Pages reads out of a file in the published
     # output and nowhere else. Without it Pages answers only at
-    # <owner>.github.io/<repo>/ — and every URL in the App Store listing names
-    # auteurstudies.com, so the privacy policy Apple fetches during review
-    # would 404. That is the single most common metadata rejection there is.
+    # <owner>.github.io/<repo>/, and the privacy policy Apple fetches during
+    # review would 404 — the single most common metadata rejection there is.
     #
-    # Written from `COMPANY.domain` rather than typed, for the same reason the
-    # bundle identifier is: one place to change, and no way for the site to
-    # claim one domain while the listing names another.
-    (OUT / "CNAME").write_text(COMPANY.domain + "\n", encoding="utf-8")
+    # The *subdomain*, not the apex. auteurstudies.com is the company's own
+    # site and this repository does not build it; putting the apex here would
+    # take that site down the moment the DNS moved. The documents live beside
+    # the code that makes them true, on a host of their own.
+    #
+    # Derived rather than typed, for the same reason the bundle identifier is.
+    host = COMPANY.documents_for(IDENTITY.slug)
+    (OUT / "CNAME").write_text(host + "\n", encoding="utf-8")
 
     for made in sorted(OUT.iterdir()):
         if made.is_file():

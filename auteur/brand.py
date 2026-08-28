@@ -22,14 +22,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .identity import IDENTITY
+
 #: When the store limits below were last checked against the stores' own
 #: guidance. Same discipline as `workflows/platforms.py`: a number nobody
 #: dates is a number nobody re-checks.
 AS_OF = "2026-08"
 
-#: What the thing is called. Lower case, because it is set in the app's own
-#: type and reads as a word rather than a brand shouting.
-NAME = "auteur"
+#: What the thing is called — read from `identity.py` rather than written
+#: again here.
+#:
+#: These were two values for one thing: `brand.NAME` said "auteur" and
+#: `IDENTITY.app_name` said "Auteur", and nothing compared them. That is the
+#: same defect as the site shipping a hand-copied palette under a comment
+#: claiming it was generated — and it would have shipped a store listing
+#: naming the app one thing while the site's wordmark named it another.
+#:
+#: It also stopped being lower case, and for a reason rather than a whim: the
+#: app is one product under Auteur Studies now, so the name has to say which
+#: product it is.
+NAME = IDENTITY.app_name
 
 #: One line, under thirty characters, because that is the tightest box either
 #: store gives you — App Store subtitle and Play title are both 30.

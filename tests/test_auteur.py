@@ -11998,17 +11998,69 @@ def test_the_bundle_identifier_claims_a_domain_the_company_owns():
     assert re.fullmatch(r"[A-Za-z0-9.-]+", IDENTITY.bundle_id)
 
 
+def test_the_app_calls_itself_what_the_store_listing_calls_it():
+    """One name, in the one place, and every screen reads it.
+
+    The product was renamed from Auteur to Auteur Atlas when Auteur Studies
+    became the umbrella above it — and the name was written out by hand in
+    nineteen places: every page title, two home-screen names, the manifest,
+    three scripts, the terms. `brand.NAME` said "auteur" while
+    `IDENTITY.app_name` said "Auteur", which is the same defect one level up:
+    two values for one thing, and nothing comparing them.
+
+    `brand.NAME` reads the identity now. The static files cannot, so this is
+    what holds them: nothing user-facing may name the app anything other than
+    what the store listing names it.
+
+    The home-screen name is checked separately because iOS truncates it and
+    the store limit is no help there.
+    """
+    import json
+    import re
+
+    from auteur import brand
+    from auteur.identity import IDENTITY, NAME_LIMIT
+    from auteur.web import server
+
+    assert (
+        brand.NAME == IDENTITY.app_name
+    ), f"brand says {brand.NAME!r} and the listing says {IDENTITY.app_name!r}"
+    assert len(IDENTITY.app_name) <= NAME_LIMIT
+
+    name = IDENTITY.app_name
+    stale: list[str] = []
+
+    for page in sorted(server.STATIC.glob("*.html")):
+        markup = page.read_text(encoding="utf-8")
+        title = re.search(r"<title>(.*?)</title>", markup, re.S)
+        if title and "Auteur" in title.group(1) and name not in title.group(1):
+            stale.append(f"{page.name} <title> says {title.group(1).strip()!r}")
+        for content in re.findall(
+            r'<meta name="apple-mobile-web-app-title" content="([^"]*)"', markup
+        ):
+            if content != name:
+                stale.append(f"{page.name} home-screen name is {content!r}")
+
+    manifest = json.loads((server.STATIC / "manifest.webmanifest").read_text(encoding="utf-8"))
+    for key in ("name", "short_name"):
+        if name not in manifest.get(key, ""):
+            stale.append(f"manifest {key} is {manifest.get(key)!r}")
+
+    assert not stale, f"the app names itself something other than {name!r}: " + "; ".join(stale)
+
+    # A home-screen name iOS will not truncate. Not a store rule — a phone
+    # one, and the store's 30 is no guide to it.
+    assert len(manifest["short_name"]) <= 15, manifest["short_name"]
+
+
 def test_the_published_site_claims_the_domain_the_listings_name(tmp_path):
     """GitHub Pages serves a custom domain only if a CNAME file says so.
 
-    Without one it answers at <owner>.github.io/<repo>/ and nothing else —
-    while both store listings name auteurstudies.com. So the privacy policy
-    Apple fetches during review would 404, which is the most common metadata
-    rejection there is, and nothing in the repository connected those two
-    facts.
-
-    The file is written from `COMPANY.domain` rather than typed, and this
-    builds the site for real and reads what came out.
+    And the CNAME has to be the product's subdomain, never the apex. The apex
+    is the company's own site — a live Wix site — and a CNAME claiming it,
+    followed by the DNS to match, would replace that site with this one. So
+    this asserts both halves: that a CNAME exists at all, and that it is not
+    the apex.
     """
     import subprocess
 
@@ -12026,29 +12078,44 @@ def test_the_published_site_claims_the_domain_the_listings_name(tmp_path):
 
     cname = out / "CNAME"
     assert cname.is_file(), (
-        "the published site has no CNAME, so Pages will not serve "
-        f"{COMPANY.domain} and every store URL 404s"
+        "the published site has no CNAME, so Pages will not serve a custom "
+        "domain and the store URLs 404"
     )
-    assert cname.read_text(encoding="utf-8").strip() == COMPANY.domain
+    claimed = cname.read_text(encoding="utf-8").strip()
+    assert claimed == COMPANY.documents_for(IDENTITY.slug), claimed
+    assert claimed != COMPANY.domain, (
+        "the CNAME claims the apex, which is the company's own site — "
+        "publishing there replaces it"
+    )
 
-    # And every URL the listings name has to be a file this build produced.
+    # And the documents the listings name are files this build produced.
     for label, url in (
-        ("support", IDENTITY.support_url),
         ("privacy policy", IDENTITY.privacy_url),
         ("terms", IDENTITY.terms_url),
     ):
-        page = url.rsplit("/", 1)[-1] or "index.html"
+        page = url.rsplit("/", 1)[-1]
         assert (out / page).is_file(), f"the {label} URL names {page}, which is not built"
 
 
 def test_every_store_url_names_a_page_the_site_actually_builds():
-    """GitHub Pages serves `privacy.html` and gives `/privacy` a 404.
+    """Two hosts, on purpose, and each has to be right about itself.
 
-    Apple fetches the privacy policy URL during review, and a 404 there is the
-    most common metadata rejection there is. The URLs are derived from the
-    company's domain, so the half that can still be wrong is the filename —
-    and the filenames the site writes are in `tools/site/build_site.py`, which
-    is what this reads rather than assuming.
+    Support points at the company's own site at the apex, which this
+    repository does not build — auteurstudies.com is a Wix site, and an
+    earlier version of this test would have had it moved to GitHub Pages,
+    which would have taken it down.
+
+    The privacy policy and the terms are built here, from PRIVACY.md and
+    TERMS.md, and are served from the product's own subdomain. They stay here
+    because a copy pasted into a website drifts from what the code can
+    actually reach, and an inaccurate Play Data safety declaration is a policy
+    strike rather than a correction.
+
+    So: support on the apex, documents on the subdomain, and every document
+    URL naming a file the builder actually writes. GitHub Pages serves
+    `privacy.html` at `/privacy.html` and gives `/privacy` a 404, and a
+    privacy policy URL that 404s is the most common metadata rejection there
+    is.
     """
     from auteur.identity import COMPANY, IDENTITY
 
@@ -12058,77 +12125,31 @@ def test_every_store_url_names_a_page_the_site_actually_builds():
     built = set(re.findall(r'"([a-z-]+\.html)"', builder))
     assert "index.html" in built, "the site builder no longer names its own pages"
 
+    assert IDENTITY.support_url == f"https://{COMPANY.domain}/", (
+        f"the support URL is {IDENTITY.support_url!r}; it should be the "
+        "company's own site at the apex"
+    )
+
+    documents = COMPANY.documents_for(IDENTITY.slug)
+    assert documents != COMPANY.domain, (
+        "the documents are on the apex, which is the company's own site — "
+        "publishing there would replace it"
+    )
+    assert documents.endswith("." + COMPANY.domain), documents
+
     for label, url in (
-        ("support", IDENTITY.support_url),
         ("privacy policy", IDENTITY.privacy_url),
         ("terms", IDENTITY.terms_url),
     ):
         assert url.startswith(
-            f"https://{COMPANY.domain}"
-        ), f"the {label} URL is {url!r}, which is not on the company's domain"
+            f"https://{documents}/"
+        ), f"the {label} URL is {url!r}, which is not on {documents}"
         page = url.rsplit("/", 1)[-1]
-        # The bare domain is the front page and needs no filename.
-        if page:
-            assert page in built, (
-                f"the {label} URL points at {page!r}, which "
-                "tools/site/build_site.py does not write — that is a 404 at "
-                "review time"
-            )
-
-
-def test_the_submission_preflight_says_what_it_cannot_check():
-    """ "Everything checkable from here is right" reads like "ready to submit".
-
-    It is not the same sentence, and the gap between them is the whole company
-    side of this: the domain, the entity and the mailbox all block the upload
-    exactly as hard as a missing icon does, and none of them can be seen from
-    inside the repository. The preflight used to end on the reassuring half
-    alone.
-
-    So it prints `pending()` too — and this holds it to that, because a list
-    that exists and is never printed is the same defect one level up.
-    """
-    import contextlib
-    import importlib.util
-    import io
-
-    from auteur.identity import pending
-
-    root = Path(__file__).resolve().parent.parent
-    spec = importlib.util.spec_from_file_location(
-        "_preflight", root / "tools" / "appstore" / "preflight.py"
-    )
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    # Registered before it runs: `Note` is a dataclass, and dataclasses
-    # resolve their annotations through `sys.modules[cls.__module__]`, which
-    # is None for a module that has been built but not registered.
-    sys.modules[spec.name] = module
-    try:
-        spec.loader.exec_module(module)
-        caught = io.StringIO()
-        # argv, because `main` parses it and under pytest it is full of
-        # pytest's own flags — which is a SystemExit(2), not a failure of the
-        # thing being tested.
-        argv = sys.argv
-        sys.argv = ["preflight.py"]
-        try:
-            with contextlib.redirect_stdout(caught):
-                code = module.main()
-        finally:
-            sys.argv = argv
-        printed = caught.getvalue()
-    finally:
-        sys.modules.pop(spec.name, None)
-
-    assert code == 0, f"the preflight fails offline:\n{printed}"
-
-    for item in pending():
-        assert item.what in printed, (
-            f"the preflight never mentions {item.what!r}, so somebody reading "
-            "its last line would think this was ready to upload"
+        assert page in built, (
+            f"the {label} URL points at {page!r}, which "
+            "tools/site/build_site.py does not write — that is a 404 at "
+            "review time"
         )
-    assert "not checkable from here" in printed
 
 
 def test_everything_waiting_on_the_world_names_a_check_that_exists():

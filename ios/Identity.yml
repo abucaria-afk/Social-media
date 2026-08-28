@@ -2,6 +2,6 @@
 # Do not edit: set AUTEUR_BUNDLE_ID and friends, or change identity.py.
 settings:
   base:
-    PRODUCT_BUNDLE_IDENTIFIER: com.auteurstudies.auteur
+    PRODUCT_BUNDLE_IDENTIFIER: com.auteurstudies.atlas
     MARKETING_VERSION: "1.0"
     CURRENT_PROJECT_VERSION: "1"
