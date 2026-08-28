@@ -105,7 +105,7 @@
   border-radius: 1rem;
   font-family: inherit;
   /* 16px minimum or iOS zooms the page the moment the field is focused. */
-  font-size: 16px;
+  font-size: var(--text-callout);
   line-height: 1.4;
   resize: none;
 }

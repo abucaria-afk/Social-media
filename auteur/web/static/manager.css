@@ -1,0 +1,266 @@
+/* The manager: a board of posts that do not exist yet.
+ *
+ * Built out of the same grouped rows and sheets as the rest of the app, so
+ * there is nothing new to learn here — the only unfamiliar thing on the screen
+ * should be the idea that you can plan a post before you have the footage.
+ */
+
+.lede {
+  margin: 0 0 14px;
+  color: var(--text-muted);
+  font-size: var(--text-subhead);
+  line-height: 1.4;
+}
+
+.section {
+  margin: 26px 0 10px;
+  font: 600 var(--text-title-3)/1.2 var(--font-display);
+  letter-spacing: -0.015em;
+}
+
+/* -- the standing promise -------------------------------------------------
+   Said on the screen, and again in the API payload, and again in the module
+   docstring. A tool that plans posts and holds captions is one small step from
+   one that posts them, and the only thing that makes "it never posts" true is
+   that it is stated everywhere and tested. */
+.never-posts {
+  display: flex;
+  gap: 10px;
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--text-footnote);
+  line-height: 1.45;
+}
+
+.never-posts > p { margin: 0; min-width: 0; }
+
+/* Scoped to the mark. `.never-posts span` also matched the <span>s inside
+   the prose, so any emphasis in the sentence turned rust-coloured. */
+.never-posts-mark { color: var(--rust); font-size: var(--text-callout); line-height: 1.2; }
+
+/* -- the board ------------------------------------------------------------ */
+
+.plans { margin: 0; padding: 0; list-style: none; }
+
+.plan-row {
+  display: grid;
+  grid-template-columns: 54px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 66px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The date, as a block — the thing you actually scan a calendar for. */
+.plan-when {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  padding: 5px 0;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+}
+
+.plan-day { font: 700 var(--text-title-3)/1 var(--font-display); }
+.plan-month { color: var(--text-muted); font: 600 var(--text-caption-2)/1 var(--font-display); text-transform: uppercase; }
+
+.plan-lines { min-width: 0; }
+.plan-title { display: block; font: 600 var(--text-callout)/1.3 var(--font-display); }
+
+.plan-where {
+  display: block;
+  color: var(--text-faint);
+  font-size: var(--text-footnote);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plan-state {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--text-muted);
+  font: 600 var(--text-caption)/1.5 var(--font-display);
+  text-transform: capitalize;
+}
+
+.plan-state.is-ready { background: color-mix(in srgb, var(--moss) 22%, var(--raised)); color: var(--moss); }
+.plan-state.is-posted { background: var(--raised); color: var(--text-faint); }
+
+/* -- the checks ----------------------------------------------------------- */
+
+.findings { margin: 0; padding: 0; list-style: none; }
+
+.finding {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.finding + .finding { border-top: 1px solid var(--line); }
+
+.finding-mark { font-size: var(--text-callout); line-height: 1.35; }
+.finding.is-pass .finding-mark { color: var(--moss); }
+.finding.is-warn .finding-mark { color: var(--ember-text); }
+.finding.is-fail .finding-mark { color: var(--rust); }
+
+.finding-name {
+  display: block;
+  font: 600 var(--text-callout)/1.3 var(--font-display);
+  text-transform: capitalize;
+}
+
+.finding-detail { display: block; color: var(--text-muted); font-size: var(--text-footnote); line-height: 1.4; }
+
+/* Where the number came from. Every check names one, because "this is fine"
+   without a source is an opinion wearing a tick. */
+.finding-source {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-faint);
+  font: var(--text-caption)/1.4 var(--font-mono);
+}
+
+/* -- the shot list -------------------------------------------------------- */
+
+.shotlist { margin: 0; padding: 0; list-style: none; counter-reset: shot; }
+
+.shot {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 0;
+}
+
+.shot + .shot { border-top: 1px solid var(--line); }
+.shot-n { color: var(--text-faint); font: var(--text-caption)/1.4 var(--font-mono); }
+.shot-what { font-size: var(--text-subhead); line-height: 1.4; }
+
+.shot-role {
+  display: block;
+  margin-top: 2px;
+  color: var(--ember-text);
+  font: 600 var(--text-caption-2)/1.4 var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.shot-secs { color: var(--text-faint); font: var(--text-caption)/1.4 var(--font-mono); }
+
+/* -- editing -------------------------------------------------------------- */
+
+.inset-group textarea {
+  width: 100%;
+  margin: 0;
+  padding: 0 14px 12px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font: var(--text-body) var(--font-body);
+  resize: vertical;
+}
+
+.inset-group textarea:focus { outline: 2px solid var(--ember); outline-offset: -2px; }
+
+.plan-actions { display: grid; gap: 8px; margin-top: 18px; }
+
+.chip-ghost {
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 0;
+  background: none;
+  color: var(--rust);
+  font: 600 var(--text-footnote)/1 var(--font-display);
+  cursor: pointer;
+}
+
+/* -- the sheet ------------------------------------------------------------ */
+
+.field-label {
+  display: block;
+  margin: 14px 0 5px;
+  color: var(--text-muted);
+  font: 600 var(--text-footnote)/1.2 var(--font-display);
+}
+
+#new-form input,
+#new-form select,
+#new-form textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--text);
+  /* 16px minimum, or the page zooms the moment the field is focused. */
+  font: 16px/1.4 var(--font-body);
+}
+
+#new-form .go { margin-top: 18px; }
+
+/* Why a platform says "Needs setting up", folded away until asked. */
+.why-missing {
+  margin: 0 4px 22px;
+  color: var(--text-faint);
+  font-size: var(--text-footnote);
+}
+
+.why-missing > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--text-subhead);
+  cursor: pointer;
+  /* 44px of finger. A 13px line of text is not a control you can hit. */
+  min-height: 44px;
+  /* `display: flex` on a <summary> removes the disclosure triangle, so the
+     first draft of this row was grey text that happened to be tappable and
+     did not read as anything. The chevron below replaces it, pointing the
+     way every other row on this screen points. */
+  list-style: none;
+}
+
+.why-missing > summary::-webkit-details-marker { display: none; }
+
+.why-missing > summary::after {
+  content: "\203A";
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: var(--text-body);
+  transition: transform 0.15s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .why-missing > summary::after { transition: none; }
+}
+
+.why-missing[open] > summary::after { transform: rotate(90deg); }
+
+.why-missing > summary:active { background: var(--raised); }
+
+.why-missing[open] > summary { color: var(--text); }
+
+.why-missing .stack-empty { margin-bottom: 12px; }

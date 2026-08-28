@@ -26,6 +26,8 @@ import numpy as np
 from ..analysis.audio import AudioAnalysis
 from ..analysis.dossier import ClipDossier, Take
 from ..config import Settings
+from ..craft import color as color_craft
+from ..craft import story as story_craft
 from ..edl import (
     MIN_SHOT,
     EditDecisionList,
@@ -56,6 +58,15 @@ log = logging.getLogger("auteur.director.heuristic")
 #: there is one number.
 MIN_SLOT = MIN_SHOT
 MAX_SLOT = 5.0
+#: A held shot is allowed past `MAX_SLOT`, because that ceiling exists to stop
+#: an ordinary shot outstaying its welcome and a hold is the one shot whose job
+#: is exactly that. It is still capped as a fraction of the film below, so it
+#: cannot eat a short one.
+HELD_SLOT = 8.0
+#: The most of the film one held shot may occupy. A fifth is already a long
+#: time to look at one frame; past that it stops reading as emphasis and starts
+#: reading as the render having failed.
+HELD_SHARE = 0.2
 #: Frame difference that counts as "fully energetic" when matching shots to the arc.
 MOTION_FULL_SCALE = 0.12
 
@@ -67,6 +78,10 @@ class _Slot:
     end: float
     energy: float
     on_downbeat: bool = False
+    #: What this shot is *for*. Every decision below used to come from `energy`
+    #: alone, which is why they all moved together and none of them surprised
+    #: anybody. See `auteur/craft/story.py`.
+    beat: story_craft.Beat = story_craft.Beat.BUILD
 
     @property
     def length(self) -> float:
@@ -124,7 +139,12 @@ def _median_gap(beats: list[float]) -> float:
 
 
 def _build_slots(
-    brief: Brief, target: float, audio: AudioAnalysis | None, offset: float, rng: random.Random
+    brief: Brief,
+    target: float,
+    audio: AudioAnalysis | None,
+    offset: float,
+    rng: random.Random,
+    structure: story_craft.Structure | None = None,
 ) -> list[_Slot]:
     """Lay out the rhythm of the film before choosing a single frame.
 
@@ -153,24 +173,40 @@ def _build_slots(
         # resolve to the same shot length.
         want *= 0.86 + 0.28 * rng.random()
 
+        # What this shot is *for*, which is what stops every length being a
+        # function of position. Without this the longest shot in the film came
+        # out at exactly 2.00x the median on every brief tried.
+        beat = structure.at(index) if structure else story_craft.Beat.BUILD
+        want *= story_craft.STRESS[beat]
+        held = beat is story_craft.Beat.HOLD
+        ceiling = min(HELD_SLOT, target * HELD_SHARE) if held else MAX_SLOT
+        want = float(np.clip(want, MIN_SLOT, max(MIN_SLOT, ceiling)))
+
         end = cursor + want
         if beats:
             upcoming = [b for b in beats if b > cursor + MIN_SLOT * 0.9]
             if upcoming:
                 best, best_cost = None, float("inf")
-                for count, beat_time in enumerate(upcoming[:8], start=1):
+                # 24 rather than 8: a held shot is several bars long, and a
+                # window of eight grid lines cannot reach it — the snap would
+                # silently give the hold back to the rhythm it exists to break.
+                for count, beat_time in enumerate(upcoming[:24], start=1):
                     length = beat_time - cursor
-                    if length > MAX_SLOT:
+                    if length > ceiling:
                         break
                     cost = abs(length - want)
                     if count not in MUSICAL_MULTIPLES:
-                        cost += 0.3
+                        # A hold is allowed to sit off the musical grid. It is
+                        # the one shot whose job is to stop the rhythm, and
+                        # rounding it to 8 beats to keep it tidy is how it
+                        # became another landing.
+                        cost += 0.05 if held else 0.3
                     if cost < best_cost:
                         best, best_cost = beat_time, cost
                 if best is not None:
                     end = best
 
-        end = min(float(np.clip(end, cursor + MIN_SLOT, cursor + MAX_SLOT)), target)
+        end = min(float(np.clip(end, cursor + MIN_SLOT, cursor + ceiling)), target)
         if target - end < MIN_SLOT:  # absorb a runt tail into the final shot
             end = target
 
@@ -181,6 +217,7 @@ def _build_slots(
                 end=round(end, 4),
                 energy=energy,
                 on_downbeat=round(end, 3) in downbeats,
+                beat=beat,
             )
         )
         cursor = end
@@ -213,6 +250,7 @@ def _fit_score(
     used_ranges: dict[str, list[tuple[float, float]]],
     recent_clips: list[str],
     is_hook: bool,
+    opening: tuple[Take, ...] = (),
 ) -> float:
     """How well this take serves this slot. Higher is better."""
     score = take.score * 1.0
@@ -227,8 +265,28 @@ def _fit_score(
         score -= min(spent / take.duration, 3.0) * 1.1
 
     # Energy match: the arc wants a certain amount of movement right here.
+    #
+    # For most of the film this is right — a calm passage wants a calm picture.
+    # At the hold it is exactly wrong, and it was the strongest single reason
+    # the films read as generated. `1.0 - abs(motion - energy)` gives the
+    # loudest moment the busiest shot, which is the picture saying the same
+    # thing the music is already saying. Everything agrees with everything and
+    # nothing is a decision.
+    #
+    # So at the hold the term inverts: the stillest available take wins. That
+    # is the whole trick of the withheld cut. The same still frame is
+    # unremarkable in a slow film and enormous after twelve fast ones, and it
+    # only works because the shot is long enough to notice and quiet enough to
+    # look at.
     motion_norm = float(np.clip(take.motion / MOTION_FULL_SCALE, 0.0, 1.0))
-    score += (1.0 - abs(motion_norm - slot.energy)) * 0.55
+    if story_craft.wants_stillness(slot.beat):
+        score += (1.0 - motion_norm) * 0.9
+        # And it has to survive being looked at. A soft frame is forgivable at
+        # a sixth of a second and is the only thing on screen for two seconds
+        # here.
+        score += take.sharpness * 0.5
+    else:
+        score += (1.0 - abs(motion_norm - slot.energy)) * 0.55
 
     # Coverage: the take should be able to fill the slot without absurd speeds.
     implied_speed = take.duration / max(slot.length, 1e-6)
@@ -265,6 +323,19 @@ def _fit_score(
     if is_hook:
         # The opening frame has one job: stop the scroll.
         score += take.sharpness * 0.5 + motion_norm * 0.6 + take.contrast * 0.4
+
+    if slot.beat is story_craft.Beat.RHYME and opening:
+        # Come back to where the film started. The reuse penalty above is
+        # deliberately outweighed rather than skipped: returning to the opening
+        # clip has to beat the general rule against repeating footage, and only
+        # here, or every shot drifts back to the same clip.
+        if any(take.clip_id == first.clip_id for first in opening):
+            score += 2.4
+            # The same clip, not the same frames. A rhyme is the place seen
+            # again, which is only a rhyme if something has changed about it —
+            # an identical shot reads as the render having stuttered.
+            if all(take.start >= first.end or take.end <= first.start for first in opening):
+                score += 0.8
 
     return score
 
@@ -338,7 +409,27 @@ def _choose_motion(take: Take, slot: _Slot, is_still: bool, rng: random.Random) 
     )
 
     if is_still:
-        kind = "ken-burns" if slot.energy < 0.6 else "punch-in"
+        # Not `ken-burns if quiet else punch-in`, which is what this was. That
+        # is a hard if/else on one number, so a fast film — where nearly every
+        # slot is high-energy — put a punch on 65 of 80 shots, and no still
+        # ever simply held. The Gaze agent's report is the exact shape of that
+        # bug: "constant low-grade movement on every frame reads as a slideshow
+        # with a wobble on it, and it costs every cut its edge — a cut only
+        # lands against something still."
+        #
+        # So: a bag, weighted by energy, that contains holding still. The
+        # Scholar measures 0.034 inter-frame motion across the reference reels
+        # — close to locked off throughout — which is the number that says a
+        # still frame is allowed to be a still frame.
+        if slot.energy > 0.62:
+            bag = ("punch-in", "punch-in", "pull-out", "none", "ken-burns")
+        elif slot.energy > 0.34:
+            bag = ("ken-burns", "punch-in", "none", "drift-left", "drift-right")
+        else:
+            bag = ("ken-burns", "none", "none", "drift-right")
+        kind = rng.choice(bag)
+        if kind == "none":
+            return Motion(kind="none", intensity=0.0, anchor=anchor)
         return Motion(kind=kind, intensity=0.35 + 0.3 * slot.energy, anchor=anchor)
 
     if take.camera == "static" and take.motion < 0.02:
@@ -397,7 +488,17 @@ def _choose_transition(
     ceiling = min(slot.length * 0.4, 0.6)
     if ceiling < 0.1:
         return Transition("cut", 0.0)
-    duration = min(ceiling, 0.5 if kind in ("dissolve", "film-burn", "light-leak") else 0.25)
+    # A portal or a carry needs longer than a whip to read: the aperture has
+    # to be visibly small before it is visibly large, and the carried middle
+    # has to still be there after the edges have already changed. Under about a
+    # third of a second both of them are just a soft cut.
+    if kind in ("dissolve", "film-burn", "light-leak"):
+        longest = 0.5
+    elif kind in ("portal", "carry"):
+        longest = 0.34
+    else:
+        longest = 0.25
+    duration = min(ceiling, longest)
     return Transition(kind, duration)
 
 
@@ -419,7 +520,7 @@ def _match_looks(
         if dossier is None:
             continue
         luma = float(np.mean(dossier.video.luma)) if len(dossier.video.luma) else 0.5
-        samples.append((shot, luma, dossier.video.warmth, dossier.video.saturation))
+        samples.append((shot, luma, dossier.video.warmth, dossier.video.saturation, dossier))
 
     if not samples:
         return
@@ -428,7 +529,15 @@ def _match_looks(
     target_warmth = float(np.median([s[2] for s in samples]))
     target_saturation = float(np.median([s[3] for s in samples]))
 
-    for shot, luma, warmth, saturation in samples:
+    for shot, luma, warmth, saturation, dossier in samples:
+        # Level first, from this shot's own histogram — the same curve the
+        # browser renderer applies to a photograph before it grades it. Shot
+        # matching below then works on footage that has already been put where
+        # a picture should be, which is the only way the two renderers reach
+        # the same answer about a decade.
+        black, white, gamma = color_craft.level_for(
+            dossier.video.black_point, dossier.video.white_point, luma
+        )
         # Correct part of the way, not all of it: full correction flattens the film.
         shot.look = Look(
             preset=preset,
@@ -437,6 +546,9 @@ def _match_looks(
             saturation=float(np.clip((target_saturation - saturation) * 0.5, -0.3, 0.3)),
             contrast=0.0,
             strength=strength,
+            black=black,
+            white=white,
+            gamma=gamma,
         )
 
 
@@ -570,6 +682,10 @@ def _design_sound(edl: EditDecisionList, slots: list[_Slot], brief: Brief) -> li
             "zoom-blur",
             "slide-left",
             "slide-right",
+            # A portal is a hole opening in the frame and it wants the same
+            # rising whoosh a whip does. A carry deliberately does not: the
+            # point of it is that nothing announces the change.
+            "portal",
         ):
             cues.append(
                 SoundCue("whoosh", at=round(max(0.0, start - 0.12), 3), gain=0.5, duration=0.45)
@@ -616,7 +732,26 @@ def cut(
     target = float(np.clip(target, 3.0, max(4.0, available * 1.6)))
 
     offset = _music_offset(music_analysis, target)
+
+    # Two passes, because the structure needs to know how many shots there are
+    # and the shot count depends on the structure — a hold five times the
+    # ordinary length is four shots the film no longer has room for. The first
+    # pass has no structure and only exists to count; the second is the real
+    # one. A third pass would keep converging and is not worth it: `at()`
+    # returns BUILD past the end, so a tail a shot or two longer than the
+    # structure is simply unstressed, which is the right failure.
     slots = _build_slots(brief, target, music_analysis, offset, rng)
+    if slots:
+        rough = story_craft.shape(len(slots), random.Random(settings.seed), arc=brief.arc)
+        # How much longer the film gets per shot once every job is stressed.
+        spread = sum(story_craft.STRESS[b] for b in rough.beats) / max(len(rough), 1)
+        structure = story_craft.shape(
+            max(1, round(len(slots) / max(spread, 0.2))),
+            random.Random(settings.seed),
+            arc=brief.arc,
+        )
+        slots = _build_slots(brief, target, music_analysis, offset, rng, structure)
+        log.debug("structure: %s", structure.describe())
     if not slots:
         slots = [_Slot(0, 0.0, target, 0.6)]
 
@@ -637,6 +772,9 @@ def cut(
     used_ranges: dict[str, list[tuple[float, float]]] = {}
     recent_clips: list[str] = []
     previous_take: Take | None = None
+    #: What the film opened on, so the rhyme near the end has something to
+    #: reach back to. Two shots, because that is what a viewer remembers.
+    opening_takes: list[Take] = []
 
     for slot in slots:
         best: tuple[float, ClipDossier, Take] | None = None
@@ -649,6 +787,7 @@ def cut(
                 used_ranges=used_ranges,
                 recent_clips=recent_clips,
                 is_hook=slot.index == 0,
+                opening=tuple(opening_takes),
             )
             if best is None or score > best[0]:
                 best = (score, dossier, take)
@@ -695,6 +834,8 @@ def cut(
         used_ranges.setdefault(chosen.clip_id, []).append((chosen.start, chosen.end))
         recent_clips.append(chosen.clip_id)
         previous_take = chosen
+        if len(opening_takes) < story_craft.OPENING_SHOTS:
+            opening_takes.append(chosen)
 
     edl = EditDecisionList(
         title=brief.title,

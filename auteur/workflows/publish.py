@@ -317,6 +317,13 @@ def package(
         problem = spec.duration_problem(duration)
         if problem:
             warnings.append(problem)
+        # A film can be accepted and still never travel. Instagram takes a
+        # twenty-minute Reel and recommends a three-minute one, so "it posted"
+        # and "anybody saw it" are two different questions and only the first
+        # was being asked.
+        reach = spec.reach_problem(duration)
+        if reach:
+            warnings.append(reach)
     if width and height and (width, height) != (spec.format.width, spec.format.height):
         warnings.append(
             f"{width}x{height} is not the {spec.format.width}x{spec.format.height} "

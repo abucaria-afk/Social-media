@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#131110" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef4fb" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="A project: what you gathered, and what you were thinking.">
+<script src="/static/settings.js"></script>
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/projects.css">
+<title>Auteur — projects</title>
+</head>
+<body>
+
+<main class="page" id="projects-page">
+  <header class="topbar">
+    <a class="topbar-back" href="/studio" aria-label="Back to the studio">←</a>
+    <h1>Projects</h1>
+    <span class="topbar-right">
+      <button type="button" class="chip-button" id="new-project">New</button>
+    </span>
+  </header>
+
+  <h2 class="large-title">Projects</h2>
+  <p class="lede">
+    A trip, a season, a wedding. Each one holds the footage that came back and
+    the map of what you were thinking before you went.
+  </p>
+
+  <ul class="albums" id="albums"></ul>
+
+  <div class="blank" id="blank" hidden>
+    <p class="blank-line">Nothing started yet.</p>
+    <p class="blank-sub">
+      A project is somewhere to put a fortnight: the shots you want, the clips
+      you brought back, and the films you cut from them.
+    </p>
+    <button type="button" class="go" id="blank-new">Start one</button>
+  </div>
+</main>
+
+<!-- Starting one. Dates and a place are optional: a running project has
+     neither, and a trip has both. -->
+<div class="sheet" id="new-sheet" hidden>
+  <div class="sheet-scrim" data-close="new"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Start a project">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Start a project</h2>
+
+    <label class="field-label" for="new-name">What is it</label>
+    <input type="text" id="new-name" maxlength="80" placeholder="Portugal, June">
+
+    <label class="field-label" for="new-place">Where <span class="spare">optional</span></label>
+    <input type="text" id="new-place" maxlength="80" placeholder="Lisbon and the coast">
+
+    <div class="two-up">
+      <span>
+        <label class="field-label" for="new-starts">From <span class="spare">optional</span></label>
+        <input type="date" id="new-starts">
+      </span>
+      <span>
+        <label class="field-label" for="new-ends">To</label>
+        <input type="date" id="new-ends">
+      </span>
+    </div>
+
+    <label class="field-label" for="new-note">What it is about <span class="spare">optional</span></label>
+    <textarea id="new-note" rows="3" maxlength="600"
+              placeholder="Slow mornings, the harbour at six, nothing posed."></textarea>
+
+    <p class="error" id="new-error" role="alert" hidden></p>
+    <button type="button" class="go" id="new-go">Start it</button>
+    <button type="button" class="ghost" data-close="new">Cancel</button>
+  </div>
+</div>
+
+<script src="/static/trouble.js"></script>
+<script src="/static/chrome.js"></script>
+<script src="/static/theme.js"></script>
+<script src="/static/projects.js"></script>
+</body>
+</html>

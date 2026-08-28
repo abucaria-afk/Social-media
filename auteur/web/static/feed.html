@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<!-- data-theme on the root, not on <body>: theme.css scopes its overrides
+     to `:root[data-theme]`, so on the body it was inert. In light mode that
+     left the feed painting a black page with the light palette on it — the
+     tab labels came out near-black on black at 1.20:1. -->
+<html lang="en" data-theme="dark" data-theme-locked>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#131110">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="Every film made here, one screen at a time.">
+<link rel="icon" href="/icon-192.png">
+<!-- Text size, reduced motion and increased contrast, before anything
+     paints. `data-theme-locked` above is what keeps it from also applying the
+     appearance choice here — this page is dark on purpose. -->
+<script src="/static/settings.js"></script>
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/feed.css">
+<title>Auteur — feed</title>
+</head>
+<!-- The feed is dark whatever the rest of the app is set to. A film is a
+     picture on a black surround everywhere it is ever watched, and a bone-white
+     page around a 1080x1920 video is a light leak into the only screen here
+     whose whole job is the footage. -->
+<body class="feed-body">
+
+<!-- Whose films. Three named scopes rather than the one button that cycled
+     between two: a control whose label is the *other* state is a control
+     everybody reads backwards, and once there are three it stops being
+     possible to write at all. This is the segmented header both reference apps
+     put here, and the live one is the one that is underlined. -->
+<div class="feed-top">
+  <div class="feed-scopes" role="tablist" aria-label="Whose films">
+    <button type="button" class="feed-scope is-on" data-scope="all" role="tab" aria-selected="true">Everyone</button>
+    <button type="button" class="feed-scope" data-scope="following" role="tab" aria-selected="false">Following</button>
+    <button type="button" class="feed-scope" data-scope="mine" role="tab" aria-selected="false">Yours</button>
+  </div>
+</div>
+
+<main class="reels" id="reels" aria-label="Films made here">
+  <div class="feed-empty" id="feed-empty" hidden>
+    <p class="feed-empty-line" id="feed-empty-line">Nothing here yet.</p>
+    <p class="feed-empty-sub" id="feed-empty-sub">Films you finish show up here, newest first.</p>
+    <a class="go" id="feed-empty-go" href="/">Make the first one</a>
+  </div>
+</main>
+
+<!-- Sending a film to somebody. A sheet from the bottom, which is where every
+     share sheet on this phone comes from. -->
+<div class="sheet" id="share-sheet" hidden>
+  <div class="sheet-scrim" id="sheet-scrim"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Send to">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Send to</h2>
+    <ul class="people" id="share-people"></ul>
+    <p class="sheet-note" id="share-note" hidden></p>
+    <button type="button" class="ghost" id="sheet-close">Close</button>
+  </div>
+</div>
+
+<script src="/static/trouble.js"></script>
+<script src="/static/chrome.js"></script>
+<script src="/static/safety.js"></script>
+<script src="/static/feed.js"></script>
+</body>
+</html>

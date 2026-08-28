@@ -244,12 +244,36 @@ def _has_video(path: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _assemble_video(edl: EditDecisionList, segment_count: int) -> tuple[str, str]:
+def _assemble_video(
+    edl: EditDecisionList,
+    segment_count: int,
+    measured: list[float] | None = None,
+) -> tuple[str, str]:
     """Chain segments together with their transitions.
 
     Returns (filtergraph, final_label). Consecutive hard cuts are concatenated
     (free); anything else costs an xfade and shortens the timeline by its
     overlap, which the running offset has to account for.
+
+    **`measured` is the length each segment actually came out at**, and passing
+    it is not an optimisation. An xfade's `offset` says where in the *first*
+    input the overlap begins, and if that offset lands past the end of the
+    first input, ffmpeg ends the output there — silently, with no error and a
+    zero exit code. The rest of the film simply is not in the file.
+
+    The offsets used to be summed from the EDL's *planned* durations, which
+    are what the director asked for and not what came back. A shot planned at
+    0.250s renders at 0.233s, because a segment is a whole number of frames
+    and 0.250s at 30fps is seven and a half of them. That is a 7% shortfall
+    per shot, it accumulates, and the first xfade whose offset outruns it
+    truncates everything after it.
+
+    It went unnoticed for as long as every shot was about the same length: the
+    drift stayed small and the first xfade happened to land inside it. Giving
+    the films a held shot and real landings made the shots longer and more
+    varied, the drift crossed the line, and a 20-second film came back with
+    4.8 seconds of picture and 19.7 seconds of music over black. The bug was
+    already there; the change only made it reachable.
     """
     # concat and xfade disagree about time bases (1/1000000 against the
     # segments' 1/90000), and xfade refuses to join links that disagree. Pinning
@@ -261,21 +285,29 @@ def _assemble_video(edl: EditDecisionList, segment_count: int) -> tuple[str, str
     if segment_count == 1:
         return ";".join(parts), "vin0"
 
+    def actual(index: int) -> float:
+        """What segment `index` is really this long, falling back to the plan."""
+        if measured is not None and index < len(measured) and measured[index] > 0:
+            return measured[index]
+        return edl.shots[index].duration
+
     current = "vin0"
-    length = edl.shots[0].duration
+    length = actual(0)
 
     for index in range(1, segment_count):
         shot = edl.shots[index]
         label = f"vj{index}"
         if shot.transition_in.is_cut:
             parts.append(f"[{current}][vin{index}]concat=n=2:v=1:a=0,settb=AVTB[{label}]")
-            length += shot.duration
+            length += actual(index)
         else:
             overlap = shot.transition_in.duration
-            offset = max(length - overlap, 0.0)
+            # Never past the end of what is actually there. An offset one frame
+            # beyond the incoming chain silently ends the film.
+            offset = max(min(length - overlap, length), 0.0)
             spec = transitions.xfade_spec(shot.transition_in.kind, overlap, offset)
             parts.append(f"[{current}][vin{index}]{spec},settb=AVTB[{label}]")
-            length += shot.duration - overlap
+            length += actual(index) - overlap
         current = label
 
     return ";".join(parts), current
@@ -526,7 +558,20 @@ def _assemble(
         graphic_chains.append(f"[{next_index}:v]{chain(*links)}[gfx{order}]")
         next_index += 1
 
-    video_graph, video_label = _assemble_video(edl, len(segments))
+    # Measure what the segments actually came out at rather than trusting the
+    # plan — see `_assemble_video` for what a stale offset does to a film.
+    measured: list[float] = []
+    for segment in segments:
+        try:
+            info = ffmpeg.probe(str(segment))
+            streams = [s for s in info.get("streams", []) if s.get("codec_type") == "video"]
+            measured.append(float(streams[0].get("duration") or 0.0) if streams else 0.0)
+        except (ffmpeg.FFmpegError, ValueError, IndexError):
+            # A segment that cannot be probed falls back to its planned length,
+            # which is what the code did for all of them until now.
+            measured.append(0.0)
+
+    video_graph, video_label = _assemble_video(edl, len(segments), measured)
 
     # The grade, in two passes that do different jobs: each shot was corrected
     # toward the others on its way in, and the expressive look lands here, on

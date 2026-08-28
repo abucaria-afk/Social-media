@@ -24,7 +24,7 @@ log = logging.getLogger("auteur.web.assets")
 SIZES = (180, 192, 512)
 
 INK = theme.rgb_of("ground")
-AMBER = theme.rgb_of("ember")
+ACCENT = theme.rgb_of("ember")
 PAPER = theme.rgb_of("text")
 
 
@@ -69,24 +69,154 @@ def _draw(size: int):
         width=max(1, int(unit)),
     )
 
-    # The cut: one clean amber stroke straight through the frame. The whole
+    # The cut: one clean stroke of the accent straight through the frame. The whole
     # program is about where to put this line, so it is the whole icon.
     draw.line(
         [(34 * unit, size - 26 * unit), (size - 34 * unit, 26 * unit)],
-        fill=AMBER + (255,),
+        fill=ACCENT + (255,),
         width=int(7 * unit),
     )
     draw.ellipse(
         [size / 2 - 6 * unit, size / 2 - 6 * unit, size / 2 + 6 * unit, size / 2 + 6 * unit],
-        fill=AMBER + (255,),
+        fill=ACCENT + (255,),
     )
     return image
+
+
+#: The smallest markdown this project needs, which is exactly what PRIVACY.md
+#: uses. Not a general converter: a privacy policy rendered by a parser nobody
+#: reads is a policy that can silently stop saying what the file says.
+def _as_html(markdown: str) -> str:
+    import html as escaping
+    import re as patterns
+
+    def inline(text: str) -> str:
+        text = escaping.escape(text)
+        text = patterns.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+        return patterns.sub(r"`(.+?)`", r"<code>\1</code>", text)
+
+    out: list[str] = []
+    rows: list[str] = []
+
+    def close_table() -> None:
+        if not rows:
+            return
+        head, *body = [r for r in rows if not set(r.replace("|", "").strip()) <= {"-", " "}]
+        cells = [c.strip() for c in head.strip("|").split("|")]
+        out.append("<table><thead><tr>" + "".join(f"<th>{inline(c)}</th>" for c in cells))
+        out.append("</tr></thead><tbody>")
+        for row in body:
+            cells = [c.strip() for c in row.strip("|").split("|")]
+            out.append("<tr>" + "".join(f"<td>{inline(c)}</td>" for c in cells) + "</tr>")
+        out.append("</tbody></table>")
+        rows.clear()
+
+    para: list[str] = []
+
+    def close_para() -> None:
+        # A blank line ends a paragraph; a newline does not. Treating every
+        # source line as its own <p> is what the first version did, and a
+        # policy hard-wrapped at 78 characters came out as a column of
+        # three-line fragments with gaps between them.
+        if para:
+            out.append(f"<p>{inline(' '.join(para))}</p>")
+            para.clear()
+
+    for line in markdown.splitlines():
+        if line.startswith("|"):
+            close_para()
+            rows.append(line)
+            continue
+        close_table()
+        if line.startswith("## "):
+            close_para()
+            out.append(f"<h2>{inline(line[3:])}</h2>")
+        elif line.startswith("# "):
+            close_para()
+            out.append(f"<h1>{inline(line[2:])}</h1>")
+        elif line.strip():
+            para.append(line.strip())
+        else:
+            close_para()
+    close_para()
+    close_table()
+    return "\n".join(out)
+
+
+def _with_contact(markdown: str) -> str:
+    """Fill in the `<!-- CONTACT -->` marker with the published address.
+
+    Guideline 1.2 requires published contact information for an app carrying
+    other people's content, and the address lives in `auteur/identity.py` with
+    the other things only a publisher can fill in. Written in here rather than
+    into the markdown so there is one copy of it, and so a fork that sets
+    AUTEUR_SUPPORT_EMAIL gets its own without editing a policy document.
+    """
+    from ..identity import IDENTITY
+
+    return markdown.replace(
+        "<!-- CONTACT -->",
+        f"**{IDENTITY.support_email}**\n\n"
+        f"Auteur is published by {IDENTITY.developer}. Reports about content on "
+        f"an instance go to whoever runs that instance, from inside the app; "
+        f"this address is for the app itself.",
+    )
+
+
+def policy_page(source: Path, static: Path, name: str, title: str) -> Path | None:
+    """A markdown policy as a page anybody can open, generated rather than kept
+    twice.
+
+    The App Store requires a reachable privacy policy URL, and — for an app
+    with a feed and an inbox — terms that say there is no tolerance for
+    objectionable content. A policy maintained in two places is a policy that
+    is wrong in one of them, so both of these are one file each, converted
+    here and published to GitHub Pages by the same function.
+    """
+    if not source.is_file():
+        return None
+    page = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="robots" content="index">
+<!-- Text size, appearance and contrast, before anything paints. A policy is
+     the page somebody is most likely to be reading at their largest text
+     setting, so it is the last page that should be missing this. -->
+<script src="/static/settings.js"></script>
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/prose.css">
+<title>Auteur — {title}</title>
+</head>
+<body>
+<main class="prose">
+{_as_html(_with_contact(source.read_text(encoding="utf-8")))}
+<p class="prose-away"><a href="/">Back to the app</a></p>
+</main>
+</body>
+</html>
+"""
+    out = Path(static) / name
+    if not out.is_file() or out.read_text(encoding="utf-8") != page:
+        out.write_text(page, encoding="utf-8")
+    return out
+
+
+def privacy_page(source: Path, static: Path) -> Path | None:
+    """Kept as its own name because three callers already use it."""
+    return policy_page(source, static, "privacy.html", "privacy")
 
 
 def ensure(static: Path) -> None:
     """Write the generated assets. Safe to call on every start."""
     static = Path(static)
     static.mkdir(parents=True, exist_ok=True)
+    root = Path(__file__).resolve().parents[2]
+    privacy_page(root / "PRIVACY.md", static)
+    policy_page(root / "TERMS.md", static, "terms.html", "terms")
 
     # The palette, written out as CSS. Always rewritten: it is cheap, and a
     # stale copy would silently pin the interface to an old theme.

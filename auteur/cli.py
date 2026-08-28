@@ -291,6 +291,52 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     account.add_argument("-u", "--user", default=None, help="username")
     account.add_argument("-e", "--email", default=None, help="email, for password resets")
+    account.add_argument(
+        "--born",
+        default=None,
+        metavar="YEAR",
+        help=(
+            "the year they were born. Under 18 starts with sensitive films "
+            "hidden; under 12 is refused, which is the rating this app ships at"
+        ),
+    )
+    account.add_argument(
+        "--restrict",
+        default=None,
+        choices=["on", "off"],
+        help="hide sensitive and reported films from this account",
+    )
+    account.add_argument(
+        "--lock",
+        default=None,
+        metavar="CODE",
+        help="four digits, needed to lift the restriction. Use --lock '' to remove it",
+    )
+
+    moderate = sub.add_parser(
+        "moderate",
+        help="what people have reported on your instance, and what to do about it",
+    )
+    moderate.add_argument(
+        "action",
+        nargs="?",
+        default="show",
+        choices=["show", "remove", "hide", "keep", "close"],
+        help=(
+            "show what is waiting (default), remove the film a report is about, "
+            "hide it from restricted accounts, keep it, or close somebody's account"
+        ),
+    )
+    moderate.add_argument("target", nargs="?", help="a report id, or a username for `close`")
+    moderate.add_argument(
+        "-o",
+        "--out",
+        default=None,
+        metavar="FOLDER",
+        help="the serve folder this instance uses (default ./auteur-web)",
+    )
+    moderate.add_argument("--note", default="", help="why, kept with the report")
+    moderate.add_argument("--all", action="store_true", help="include reports already decided")
 
     analyse = sub.add_parser("analyse", help="show what the agent sees in your footage")
     analyse.add_argument("paths", nargs="+", metavar="FOOTAGE")
@@ -825,7 +871,7 @@ def _run_account(args: argparse.Namespace, say: Reporter) -> int:
     """Manage who can sign in, without anyone having to edit a JSON file."""
     import getpass
 
-    from .web.auth import Accounts, password_problem
+    from .web.auth import MINIMUM_AGE, Accounts, age_from, password_problem
 
     root = Path(args.out) if args.out else Path.cwd() / "auteur-web"
     accounts = Accounts(Accounts.default_path(root))
@@ -837,7 +883,14 @@ def _run_account(args: argparse.Namespace, say: Reporter) -> int:
         if accounts.empty:
             print("     nobody yet — `auteur serve` creates the first one")
         for account in accounts.accounts.values():
-            state = "  (locked)" if account.locked else ""
+            marks = []
+            if account.locked:
+                marks.append("locked out")
+            if account.age >= 0:
+                marks.append(f"{account.age}")
+            if account.restricted:
+                marks.append("restricted" + (" 🔒" if account.restriction_lock else ""))
+            state = f"  ({', '.join(marks)})" if marks else ""
             print(f"     {account.username:<24} {account.email}{state}")
         print()
         return 0
@@ -847,10 +900,50 @@ def _run_account(args: argparse.Namespace, say: Reporter) -> int:
         say.failure("a username is needed")
         return 2
 
+    # Setting the restriction is not a password change and must not ask for
+    # one — a parent turning it on for a child does not have the child's
+    # password and should not need it.
+    if args.action == "password" and (args.restrict is not None or args.lock is not None):
+        account = accounts.get(username)
+        if account is None:
+            say.failure(f"no account called {username!r}")
+            return 1
+        if args.restrict is not None:
+            accounts.set_restriction(account.username, args.restrict == "on")
+        if args.lock is not None:
+            problem = accounts.set_restriction_lock(account.username, args.lock)
+            if problem:
+                say.failure(problem)
+                return 1
+        again = accounts.get(username)
+        print(
+            f"\n  {again.username}: sensitive films are "
+            f"{'hidden' if again.restricted else 'shown'}"
+            f"{', and lifting it needs the code' if again.restriction_lock else ''}\n"
+        )
+        return 0
+
+    born = 0
     if args.action == "add":
         if accounts.get(username) is not None:
             say.failure(f"{username} already exists", "use `auteur account password` instead")
             return 1
+        # The age, before the password prompt. Asking somebody to type a
+        # password twice and *then* telling them the account cannot exist is
+        # the wrong order to find that out in.
+        if args.born:
+            try:
+                born = int(args.born)
+            except ValueError:
+                say.failure(f"{args.born!r} is not a year")
+                return 2
+            years = age_from(born)
+            if years < MINIMUM_AGE:
+                say.failure(
+                    f"that is {years}, and this app ships at {MINIMUM_AGE}+",
+                    "the App Store rating and this check have to agree",
+                )
+                return 1
         email = args.email or input("email (for password resets): ").strip()
     else:
         existing = accounts.get(username)
@@ -870,14 +963,149 @@ def _run_account(args: argparse.Namespace, say: Reporter) -> int:
         return 1
 
     if args.action == "add":
-        accounts.add(username, email, password)
-        print(f"\n  added {username} <{email}>\n")
+        made = accounts.add(username, email, password, born=born)
+        note = ""
+        if made.restricted:
+            note = (
+                "\n  they are under 18, so sensitive and reported films start hidden"
+                "\n  set a code with:  auteur account password --user "
+                f"{username} --lock 1234"
+            )
+        print(f"\n  added {username} <{email}>{note}\n")
     else:
         accounts.set_password(accounts.get(username), password)
         print(
             f"\n  changed the password for {username}"
             f"\n  every signed-in device has been signed out\n"
         )
+    return 0
+
+
+def _run_moderate(args: argparse.Namespace, say: Reporter) -> int:
+    """The operator's side of reporting.
+
+    On an instance this size the moderator is the person whose computer it is,
+    and this is their whole set of tools: see what was reported, remove the
+    film, or close the account. That is a small set on purpose — it is also
+    exactly the set the App Store asks for, and every one of these does the
+    thing it says rather than filing a ticket somewhere.
+    """
+    import time
+
+    from .manager import Board
+    from .web.auth import Accounts
+    from .web.profiles import Profiles
+    from .web.safety import REASONS, Reports
+    from .web.social import Films, Messages
+
+    root = Path(args.out) if args.out else Path.cwd() / "auteur-web"
+    reports = Reports(Reports.default_path(root))
+    films = Films(Films.default_path(root))
+
+    def ago(stamp: float) -> str:
+        gap = max(0.0, time.time() - stamp)
+        if gap < 3600:
+            return f"{int(gap // 60)}m ago"
+        if gap < 86400:
+            return f"{int(gap // 3600)}h ago"
+        return f"{int(gap // 86400)}d ago"
+
+    if args.action == "show":
+        rows = list(reports.reports.values()) if args.all else reports.open_ones()
+        rows = sorted(rows, key=lambda r: (r.state != "open", not r.urgent, -r.at))
+        print()
+        print(f"  reports on {reports.path}")
+        print()
+        if not rows:
+            print("     nothing reported")
+            print()
+            return 0
+        for report in rows:
+            mark = "  !" if report.urgent and report.state == "open" else "   "
+            print(f"  {mark} {report.id}  {REASONS.get(report.reason, report.reason)}")
+            print(
+                f"        a {report.kind} by {report.about_who}, "
+                f"reported by {report.by}, {ago(report.at)}"
+            )
+            if report.note:
+                print(f"        “{report.note}”")
+            if report.kind == "film":
+                film = films.get(report.about)
+                where = film.video if film is not None else "gone already"
+                print(f"        {where}")
+            if report.state != "open":
+                print(
+                    f"        -> {report.state}{', ' + report.decided_note if report.decided_note else ''}"
+                )
+        print()
+        print("     auteur moderate remove <id>     take the film down")
+        print("     auteur moderate hide <id>       leave it up, out of restricted accounts")
+        print("     auteur moderate keep <id>       leave it, and say so")
+        print("     auteur moderate close <person>  close their account entirely")
+        print()
+        return 0
+
+    if args.action == "close":
+        who = args.target or ""
+        if not who:
+            say.failure("which account?", "auteur moderate close <username>")
+            return 2
+        accounts = Accounts(Accounts.default_path(root))
+        if accounts.get(who) is None:
+            say.failure(f"no account called {who!r}")
+            return 1
+        who = accounts.get(who).username
+        gone = films.forget_everything_by(who)
+        for path in gone:
+            for candidate in (Path(path), Path(path).with_suffix(".poster.jpg")):
+                candidate.unlink(missing_ok=True)
+        Messages(Messages.default_path(root)).forget_everything_with(who)
+        Profiles(Profiles.default_path(root), root / "pictures").forget(who)
+        Board(Board.default_path(root)).forget_everyones(who)
+        reports.forget_everything_about(who)
+        accounts.remove(who)
+        print(f"\n  closed {who}: {len(gone)} film(s), their messages, plans and profile\n")
+        return 0
+
+    report = reports.get(args.target or "")
+    if report is None:
+        say.failure("no report with that id", "auteur moderate show")
+        return 1
+
+    if args.action == "hide":
+        # The middle answer, and the one most reports actually deserve: not
+        # "this should not exist" but "this is not for everybody". Anybody
+        # with the content restriction on stops seeing it; everyone else does
+        # not notice.
+        if report.kind != "film":
+            say.failure("only a film can be hidden", f"this report is about a {report.kind}")
+            return 1
+        if films.mark(report.about, True) is None:
+            print("\n  that film had already gone\n")
+        else:
+            print("\n  hidden from restricted accounts, and left up for everybody else\n")
+        reports.decide(report.id, "kept", args.note or "hidden from restricted accounts")
+        return 0
+
+    if args.action == "remove":
+        if report.kind == "film":
+            where = films.remove_any(report.about)
+            if where:
+                for candidate in (Path(where), Path(where).with_suffix(".poster.jpg")):
+                    candidate.unlink(missing_ok=True)
+                print("\n  removed the film and its file\n")
+            else:
+                print("\n  that film had already gone\n")
+        else:
+            print(
+                f"\n  marked removed. A {report.kind} is not something this can delete for you —"
+                f"\n  `auteur moderate close {report.about_who}` closes the account behind it.\n"
+            )
+        reports.decide(report.id, "removed", args.note)
+        return 0
+
+    reports.decide(report.id, "kept", args.note)
+    print("\n  marked kept. The person who reported it can see that in the app.\n")
     return 0
 
 
@@ -1670,6 +1898,45 @@ def _scholar_scroll(args: argparse.Namespace, say: Reporter, text: str) -> int:
     return 0
 
 
+def _scholar_sources(scholar, say: Reporter) -> None:
+    """Where what it knows came from, and how old the outside numbers are.
+
+    An audit of the live store found 127 learnings and not one from outside
+    this repository — every one of them measured off its own reels, read out of
+    its own markdown, or concluded over those. The confidence ladder counts
+    independent channels and there was only ever one, so nothing could ever
+    climb it and nothing said so. This puts the mix on the screen, because a
+    store that only agrees with itself looks exactly like a store that knows a
+    lot until somebody counts the channels.
+    """
+    import collections
+    import datetime
+
+    from .scholar.published import stale
+
+    rows = scholar.knowledge._learnings
+    if not rows:
+        return
+
+    kinds = collections.Counter(row.source_channel.split(":")[0] for row in rows)
+    inside = sum(n for k, n in kinds.items() if k in ("local", "film", "across", "scroll"))
+    outside = sum(n for k, n in kinds.items() if k in ("published", "corroborate", "yt"))
+
+    say.detail(f"sources: {', '.join(f'{k} {n}' for k, n in kinds.most_common())}")
+    if not outside:
+        say.detail(
+            "all of it from inside this project — nothing has corroborated it. "
+            "run `auteur scholar study` to take in the published measurements"
+        )
+    else:
+        say.detail(f"{inside} learned here, {outside} from outside")
+
+    old = stale(datetime.date.today().year)
+    if old:
+        which = ", ".join(f"{s.key} ({s.measured})" for s in old)
+        say.detail(f"outside numbers worth re-checking: {which}")
+
+
 def _run_scholar(args: argparse.Namespace, say: Reporter) -> int:
     """The study agent: what it knows, what it wants to watch, what it teaches."""
     import json as _json
@@ -1691,6 +1958,7 @@ def _run_scholar(args: argparse.Namespace, say: Reporter) -> int:
             print(line)
         can_study, how = reachable()
         say.detail(f"YouTube: {how}" if can_study else f"cannot study — {how}")
+        _scholar_sources(scholar, say)
         return 0
 
     if args.action == "subscribe":
@@ -2059,6 +2327,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_serve(args, say)
         if args.command == "account":
             return _run_account(args, say)
+        if args.command == "moderate":
+            return _run_moderate(args, say)
         if args.command == "analyse":
             return _run_analyse(args, say)
         if args.command == "looks":

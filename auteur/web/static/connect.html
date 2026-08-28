@@ -3,20 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0c0b0a" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f6f1e6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#131110" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef4fb" media="(prefers-color-scheme: light)">
 <meta name="color-scheme" content="dark light">
 <meta name="description" content="Link Instagram and TikTok so a finished film knows where it is going.">
-<script>
-  (function () {
-    try {
-      var mode = localStorage.getItem("auteur-theme");
-      if (mode === "light" || mode === "dark") {
-        document.documentElement.setAttribute("data-theme", mode);
-      }
-    } catch (e) { /* private mode: fall through to the system setting */ }
-  })();
-</script>
+<!-- Before the stylesheet, before anything paints. Appearance and the three
+     accessibility settings, applied from one file rather than copied into the
+     head of every page. Deferring it would show one frame of the wrong theme —
+     or a screenful of small text to somebody who has asked for large — which
+     is the flash people notice most on a phone. -->
+<script src="/static/settings.js"></script>
 <link rel="icon" href="/icon-192.png">
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/style.css">
@@ -55,11 +51,12 @@
   </section>
 
   <p class="studio-foot">
-    <a href="/">the edit room</a> · <a href="/studio">the studio</a> ·
-    <a href="/overlays">animation</a> · <a href="/ask">ask the Scholar</a>
+    Linking an account here only stores the name. Nothing posts for you.
   </p>
 </main>
 
+<script src="/static/trouble.js"></script>
+<script src="/static/chrome.js"></script>
 <script src="/static/theme.js"></script>
 <script src="/static/connect.js"></script>
 </body>

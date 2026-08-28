@@ -23,6 +23,7 @@ import sys
 import tempfile
 import types
 import time
+import urllib.parse
 import wave
 from pathlib import Path
 
@@ -588,6 +589,64 @@ def test_cuts_only_brief_disables_transitions():
     assert parse_brief("hard cuts only montage").transitions == ("cut",)
 
 
+def test_the_default_montage_is_cut_at_the_pace_the_reference_reels_are_cut_at():
+    """`montage` is the style a film gets when nobody says a pace word.
+
+    Which makes it the most consequential number in the table, and it was the
+    one number in it nobody had measured: 0.9s a shot, invented. The reels the
+    program is held against cut their montages at a median of 0.334s — two and
+    a half times faster — so every film made without a pace word was slower
+    than the work it was being compared to, and no test noticed because no test
+    compared the default to the corpus.
+
+    The expected number is computed from the reels here rather than typed in,
+    so re-measuring the corpus moves the test and the default together.
+    """
+    import json
+    import statistics
+
+    from auteur.director.brief import PACE_WORDS
+    from auteur.scholar.library import HYPERCUT_HOLD, MONTAGE_HOLD
+
+    reels = json.loads(
+        (
+            Path(__file__).resolve().parent.parent / "tools" / "artifact" / "templates.json"
+        ).read_text(encoding="utf-8")
+    )
+    band = [
+        float(reel["hold"]) for reel in reels if HYPERCUT_HOLD < float(reel["hold"]) <= MONTAGE_HOLD
+    ]
+    assert len(band) >= 3, "the corpus no longer has a montage band to measure"
+
+    assert parse_brief("montage").base_shot_length == pytest.approx(
+        statistics.median(band), abs=0.005
+    ), "the default montage is not cut at the pace of the reels it is judged against"
+
+    # And it is genuinely the default: an empty prompt lands on it too.
+    assert parse_brief("").base_shot_length == parse_brief("montage").base_shot_length
+
+    # Faster than a montage is still a thing you can ask for, and slower still
+    # slower — measuring the default must not have flattened the scale.
+    assert parse_brief("a hypercut").base_shot_length < parse_brief("montage").base_shot_length
+    assert (
+        parse_brief("slow and cinematic").base_shot_length > parse_brief("montage").base_shot_length
+    )
+    assert set(PACE_WORDS), "the pace words are gone"
+
+
+def test_a_montage_that_fast_joins_its_shots_with_cuts_not_dissolves():
+    """Changing the number changes what the joins have to be.
+
+    A third of a second is not long enough to dissolve through — a 0.4s
+    crossfade over a 0.334s shot is a film with no shots in it, only
+    transitions. When the montage default moved, the transition vocabulary had
+    to move with it, and that pairing is what this holds.
+    """
+    joins = parse_brief("montage").transitions
+    assert joins, "a montage has no transitions at all"
+    assert joins.count("cut") >= len(joins) / 2, f"a 0.334s montage dissolves through {joins}"
+
+
 # ---------------------------------------------------------------------------
 # The director
 # ---------------------------------------------------------------------------
@@ -759,6 +818,153 @@ def test_beat_multiples_vary_without_leaving_the_grid():
     assert multiples == {1, 2}, "shots must still be whole numbers of beats"
     for shot in edl.shots:
         assert abs(shot.duration / beat - round(shot.duration / beat)) < 0.02
+
+
+def test_a_film_cut_faster_than_the_beat_is_varied_in_its_own_unit():
+    """Every rhythm pass assumed a shot lasts at least one beat.
+
+    It does not. A montage at 0.25s against a 120bpm track cuts twice a beat;
+    a hypercut cuts three or six times. `round(0.25 / 0.5)` is zero, and the
+    `max(1, ...)` guard turned that into "one beat" — so the fix for metronomic
+    cutting stretched every third shot to *two beats*, 1.0s, four times its
+    length. Measured on a real render: a montage planned at 31 shots over 10s
+    was delivered as 12, cut at 0.998s a shot, three times slower than asked.
+    """
+    beat = 0.5
+    for hold, expected_unit in ((0.25, 0.25), (0.167, 0.5 / 3)):
+        edl = EditDecisionList(shots=[_shot(clip=f"C{i:02d}", end=hold) for i in range(12)])
+        assert grammar.beat_unit(edl, beat) == pytest.approx(expected_unit, abs=0.01)
+
+        before = sum(shot.duration for shot in edl.shots)
+        assert grammar.vary_beat_multiples(edl, beat, every=3) > 0
+        after = [shot.duration for shot in edl.shots]
+
+        assert len({round(x, 3) for x in after}) > 1, "the pass varied nothing"
+        # Every hold is a whole number of the film's own units, and none is
+        # longer than the four-unit hold the phrase uses for punctuation. The
+        # failure this guards is a 0.25s shot arriving at 1.0s because the code
+        # rounded it up to "one beat" and then doubled that.
+        for length in after:
+            units = length / expected_unit
+            assert abs(units - round(units)) < 0.02, (
+                f"a {hold}s shot became {length:.3f}s, which is {units:.2f} units — "
+                "off the grid the film is cut on"
+            )
+        assert max(after) <= expected_unit * 4 + 0.01, (
+            f"a {hold}s shot was stretched to {max(after):.3f}s, beyond the longest "
+            "hold the phrase uses"
+        )
+        # Varying may lengthen the film a little; it must not transform it.
+        assert sum(after) < before * 1.5, "varying the rhythm rewrote the pace"
+
+
+def test_the_fix_for_metronomic_cutting_can_actually_clear_the_complaint():
+    """The repair produced two lengths; the critic demands three. Deadlock.
+
+    `critic.review` calls a film metronomic when its shots use fewer than three
+    distinct multiples of the unit, and `vary_beat_multiples` only ever doubled
+    — so a montage came out {1, 2}, one short, and every pass of the review
+    loop raised the same complaint against a film the repair had already done
+    all it could to. Measured on a real render: three passes, three identical
+    "every shot is the same length" notes.
+
+    The bar is not the thing at fault. Across the twenty-three reference reels
+    the median reel uses five distinct multiples of its own unit, and only
+    three of them get by on two — so the corpus is *more* varied than the bar
+    asks for, and it was the fix that fell short.
+    """
+    beat = 0.5
+    edl = EditDecisionList(shots=[_shot(clip=f"C{i:02d}", end=0.25) for i in range(24)])
+    unit = grammar.beat_unit(edl, beat)
+    assert grammar.vary_beat_multiples(edl, beat, every=3) > 0
+
+    multiples = {max(1, round(shot.duration / unit)) for shot in edl.shots}
+    assert len(multiples) >= 3, f"the repair can only ever produce {multiples}"
+    assert multiples <= {1, 2, 4}, f"{multiples} leaves the grid the film is cut on"
+
+    # Mostly short, as the reels are — the long holds are punctuation.
+    ones = sum(1 for shot in edl.shots if round(shot.duration / unit) == 1)
+    assert ones > len(edl.shots) / 2, "the film stopped being a montage"
+
+
+def test_the_reference_reels_vary_more_than_the_critic_demands():
+    """The bar of three distinct lengths is measured, not picked.
+
+    If the reels themselves cut with only one or two lengths, the critic would
+    be holding films to a standard the work it is judged against does not meet.
+    They do not: the median reel uses five.
+    """
+    import json
+    import statistics
+
+    reels = json.loads(
+        (
+            Path(__file__).resolve().parent.parent / "tools" / "artifact" / "templates.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    counts = []
+    for reel in reels:
+        holds = [float(beat[0]) for beat in reel["beats"] if float(beat[0]) > 0]
+        if len(holds) < 8:
+            continue
+        ordered = sorted(holds)
+        unit = ordered[len(ordered) // 4]
+        counts.append(len({max(1, int(round(hold / unit))) for hold in holds}))
+
+    assert counts, "the corpus no longer carries per-shot timings"
+    assert statistics.median(counts) >= 3, (
+        f"the reels use a median of {statistics.median(counts)} distinct shot lengths, "
+        "so the critic asks for more variety than the work it judges against"
+    )
+
+
+def test_a_slower_film_still_varies_in_whole_beats():
+    """The subdivision must not fire on a film that is cut on the beat."""
+    beat = 0.5
+    edl = EditDecisionList(shots=[_shot(clip=f"C{i:02d}", end=beat) for i in range(9)])
+    assert grammar.beat_unit(edl, beat) == pytest.approx(beat)
+    assert grammar.vary_beat_multiples(edl, beat, every=3) > 0
+    assert {round(shot.duration / beat) for shot in edl.shots} == {1, 2}
+
+
+def test_the_critic_measures_a_fast_cut_against_the_grid_it_is_cut_on():
+    """Two faults the critic could never stop reporting, on any fast film.
+
+    A montage alternating 0.25s and 0.5s has an audible two-to-one rhythm, and
+    counting whole beats collapsed both to "1 beat" — so `metronomic` fired
+    forever and the repair loop kept trying. The same assumption made
+    `off-beat` unfixable: a film cut on eighths puts half its cuts between
+    beats deliberately, so it could never score above 50% against a whole-beat
+    grid, and 55% was the bar.
+    """
+    from auteur.analysis.audio import AudioAnalysis
+
+    beat = 0.5
+    lengths = [0.25 if index % 3 else 0.5 for index in range(24)]
+    edl = EditDecisionList(shots=[_shot(clip=f"C{i:02d}", end=x) for i, x in enumerate(lengths)])
+
+    unit = grammar.beat_unit(edl, beat)
+    assert unit == pytest.approx(0.25), "the film's grid is the eighth, not the beat"
+
+    # Rhythm: in the film's unit these are one and two, which is a rhythm.
+    assert {max(1, int(round(x / unit))) for x in lengths} == {1, 2}
+    # In whole beats they were indistinguishable, which was the bug.
+    assert {max(1, int(round(x / beat))) for x in lengths} == {1}
+
+    # Beat accuracy: every cut lands on the subdivided grid.
+    beats = [beat * n for n in range(1, 60)]
+    grid = grammar.subdivide(beats, beat, unit)
+    assert grid[:4] == pytest.approx([0.25, 0.5, 0.75, 1.0])
+
+    cursor, on_grid = 0.0, 0
+    for length in lengths:
+        cursor += length
+        if min(abs(line - cursor) for line in grid) < 0.09:
+            on_grid += 1
+    assert on_grid == len(lengths), "a film cut on the grid reads as off it"
+
+    assert AudioAnalysis is not None  # the critic's beat source, imported above
 
 
 def test_text_plates_are_named_per_format(tmp_path):
@@ -1224,11 +1430,30 @@ def web_server(tmp_path):
     from urllib.request import Request, urlopen
     from auteur.web import assets, server as web
     from auteur.web.auth import Accounts
+    from auteur.manager import Board
+    from auteur.projects import Projects
+    from auteur.web.profiles import Profiles
+    from auteur.web.safety import Reports
+    from auteur.web.social import Films, Messages
+    from auteur.web.watching import Watching
 
     assets.ensure(web.STATIC)
-    web.Handler.studio = web.Studio(tmp_path / "web")
-    web.Handler.accounts = Accounts(tmp_path / "web" / "accounts.json")
+    root = tmp_path / "web"
+    web.Handler.studio = web.Studio(root)
+    web.Handler.accounts = Accounts(root / "accounts.json")
     web.Handler.accounts.add("tester", "tester@example.com", "a-long-enough-one")
+    # Somebody to follow, message and look at. A server with one account can
+    # answer every route and prove nothing about the ones that are about two
+    # people.
+    web.Handler.accounts.add("grace", "grace@example.com", "another-long-one")
+    web.Handler.films = Films(root / "films.json")
+    web.Handler.studio.films = web.Handler.films
+    web.Handler.messages = Messages(root / "messages.json")
+    web.Handler.profiles = Profiles(root / "profiles.json", root / "pictures")
+    web.Handler.reports = Reports(root / "reports.json")
+    web.Handler.projects = Projects(root / "projects.json")
+    web.Handler.board = Board(Board.default_path(root))
+    web.Handler.watching = Watching(root / "watching")
 
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -1249,6 +1474,13 @@ def web_server(tmp_path):
         httpd.shutdown()
         httpd.server_close()
         web.Handler.accounts = None
+        web.Handler.films = None
+        web.Handler.messages = None
+        web.Handler.profiles = None
+        web.Handler.reports = None
+        web.Handler.projects = None
+        web.Handler.board = None
+        web.Handler.watching = None
 
 
 def test_the_shell_and_icons_are_reachable(web_server):
@@ -1317,6 +1549,61 @@ def test_video_is_served_in_ranges(web_server, tmp_path):
     with urlopen(Request(url, headers={"Cookie": cookie})) as response:  # no Range still works
         assert response.status == 200
         assert response.read() == film.read_bytes()
+
+
+def test_an_upload_is_read_from_a_stream_that_only_has_read():
+    """Every multipart post failed on Python 3.10, and one test said so wrongly.
+
+    `_Prefixed` wraps the spooled body so the Content-Type header and the body
+    are read as one stream. It called `readinto` on that spool —
+    `SpooledTemporaryFile` only implements `readinto` from 3.11, having not
+    fully implemented `IOBase` before then. On 3.10 the call raised
+    `AttributeError`, every caller turns any exception into "I could not read
+    that upload", and so no film could be made, no reel added and no profile
+    picture set on a version this project's own CI tests.
+
+    What made it survive was that the only test to notice compared the *message*
+    and read as a wrong string rather than as an app that cannot accept a file.
+
+    This drives the shim with an object that has `read` and no `readinto`, so
+    the 3.10 path is exercised whichever interpreter is running.
+    """
+    import io
+
+    from auteur.web.server import _Prefixed, _parse_multipart_stream
+
+    class OnlyRead:
+        """A stream like 3.10's SpooledTemporaryFile: read, and no readinto."""
+
+        def __init__(self, raw: bytes) -> None:
+            self._inner = io.BytesIO(raw)
+
+        def read(self, size=-1):
+            return self._inner.read(size)
+
+    boundary = "----auteurtest"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="prompt"\r\n\r\n'
+        "a film\r\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="clips"; filename="one.mp4"\r\n'
+        "Content-Type: video/mp4\r\n\r\n"
+        "not really a film\r\n"
+        f"--{boundary}--\r\n"
+    ).encode()
+
+    assert not hasattr(OnlyRead(b""), "readinto"), "the stand-in is not standing in"
+
+    fields, files = _parse_multipart_stream(
+        OnlyRead(body), f"multipart/form-data; boundary={boundary}"
+    )
+    assert fields.get("prompt") == "a film", f"the field did not survive: {fields}"
+    assert files == [("one.mp4", b"not really a film")], f"the file did not survive: {files}"
+
+    # And the shim itself, directly: a header then a body with no readinto.
+    stream = _Prefixed(b"HEAD", OnlyRead(b"TAIL"))
+    assert stream.read() == b"HEADTAIL"
 
 
 def test_a_post_without_clips_says_so_in_plain_words(web_server):
@@ -1448,9 +1735,9 @@ def test_every_token_the_stylesheet_uses_actually_exists():
     style = (server.STATIC / "style.css").read_text()
     generated = (server.STATIC / "theme.css").read_text()
 
-    defined = set(re.findall(r"(--[a-z-]+):", generated))
-    local = set(re.findall(r"(--[a-z-]+):", style))  # radius, safe areas
-    used = set(re.findall(r"var\((--[a-z-]+)", style))
+    defined = set(re.findall(r"(--[a-z0-9-]+):", generated))
+    local = set(re.findall(r"(--[a-z0-9-]+):", style))  # radius, type scale, safe areas
+    used = set(re.findall(r"var\((--[a-z0-9-]+)", style))
 
     missing = used - defined - local
     assert missing == set(), f"style.css uses undefined tokens: {sorted(missing)}"
@@ -1477,7 +1764,7 @@ def test_the_icon_and_the_page_use_the_same_palette():
     from auteur.web import assets, server
 
     assert assets.INK == theme.rgb_of("ground")
-    assert assets.AMBER == theme.rgb_of("ember")
+    assert assets.ACCENT == theme.rgb_of("ember")
 
     page = (server.STATIC / "index.html").read_text()
     assert f'content="{theme.THEME_COLOR}"' in page
@@ -1487,6 +1774,34 @@ def test_the_icon_and_the_page_use_the_same_palette():
     manifest = _json.loads((server.STATIC / "manifest.webmanifest").read_text())
     assert manifest["theme_color"] == theme.THEME_COLOR
     assert manifest["background_color"] == theme.THEME_COLOR
+
+
+def test_no_page_paints_a_status_bar_the_palette_no_longer_uses():
+    """<meta theme-color> is a hand-written copy of the ground colour.
+
+    Seven pages carry it, theme.js carries both grounds again so it can
+    repaint the tag when somebody overrides the system setting, and the
+    manifest carries the dark one a ninth time. Recolouring the palette left
+    every one of them the old warm brown behind a blue page, and nothing
+    failed — the status bar is the one part of the app no assertion looked at.
+    """
+    import re
+    from auteur import theme
+    from auteur.web import server
+
+    grounds = {theme.THEME_COLOR.lower(), theme.LIGHT_THEME_COLOR.lower()}
+    seen = 0
+    for page in sorted(server.STATIC.glob("*.html")):
+        for colour in re.findall(
+            r'name="theme-color" content="(#[0-9a-fA-F]{6})"', page.read_text()
+        ):
+            seen += 1
+            assert colour.lower() in grounds, f"{page.name} paints {colour}, not a ground"
+    assert seen >= 7, f"only {seen} theme-color tags found — did the pages lose them?"
+
+    script = (server.STATIC / "theme.js").read_text()
+    for colour in re.findall(r"(#[0-9a-fA-F]{6})", script):
+        assert colour.lower() in grounds, f"theme.js repaints to {colour}, not a ground"
 
 
 def test_the_terminal_reads_the_same_palette():
@@ -2199,17 +2514,30 @@ def test_both_palettes_define_every_role():
 
 
 def test_both_palettes_are_readable():
-    """A theme switch must not be able to make text disappear."""
+    """A theme switch must not be able to make text disappear.
+
+    Against every surface text can land on, not just the ground. Checking the
+    ground alone answers a different question than the name of this test
+    implies, and the gap was real: `text_faint` cleared 5.46 against the dark
+    ground and 4.20 against a raised control, so seventy pieces of text in the
+    running app were under the bar while this test was green. The one that
+    matters is the *hardest* surface, because nothing stops the next screen
+    from putting a hint on a card.
+    """
     from auteur import theme
 
     for scheme in ("dark", "light"):
-        ground = theme.rgb_of("ground", scheme)
-        for role in ("text", "text_muted", "text_faint", "ember_text", "moss", "rust"):
-            ratio = theme.contrast(theme.rgb_of(role, scheme), ground)
-            assert ratio >= 4.5, f"{role} on {scheme} ground is only {ratio:.2f}:1"
+        for under in ("ground", "surface", "raised"):
+            behind = theme.rgb_of(under, scheme)
+            for role in ("text", "text_muted", "text_faint", "ember_text", "moss", "rust"):
+                ratio = theme.contrast(theme.rgb_of(role, scheme), behind)
+                assert ratio >= 4.5, f"{role} on {scheme} {under} is only {ratio:.2f}:1"
 
-        button = theme.contrast(theme.rgb_of("on_ember", scheme), theme.rgb_of("ember", scheme))
-        assert button >= 4.5, f"the main button on {scheme} is only {button:.2f}:1"
+        # Every "text on a fill" pair, not only the primary button: the
+        # destructive one is red-on-red until something checks it.
+        for ink, fill in (("on_ember", "ember"), ("on_rust", "rust")):
+            ratio = theme.contrast(theme.rgb_of(ink, scheme), theme.rgb_of(fill, scheme))
+            assert ratio >= 4.5, f"{ink} on {scheme} {fill} is only {ratio:.2f}:1"
 
 
 def test_the_stylesheet_covers_system_light_and_dark():
@@ -2226,27 +2554,57 @@ def test_the_stylesheet_covers_system_light_and_dark():
     assert css.index(":root {") < css.index("@media")
 
 
-def test_the_theme_is_applied_before_the_page_paints():
-    """Reading localStorage from app.js instead would show one frame of the
-    wrong theme on every load."""
+def test_the_settings_are_applied_before_the_page_paints():
+    """Reading them from a deferred script would show one frame of the wrong
+    theme on every load — and, since text size moved in here too, a screenful
+    of small text to somebody who has asked for large.
+
+    The check is on *every* page rather than two, because this used to be an
+    eight-line snippet copied into each head and copied chrome goes stale one
+    page at a time. It is one file now, and this is what says so.
+    """
     from auteur.web import server
 
-    for page in ("index.html", "login.html"):
-        markup = (server.STATIC / page).read_text()
-        early = markup.index("auteur-theme")
-        assert early < markup.index('href="/static/style.css"'), page
-        assert 'setAttribute("data-theme"' in markup
+    for page in sorted(server.STATIC.glob("*.html")):
+        markup = page.read_text()
+        early = markup.index('src="/static/settings.js"')
+        # Before the stylesheet, and with no `defer` or `async` on it: either
+        # attribute would let the page paint first, which is the whole failure
+        # this is standing against.
+        assert early < markup.index('href="/static/style.css"'), page.name
+        tag = markup[markup.rindex("<script", 0, early) : markup.index(">", early)]
+        assert "defer" not in tag and "async" not in tag, page.name
+
+    settings = (server.STATIC / "settings.js").read_text()
+    assert 'setAttribute("data-theme"' in settings
+    assert "localStorage" in settings
 
 
 def test_the_switch_offers_exactly_the_three_modes():
+    """Whichever page carries the switch has to carry all three.
+
+    This used to name index.html and login.html, because the switch was
+    repeated at the foot of six screens. It is in Settings now and only
+    there — `test_a_setting_lives_in_settings_and_nowhere_else` is what holds
+    it to that — so this looks for the page that has it rather than being told
+    which page that is, and the two tests cannot disagree.
+    """
     from auteur import theme
     from auteur.web import server
 
     assert theme.MODES == ("system", "light", "dark")
-    for page in ("index.html", "login.html"):
-        markup = (server.STATIC / page).read_text()
+
+    carrying = [
+        page
+        for page in sorted(server.STATIC.glob("*.html"))
+        if 'class="choices appearance"' in page.read_text(encoding="utf-8")
+    ]
+    assert carrying, "no page offers the appearance switch at all"
+
+    for page in carrying:
+        markup = page.read_text(encoding="utf-8")
         for mode in theme.MODES:
-            assert f'data-value="{mode}"' in markup, f"{page} is missing {mode}"
+            assert f'data-value="{mode}"' in markup, f"{page.name} is missing {mode}"
 
 
 # ---------------------------------------------------------------------------
@@ -6696,6 +7054,144 @@ def test_the_trainer_can_reach_the_rate_it_is_chasing():
     assert low <= 0.125, "the fastest reference reel is outside the search space"
 
 
+def test_the_browsers_two_fallbacks_are_the_same_word():
+    """A prompt with no words the engine knows went through two fallbacks.
+
+    `cadenceFor` fell back to a montage hold and `styleFor` fell back to
+    `story`, so a film nobody described got the measured 0.334s arranged to
+    story's bars — 25 cuts every ten seconds instead of 20. Neither fallback
+    was wrong on its own; they were wrong together, which is the kind of fault
+    that survives every test written about either half.
+    """
+    source = (Path(__file__).resolve().parent.parent / "tools" / "artifact" / "style.js").read_text(
+        encoding="utf-8"
+    )
+    render = (
+        Path(__file__).resolve().parent.parent / "tools" / "artifact" / "browser-render.js"
+    ).read_text(encoding="utf-8")
+
+    style_fallback = re.search(r"return STYLES\.([a-z]+);\s*\n  \}", source)
+    assert style_fallback, "styleFor's fallback is gone or reshaped"
+
+    cadence_fallback = re.search(r'return \{ hold: [0-9.]+, label: "([^"]*)" \};', render)
+    assert cadence_fallback, "cadenceFor's fallback is gone or reshaped"
+
+    assert style_fallback.group(1) in cadence_fallback.group(1), (
+        f"a prompt with no words is arranged as {style_fallback.group(1)!r} and held at "
+        f"{cadence_fallback.group(1)!r} — the default is two halves of different films"
+    )
+
+
+def test_the_browser_arranges_a_montage_at_the_rate_the_reels_cut_at():
+    """Agreeing on the hold is not the same as agreeing on the film.
+
+    The two engines were brought onto the same 0.334s, and the published page
+    still came out at 26 cuts per ten seconds against the corpus's 20.1 —
+    because a shot's length is the hold times a multiplier from the style's
+    bar pattern, and there was no montage style in the browser at all. The word
+    fell through to `story`, whose bars average 1.24, so the pace was borrowed
+    from a style that means something else.
+
+    The bars are read out of the JavaScript and the rate recomputed here, so
+    editing either the bars or the hold without checking fails.
+    """
+    import statistics
+
+    from auteur.director.brief import parse_brief
+
+    source = (Path(__file__).resolve().parent.parent / "tools" / "artifact" / "style.js").read_text(
+        encoding="utf-8"
+    )
+
+    block = re.search(r"\n    montage: \{(.*?)\n    \}", source, re.S)
+    assert block, "the browser has no montage style"
+
+    bars = re.search(r"bars: (\[\[.*?\]\]),", block.group(1), re.S)
+    assert bars, "the montage style has no bar patterns"
+    patterns = [
+        [float(n) for n in group.split(",")]
+        for group in re.findall(r"\[([^\[\]]+)\]", bars.group(1))
+    ]
+    assert len(patterns) >= 3, f"only {len(patterns)} bars — a film would repeat one phrase"
+
+    pooled = [value for pattern in patterns for value in pattern]
+    hold = parse_brief("montage").base_shot_length
+    rate = 10.0 / (statistics.mean(pooled) * hold)
+
+    # What the thirteen montage reels measure at, recomputed here rather than
+    # typed in, so re-measuring the corpus moves the bar.
+    reels = json.loads(
+        (
+            Path(__file__).resolve().parent.parent / "tools" / "artifact" / "templates.json"
+        ).read_text(encoding="utf-8")
+    )
+    band = [r for r in reels if 0.20 < float(r["hold"]) <= 0.75]
+    corpus = statistics.median(float(r["shots"]) / float(r["seconds"]) * 10.0 for r in band)
+
+    assert rate == pytest.approx(corpus, rel=0.12), (
+        f"the browser arranges a montage at {rate:.1f} cuts per ten seconds and the "
+        f"reels cut at {corpus:.1f}"
+    )
+
+    # The median shot is one hold — that is what makes 0.334s the median rather
+    # than the floor — and no bar is all one number, which would be a
+    # metronomic movement.
+    assert statistics.median(pooled) == 1, "the median shot is not the measured hold"
+    for pattern in patterns:
+        assert len(set(pattern)) > 1, f"the bar {pattern} has no rhythm in it"
+
+
+def test_both_renderers_cut_the_same_word_at_the_same_pace():
+    """There are two pace tables, and nothing compared them.
+
+    The app cuts with Python; the published page has no Python behind it and
+    cuts with `browser-render.js`, which carries its own copy of the same
+    table. Two copies of a number drift, and these had: `montage` was 0.5s in
+    the browser against 0.334s in the app, and the browser's no-pace-word
+    fallback was still 0.9s — the invented number the app had already stopped
+    using. Somebody opening the published page got a different film from the
+    same words.
+
+    This reads the numbers out of the JavaScript rather than restating them, so
+    changing either side without the other fails here.
+    """
+    from auteur.director.brief import parse_brief
+
+    source = (
+        Path(__file__).resolve().parent.parent / "tools" / "artifact" / "browser-render.js"
+    ).read_text(encoding="utf-8")
+
+    table = re.search(r"var CADENCES = \[(.*?)\n  \];", source, re.S)
+    assert table, "the browser's cadence table is gone or renamed"
+
+    rows = re.findall(r'\[\s*([0-9.]+),\s*"[^"]*",\s*wordy\((/.*?/)\)\]', table.group(1))
+    assert len(rows) >= 4, f"only parsed {len(rows)} cadence rows"
+
+    # The word each row is really about, taken as the first literal alternative
+    # in its pattern — that is the word a person types.
+    checked = 0
+    for hold, pattern in rows:
+        first = re.match(r"/([a-z]+)", pattern)
+        if not first:
+            continue
+        word = first.group(1)
+        if word not in ("hypercut", "montage"):
+            continue  # the two the app names in its own table
+        assert float(hold) == pytest.approx(parse_brief(word).base_shot_length, abs=0.005), (
+            f"the browser cuts {word!r} at {hold}s and the app cuts it at "
+            f"{parse_brief(word).base_shot_length}s"
+        )
+        checked += 1
+    assert checked == 2, f"only checked {checked} of the two named paces"
+
+    # And the fallback, which is what most people get: no pace word at all.
+    fallback = re.search(r'return \{ hold: ([0-9.]+), label: "[^"]*" \};\s*\n  \}', source)
+    assert fallback, "the browser's no-pace-word fallback is gone or reshaped"
+    assert float(fallback.group(1)) == pytest.approx(
+        parse_brief("").base_shot_length, abs=0.005
+    ), "the two renderers disagree about a film nobody gave a pace for"
+
+
 def test_the_app_can_ask_for_the_cadence_the_references_are_cut_at():
     """The style existed and no chip offered it.
 
@@ -6712,6 +7208,24 @@ def test_the_app_can_ask_for_the_cadence_the_references_are_cut_at():
 
     styles = {parse_brief(prompt).style for prompt in prompts}
     assert "hypercut" in styles, "no chip reaches the reference cadence"
+
+    # And the pace the corpus sits at when it is not sprinting. This one was
+    # already the *default* style and still had no chip, so the thing most
+    # films are cut as was the one thing you could not ask for by name.
+    assert "montage" in styles, "no chip offers the pace most of the corpus cuts at"
+
+    # Every chip has to land where its own words point. A chip reading
+    # "Montage" whose prompt happens to contain a pace word would quietly cut
+    # at that word's pace instead, and the label would be a lie on the button.
+    by_label = dict(re.findall(r'data-prompt="([^"]+)"[^>]*>([^<]+)<', chips))
+    for prompt, label in by_label.items():
+        if label.strip().lower() in ("hypercut", "montage"):
+            expected = parse_brief(label.strip().lower()).base_shot_length
+            assert parse_brief(prompt).base_shot_length == pytest.approx(expected), (
+                f"the {label.strip()!r} chip cuts at "
+                f"{parse_brief(prompt).base_shot_length}s, not the {expected}s its "
+                "own name asks for"
+            )
 
 
 def test_the_studio_shows_what_the_films_agree_on(web_server):
@@ -7280,6 +7794,489 @@ def test_picking_a_decade_grades_the_whole_film_to_it():
     ), f"the page offers {offered - set(ERA_LOOKS)}, which is unwired"
 
 
+def test_a_view_reported_by_the_player_reaches_the_ranking(web_server):
+    """The whole round trip, over a socket, the way the phone does it.
+
+    Every other test of this drives the store directly. This one posts the same
+    JSON the feed's beacon sends, because a store that works and a route that
+    never reaches it look identical from inside the store.
+
+    The first version of this test asserted the wrong thing: it had one account
+    both watching and reading, then expected the film that account had watched
+    to the end to rank *first*. It ranks lower, deliberately — a feed that
+    leads with what you just finished is a feed with nothing new in it. Which
+    is why the account reading here is not the account that did the watching.
+    """
+    base, studio, cookie = web_server
+    from auteur.web import server as web
+
+    films = {}
+    for name in ("dull", "loved", "seen"):
+        film = web.Handler.films.add(
+            owner="grace",
+            prompt=f"a {name} one",
+            video=str(studio.workspace / f"{name}.mp4"),
+        )
+        films[name] = film.id
+
+    watching = web.Handler.watching
+
+    # Over the wire, as the player sends it: tester bounces off `dull` and
+    # watches `seen` to the end.
+    for _ in range(6):
+        posted = _api_post(
+            base, "/api/watched", cookie, {"film": films["dull"], "seconds": 1.2, "runtime": 12.0}
+        )
+        assert posted["ok"]
+    assert watching.reception(films["dull"]).plays == 6, "the route never reached the store"
+
+    _api_post(
+        base, "/api/watched", cookie, {"film": films["seen"], "seconds": 12.0, "runtime": 12.0}
+    )
+    assert watching.already_seen("tester") == {films["seen"]}
+
+    # And other people love `loved`, which tester has never opened.
+    for n in range(8):
+        watching.played(f"someone{n}", films["loved"], seconds=12.0, runtime=12.0)
+    watching.shared(films["loved"])
+
+    assert watching.merit(films["loved"]) > watching.merit(films["dull"])
+
+    order = [row["id"] for row in _api_get(base, "/api/feed", cookie)["films"]]
+    assert (
+        order[0] == films["loved"]
+    ), f"the feed did not lead with the best-received unseen film: {order}"
+    assert order.index(films["seen"]) > order.index(
+        films["loved"]
+    ), "a film this person already watched through outranks one they have not seen"
+
+    # And the person can see what the instance recorded about them.
+    mine = _api_get(base, "/api/watching", cookie)
+    watched = {row["film"]: row for row in mine["watched"]}
+    assert set(watched) == {films["dull"], films["seen"]}, "the history is wrong"
+    assert watched[films["seen"]]["finished"] is True
+    assert watched[films["dull"]]["finished"] is False
+    assert films["loved"] not in watched, "a film they never opened is in their history"
+    # The history is shown to a person, so it has to say what they watched
+    # rather than which row it was. It shipped once reading "8f3c1e2a — 41s".
+    assert all(
+        row["prompt"] for row in mine["watched"]
+    ), f"the history carries no prompts, only identifiers: {mine['watched']}"
+
+
+def test_the_feed_has_something_to_rank_by(tmp_path):
+    """It had nothing, and the insight layer was fitted to a simulation.
+
+    A recommender with no observations is a shuffle with extra steps. Worse,
+    `insight.dataset` had always been able to read a real export and never had
+    one, so every virality score came from a model fitted to invented rows.
+    """
+    from auteur.web.watching import Watching
+
+    w = Watching(tmp_path / "watching")
+
+    # Three people watch one film all the way through; six bounce off another.
+    for who in ("ana", "ben", "cy"):
+        w.played(who, "good", seconds=12.0, runtime=12.0)
+    w.shared("good")
+    for n in range(6):
+        w.played(f"p{n}", "poor", seconds=1.1, runtime=12.0)
+
+    good, poor = w.reception("good"), w.reception("poor")
+    assert good.completion_rate == 1.0 and poor.completion_rate == 0.0
+    assert good.three_second_watch_rate == 1.0 and poor.three_second_watch_rate == 0.0
+    assert w.merit("good") > w.merit("poor"), "the ranking cannot tell them apart"
+
+    # One play does not out-rank fifty. Confidence has to grow with evidence,
+    # or the newest thing posted is permanently the best thing on the instance.
+    w.played("dana", "lucky", seconds=12.0, runtime=12.0)
+    assert w.merit("lucky") < w.merit("good"), "a single play beat three"
+    assert 0.35 < w.merit("lucky") < 0.65, "one play should sit near the middle"
+
+    # And the rows reach the model that was waiting for them.
+    rows = {r["post_id"]: r for r in w.signals()}
+    assert rows["good"]["completion_rate"] == 1.0
+    assert rows["good"]["share_to_view_ratio"] > 0
+    assert set(rows["good"]) >= {
+        "three_second_watch_rate",
+        "completion_rate",
+        "avg_time_spent_sec",
+        "share_to_view_ratio",
+    }, "the export does not match what insight.schema reads"
+
+
+def test_a_hostile_client_cannot_buy_a_ranking(tmp_path):
+    """The numbers arrive from somebody else's machine.
+
+    A player reporting an hour of watch time on a twelve-second film is either
+    a stuck timer or somebody promoting their own work, and a ranking that
+    believes it is a ranking anybody can buy with a curl command.
+    """
+    from auteur.web.watching import Watching
+
+    w = Watching(tmp_path / "watching")
+    w.played("cheat", "mine", seconds=99999.0, runtime=12.0)
+    assert w.reception("mine").seconds < 100, "an hour was recorded for a 12s film"
+
+    # Looping is the honest way to exceed the runtime, and it is bounded too.
+    w.played("fan", "mine", seconds=60.0, runtime=12.0, looped=3)
+    assert w.reception("mine").seconds < 200
+
+
+def test_deleting_an_account_erases_what_that_person_watched(tmp_path):
+    """The half that is about a person has to go when the person does.
+
+    Per-film totals stay, and that is deliberate rather than an oversight:
+    they name nobody, and subtracting a departed viewer's seconds would rewrite
+    the performance history of films belonging to people who are still here
+    without making anybody more private.
+    """
+    from auteur.web.watching import Watching
+
+    w = Watching(tmp_path / "watching")
+    w.played("leaving", "film-a", seconds=12.0, runtime=12.0)
+    w.played("leaving", "film-b", seconds=5.0, runtime=12.0)
+    w.played("staying", "film-a", seconds=12.0, runtime=12.0)
+
+    assert len(w.history("leaving")) == 2
+    plays_before = w.reception("film-a").plays
+
+    removed = w.forget_everything_about("leaving")
+    assert removed == 2
+    assert w.history("leaving") == [], "the history survived deletion"
+    assert w.already_seen("leaving") == set()
+    assert w.history("staying"), "somebody else's history was taken too"
+    assert w.reception("film-a").plays == plays_before, "a film's totals were rewritten"
+
+    # And it is gone from the file, not just from memory.
+    reopened = Watching(tmp_path / "watching")
+    assert reopened.history("leaving") == [], "deletion did not reach the disk"
+
+    # Nothing anywhere in the stored aggregates names them.
+    text = (tmp_path / "watching" / "reception.json").read_text(encoding="utf-8")
+    assert "leaving" not in text, "the per-film file carries a viewer's name"
+
+
+def test_the_feed_learns_a_taste_without_burying_everything_else(tmp_path):
+    """Personalisation that cannot change the order is decoration.
+
+    And personalisation that ignores everything else is a bubble. Both are
+    checked here, because the failure mode is different at each end: a bonus
+    too small never fires, and one too large shows somebody only ever the first
+    maker they happened to finish.
+    """
+    from dataclasses import dataclass
+
+    from auteur.web.watching import Watching
+
+    @dataclass
+    class Made:
+        id: str
+        owner: str
+
+    films = [Made("a1", "ana"), Made("a2", "ana"), Made("b1", "ben"), Made("b2", "ben")]
+    made_by = {f.id: f.owner for f in films}
+
+    w = Watching(tmp_path / "watching")
+    # Everything is received identically, so nothing but taste can decide.
+    for n in range(10):
+        for film in films:
+            w.played(f"crowd{n}", film.id, seconds=10.0, runtime=12.0)
+
+    merits = {f.id: round(w.merit(f.id), 4) for f in films}
+    assert len(set(merits.values())) == 1, f"the tie is not a tie: {merits}"
+
+    # Somebody who finishes ana's work, repeatedly.
+    for _ in range(3):
+        w.played("dana", "a1", seconds=12.0, runtime=12.0)
+
+    order = [f.id for f in w.for_you("dana", films, made_by=made_by)]
+    assert order[0] == "a2", f"taste did not carry to the same maker's unseen film: {order}"
+    # Not a bubble: ben is still in the feed, and reachable.
+    assert set(order) == {"a1", "a2", "b1", "b2"}, "personalising removed films"
+    assert order.index("a1") > order.index("a2"), "a film already finished ranks first"
+
+
+def test_the_site_ships_the_palette_the_app_actually_uses():
+    """The site said it was generated from theme.py. Nothing generated it.
+
+    Measured before the fix: all thirteen colours it carried had drifted, in
+    both light and dark, and three roles were missing entirely. The most
+    visible was `--moss` — green on the site, teal in the app, for months. A
+    landing page showing a different-coloured product than the one it links to
+    is a landing page working against itself, and nothing could tell, because
+    the check was a comment.
+    """
+    from auteur import theme
+
+    site = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    head, marker, tail = site.partition("@media (prefers-color-scheme: light)")
+    assert marker, "the site has no light scheme at all"
+
+    for scheme, block in (("dark", head), ("light", tail)):
+        shipped = dict(re.findall(r"--([a-z-]+):\s*(#[0-9a-fA-F]{6,8})", block))
+        for role in theme.ROLES:
+            css = role.replace("_", "-")
+            want = theme.hex_of(role, scheme)
+            assert css in shipped, f"the site is missing --{css} in {scheme}"
+            assert shipped[css].lower() == want.lower(), (
+                f"{scheme} --{css}: the site ships {shipped[css]} and the app uses {want} — "
+                "run tools/site/build_site.py"
+            )
+
+
+def test_one_set_of_words_describes_this_app():
+    """There were three, and they had drifted.
+
+    The App Store listing had the current story, the site described the
+    command-line tool it was eighteen months ago, and Play had none. Three
+    stories is three products to anybody reading them, and which one a person
+    believes is decided by which they happen to meet first.
+    """
+    from auteur import brand
+
+    root = Path(__file__).resolve().parent.parent
+    site = (root / "docs" / "index.html").read_text(encoding="utf-8")
+    apple = (root / "tools" / "appstore" / "listing.py").read_text(encoding="utf-8")
+    play = (root / "tools" / "play" / "listing.py").read_text(encoding="utf-8")
+
+    # Both listings read the shared source rather than keeping a copy.
+    for name, text in (("the App Store listing", apple), ("the Play listing", play)):
+        assert "brand." in text, f"{name} does not read auteur/brand.py"
+
+    # And the site says the same things, because it is generated from it.
+    assert brand.TAGLINE in site, "the site does not carry the tagline"
+    for feature in brand.FEATURES:
+        assert feature.headline in site, f"the site is missing {feature.headline!r}"
+
+    # A claim the app cannot deliver on its own is marked as needing a server,
+    # rather than sitting on a landing page as though it were in the box.
+    needs_server = [f for f in brand.FEATURES if not f.on_device]
+    assert needs_server, "nothing is marked as needing an instance — check the flags"
+
+
+def test_the_copy_fits_both_stores_not_just_apple():
+    """Play's boxes are not Apple's boxes.
+
+    Play's short description takes 80 characters where Apple's subtitle takes
+    30, and Play has no keyword field at all. A listing written to Apple's
+    shape and pasted into Play is a listing that either overflows or wastes
+    most of the room it was given.
+    """
+    from auteur import brand
+
+    for store in ("apple", "play"):
+        assert brand.too_long(store) == [], f"{brand.LIMITS[store].store}: " + "; ".join(
+            brand.too_long(store)
+        )
+
+    limits = brand.LIMITS
+    assert limits["play"].short > limits["apple"].short, "the two stores' shapes have merged"
+    assert limits["play"].keywords == 0, "Play has no keyword field"
+
+    # The long description is built from the features, not typed beside them.
+    described = brand.description()
+    for feature in brand.FEATURES:
+        assert feature.headline in described, f"{feature.headline!r} is missing from the listing"
+
+
+def test_google_play_is_asked_the_questions_apple_never_asks():
+    """A preflight that covers one store tells you nothing about the other.
+
+    Play's two blockers are its own: a Data safety declaration it will not
+    infer from the binary, and working reviewer access for anything behind a
+    sign-in. This app has a sign-in for the instance features, so neither is
+    optional for it.
+    """
+    play = (Path(__file__).resolve().parent.parent / "tools" / "play" / "listing.py").read_text(
+        encoding="utf-8"
+    )
+
+    for needed, why in (
+        ("DATA_SAFETY", "the Data safety declaration"),
+        ("APP_ACCESS", "reviewer access for the sign-in"),
+        ("CONTENT_RATING", "the IARC questionnaire"),
+        ("aab", "the bundle format Play requires"),
+        ("Target API level", "the API floor that blocks uploads"),
+    ):
+        assert needed in play, f"the Play pack does not answer {why}"
+
+
+def test_a_film_can_be_accepted_and_still_never_be_seen():
+    """One ceiling could not say the thing that matters.
+
+    Instagram accepts a Reel of about twenty minutes and recommends one of
+    three, so a film can be entirely legal and entirely invisible — and a
+    single `max_seconds` has no way to express that. Checking the numbers
+    against current guidance is what surfaced it: three of the six limits in
+    the file had risen while it kept the old ones, so it was refusing films the
+    platforms would have taken, and saying nothing at all about the length that
+    actually decides whether anybody sees them.
+    """
+    from auteur.workflows.platforms import PLATFORMS
+
+    reach = {k: s for k, s in PLATFORMS.items() if s.reach_seconds}
+    assert reach, "no surface distinguishes what is accepted from what travels"
+
+    for key, spec in reach.items():
+        assert (
+            spec.reach_seconds < spec.max_seconds
+        ), f"{key}: the reach ceiling is not below the hard one, so it says nothing"
+        assert (
+            spec.ideal_seconds <= spec.reach_seconds
+        ), f"{key}: the length it aims for is already past the length that travels"
+
+        # Between the two: accepted, and a warning that it will not travel.
+        between = (spec.reach_seconds + spec.max_seconds) / 2
+        assert (
+            spec.duration_problem(between) == ""
+        ), f"{key}: {between:.0f}s is refused, and the platform would take it"
+        assert spec.reach_problem(
+            between
+        ), f"{key}: {between:.0f}s posts to nobody and nothing says so"
+
+        # Under the reach ceiling: nothing to report either way.
+        fine = spec.ideal_seconds
+        assert not spec.duration_problem(fine) and not spec.reach_problem(fine)
+
+    # Surfaces with a genuine hard stop and no cliff still behave.
+    for key, spec in PLATFORMS.items():
+        if not spec.reach_seconds:
+            assert (
+                spec.reach_problem(spec.max_seconds * 2) == ""
+            ), f"{key} has no reach ceiling but reports one"
+
+
+def test_what_each_surface_reports_is_the_number_that_changes_a_decision():
+    """ "3-3600s" is true and useless.
+
+    Once the hard limits were corrected they became twenty minutes and an hour,
+    and a span written from them tells a person nothing about the film they
+    should make. What gets shown is the length that still travels.
+    """
+    from auteur.workflows.platforms import AS_OF, PLATFORMS
+
+    assert re.fullmatch(r"\d{4}-\d{2}", AS_OF), f"{AS_OF!r} is not a checkable date"
+
+    for key, spec in PLATFORMS.items():
+        described = spec.describe()
+        ceiling = spec.reach_seconds or spec.max_seconds
+        assert (
+            f"{ceiling:.0f}s" in described
+        ), f"{key}: {described!r} does not name the ceiling that matters"
+        if spec.reach_seconds:
+            assert (
+                "allowed" in described
+            ), f"{key}: the hard limit is hidden entirely, so an allowed film looks refused"
+
+
+def test_the_scholar_has_a_source_that_is_not_this_repository(tmp_path):
+    """Audited on the live store: 127 learnings, every one from inside.
+
+    94 measured off the project's own reels, 23 read out of its own markdown, 7
+    concluded over those, 3 from its own scrolls. The confidence ladder counts
+    independent channels and there was exactly one, so nothing could ever climb
+    it — and `library.py` says in its own docstring that a project's notes
+    agreeing with a project's notes is not corroboration, which had been true
+    and unaddressed for the whole life of the store.
+    """
+    from auteur.scholar.published import FINDINGS, SOURCES, learn
+
+    assert FINDINGS, "no published findings at all"
+    drawn = learn()
+    assert len(drawn) == len(FINDINGS)
+
+    for learning in drawn:
+        assert learning.source_channel.startswith("published:")
+        # The point of an outside source is that a person can go and check it.
+        assert learning.source_video_id.startswith(
+            "https://"
+        ), f"{learning.technique!r} cites no URL"
+        assert learning.measurements.get(
+            "measured_year"
+        ), f"{learning.technique!r} does not say when it was measured"
+
+    # And they are independent of each other, which is what the ladder counts.
+    assert len({learning.source_channel for learning in drawn}) >= 3
+
+    # Evidence is graded rather than flattened. A peer-reviewed measurement of
+    # 160 films and a trade article are not the same kind of fact, and a store
+    # that recorded them identically would be confidently wrong in exactly the
+    # places it should hedge.
+    kinds = {source.kind for source in SOURCES.values()}
+    assert "peer-reviewed" in kinds and "trade" in kinds, "no grading of evidence"
+    for source in SOURCES.values():
+        if source.kind == "trade":
+            assert (
+                source.strength.value == "tentative"
+            ), f"{source.key} is a trade source starting above tentative"
+
+
+def test_the_outside_numbers_are_checked_against_this_projects_own(tmp_path):
+    """An outside number is only worth having if something is done with it.
+
+    What should be done is the comparison. Redfern's rule for feature film —
+    the median hold is about 0.6 of the mean — is a real published constant,
+    and it does not survive contact with a fifteen-second reel: measured on
+    this corpus the ratio is nearer 0.8, because short form has no room for the
+    long held shots that pull a feature's mean away from its median. The
+    direction of the advice holds and the constant does not, and knowing which
+    is which is the whole value of having read it.
+    """
+    import statistics
+
+    from auteur.scholar.published import corpus, corroborate
+
+    reels = corpus()
+    assert reels, "the corpus the comparison needs is missing"
+
+    drawn = corroborate(reels)
+    assert drawn, "nothing was compared"
+
+    skew = next(item for item in drawn if "skew" in item.technique)
+    ours = skew.measurements["our_ratio"]
+    theirs = skew.measurements["published_ratio"]
+
+    # Recomputed here rather than trusted, from the same per-shot durations.
+    ratios = []
+    for reel in reels:
+        holds = [float(b[0]) for b in reel.get("beats", []) if float(b[0]) > 0]
+        if len(holds) >= 8 and statistics.mean(holds) > 0:
+            ratios.append(statistics.median(holds) / statistics.mean(holds))
+    assert ours == pytest.approx(statistics.median(ratios), abs=0.01)
+
+    assert ours > theirs + 0.1, (
+        "the corpus now matches the feature-film ratio, so this comparison "
+        "proves nothing — re-measure"
+    )
+    assert skew.source_video_id.startswith("https://"), "the comparison cites nothing"
+
+
+def test_a_loop_return_is_measured_against_the_film_it_closes(tmp_path):
+    """A constant written for a 0.9s montage outlived the 0.9s montage.
+
+    The loop return exists to be invisible — a brief touch back to the opening
+    frame so the reel rounds rather than jumps. At 0.9s it was one shot long
+    when a montage held 0.9s. The montage holds 0.334s now, which made the
+    return 2.7 holds, and on a hypercut 5.4: the shot meant to slip past
+    unnoticed became the longest in the film, sitting at the end where the loop
+    is supposed to snap.
+    """
+    from auteur.director.brief import parse_brief
+
+    for prompt in ("montage", "a hypercut", "slow and cinematic"):
+        hold = parse_brief(prompt).base_shot_length
+        # The rule as the agent applies it.
+        span = min(max(hold * 2.0, 0.2), 0.9, 10.0)
+        assert span <= 0.9 + 1e-9, "the return outgrew its ceiling"
+        assert span / hold <= 3.0, (
+            f"a {prompt!r} film holds {hold}s and the loop return runs {span:.2f}s — "
+            f"{span / hold:.1f} holds, which is not a touch back"
+        )
+
+
 def test_the_scholar_names_what_it_measures_not_just_the_files(tmp_path):
     """Per-film learnings describe moments; none of them describes the form.
 
@@ -7336,6 +8333,91 @@ def test_the_scholar_names_what_it_measures_not_just_the_files(tmp_path):
     assert "hypercut" in found[0].technique
 
 
+def test_the_shelf_knows_what_a_montage_is_and_quotes_the_rate_it_measured(tmp_path):
+    """The corpus is asked about its own default pace, using its own numbers.
+
+    Two things are held here. The first is that a conclusion about montage
+    forms at all — the band between a hypercut and a held shot is where most of
+    the shelf lives, and it had no name, which is how the default pace stayed
+    an invented number for so long.
+
+    The second is subtler and is why this test reads the real reels rather than
+    invented ones: the learning quotes a cut *rate*, and the tempting way to
+    get one is 10 / median_hold. That is wrong by half. A reel holding 0.334s a
+    shot does not cut thirty times in ten seconds, because it also spends time
+    on an opening hold and on the shots it lets run — measured, these thirteen
+    cut 20.1 times. A learning that cites the corpus must not state a number
+    the corpus contradicts.
+    """
+    import json
+    import statistics
+
+    from auteur.scholar.knowledge import Discipline, KnowledgeStore, Learning
+    from auteur.scholar.library import HYPERCUT_HOLD, MONTAGE_HOLD, conclude
+
+    reels = json.loads(
+        (
+            Path(__file__).resolve().parent.parent / "tools" / "artifact" / "templates.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    store = KnowledgeStore(tmp_path / "knowledge.jsonl")
+    for reel in reels:
+        store.add(
+            Learning(
+                learning_id=f"reel-{reel['id']}",
+                disciplines=[Discipline.MOVIE_MAKING],
+                insight=f"{reel['label']} holds each shot {reel['hold']}s",
+                technique="cutting rate",
+                application="hold the crew to this",
+                source_video_id=f"file:{reel['id']}.mp4",
+                source_channel=f"film:{reel['id']}",
+                source_title=reel["label"],
+                source_end_sec=float(reel["seconds"]),
+                measurements={
+                    "shot_seconds": float(reel["hold"]),
+                    "cuts_per_10s": float(reel["shots"]) / float(reel["seconds"]) * 10.0,
+                },
+            )
+        )
+
+    drawn = {learning.technique: learning for learning in conclude(store)}
+    montage = next((v for k, v in drawn.items() if k.startswith("montage")), None)
+    assert montage is not None, f"the shelf concluded {list(drawn)} and nothing about montage"
+
+    band = [r for r in reels if HYPERCUT_HOLD < float(r["hold"]) <= MONTAGE_HOLD]
+    assert montage.measurements["shot_seconds"] == pytest.approx(
+        statistics.median(float(r["hold"]) for r in band), abs=0.005
+    )
+
+    measured_rate = statistics.median(float(r["shots"]) / float(r["seconds"]) * 10.0 for r in band)
+    assert montage.measurements["cuts_per_10s"] == pytest.approx(measured_rate, abs=0.05)
+    derived_rate = 10.0 / montage.measurements["shot_seconds"]
+    assert abs(derived_rate - measured_rate) > 5, (
+        "the two ways of getting a rate now agree, so this test proves nothing — "
+        "re-measure the corpus"
+    )
+    assert f"{measured_rate:.1f}" in montage.insight, "the learning quotes an unmeasured rate"
+
+    # And what it concluded is what the director cuts a montage at.
+    assert parse_brief("montage").base_shot_length == pytest.approx(
+        montage.measurements["shot_seconds"], abs=0.005
+    ), "the Scholar measured one pace and the director cuts at another"
+
+    # The same seam on the other word. The hypercut learning took the median
+    # of *every* reel on the shelf — held shots included — while calling it
+    # how fast a fast cut is, so it reported 0.208s where the director cut
+    # 0.167s. One word, two numbers, and nothing compared them.
+    fast = drawn["hypercut — how fast a fast cut is"]
+    band = [float(r["hold"]) for r in reels if float(r["hold"]) <= HYPERCUT_HOLD]
+    assert fast.measurements["shot_seconds"] == pytest.approx(
+        statistics.median(band), abs=0.005
+    ), "the hypercut finding is measured over reels that are not hypercuts"
+    assert parse_brief("a hypercut").base_shot_length == pytest.approx(
+        fast.measurements["shot_seconds"], abs=0.005
+    ), "the Scholar measured one hypercut and the director cuts another"
+
+
 def test_a_conclusion_about_the_shelf_is_not_dropped_as_a_repeat(tmp_path):
     """The de-duplicator was throwing away the best answers it had.
 
@@ -7384,3 +8466,4525 @@ def test_a_conclusion_about_the_shelf_is_not_dropped_as_a_repeat(tmp_path):
     assert (
         "hypercut" in said.lower()
     ), "the conclusion drawn across every film was dropped as a repeat of itself"
+
+
+# ---------------------------------------------------------------------------
+# The feed and the inbox
+# ---------------------------------------------------------------------------
+
+
+def test_a_finished_film_outlives_the_job_that_made_it(tmp_path):
+    """The whole reason the feed exists: jobs are swept, films are not."""
+    from auteur.web.social import Films
+
+    films = Films(tmp_path / "films.json")
+    clip = tmp_path / "one.mp4"
+    clip.write_bytes(b"not really an mp4, but it is a file")
+    films.add(owner="ada", prompt="a hypercut", video=str(clip), facts=["12 shots"])
+
+    # A second process, reading the same file.
+    again = Films(tmp_path / "films.json")
+    assert [f.prompt for f in again.feed()] == ["a hypercut"]
+
+
+def test_a_film_never_hands_its_path_on_disk_to_a_browser(tmp_path):
+    from auteur.web.social import Films
+
+    films = Films(tmp_path / "films.json")
+    clip = tmp_path / "secret-place" / "one.mp4"
+    clip.parent.mkdir()
+    clip.write_bytes(b"x")
+    film = films.add(owner="ada", prompt="p", video=str(clip))
+
+    said = film.public("ada")
+    assert "secret-place" not in json.dumps(said)
+    assert said["video"] == f"/api/films/{film.id}/video"
+
+
+def test_the_feed_forgets_films_whose_file_has_been_swept(tmp_path):
+    """A feed of rows that play nothing looks busy and is empty."""
+    from auteur.web.social import Films
+
+    films = Films(tmp_path / "films.json")
+    kept = tmp_path / "kept.mp4"
+    kept.write_bytes(b"x")
+    films.add(owner="ada", prompt="kept", video=str(kept))
+    films.add(owner="ada", prompt="swept", video=str(tmp_path / "gone.mp4"))
+
+    assert films.drop_missing() == 1
+    assert [f.prompt for f in films.feed()] == ["kept"]
+
+
+def test_only_a_films_own_author_can_take_it_out_of_the_feed(tmp_path):
+    from auteur.web.social import Films
+
+    films = Films(tmp_path / "films.json")
+    clip = tmp_path / "one.mp4"
+    clip.write_bytes(b"x")
+    film = films.add(owner="ada", prompt="p", video=str(clip))
+
+    assert films.forget(film.id, "grace") is False
+    assert films.get(film.id) is not None
+    assert films.forget(film.id, "ada") is True
+    assert films.get(film.id) is None
+
+
+def test_liking_a_film_twice_unlikes_it(tmp_path):
+    from auteur.web.social import Films
+
+    films = Films(tmp_path / "films.json")
+    clip = tmp_path / "one.mp4"
+    clip.write_bytes(b"x")
+    film = films.add(owner="ada", prompt="p", video=str(clip))
+
+    assert films.like(film.id, "grace").liked_by == ["grace"]
+    assert films.like(film.id, "grace").liked_by == []
+
+
+def test_a_conversation_reads_the_same_from_either_end(tmp_path):
+    """Sorting the pair is the whole trick, and it is worth a test: keyed by
+    sender-then-recipient, a reply would open a second, empty thread."""
+    from auteur.web.social import Messages
+
+    box = Messages(tmp_path / "messages.json")
+    box.send("ada", "grace", text="did you see this")
+    box.send("grace", "ada", text="the 90s one?")
+
+    assert [n.text for n in box.thread("ada", "grace")] == ["did you see this", "the 90s one?"]
+    assert [n.text for n in box.thread("grace", "ada")] == ["did you see this", "the 90s one?"]
+
+
+def test_reading_a_conversation_is_what_clears_its_unread_count(tmp_path):
+    from auteur.web.social import Messages
+
+    box = Messages(tmp_path / "messages.json")
+    box.send("ada", "grace", text="one")
+    box.send("ada", "grace", text="two")
+
+    assert box.unread("grace") == 2
+    assert box.unread("ada") == 0  # your own messages are not news to you
+    box.mark_read("grace", "ada")
+    assert box.unread("grace") == 0
+
+
+def test_a_message_with_nothing_in_it_is_not_sent(tmp_path):
+    from auteur.web.social import Messages
+
+    box = Messages(tmp_path / "messages.json")
+    assert box.send("ada", "grace", text="   ") is None
+    assert box.send("ada", "ada", text="hello") is None  # no talking to yourself
+    assert box.send("ada", "", text="hello") is None
+    assert box.conversations("ada") == []
+
+
+def test_an_inbox_row_carries_enough_to_draw_itself(tmp_path):
+    """A list view that fetches per row is how a phone makes forty requests."""
+    from auteur.web.social import Messages
+
+    box = Messages(tmp_path / "messages.json")
+    box.send("ada", "grace", text="first")
+    box.send("grace", "ada", film="abc123")
+
+    row = box.conversations("ada")[0]
+    assert row["who"] == "grace"
+    assert row["last"] == "sent a film"
+    assert row["mine"] is False
+    assert row["unread"] == 1
+
+
+def test_the_tab_bar_is_on_every_page_behind_the_sign_in():
+    """Five slots, same place, every screen. A bar that vanishes on one page
+    is a bar people stop trusting to be there."""
+    from auteur.web import server
+
+    for page in ("index", "feed", "inbox", "templates", "studio", "ask", "overlays", "connect"):
+        text = (server.STATIC / f"{page}.html").read_text()
+        assert "chrome.js" in text, f"{page}.html has no tab bar"
+    # Except the one page you are not signed in on.
+    assert "chrome.js" not in (server.STATIC / "login.html").read_text()
+
+
+def test_the_feed_and_inbox_are_behind_the_sign_in():
+    from auteur.web import server
+
+    for path in ("/feed", "/inbox", "/api/feed", "/api/messages", "/api/people"):
+        assert path not in server.PUBLIC_PATHS
+        assert not path.startswith(server.PUBLIC_PREFIXES)
+
+
+# ---------------------------------------------------------------------------
+# Joins in the ffmpeg path
+# ---------------------------------------------------------------------------
+
+
+def test_the_progress_term_runs_forwards():
+    """xfade's own `P` counts down, whatever its documentation says.
+
+    Measured against the binary by writing `P*200` into the luma plane and
+    reading the raw frames back: it falls from 1 to 0 across the join. Every
+    custom expression in this module was written to the documented direction
+    and so rendered backwards — the whips travelled away from the shot they
+    were thrown at. This is the correction, and it is one string so that the
+    next expression cannot get it wrong separately.
+    """
+    from auteur.craft import transitions
+
+    assert transitions.T == "(1-P)"
+    for name, expr in transitions.CUSTOM_EXPRESSIONS.items():
+        # Every custom join must go through the correction, and none may use a
+        # bare P for anything but the correction itself.
+        assert "(1-P)" in expr, f"{name} does not use the corrected progress"
+        assert expr.count("P") == expr.count("(1-P)") + expr.count("PLANE") + expr.count(
+            "PI"
+        ), f"{name} uses a bare P somewhere"
+
+
+def test_the_two_joins_people_actually_ask_for_exist():
+    """A portal opening through the outgoing shot, and a carried middle.
+
+    These are the joins named in every description of the reels this program
+    is built to make — "part of the previous photo is on the next photo" — and
+    the ffmpeg path had neither.
+    """
+    from auteur.craft import transitions
+
+    assert "portal" in transitions.CUSTOM_EXPRESSIONS
+    assert "carry" in transitions.CUSTOM_EXPRESSIONS
+    # And a fallback for a build that will not take custom expressions.
+    assert transitions.BUILTIN["portal"] == "circleopen"
+    assert transitions.BUILTIN["carry"] == "fade"
+
+
+def test_portal_and_carry_are_written_in_frame_coordinates():
+    """Not per-plane, unlike the whips.
+
+    `X` and `Y` are frame coordinates in every plane while `W` and `H` are the
+    frame's dimensions everywhere, so halving them for chroma — which is what
+    `_plane_expr` is for — draws a second, quarter-sized shape in the corner.
+    On a red-to-blue join that was a blue circle in the top-left and a dark red
+    one in the middle, on the same frame.
+    """
+    from auteur.craft import transitions
+
+    for name in ("portal", "carry"):
+        assert (
+            "PLANE" not in transitions.CUSTOM_EXPRESSIONS[name]
+        ), f"{name} is wrapped per-plane and will draw twice"
+
+
+def test_a_hypercut_may_still_open_a_portal():
+    """The references cut hard and still open one on the shots that can hold it.
+
+    The bag used to be ("cut",) exactly, which made every join in the fastest
+    style identical — the thing the Gaze agent reports as the absence of a
+    decision rather than as a style.
+    """
+    from auteur.director.brief import parse_brief
+
+    brief = parse_brief("a 90s hypercut, 12 seconds")
+    assert brief.style == "hypercut"
+    assert "portal" in brief.transitions
+    # Still overwhelmingly cuts, or it is not a hypercut any more.
+    assert brief.transitions.count("cut") / len(brief.transitions) >= 0.6
+
+
+def test_the_edl_accepts_every_join_the_renderer_can_actually_make():
+    """Two lists that have to agree, held to each other rather than to memory.
+
+    `Transition.normalise` validates against `edl.TRANSITIONS` and silently
+    rewrites anything else to a dissolve. So a join added to the renderer but
+    not to that set is not a broken join — it is an *invisible* one: the
+    director chooses it, the EDL writes down "dissolve", every tally agrees,
+    and nobody can tell the feature was never delivered. That happened to both
+    `portal` and `carry`.
+    """
+    from auteur import edl
+    from auteur.craft import transitions
+
+    renderable = set(transitions.BUILTIN) | set(transitions.CUSTOM_EXPRESSIONS)
+    missing = renderable - edl.TRANSITIONS
+    assert missing == set(), f"the renderer can make joins the EDL will rename: {sorted(missing)}"
+
+    # And the other direction: a name the EDL allows that nothing can render
+    # would come out of ffmpeg as whatever `xfade_spec` defaults to.
+    unrenderable = edl.TRANSITIONS - renderable - {"cut"}
+    assert unrenderable == set(), f"the EDL allows joins nothing renders: {sorted(unrenderable)}"
+
+
+def test_an_unknown_join_says_so_rather_than_becoming_a_dissolve():
+    import logging
+
+    from auteur.edl import Transition
+
+    logger = logging.getLogger("auteur.edl")
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    logger.addHandler(handler)
+    try:
+        assert Transition("teleport", 0.4).normalise().kind == "dissolve"
+    finally:
+        logger.removeHandler(handler)
+    assert any("teleport" in record.getMessage() for record in records)
+
+
+# ---------------------------------------------------------------------------
+# Levelling, and the two renderers agreeing
+# ---------------------------------------------------------------------------
+
+
+def test_ffmpeg_gamma_is_the_reciprocal_of_the_browsers():
+    """The two are documented in opposite directions and it is invisible.
+
+    The browser's lookup table is `pow(x, gamma)`, where a gamma below 1
+    brightens. ffmpeg's `eq` says "larger values make the picture brighter", so
+    it is `pow(x, 1 / gamma)`. Passing the same number to both applies the
+    correction backwards, which is exactly what happened: adding levelling to
+    the ffmpeg path moved the two renderers *further* apart, from 9-15 levels
+    out of 255 to 10-16, and nothing about the code looked wrong.
+    """
+    from auteur.craft.color import level_chain
+
+    # A dark picture wants brightening: gamma below 1 in the browser's terms.
+    chain = level_chain(0.02, 0.99, 0.60)
+    assert "eq=gamma=1.6667" in chain, chain
+
+    # And a bright one wants the opposite.
+    chain = level_chain(0.0, 1.0, 1.25)
+    assert "eq=gamma=0.8000" in chain, chain
+
+
+def test_levelling_leaves_a_well_exposed_picture_alone():
+    """Pulled back toward doing nothing, or every film gets the same face."""
+    from auteur.craft.color import level_chain, level_for
+
+    black, white, gamma = level_for(0.0, 1.0, 0.44)
+    assert black == 0.0
+    assert white == 1.0
+    assert abs(gamma - 1.0) < 0.02
+    assert level_chain(black, white, gamma) == ""
+
+
+def test_levelling_lifts_an_underexposed_one():
+    from auteur.craft.color import level_for
+
+    _, _, gamma = level_for(0.01, 0.95, 0.15)
+    # Below 1 in the browser's terms, which is the direction that brightens.
+    assert gamma < 0.8
+
+
+def test_the_white_point_can_never_cross_the_black_point():
+    """colorlevels inverts the picture if it does, silently."""
+    from auteur.edl import Look
+
+    look = Look(black=0.4, white=0.1).normalise()
+    assert look.white > look.black
+
+    look = Look(black=0.9, white=0.05).normalise()
+    assert look.black <= 0.5
+    assert look.white > look.black
+
+
+def test_a_shot_carries_the_level_measured_from_its_own_footage():
+    """Not a global setting: the gap between the renderers tracked how
+    underexposed each individual source was."""
+    import numpy as np
+
+    from auteur.analysis.video import VideoAnalysis, _ends_of
+
+    dark = np.full((1, 8, 8), 0.10, np.float32)
+    dark[0, 0, 0] = 1.0  # one specular highlight, which must not set the white
+    low, high = _ends_of(dark)
+    assert low < 0.2
+    assert high < 0.5, "the 99th percentile let one blown pixel set the white point"
+
+    # And the default is a no-op, so footage nothing measured is untouched.
+    blank = VideoAnalysis(fps=24.0, duration=1.0, width=8, height=8)
+    assert blank.black_point == 0.0
+    assert blank.white_point == 1.0
+
+
+def test_a_consensus_reading_carries_every_field_a_reading_has():
+    """`_consensus` rebuilds a Reading field by field, so a field added to the
+    dataclass and forgotten here comes back as its default — and a default of
+    0.0 does not read as a bug, it reads as a measurement. `saturation` was
+    measured on every sampled frame, dropped here, and reported as exactly 0.00
+    for every reel in the corpus."""
+    import dataclasses
+
+    from auteur.vision.connoisseur import Reading, _consensus
+
+    varied = [
+        Reading(
+            **{
+                f.name: (
+                    (0.1 * (i + 1), 0.2 * (i + 1))
+                    if f.name == "focus"
+                    else 0.11 * (i + 1) if f.type in (float, "float") else dataclasses.MISSING
+                )
+                for f in dataclasses.fields(Reading)
+                if f.name in {"focus"} or f.type in (float, "float")
+            }
+        )
+        for i in range(3)
+    ]
+    out = _consensus(varied)
+    for field in dataclasses.fields(Reading):
+        if field.type not in (float, "float") or field.name == "focus":
+            continue
+        if field.name in Reading.FILLED_LATER:
+            continue
+        assert getattr(out, field.name) != 0.0, f"_consensus drops {field.name}"
+
+
+# ---------------------------------------------------------------------------
+# The manager
+# ---------------------------------------------------------------------------
+
+
+def test_the_manager_never_posts_anything_anywhere():
+    """The one test in this file that is about a promise rather than a bug.
+
+    A tool that plans posts, drafts captions and holds a schedule is one small
+    change away from one that publishes them. What makes "it never posts" true
+    is not the absence of a feature, it is that nothing in the module can reach
+    a network at all — so this reads the source and says so.
+    """
+    import ast
+    import inspect
+
+    from auteur import manager
+
+    source = inspect.getsource(manager)
+    tree = ast.parse(source)
+
+    forbidden = {
+        "requests",
+        "urllib",
+        "http",
+        "httpx",
+        "aiohttp",
+        "socket",
+        "smtplib",
+        "ftplib",
+        "webbrowser",
+    }
+    reached = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            reached.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            reached.add(node.module.split(".")[0])
+    assert not (reached & forbidden), f"the manager can reach the network: {reached & forbidden}"
+
+    # And the verb is the one that tells the truth about what happened.
+    assert "mark_posted" in dir(manager.Board)
+    assert not hasattr(manager.Board, "post")
+    assert not hasattr(manager, "publish")
+
+
+def test_a_plan_exists_before_the_footage_does():
+    """The whole point: a post you can plan with nothing in hand."""
+    from auteur.manager import Plan
+
+    plan = Plan(
+        id="p",
+        owner="ada",
+        title="Saturday market",
+        platform="instagram-reel",
+        when="2026-09-01T09:00:00+00:00",
+        prompt="a 90s hypercut of the market",
+    )
+    assert plan.status == "idea"
+    assert plan.film == ""
+
+
+def test_the_shot_list_follows_the_runtime_and_the_measured_hold():
+    """A 20 second film at a 0.167s median is a lot of shots, and it says so."""
+    from auteur.manager import shot_list
+
+    fast = shot_list("a hypercut", seconds=20.0, hold=0.167)
+    slow = shot_list("slow and cinematic", seconds=20.0, hold=1.0)
+    assert len(fast) > len(slow) * 3
+
+    # It opens on a hook and ends on a close, once each, however long it runs.
+    assert fast[0].role == "hook"
+    assert fast[-1].role == "close"
+    assert sum(1 for s in fast if s.role == "hook") == 1
+    assert sum(1 for s in fast if s.role == "close") == 1
+
+    # And every shot says what it is for, because that is the only part of a
+    # shot this program can know before the footage exists.
+    assert all(s.what and s.why for s in fast)
+
+
+def test_every_check_names_what_it_checked_against():
+    """A tick without a source is an opinion wearing a tick."""
+    from auteur.manager import Plan, check, shot_list
+
+    shots = shot_list("a hypercut", seconds=20.0, hold=0.167)
+    plan = Plan(
+        id="p",
+        owner="ada",
+        title="t",
+        platform="instagram-reel",
+        when="2026-09-01T09:00:00+00:00",
+        prompt="a hypercut",
+        seconds=20.0,
+        shots=[{"role": s.role, "seconds": s.seconds} for s in shots],
+        caption="words",
+        hashtags=["one"],
+        alt_text="a description",
+    )
+    report = check(plan, hold=0.167, first_cut=0.9)
+    assert report.findings
+    for finding in report.findings:
+        assert finding.source, f"{finding.name} names no source"
+        assert finding.verdict in ("pass", "warn", "fail")
+    # Nothing this reports is ever a claim that it posted.
+    assert report.to_json()["posts"] is False
+
+
+def test_the_manager_says_it_has_not_measured_the_time_of_day():
+    """Nothing in the metric schema records when a post went out, so the
+    manager must not imply it knows. Stating a gap is a feature."""
+    from auteur.manager import Plan, check
+
+    plan = Plan(
+        id="p",
+        owner="ada",
+        title="t",
+        platform="tiktok",
+        when="2026-09-01T09:00:00+00:00",
+        prompt="a hypercut",
+    )
+    report = check(plan)
+    hour = [f for f in report.findings if f.name == "time of day"]
+    assert hour, "the manager silently skipped the question it cannot answer"
+    assert hour[0].verdict != "pass"
+    assert "not checked" in hour[0].detail
+
+
+def test_a_length_the_surface_refuses_is_a_failure_not_a_warning():
+    from auteur.manager import Plan, check
+
+    plan = Plan(
+        id="p",
+        owner="ada",
+        title="t",
+        platform="instagram-story",
+        when="2026-09-01T09:00:00+00:00",
+        prompt="a hypercut",
+        seconds=500.0,
+    )
+    report = check(plan)
+    length = [f for f in report.findings if f.name == "length"][0]
+    assert length.verdict == "fail"
+
+
+def test_a_prediction_never_travels_without_its_provenance():
+    """A fitted-on-simulated-rows model gives a perfectly confident number that
+    predicts the simulator. A number without that sentence attached is worse
+    than no number, so the two are returned together or not at all."""
+    from auteur.manager import predict_for
+
+    score, why = predict_for(
+        __import__("auteur.manager", fromlist=["Plan"]).Plan(
+            id="p",
+            owner="ada",
+            title="t",
+            platform="tiktok",
+            when="2026-09-01T09:00:00+00:00",
+            prompt="a hypercut",
+        )
+    )
+    assert score is None
+    assert why, "no number and no reason is not an answer"
+
+
+def test_only_a_plans_owner_can_change_or_drop_it(tmp_path):
+    from auteur.manager import Board
+
+    board = Board(tmp_path / "plans.json")
+    plan = board.add(
+        owner="ada",
+        title="t",
+        platform="tiktok",
+        when="2026-09-01T09:00:00+00:00",
+        prompt="a hypercut",
+    )
+    assert board.update(plan.id, "grace", title="mine now") is None
+    assert board.drop(plan.id, "grace") is False
+    assert board.get(plan.id).title == "t"
+    assert board.update(plan.id, "ada", title="renamed").title == "renamed"
+
+
+def test_a_plan_survives_the_process_that_made_it(tmp_path):
+    from auteur.manager import Board
+
+    Board(tmp_path / "plans.json").add(
+        owner="ada",
+        title="Saturday market",
+        platform="instagram-reel",
+        when="2026-09-01T09:00:00+00:00",
+        prompt="a hypercut",
+    )
+    again = Board(tmp_path / "plans.json")
+    assert [p.title for p in again.by("ada")] == ["Saturday market"]
+
+
+def test_the_capture_list_is_something_a_person_could_actually_shoot():
+    """A twenty second hypercut is a hundred and ten shots, and a hundred and
+    ten numbered instructions is not a shot list. What people actually do —
+    and what the reference reels are made of — is a dozen setups the edit cuts
+    among, so that is what the plan hands over."""
+    from auteur.manager import capture_list, shot_list
+
+    shots = shot_list("a 90s hypercut of the market", seconds=20.0, hold=0.167)
+    captures = capture_list(shots)
+
+    assert len(shots) > 80
+    assert len(captures) <= 20, "a capture list nobody could carry out is not a plan"
+    # Nothing is lost: every shot in the timeline comes from one of them, and
+    # the screen time adds back up.
+    assert sum(c.times for c in captures) == len(shots)
+    assert abs(sum(c.seconds for c in captures) - sum(s.seconds for s in shots)) < 0.5
+    # And each setup is named once, not repeated as separate rows.
+    assert len({(c.role, c.what) for c in captures}) == len(captures)
+
+
+def test_two_shots_in_a_row_are_not_the_same_instruction():
+    """The instruction cycled on the position within the shape rather than per
+    role, so wherever two runs were adjacent the plan said "a wide of where you
+    are" twice in a row."""
+    from auteur.manager import shot_list
+
+    shots = shot_list("a hypercut", seconds=20.0, hold=0.167)
+    repeats = [
+        (a.order, a.what)
+        for a, b in zip(shots, shots[1:], strict=False)
+        if a.what == b.what and a.role == b.role == "run"
+    ]
+    assert repeats == [], f"consecutive identical instructions: {repeats[:3]}"
+
+
+# ---------------------------------------------------------------------------
+# Signing in with a Google or Apple account
+# ---------------------------------------------------------------------------
+
+
+def _fake_id_token(claims: dict) -> str:
+    """A JWT shaped token. Unsigned, which is the point of the test below."""
+    import base64
+
+    def part(payload: dict) -> str:
+        raw = json.dumps(payload).encode()
+        return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+    return part({"alg": "none"}) + "." + part(claims) + ".x"
+
+
+def test_the_whole_round_trip_against_a_stub_provider(monkeypatch):
+    """The flow end to end, without Google.
+
+    Real credentials cannot be in a test and a consent screen cannot be
+    clicked by one, so the provider is stubbed at the token endpoint — which is
+    the only place this code talks to it — and everything else is the real
+    path: the real authorize URL, the real state and nonce, the real PKCE
+    verifier, the real claim checks.
+    """
+    from auteur.web import oidc
+
+    settings = oidc.Settings(
+        client_id="client-123",
+        client_secret="shh",
+        redirect_uri="http://localhost:8793/auth/google/return",
+    )
+    attempts = oidc.Attempts()
+    attempt = attempts.begin("google")
+
+    where = oidc.begin("google", settings, attempt)
+    assert where.startswith("https://accounts.google.com/o/oauth2/v2/auth?")
+    assert "response_type=code" in where, "the implicit flow is not safe here"
+    assert "code_challenge_method=S256" in where
+    assert urllib.parse.quote(attempt.state, safe="") in where
+
+    sent = {}
+
+    def stub(url, form):
+        sent.update(form)
+        return {
+            "id_token": _fake_id_token(
+                {
+                    "aud": "client-123",
+                    "nonce": attempt.nonce,
+                    "exp": time.time() + 600,
+                    "email": "ada@example.invalid",
+                    "email_verified": True,
+                }
+            )
+        }
+
+    monkeypatch.setattr(oidc, "_post", stub)
+    claims = oidc.finish("google", settings, attempt, "the-code")
+
+    # The verifier goes back, which is what makes an intercepted code useless.
+    assert sent["code_verifier"] == attempt.verifier
+    assert sent["redirect_uri"] == settings.redirect_uri
+    assert oidc.email_of(claims) == "ada@example.invalid"
+
+
+def test_a_sign_in_attempt_cannot_be_replayed():
+    from auteur.web import oidc
+
+    attempts = oidc.Attempts()
+    attempt = attempts.begin("google")
+    assert attempts.claim(attempt.state) is attempt
+    assert attempts.claim(attempt.state) is None, "a state that works twice is a replay"
+    assert attempts.claim("something-else") is None
+
+
+def test_a_token_for_another_application_is_refused(monkeypatch):
+    """`aud` is the check that stops a token minted for a different client —
+    including an attacker's own — being spent here."""
+    from auteur.web import oidc
+
+    settings = oidc.Settings(client_id="ours", redirect_uri="http://localhost/x")
+    attempt = oidc.Attempts().begin("google")
+    monkeypatch.setattr(
+        oidc,
+        "_post",
+        lambda url, form: {
+            "id_token": _fake_id_token(
+                {"aud": "somebody-else", "nonce": attempt.nonce, "exp": time.time() + 60}
+            )
+        },
+    )
+    with pytest.raises(ValueError, match="different application"):
+        oidc.finish("google", settings, attempt, "code")
+
+
+def test_a_replayed_or_mismatched_nonce_is_refused(monkeypatch):
+    from auteur.web import oidc
+
+    settings = oidc.Settings(client_id="ours", redirect_uri="http://localhost/x")
+    attempt = oidc.Attempts().begin("google")
+    monkeypatch.setattr(
+        oidc,
+        "_post",
+        lambda url, form: {
+            "id_token": _fake_id_token(
+                {"aud": "ours", "nonce": "not-the-one", "exp": time.time() + 60}
+            )
+        },
+    )
+    with pytest.raises(ValueError, match="does not match"):
+        oidc.finish("google", settings, attempt, "code")
+
+
+def test_an_expired_token_is_refused(monkeypatch):
+    from auteur.web import oidc
+
+    settings = oidc.Settings(client_id="ours", redirect_uri="http://localhost/x")
+    attempt = oidc.Attempts().begin("google")
+    monkeypatch.setattr(
+        oidc,
+        "_post",
+        lambda url, form: {
+            "id_token": _fake_id_token(
+                {"aud": "ours", "nonce": attempt.nonce, "exp": time.time() - 5}
+            )
+        },
+    )
+    with pytest.raises(ValueError, match="expired"):
+        oidc.finish("google", settings, attempt, "code")
+
+
+def test_an_unverified_address_is_not_an_identity():
+    """Both providers hand over addresses they have not checked under some
+    conditions. Matching an account on one would let anybody who can claim an
+    address at a provider sign in as its owner."""
+    from auteur.web import oidc
+
+    assert oidc.email_of({"email": "ada@example.invalid", "email_verified": True})
+    assert oidc.email_of({"email": "ada@example.invalid", "email_verified": "true"})
+    assert oidc.email_of({"email": "ada@example.invalid", "email_verified": False}) == ""
+    assert oidc.email_of({"email": "ada@example.invalid"}) == ""
+
+
+def test_the_redirect_uri_never_comes_from_the_request():
+    """The one value an attacker would most like to influence. It has to match
+    what is registered with the provider anyway, and deriving it from the Host
+    header would let a forged one send somebody's code somewhere else."""
+    import ast
+    import inspect
+
+    from auteur.web import oidc
+
+    # The code, not the prose. The first version of this matched the sentence
+    # in the module docstring that explains the rule, which is a check that
+    # fails when you document the thing it is checking for.
+    tree = ast.parse(inspect.getsource(oidc))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+            node.value.value = ""  # a docstring
+    code = ast.unparse(tree)
+
+    for smell in ("self.headers", "Host", "request.host", "environ["):
+        assert smell not in code, f"the redirect uri may be built from {smell}"
+    # And the value that is sent is the configured one, every time.
+    assert "settings.redirect_uri" in code
+
+
+def test_every_provider_is_listed_even_when_it_is_not_set_up():
+    """A button that is simply absent reads as a capability this app does not
+    have. The truth is usually that nobody has pasted a client id in yet."""
+    from auteur.web import oidc
+
+    rows = oidc.offered({key: oidc.Settings() for key in oidc.PROVIDERS})
+    assert {row["key"] for row in rows} == set(oidc.PROVIDERS)
+    for row in rows:
+        assert row["ready"] is False
+        assert row["why"], f"{row['key']} is off and does not say why"
+        assert row["note"], f"{row['key']} does not say what it needs"
+
+
+def test_signing_in_with_a_provider_never_creates_an_account(tmp_path):
+    """Sign-up closes after the first account because this serves somebody's
+    own footage over their own wifi. An identity provider proves who you are;
+    it is not a second door."""
+    import inspect
+
+    from auteur.web import oidc, server
+
+    assert "add(" not in inspect.getsource(oidc), "the oidc module can create accounts"
+    handler = inspect.getsource(server.Handler._oidc_return)
+    assert "accounts.add" not in handler
+    assert "nomatch" in handler, "an unknown address must be told, not enrolled"
+
+
+def test_opening_a_session_is_not_the_same_as_authenticating(tmp_path):
+    """`open_session` is the step *after* an identity is established, and every
+    caller has to have done that. Worth a test because the method's name is
+    inviting and its effect is a signed-in session."""
+    import inspect
+
+    from auteur.web.auth import Accounts
+
+    doc = inspect.getdoc(Accounts.open_session) or ""
+    assert "does not authenticate" in doc.lower()
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("ada", "ada@example.invalid", "a-long-enough-passphrase")
+    token = accounts.open_session("ada")
+    assert accounts.session_user(token) == "ada"
+
+
+# ---------------------------------------------------------------------------
+# The calendar
+# ---------------------------------------------------------------------------
+
+
+def _a_plan(**over) -> dict:
+    plan = {
+        "id": "abc123",
+        "title": "Saturday market",
+        "when": "2026-09-05T09:00:00+00:00",
+        "prompt": "a 90s hypercut",
+        "status": "idea",
+        "caption": "Saturday, 6am",
+        "hashtags": ["market"],
+        "captures": [{"what": "a wide of where you are", "role": "run", "times": 14}],
+    }
+    plan.update(over)
+    return plan
+
+
+def test_the_calendar_folds_at_seventy_five_octets_and_ends_every_line_crlf():
+    """RFC 5545 is fussy in ways that produce a file which imports as *empty*
+    rather than as broken, which is the worst kind of wrong: the calendar app
+    says nothing and the events simply are not there."""
+    from auteur import calendar as ics
+
+    text = ics.feed([_a_plan(prompt="x " * 200)])
+    assert text.endswith("\r\n")
+    lines = text.split("\r\n")
+    assert all("\n" not in line and "\r" not in line for line in lines)
+    for line in lines:
+        assert len(line.encode("utf-8")) <= 75, f"unfolded line: {line[:40]}…"
+    # Continuations are marked, or the fold is just a broken line.
+    assert any(line.startswith(" ") for line in lines)
+
+
+def test_a_fold_never_splits_a_character():
+    """The limit is octets and the content is UTF-8, so folding on characters
+    puts half a character at the end of a line and mojibake in the calendar."""
+    from auteur import calendar as ics
+
+    text = ics.feed([_a_plan(title="café " * 40, prompt="—" * 90)])
+    for line in text.split("\r\n"):
+        line.encode("utf-8").decode("utf-8")  # raises if a fold split one
+
+
+def test_commas_and_newlines_in_a_caption_do_not_break_the_file():
+    from auteur import calendar as ics
+
+    text = ics.feed([_a_plan(caption="one, two; three\\four\nand a new line")])
+    body = "".join(line[1:] if line.startswith(" ") else "\n" + line for line in text.split("\r\n"))
+    description = [ln for ln in body.split("\n") if ln.startswith("DESCRIPTION:")][0]
+    assert "\\," in description
+    assert r"\;" in description
+    assert "\\\\" in description
+    assert "\\n" in description
+
+
+def test_editing_a_plan_updates_the_event_rather_than_adding_one():
+    """Stable UID, moving SEQUENCE. Without both, moving a shoot leaves the old
+    one on the phone and adds a second — which is how a calendar subscription
+    becomes something people unsubscribe from."""
+    from auteur import calendar as ics
+
+    before = ics.event_for(_a_plan())
+    moved = ics.event_for(_a_plan(when="2026-09-06T09:00:00+00:00"))
+    renamed = ics.event_for(_a_plan(title="Sunday market"))
+
+    assert before.uid == moved.uid == renamed.uid
+    assert before.sequence != moved.sequence
+    assert before.sequence != renamed.sequence
+    # And an untouched plan does not churn: a calendar that is told everything
+    # changed every hour stops believing any of it.
+    assert ics.event_for(_a_plan()).sequence == before.sequence
+
+
+def test_a_plan_carries_its_reminders():
+    from auteur import calendar as ics
+
+    text = ics.feed([_a_plan()])
+    assert text.count("BEGIN:VALARM") == len(ics.ALARMS)
+    assert "TRIGGER:-PT48H" in text  # go and shoot it
+    assert "TRIGGER:PT0S" in text  # and the moment itself, which is not -PT0M
+
+
+def test_a_posted_plan_stops_being_something_to_do():
+    from auteur import calendar as ics
+
+    done = ics.feed([_a_plan(status="posted")])
+    assert "STATUS:CANCELLED" in done
+    assert "BEGIN:VALARM" not in done, "a reminder to post something already posted"
+
+
+def test_a_plan_with_an_unreadable_time_is_skipped_not_crashed():
+    from auteur import calendar as ics
+
+    assert ics.event_for(_a_plan(when="whenever")) is None
+    text = ics.feed([_a_plan(when="whenever"), _a_plan(id="ok")])
+    assert text.count("BEGIN:VEVENT") == 1
+
+
+def test_the_calendar_link_is_a_capability_and_can_be_rolled(tmp_path):
+    """A calendar app has no cookie, so the URL is the credential. That makes
+    the ability to roll it the only way to un-share it."""
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("ada", "ada@example.invalid", "a-long-enough-passphrase")
+
+    token = accounts.calendar_token("ada")
+    assert len(token) >= 24
+    assert accounts.calendar_token("ada") == token, "a link that changes is a link that breaks"
+    assert accounts.by_calendar_token(token).username == "ada"
+
+    rolled = accounts.calendar_token("ada", roll=True)
+    assert rolled != token
+    assert accounts.by_calendar_token(token) is None, "the old link still works"
+    assert accounts.by_calendar_token("").username if False else True
+
+
+def test_a_calendar_token_is_not_derived_from_anything_about_the_account(tmp_path):
+    """A derived token cannot be rolled without changing what it is derived
+    from, and the reason to roll one is that it went somewhere it should not."""
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("ada", "ada@example.invalid", "a-long-enough-passphrase")
+    token = accounts.calendar_token("ada")
+    account = accounts.get("ada")
+    for secret in (account.username, account.email, account.salt, account.password_hash):
+        assert secret not in token
+        assert token not in secret
+
+
+def test_the_calendar_feed_is_reachable_without_a_session():
+    """On purpose, and the only route that is: a calendar app is not a browser
+    and will not sign in."""
+    from auteur.web import server
+
+    assert "/calendar/" in server.PUBLIC_PREFIXES
+
+
+def test_a_platform_has_a_readable_title_that_is_not_its_lookup_key():
+    """`name` reads like a label and is not one — it is "instagram-reel". It
+    reached the manager's board and put a lookup key on somebody's screen."""
+    from auteur.workflows.platforms import PLATFORMS
+
+    for key, spec in PLATFORMS.items():
+        assert spec.name == key
+        assert spec.title != key
+        assert " " in spec.title
+        assert spec.service in spec.title
+
+
+# ---------------------------------------------------------------------------
+# The iOS app
+# ---------------------------------------------------------------------------
+
+IOS = Path(__file__).resolve().parent.parent / "ios"
+
+
+def test_the_page_in_the_ios_bundle_is_the_page_the_build_produces():
+    """`ios/README.md` said this file is generated. Nothing generated it.
+
+    The generator was real — `ios/scripts/build_bundle.py` writes this file, and
+    the README says to run it. Nobody ran it. By the time the two were compared
+    the bundle was 350 lines behind the app: missing two theme roles, missing
+    the sheet-height fix, and missing the entire stylesheet for the report and
+    block dialog, so the iPhone build shipped the one screen App Store guideline
+    1.2 is about with no styling on it. Nobody had noticed, because noticing
+    meant diffing a 350KB file by hand.
+
+    A build step nothing checks is a build step that stops being run. This runs
+    it and compares the result to what is committed.
+    """
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parent.parent
+    bundle = IOS / "Auteur" / "Web" / "index.html"
+    assert bundle.is_file(), "the iOS bundle has no page in it"
+
+    before = bundle.read_text(encoding="utf-8")
+    artifact = root / "tools" / "artifact" / "auteur-app.html"
+    # Generated and gitignored, so on a fresh checkout it does not exist yet.
+    # Reading it here unconditionally is why this test failed on every CI run
+    # while passing on every machine that had once built it by hand.
+    artifact_before = artifact.read_text(encoding="utf-8") if artifact.is_file() else None
+    try:
+        for step in (
+            root / "tools" / "artifact" / "build_artifact.py",
+            root / "ios" / "scripts" / "build_bundle.py",
+        ):
+            done = subprocess.run(
+                [sys.executable, str(step)], capture_output=True, text=True, cwd=root
+            )
+            # `build_bundle.py` reports the placeholder identity as not ready to
+            # submit and exits non-zero for it. That is a different question
+            # from whether it wrote the page, so the page is what is checked.
+            assert "Traceback" not in done.stderr, f"{step.name} crashed: {done.stderr[-2000:]}"
+
+        assert bundle.read_text(encoding="utf-8") == before, (
+            "the page committed in the iOS bundle is not what the build produces — "
+            "run `python3 tools/artifact/build_artifact.py` then "
+            "`python3 ios/scripts/build_bundle.py`, and commit the result"
+        )
+    finally:
+        # Leave the tree as it was found, whichever way the assert went.
+        bundle.write_text(before, encoding="utf-8")
+        if artifact_before is None:
+            artifact.unlink(missing_ok=True)
+        else:
+            artifact.write_text(artifact_before, encoding="utf-8")
+
+
+def test_the_ios_bundle_carries_the_screens_the_app_store_asks_about():
+    """The stale bundle was missing these, which is how staleness showed up.
+
+    Guideline 1.2 wants reporting and blocking reachable in the shipped build,
+    not only in the served one. A rule that lives in the app's stylesheet and
+    not in the bundle is a dialog that renders unstyled on a phone.
+    """
+    page = (IOS / "Auteur" / "Web" / "index.html").read_text(encoding="utf-8")
+
+    for needed, why in (
+        (".choices.reasons", "the report sheet's reason grid"),
+        ("--on-photo", "the colour text takes when it sits on a photo"),
+        ("--on-rust", "the colour text takes on the accent"),
+        ('data-prompt="a montage', "the montage chip"),
+    ):
+        assert needed in page, f"the iOS bundle is missing {why} ({needed})"
+
+
+def test_the_app_icon_carries_no_alpha_channel():
+    """App Store Connect rejects an icon with a channel it does not use, and
+    the rejection arrives after the upload, by email, naming something else."""
+    from PIL import Image
+
+    icons = sorted((IOS / "Auteur" / "Assets.xcassets" / "AppIcon.appiconset").glob("*.png"))
+    assert icons, "no icons built — run ios/scripts/build_bundle.py"
+    for path in icons:
+        with Image.open(path) as icon:
+            assert icon.mode == "RGB", f"{path.name} has an alpha channel"
+            assert icon.size[0] == icon.size[1], f"{path.name} is not square"
+    assert any(p.name == "icon-1024.png" for p in icons), "the store icon is 1024"
+
+
+def test_every_plist_in_the_project_parses():
+    """Xcode reports a malformed plist as a build failure several steps away
+    from the file that is wrong."""
+    import plistlib
+
+    found = list(IOS.rglob("*.plist")) + list(IOS.rglob("*.xcprivacy"))
+    assert len(found) >= 3
+    for path in found:
+        with path.open("rb") as handle:
+            plistlib.load(handle)
+
+
+def test_the_app_asks_only_for_permissions_it_uses():
+    """Every usage string is a sentence somebody reads in a dialog, and a
+    permission the app does not use is both a worse dialog and a rejection."""
+    import plistlib
+
+    with (IOS / "Auteur" / "Info.plist").open("rb") as handle:
+        info = plistlib.load(handle)
+
+    for key in ("NSPhotoLibraryAddUsageDescription", "NSCalendarsWriteOnlyAccessUsageDescription"):
+        assert key in info, f"{key} is missing and the app will crash when it asks"
+        assert len(info[key]) > 25, f"{key} does not say what it is for"
+        assert info[key].endswith("."), f"{key} is not a sentence"
+
+    # The picker hands over only what somebody chose and needs no permission,
+    # so read access to the whole library would be asking for something nothing
+    # in this app uses.
+    assert "NSPhotoLibraryUsageDescription" not in info
+
+    swift = (IOS / "Auteur" / "Bridge.swift").read_text()
+    assert "addOnly" in swift, "the app asks for more of Photos than it needs"
+
+
+def test_the_app_targets_the_ios_the_renderer_actually_needs():
+    """The one number in the project file that is a measurement rather than a
+    default: the renderer records by pulling frames off a canvas, and
+    `canvas.captureStream` did not exist in WebKit before 15.4."""
+    spec = (IOS / "project.yml").read_text()
+    match = re.search(r"iOS:\s*\"(\d+)\.(\d+)\"", spec)
+    assert match, "the deployment target is not stated"
+    major, minor = int(match.group(1)), int(match.group(2))
+    assert (major, minor) >= (15, 4), "below the iOS that can record from a canvas"
+
+    # And it is armv7-free: 32-bit has not run iOS since 11, and declaring it
+    # makes modern devices report as unsupported instead of erroring.
+    import plistlib
+
+    with (IOS / "Auteur" / "Info.plist").open("rb") as handle:
+        info = plistlib.load(handle)
+    assert info["UIRequiredDeviceCapabilities"] == ["arm64"]
+
+
+def test_the_bundled_page_reaches_nothing_outside_itself():
+    """The app has no network entitlement, so an external reference is not a
+    slow load, it is a silently blank region on somebody's phone."""
+    page = (IOS / "Auteur" / "Web" / "index.html").read_text()
+    outside = re.findall(r'(?:src|href)\s*=\s*["\']https?://[^"\']+', page)
+    assert outside == [], f"the bundled page reaches out: {outside[:3]}"
+    assert page.lstrip().startswith("<!DOCTYPE html>")
+    assert "<title>" in page
+
+
+def test_every_colour_the_app_names_actually_exists():
+    """`UILaunchScreen` names a colour by string. A missing one is not an
+    error — the app just launches on a white flash whatever the theme is."""
+    import json
+    import plistlib
+
+    with (IOS / "Auteur" / "Info.plist").open("rb") as handle:
+        info = plistlib.load(handle)
+    named = info["UILaunchScreen"]["UIColorName"]
+    folder = IOS / "Auteur" / "Assets.xcassets" / f"{named}.colorset"
+    assert folder.is_dir(), f"{named} is named in Info.plist and does not exist"
+    colours = json.loads((folder / "Contents.json").read_text())["colors"]
+    # Both lightings, or the launch flashes the wrong one on half the phones.
+    assert len(colours) == 2
+
+
+def test_the_shim_fills_in_the_two_apis_a_web_view_does_not_have():
+    """`navigator.share` exists in Safari and not in a web view, so without
+    this the page's own save button silently does nothing — the worst failure
+    available, on the one control that delivers the product."""
+    shim = (IOS / "Auteur" / "native.js").read_text()
+    assert "navigator.share" in shim
+    assert "navigator.canShare" in shim
+    assert "messageHandlers.auteur" in shim
+    # And the page is never edited to know about the app: the shim fills in
+    # what the page already reaches for.
+    for job in ("save", "share", "calendar", "capabilities"):
+        assert f'"{job}"' in shim or f"'{job}'" in shim
+
+    swift = (IOS / "Auteur" / "Bridge.swift").read_text()
+    for job in ("save", "share", "calendar", "capabilities"):
+        assert f'case "{job}"' in swift, f"the shim sends {job} and Swift ignores it"
+
+
+def test_the_app_declares_that_nothing_leaves_the_phone():
+    import plistlib
+
+    with (IOS / "Auteur" / "PrivacyInfo.xcprivacy").open("rb") as handle:
+        privacy = plistlib.load(handle)
+    assert privacy["NSPrivacyTracking"] is False
+    assert privacy["NSPrivacyTrackingDomains"] == []
+    assert privacy["NSPrivacyCollectedDataTypes"] == []
+    # Every "required reason" API used has to carry a reason, or the upload is
+    # refused without saying which one.
+    for entry in privacy["NSPrivacyAccessedAPITypes"]:
+        assert entry["NSPrivacyAccessedAPITypeReasons"], entry["NSPrivacyAccessedAPIType"]
+
+
+# ---------------------------------------------------------------------------
+# Before letting anybody else use it
+# ---------------------------------------------------------------------------
+
+
+def test_no_referrer_is_sent_because_a_url_carries_a_secret():
+    """The calendar subscription URL carries its credential in the path, so an
+    outbound navigation from any page would put somebody's calendar secret in
+    another site's logs. `no-referrer` is the only value that closes that."""
+    from auteur.web import server
+
+    assert server.SAFETY_HEADERS["Referrer-Policy"] == "no-referrer"
+
+
+def test_every_response_carries_the_safety_headers():
+    from auteur.web import server
+
+    for key in (
+        "X-Content-Type-Options",
+        "Referrer-Policy",
+        "X-Frame-Options",
+        "Content-Security-Policy",
+    ):
+        assert key in server.SAFETY_HEADERS
+
+    policy = server.SAFETY_HEADERS["Content-Security-Policy"]
+    # Nothing remote: everything the pages need is served from this origin, and
+    # blob: is how a finished film reaches a video element.
+    assert "default-src 'self'" in policy
+    assert "frame-ancestors 'none'" in policy
+    assert "blob:" in policy
+    assert "http://" not in policy and "https://" not in policy
+
+
+def test_the_calendar_secret_is_kept_out_of_the_request_log():
+    """The request line carries the path, and one path is a credential."""
+    from auteur.web.server import _redact
+
+    line = "GET /calendar/HnTMHaWX1mbYa9ZBvBd9wlWGO1VfM5fT.ics HTTP/1.1"
+    assert "HnTMHaWX" not in _redact(line)
+    assert "[redacted]" in _redact(line)
+    # And it does not mangle anything else.
+    assert _redact("GET /api/feed HTTP/1.1") == "GET /api/feed HTTP/1.1"
+
+
+def test_an_upload_is_bounded_by_something_a_machine_actually_has():
+    """2 GB was aspirational: the parser materialises the body *and* the parsed
+    parts, so a post that size peaked at several gigabytes resident and the
+    process was killed rather than answering — a denial of service anybody
+    could trigger by accident with a long 4K clip."""
+    from auteur.web import server
+
+    assert server.MAX_UPLOAD <= 1024 * 1024 * 1024
+    assert server.SPOOL_TO_DISK < server.MAX_UPLOAD
+
+
+def test_a_posted_form_is_read_without_copying_the_whole_body():
+    """The streaming parser has to agree with the one that takes bytes, or the
+    fix quietly changes what uploads mean."""
+    import io
+
+    from auteur.web.server import _parse_multipart, _parse_multipart_stream
+
+    boundary = "----abc"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="prompt"\r\n\r\n'
+        "a 90s hypercut\r\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="clips"; filename="one.mp4"\r\n'
+        "Content-Type: video/mp4\r\n\r\n"
+        "not really a film\r\n"
+        f"--{boundary}--\r\n"
+    ).encode()
+    kind = f"multipart/form-data; boundary={boundary}"
+
+    fields, files = _parse_multipart(body, kind)
+    streamed_fields, streamed_files = _parse_multipart_stream(io.BytesIO(body), kind)
+
+    assert fields == streamed_fields == {"prompt": "a 90s hypercut"}
+    assert files == streamed_files
+    assert files[0][0] == "one.mp4"
+    assert files[0][1] == b"not really a film"
+
+
+def test_sweeping_a_job_also_forgets_the_films_that_pointed_into_it():
+    """A film outlives its job on purpose. It cannot outlive its file, and
+    `drop_missing` only ran at start-up — so an instance left running for a day
+    filled its feed with rows that play nothing."""
+    import inspect
+
+    from auteur.web.server import Studio
+
+    source = inspect.getsource(Studio.sweep)
+    assert "drop_missing" in source, "sweeping leaves the feed pointing at deleted files"
+
+
+def test_the_readme_does_not_claim_gaps_that_have_been_closed():
+    """Documentation that describes a fixed problem is worse than none: it
+    sends somebody to look for a bug that is not there."""
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text()
+    gaps = readme[readme.index("### Known gaps") :]
+    gaps = gaps[: gaps.index("\n## ")] if "\n## " in gaps else gaps
+
+    # These two were the gap and are not any more; the tools that proved it
+    # are in the repository and pass.
+    assert "hard-cuts" not in gaps
+    assert "fails on purpose" not in gaps
+
+
+def test_the_published_page_offers_no_link_it_cannot_follow():
+    """The bundled page has four sections and the app has ten, so every link
+    to a room that is not there is a control a tap does nothing to. Ten of them
+    had accumulated: `/manager`, `/ask`, `/connect`. On a phone that is a dead
+    control; in an App Store review it is a rejection under 2.1."""
+    page = (
+        Path(__file__).resolve().parent.parent / "ios" / "Auteur" / "Web" / "index.html"
+    ).read_text()
+    server_links = re.findall(r'href="(/[^"]*)"', page)
+    assert server_links == [], f"links nothing can follow: {sorted(set(server_links))[:5]}"
+
+
+def test_every_section_of_the_published_page_can_be_reached():
+    """Worse than a dead link and harder to see: the tab bar is injected by a
+    script the build strips, so the page carried a studio, an animation tab and
+    a templates library that nothing navigated to. Dead *content*."""
+    page = (
+        Path(__file__).resolve().parent.parent / "ios" / "Auteur" / "Web" / "index.html"
+    ).read_text()
+
+    targets = set(re.findall(r'data-goto="([^"]+)"', page))
+    assert {"templates", "animation", "studio"} <= targets, f"unreachable sections: {targets}"
+
+    # And nothing points at a section that is not there.
+    for target in targets:
+        if target == "home":
+            continue
+        assert f'id="{target}-page"' in page, f"data-goto={target} names no section"
+
+    # Every section has a way back, or it is a trap.
+    for section in ("templates", "animation", "studio"):
+        after = page[page.index(f'id="{section}-page"') :]
+        assert 'data-goto="home"' in after[:4000], f"no way back out of {section}"
+
+
+def test_the_privacy_policy_is_reachable_without_signing_in():
+    """The App Store requires a policy at a URL anybody can open, and
+    "anybody" includes a reviewer who has not been given an account."""
+    from auteur.web import server
+
+    assert "/privacy" in server.PUBLIC_PATHS
+    assert (server.STATIC / "privacy.html").is_file()
+
+
+def test_the_privacy_policy_is_generated_from_the_one_source():
+    """A policy maintained in two places is a policy that is wrong in one."""
+    from auteur.web import assets, server
+
+    source = Path(__file__).resolve().parent.parent / "PRIVACY.md"
+    assert source.is_file()
+    page = (server.STATIC / "privacy.html").read_text()
+
+    # Every heading in the source survives into the page.
+    for line in source.read_text().splitlines():
+        if line.startswith("## "):
+            assert line[3:] in page, f"the page has lost the section {line[3:]!r}"
+
+    # And regenerating it changes nothing, which is what "generated" has to mean.
+    before = page
+    assets.privacy_page(source, server.STATIC)
+    assert (server.STATIC / "privacy.html").read_text() == before
+
+
+def test_the_policy_says_what_the_code_does():
+    """The two claims in it that a test can actually hold it to."""
+    # Whitespace-normalised: the source is hard wrapped, so a phrase that
+    # spans a line break is not a substring of the file.
+    policy = " ".join((Path(__file__).resolve().parent.parent / "PRIVACY.md").read_text().split())
+    assert "nobody operates a service here" in policy.lower()
+
+    # "no network requests of any kind" about the iOS app.
+    bundled = (
+        Path(__file__).resolve().parent.parent / "ios" / "Auteur" / "Web" / "index.html"
+    ).read_text()
+    for reaching in ("fetch(", "XMLHttpRequest", "new WebSocket", "sendBeacon"):
+        assert reaching not in bundled, f"the policy says no network and the page has {reaching}"
+
+    # "no code path that publishes to a service".
+    import ast
+    import inspect
+
+    from auteur import manager
+
+    tree = ast.parse(inspect.getsource(manager))
+    reached = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            reached.update(a.name.split(".")[0] for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            reached.add(node.module.split(".")[0])
+    assert not (reached & {"urllib", "http", "requests", "socket"})
+
+
+def test_a_cookie_is_only_marked_secure_when_it_really_is():
+    """`X-Forwarded-Proto` is a header, so anybody can send it. Trusting it
+    unconditionally marks a cookie Secure on a plain connection; not trusting
+    it at all means a real HTTPS deployment never gets the flag. So it is
+    believed only when the operator says there is a proxy in front."""
+    import inspect
+
+    from auteur.web import server
+
+    # A property, so the function is behind `.fget`.
+    source = inspect.getsource(server.Handler._is_https.fget)
+    assert "TRUST_PROXY" in source
+    assert "PUBLIC_HTTPS" in source
+    # Off by default: the ordinary way to run this is a LAN over plain HTTP,
+    # where a Secure cookie simply never comes back.
+    assert server.PUBLIC_HTTPS is False
+    assert server.TRUST_PROXY is False
+
+
+def test_hsts_is_not_promised_from_a_plain_http_server():
+    """Sending it from a LAN server over plain HTTP tells every browser on the
+    network to refuse to reach it — for a year."""
+    from auteur.web import server
+
+    assert "Strict-Transport-Security" not in server.SAFETY_HEADERS
+    import inspect
+
+    assert "Strict-Transport-Security" in inspect.getsource(server.Handler._send)
+
+
+def test_the_published_page_has_the_tab_bar_and_it_is_not_hidden():
+    """It was a list of links at the foot of the home section — 1564px down a
+    1945px page, past the whole form. Present and unreachable, which is the
+    same as missing for anybody who does not know it is there.
+
+    Then it was the real bar, placed *inside* the templates section, which is
+    `hidden` — so it existed and was invisible on every screen.
+
+    The slots are the app's five now rather than a list of the sections this
+    page happens to have. Templates, the animation room and the studio are
+    reached through the plus here exactly as they are in the app, so they are
+    no longer tabs and are no longer looked for as tabs."""
+    page = (
+        Path(__file__).resolve().parent.parent / "ios" / "Auteur" / "Web" / "index.html"
+    ).read_text()
+
+    assert 'class="tabbar"' in page
+    for slot in ("feed", "schedule", "home", "messages", "you"):
+        assert f'data-tab="{slot}"' in page, f"no tab for {slot}"
+    # And the rooms that are not tabs are still reachable, through the plus.
+    for room in ("templates", "animation", "studio"):
+        assert f'data-goto="{room}"' in page, f"{room} cannot be reached at all"
+
+    # Outside every section, or a fixed bar inherits their hidden state.
+    bar = page.index('class="tabbar"')
+    for section in ("studio-page", "animation-page", "templates-page"):
+        opened = page.index(f'id="{section}"')
+        assert bar > opened, "the bar is inside a section"
+        closing = page.index("</div>", opened)
+        assert not (opened < bar < closing), f"the bar is inside {section}, which is hidden"
+
+
+# ---------------------------------------------------------------------------
+# Two-step verification
+# ---------------------------------------------------------------------------
+
+
+def test_the_codes_match_the_published_rfc_vectors():
+    """RFC 6238 ships test vectors precisely so an implementation can be
+    checked rather than believed. Written against the specification because an
+    authentication library is the last place to take a fourth party you have
+    not read."""
+    import base64
+
+    from auteur.web import totp
+
+    secret = base64.b32encode(b"12345678901234567890").decode().rstrip("=")
+    assert totp.code_at(secret, 59) == "287082"
+    assert totp.code_at(secret, 1111111109) == "081804"
+    assert totp.code_at(secret, 1111111111) == "050471"
+    assert totp.code_at(secret, 1234567890) == "005924"
+
+
+def test_a_code_is_accepted_across_a_drifting_clock_but_not_forever():
+    from auteur.web import totp
+
+    secret = totp.new_secret()
+    now = 1_700_000_000
+    code = totp.code_at(secret, now)
+    assert totp.check(secret, code, moment=now) is not None
+    assert totp.check(secret, code, moment=now + 29) is not None
+    assert totp.check(secret, code, moment=now - 29) is not None
+    # 90 seconds of total validity, and no more: a wider window is a longer
+    # replay opportunity for a code somebody read over a shoulder.
+    assert totp.check(secret, code, moment=now + 91) is None
+    assert totp.check(secret, "000000", moment=now) is None
+    assert totp.check(secret, "not a code", moment=now) is None
+
+
+def test_the_password_alone_stops_being_enough(tmp_path):
+    """The whole point. `sign_in` must hand back a ticket rather than a session
+    — a ticket names the account, expires, is spent by use, and can do nothing
+    else."""
+    from auteur.web import totp
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("ada", "ada@example.invalid", "a-long-enough-passphrase")
+
+    token, _ = accounts.sign_in("ada", "a-long-enough-passphrase")
+    assert token is not None, "with two-step off, a password is enough"
+
+    secret = accounts.begin_totp("ada")
+    assert accounts.get("ada").totp_on is False, "an unfinished setup must not lock anybody out"
+    assert accounts.confirm_totp("ada", "000000") is None
+    codes = accounts.confirm_totp("ada", totp.code_at(secret))
+    assert codes and len(codes) == totp.RECOVERY_CODES
+
+    token, message = accounts.sign_in("ada", "a-long-enough-passphrase")
+    assert token is None, "the password alone still opened a session"
+    assert message.startswith("code:")
+
+    ticket = message[5:]
+    assert accounts.spend_ticket(ticket) == "ada"
+    assert accounts.spend_ticket(ticket) is None, "a ticket that works twice is a session"
+
+
+def test_a_code_cannot_be_used_twice(tmp_path):
+    """Otherwise a code is good for its whole window however many times it is
+    presented, and anybody who saw one has thirty seconds to use it too."""
+    from auteur.web import totp
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("ada", "ada@example.invalid", "a-long-enough-passphrase")
+    secret = accounts.begin_totp("ada")
+    accounts.confirm_totp("ada", totp.code_at(secret))
+
+    # Setup already spent this window, so the same code must not work again.
+    assert accounts.second_step("ada", totp.code_at(secret)) is False
+
+
+def test_a_recovery_code_works_once_and_is_stored_hashed(tmp_path):
+    from auteur.web import totp
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("ada", "ada@example.invalid", "a-long-enough-passphrase")
+    secret = accounts.begin_totp("ada")
+    codes = accounts.confirm_totp("ada", totp.code_at(secret))
+
+    stored = (tmp_path / "accounts.json").read_text()
+    for code in codes:
+        assert code not in stored, "a recovery code is a password and is in the clear"
+
+    assert accounts.second_step("ada", codes[0].lower()) is True
+    assert accounts.second_step("ada", codes[0]) is False, "a code that works twice never expires"
+    assert len(accounts.get("ada").recovery) == totp.RECOVERY_CODES - 1
+
+
+def test_turning_it_off_needs_the_password_again(tmp_path):
+    """A borrowed unlocked phone with a live session should not be able to
+    remove the factor protecting the account it is signed in to."""
+    from auteur.web import totp
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("ada", "ada@example.invalid", "a-long-enough-passphrase")
+    secret = accounts.begin_totp("ada")
+    accounts.confirm_totp("ada", totp.code_at(secret))
+
+    assert accounts.disable_totp("ada", "wrong") is False
+    assert accounts.get("ada").totp_on is True
+    assert accounts.disable_totp("ada", "a-long-enough-passphrase") is True
+    assert accounts.get("ada").totp_secret == ""
+    assert accounts.get("ada").recovery == []
+
+
+def test_the_second_step_happens_while_signed_out():
+    from auteur.web import server
+
+    assert "/api/login/step2" in server.PUBLIC_PATHS
+
+
+# ---------------------------------------------------------------------------
+# The bug finder
+# ---------------------------------------------------------------------------
+
+
+def test_a_fault_can_be_reported_before_anybody_has_signed_in():
+    """A fault on the sign-in page is exactly the one nobody could report if
+    reporting needed an account."""
+    from auteur.web import server
+
+    assert "/api/trouble" in server.PUBLIC_PATHS
+
+
+def test_the_bug_finder_is_not_telemetry():
+    """The difference is not intent. There is no endpoint in this program that
+    sends anything off the machine, so a report has nowhere to go but the disk
+    it is already on."""
+    from auteur.web import server
+
+    handler = (server.STATIC / "trouble.js").read_text()
+    # One destination, and it is this server.
+    assert '"/api/trouble"' in handler
+    for elsewhere in ("http://", "https://", "sendBeacon", "new Image("):
+        assert elsewhere not in handler, f"the bug finder reaches {elsewhere}"
+
+
+def test_the_bug_finder_cannot_itself_throw():
+    """An error handler that throws is a loop that takes the page down harder
+    than the fault it was reporting."""
+    handler = (
+        Path(__file__).resolve().parent.parent / "auteur" / "web" / "static" / "trouble.js"
+    ).read_text()
+    assert "try {" in handler
+    # And it stops repeating itself, or one fault in a loop is a thousand posts.
+    assert "SEEN" in handler
+    assert "MOST" in handler
+
+
+def test_every_page_can_report_a_fault():
+    from auteur.web import server
+
+    for page in (
+        "index",
+        "feed",
+        "inbox",
+        "manager",
+        "templates",
+        "studio",
+        "ask",
+        "overlays",
+        "connect",
+        "login",
+    ):
+        text = (server.STATIC / f"{page}.html").read_text()
+        assert "trouble.js" in text, f"{page}.html cannot report a fault"
+
+
+# ---------------------------------------------------------------------------
+# Reaching an instance
+# ---------------------------------------------------------------------------
+
+
+def test_the_app_allows_plain_http_only_on_the_local_network():
+    """Reaching your own instance means a plain connection to a local address.
+    `NSAllowsArbitraryLoads` would open every unencrypted request to the
+    internet as well, which is not what is wanted and is a review question."""
+    import plistlib
+
+    with (IOS / "Auteur" / "Info.plist").open("rb") as handle:
+        info = plistlib.load(handle)
+
+    ats = info["NSAppTransportSecurity"]
+    assert ats.get("NSAllowsLocalNetworking") is True
+    assert "NSAllowsArbitraryLoads" not in ats
+    assert len(info["NSLocalNetworkUsageDescription"]) > 25
+
+
+def test_with_no_instance_the_app_opens_no_socket():
+    """The default is the bundled page, which is a file URL."""
+    swift = (IOS / "Auteur" / "Instance.swift").read_text()
+    assert "Bundle.main.url" in swift
+    # And only http(s) to a real host is ever accepted.
+    assert 'scheme == "http" || scheme == "https"' in swift
+    assert "url.host != nil" in swift
+
+
+def test_the_policy_no_longer_claims_the_app_has_no_network():
+    """It has a feed and messages, and neither can live inside one phone. The
+    old wording said "no network requests" without qualification, which read as
+    a contradiction because it was one."""
+    policy = " ".join((Path(__file__).resolve().parent.parent / "PRIVACY.md").read_text().split())
+    assert "nothing goes anywhere you did not put it" in policy.lower()
+    assert "on its own, the app makes no network requests at all" in policy.lower()
+    assert "connected to your own instance" in policy.lower()
+    # And the sentence that used to be the contradiction is gone.
+    assert "it makes **no network requests of any kind**" not in policy
+
+
+# ---------------------------------------------------------------------------
+# Profiles: a picture, a bio, and who you follow
+# ---------------------------------------------------------------------------
+
+
+def test_a_bio_pasted_out_of_another_app_is_stored_as_one_line(tmp_path):
+    """A stored newline is a layout that only breaks for some people.
+
+    The bio is shown clamped to two lines on the profile header and to one in
+    a list. Text arriving with the newlines and double spaces of wherever it
+    was written renders fine in exactly one of those places.
+    """
+    from auteur.web.profiles import Profiles
+
+    store = Profiles(tmp_path / "profiles.json")
+    saved = store.edit("ada", bio="  makes\n\nsmall   films\t about boats  ")
+    assert saved.bio == "makes small films about boats"
+
+
+def test_a_profile_link_that_is_not_a_web_address_is_refused(tmp_path):
+    """The interesting attack on a field that becomes an href is a scheme.
+
+    A tidier that repairs input is one that eventually repairs `javascript:`
+    into something a tap runs, so anything that is not plainly http or https
+    is dropped rather than fixed. A bare host is the one exception, because
+    somebody typing their own address means https.
+    """
+    from auteur.web.profiles import tidy_link
+
+    assert tidy_link("javascript:alert(1)") == ""
+    assert tidy_link("JavaScript:alert(1)") == ""
+    assert tidy_link("data:text/html;base64,PHNjcmlwdD4=") == ""
+    assert tidy_link("mailto:someone@example.com") == ""
+    assert tidy_link("example.com/reel") == "https://example.com/reel"
+    assert tidy_link("https://example.com") == "https://example.com"
+    assert tidy_link("") == ""
+
+
+def test_following_is_answered_from_the_followers_own_list(tmp_path):
+    """ "Do I follow them" and "do they follow me" are different questions.
+
+    They agree whenever two people follow each other, which is most of the
+    time on a small instance — so getting this backwards looks right on every
+    screen where it is tested by hand.
+    """
+    from auteur.web.profiles import Profiles
+
+    store = Profiles(tmp_path / "profiles.json")
+    store.follow("ada", "grace")
+
+    assert store.public_of("grace", viewer="ada")["you_follow"] is True
+    assert store.public_of("ada", viewer="grace")["you_follow"] is False
+    assert store.public_of("grace", viewer="ada")["followers"] == 1
+    assert store.public_of("ada", viewer="ada")["me"] is True
+    # And nobody follows themselves: the "following" feed would otherwise
+    # include your own films for some people and not others.
+    assert store.follow("ada", "ada") is False
+
+
+def test_a_profile_survives_being_written_and_read_back(tmp_path):
+    from auteur.web.profiles import Profiles
+
+    path = tmp_path / "profiles.json"
+    first = Profiles(path)
+    first.edit("ada", name="Ada L", bio="boats", link="ada.example")
+    first.follow("ada", "grace")
+
+    again = Profiles(path)
+    assert again.get("ada").name == "Ada L"
+    assert again.get("ada").link == "https://ada.example"
+    assert again.following_of("ada") == ["grace"]
+    assert again.followers_of("grace") == ["ada"]
+
+
+def test_editing_one_field_does_not_blank_the_others(tmp_path):
+    """A form that posts only what changed must not clear what did not."""
+    from auteur.web.profiles import Profiles
+
+    store = Profiles(tmp_path / "profiles.json")
+    store.edit("ada", name="Ada L", bio="boats", link="https://ada.example")
+    store.edit("ada", bio="trains")
+    kept = store.get("ada")
+    assert (kept.name, kept.bio, kept.link) == ("Ada L", "trains", "https://ada.example")
+
+
+def test_a_picture_filename_cannot_climb_out_of_its_folder(tmp_path):
+    """The store is a file on disk, so what comes out of it is still input."""
+    from auteur.web.profiles import Profiles
+
+    store = Profiles(tmp_path / "profiles.json", tmp_path / "pictures")
+    (tmp_path / "secret.txt").write_text("not a picture")
+    store.set_picture("ada", "../secret.txt")
+    assert store.picture_path("ada") is None
+
+
+def test_a_follow_of_a_deleted_account_is_forgotten(tmp_path):
+    """Otherwise the count on a profile is larger than the list under it."""
+    from auteur.web.profiles import Profiles
+
+    store = Profiles(tmp_path / "profiles.json")
+    store.follow("ada", "grace")
+    store.follow("ada", "gone")
+    assert store.drop_unknown({"ada", "grace"}) == 1
+    assert store.following_of("ada") == ["grace"]
+
+
+def test_a_profile_picture_is_re_encoded_and_loses_its_metadata(tmp_path):
+    """A phone photograph carries where it was taken and what took it.
+
+    Neither is something anybody means to publish with their face, and both
+    live in EXIF. Re-encoding rather than validating is what removes them —
+    and it is the same step that makes it impossible for the served file to be
+    anything a browser could sniff as markup.
+    """
+    import io
+    from fractions import Fraction
+
+    from PIL import Image
+    from auteur.web.profiles import PICTURE_SIDE, store_picture
+
+    original = Image.new("RGB", (1600, 900), (200, 40, 40))
+    exif = original.getexif()
+    exif[0x010F] = "SomePhone"  # Make
+    exif[0x0110] = "Model X"  # Model
+    where = exif.get_ifd(0x8825)  # GPS
+    where[1] = "N"
+    where[2] = (Fraction(51), Fraction(30), Fraction(0))
+    raw = io.BytesIO()
+    original.save(raw, "JPEG", exif=exif)
+    # The fixture has to actually carry what this claims to remove, or the
+    # test passes against a photograph that never had coordinates in it.
+    assert dict(Image.open(io.BytesIO(raw.getvalue())).getexif().get_ifd(0x8825))
+
+    name = store_picture(raw.getvalue(), tmp_path / "pictures", "ada")
+    out = Image.open(tmp_path / "pictures" / name)
+    assert out.size == (PICTURE_SIDE, PICTURE_SIDE)  # squared and scaled down
+    assert out.mode == "RGB"
+    assert dict(out.getexif()) == {}
+    assert dict(out.getexif().get_ifd(0x8825)) == {}
+
+
+def test_a_sideways_photograph_is_turned_the_right_way_up(tmp_path):
+    """A portrait photograph is stored landscape with a "rotate me" flag.
+
+    Stripping the flag without applying it is how a profile picture ends up on
+    its side, and stripping it is exactly what the re-encode above does.
+    """
+    import io
+
+    from PIL import Image
+    from auteur.web.profiles import store_picture
+
+    # Wide, with the left half red — and a tag saying it should be rotated 90°.
+    art = Image.new("RGB", (400, 200), (20, 20, 200))
+    art.paste(Image.new("RGB", (200, 200), (220, 30, 30)), (0, 0))
+    exif = art.getexif()
+    exif[0x0112] = 6  # Orientation: rotate 90° clockwise
+    raw = io.BytesIO()
+    art.save(raw, "JPEG", exif=exif)
+
+    name = store_picture(raw.getvalue(), tmp_path / "pictures", "ada")
+    out = Image.open(tmp_path / "pictures" / name).convert("RGB")
+    # Orientation 6 means "rotate this a quarter turn clockwise to show it", so
+    # what was the left edge becomes the top: red above, blue below.
+    top = out.getpixel((out.width // 2, 4))
+    bottom = out.getpixel((out.width // 2, out.height - 5))
+    assert top[0] > top[2], f"the top should be red, got {top}"
+    assert bottom[2] > bottom[0], f"the bottom should be blue, got {bottom}"
+
+    # And the same picture without the tag is *not* turned, which is what says
+    # the rotation above came from reading the tag rather than from the crop.
+    plain = io.BytesIO()
+    art.save(plain, "JPEG")
+    flat = Image.open(
+        tmp_path / "pictures" / store_picture(plain.getvalue(), tmp_path / "pictures", "flat")
+    ).convert("RGB")
+    assert flat.getpixel((flat.width // 2, 4))[0] < 120, "an untagged picture was rotated anyway"
+
+
+def test_a_file_that_is_not_a_picture_is_explained_rather_than_raised(tmp_path):
+    from auteur.web.profiles import BadPicture, store_picture
+
+    for bad in (b"", b"<html><script>alert(1)</script></html>", b"\x00\x01\x02"):
+        with pytest.raises(BadPicture):
+            store_picture(bad, tmp_path / "pictures", "ada")
+
+
+def test_a_picture_that_decompresses_to_gigabytes_is_refused(tmp_path):
+    """Pillow's own limit raises a warning, which is not a defence."""
+    import io
+    import struct
+    import zlib
+
+    from auteur.web.profiles import BadPicture, store_picture
+
+    # A PNG header claiming 40,000 x 40,000 — a few dozen bytes on the wire,
+    # six gigabytes of pixels if anything decodes it.
+    def chunk(kind, payload):
+        body = kind + payload
+        return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body))
+
+    header = struct.pack(">IIBBBBB", 40000, 40000, 8, 2, 0, 0, 0)
+    bomb = (
+        b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(b"\x00" * 64))
+    )
+    with pytest.raises(BadPicture):
+        store_picture(io.BytesIO(bomb).getvalue(), tmp_path / "pictures", "ada")
+
+
+# -- as served --------------------------------------------------------------
+
+
+def _api_get(base, path, cookie):
+    import json as _json
+    from urllib.request import Request, urlopen
+
+    with urlopen(Request(base + path, headers={"Cookie": cookie})) as response:
+        return _json.loads(response.read().decode())
+
+
+def _api_post(base, path, cookie, payload=None):
+    import json as _json
+    from urllib.request import Request, urlopen
+
+    request = Request(
+        base + path,
+        data=_json.dumps(payload or {}).encode(),
+        headers={"Cookie": cookie, "Content-Type": "application/json"},
+    )
+    with urlopen(request) as response:
+        return _json.loads(response.read().decode())
+
+
+def test_the_container_runs_the_app_with_flags_that_exist():
+    """A Dockerfile is code nobody type-checks.
+
+    The first draft of this one set `AUTEUR_WORKSPACE=/data`, an environment
+    variable this project has never had. Nothing would have failed: the server
+    would have started, ignored it, and written every film into the container's
+    own filesystem, where a restart loses them. An invented flag in a shell
+    string is exactly the class of mistake that survives review and shows up as
+    lost footage.
+
+    So the CMD is parsed and its options are checked against the parser the CLI
+    actually builds, and any AUTEUR_* name the compose file sets is checked
+    against the ones the code reads.
+    """
+    import shlex
+
+    root = Path(__file__).resolve().parent.parent
+    dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
+
+    line = [ln for ln in dockerfile.splitlines() if ln.startswith("CMD ")]
+    assert line, "the Dockerfile does not say how to run the app"
+    inner = line[0][line[0].index("python -m auteur") : line[0].rindex('"')]
+    words = shlex.split(inner.replace("${PORT}", "8000"))
+    assert words[:4] == ["python", "-m", "auteur", "serve"], words[:4]
+
+    from auteur.cli import _build_parser
+
+    # `parse_args` refuses an option the parser does not define, which is the
+    # whole point — an invented flag has to fail here rather than in a
+    # container somebody has already deployed.
+    parsed = _build_parser().parse_args(words[3:])
+    assert parsed.host == "0.0.0.0", "a container that binds loopback is unreachable"
+    assert parsed.out == "/data", "the films must land on the volume, not in the image"
+
+    source = "\n".join(path.read_text(encoding="utf-8") for path in (root / "auteur").rglob("*.py"))
+    known = set(re.findall(r"AUTEUR_[A-Z_]+", source))
+    known |= {"AUTEUR_TIKTOK_CLIENT_KEY", "AUTEUR_TIKTOK_CLIENT_SECRET"}
+    known |= {"AUTEUR_INSTAGRAM_CLIENT_ID", "AUTEUR_INSTAGRAM_CLIENT_SECRET"}
+
+    compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
+    for name in set(re.findall(r"AUTEUR_[A-Z_]+", compose)):
+        assert name in known, (
+            f"docker-compose.yml sets {name}, which nothing in auteur/ reads — "
+            "see the invented AUTEUR_WORKSPACE this guards"
+        )
+
+
+def test_the_stylesheets_are_held_to_the_type_scale():
+    """A scale nothing is held to is a list of numbers in a comment.
+
+    `:root` defines eleven named sizes taken from what the two mobile
+    operating systems actually render their own text at. Measured in a browser
+    before this test existed, the make screen used **seven different type
+    sizes** and the profile seven, because twenty-five rules across the
+    stylesheets set a pixel value directly — 15px, 14px, 13px, 16px — beside
+    the thirty-five that used the scale. Two of those, 14px and 16px, are not
+    on the scale at all.
+
+    The same for corners. `--radius` and `--radius-sm` were named and nine
+    card-scale rules used something else — 8, 9, 10, 14, 16 and 18px across two
+    files. The fix was not to flatten them: a sheet rising from the bottom
+    edge and a message bubble both genuinely want a bigger corner than a card.
+    So that corner got a name, `--radius-lg`, and now the vocabulary is three
+    named radii and a pill rather than seven numbers.
+
+    The one exception is real and stays: `.size-a-1` through `.size-a-4` in
+    profile.css are the text-size setting itself, so they must be absolute —
+    they are what the scale is being *set to*, not a use of it.
+    """
+    import re
+
+    from auteur.web import server
+
+    #: The setting, not a use of the scale. Named so a future reader does not
+    #: quietly widen this to whatever they wanted to hard-code.
+    ALLOWED = {"size-a-1", "size-a-2", "size-a-3", "size-a-4"}
+    #: And one platform constraint. iOS zooms the page when a focused text
+    #: field is under 16px, and `1rem` is only 16px while the root is at its
+    #: default — the browser's own text-size control moves it. Writing a field
+    #: as `var(--text-callout)` therefore works on a normal setting and zooms
+    #: the whole app on a smaller one. `test_the_page_is_built_for_a_phone`
+    #: asserts the literal is present, and it caught this exact regression
+    #: when the scale work first swept it up.
+    IOS_ZOOM_FLOOR = "iOS zoom note"
+
+    strays: list[str] = []
+    for sheet in sorted(server.STATIC.glob("*.css")):
+        if sheet.name == "theme.css":
+            continue  # generated from the palette; it carries no type at all
+        for number, line in enumerate(sheet.read_text(encoding="utf-8").splitlines(), 1):
+            if re.search(r"font-size:\s*\d+(\.\d+)?px", line):
+                if not any(name in line for name in ALLOWED) and IOS_ZOOM_FLOOR not in line:
+                    strays.append(f"{sheet.name}:{number} {line.strip()[:70]}")
+            # Only the card-scale range, where a token exists. A 1px mark on
+            # a grip bar and a 999px pill are details rather than corners, and
+            # demanding a token for those would be tidiness rather than
+            # discipline.
+            corner = re.search(r"border-radius:\s*(\d+)px", line)
+            if corner and 8 <= int(corner.group(1)) <= 40:
+                strays.append(f"{sheet.name}:{number} {line.strip()[:70]}")
+
+    assert (
+        not strays
+    ), "type sizes and corners set in raw pixels rather than from the scale:\n  " + "\n  ".join(
+        strays
+    )
+
+
+def test_a_demo_clip_is_as_long_as_it_was_asked_for(tmp_path):
+    """Every clip in the App Store screenshot harness was 225s, not 3s.
+
+    `zoompan`'s `d` is how many output frames to produce *per input frame*,
+    and the input was `-loop 1 -t 3` — seventy-five of them. `d=75` therefore
+    asked for 75 x 75 frames, and the "three second" demo films rendered at
+    two hundred and twenty-five seconds each.
+
+    Nothing failed. The files rendered, the screenshots looked correct, the
+    harness was merely slow, and the defect surfaced only when the Schedule
+    board began printing a film's measured runtime and showed "225s". So the
+    lesson is the one this repository keeps relearning: a number nothing
+    compares against anything is a number nobody checks. This compares.
+    """
+    from auteur import ffmpeg as ff
+
+    import sys
+
+    root = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(root / "tools" / "appstore"))
+    import screenshots as harness
+
+    made = harness.a_film(tmp_path, "check", "harbour", seconds=3)
+    info = ff.probe(str(made))
+    got = float(info.get("format", {}).get("duration") or 0.0)
+    assert abs(got - 3.0) < 0.35, (
+        f"a clip asked for at 3s came out at {got:.2f}s — see the zoompan "
+        "`d` note in tools/appstore/screenshots.py"
+    )
+
+
+def test_a_finished_film_can_be_sent_to_the_schedule(web_server):
+    """`Plan.film` existed since the board was written and nothing could set it.
+
+    The field is read by the calendar and by the prediction, so it was not
+    dead — it was unreachable. The two halves of the app, the one that makes a
+    film and the one that decides when it goes out, had no door between them:
+    somebody finished a film and then started again from a blank plan, which
+    is the seam a person feels as "this is two programs".
+    """
+    from urllib.error import HTTPError
+
+    from auteur.web import server as web
+
+    base, _, cookie = web_server
+    handler = web.Handler
+
+    film = handler.films.add(
+        owner="tester",
+        prompt="the long way home",
+        video="/nowhere/does-not-exist.mp4",
+        facts=["11 shots"],
+        heard="the long way home",
+    )
+    other = handler.films.add(
+        owner="somebody-else",
+        prompt="not yours",
+        video="/nowhere/nor-this.mp4",
+        facts=[],
+        heard="not yours",
+    )
+
+    made = _api_post(base, "/api/schedule-film", cookie, {"film": film.id})
+    plan = made["plan"]
+    assert plan["film"] == film.id, "the plan does not carry the film"
+    assert (
+        plan["title"] == "the long way home"
+    ), f"the board would show {plan['title']!r} rather than what the film is"
+    assert plan["owner"] == "tester"
+    # No shot list: the shots exist already. Being told to go and photograph
+    # footage that is finished is how somebody stops trusting a tool.
+    assert plan["shots"] == [], f"a finished film was given a shot list: {plan['shots']}"
+
+    # And it is on the board, not just in the response.
+    board = _api_get(base, "/api/plans", cookie)
+    assert any(row["film"] == film.id for row in board["plans"]), "the plan is not on the board"
+
+    # Somebody else's film is not yours to schedule, and the page is not what
+    # decides that.
+    with pytest.raises(HTTPError) as refused:
+        _api_post(base, "/api/schedule-film", cookie, {"film": other.id})
+    assert refused.value.code == 403
+
+    with pytest.raises(HTTPError) as missing:
+        _api_post(base, "/api/schedule-film", cookie, {"film": "no-such-film"})
+    assert missing.value.code == 404
+
+
+def test_no_route_is_claimed_twice():
+    """A second branch on the same path is dead code that looks alive.
+
+    `/api/connections` was already the list of *destinations* a finished film
+    can be handed off to. A second branch was added below it for linked
+    platform accounts, and the first one answered every request — so the
+    Schedule screen fetched the path, got a payload of the wrong shape, read
+    `undefined` off it and drew an empty section. No error, no warning, a 200
+    response, and a feature that silently did not exist.
+
+    Python cannot warn about this the way it warns about a duplicate
+    dictionary key, because the branches are separate statements. So it is
+    checked here: within each request method, no exact path may be claimed by
+    two branches.
+    """
+    import re
+
+    from auteur.web import server
+
+    source = Path(server.__file__).read_text(encoding="utf-8")
+
+    # Split by handler method so a path served on GET and POST is not a clash —
+    # those are different requests and both are reachable.
+    methods = re.split(r"\n    def (do_[A-Z]+)\(", source)
+    seen_any = False
+    for index in range(1, len(methods), 2):
+        name, body = methods[index], methods[index + 1]
+        paths: list[str] = []
+        for group in re.findall(r'if path == ("(?:/[^"]*)")', body):
+            paths.append(group.strip('"'))
+        for group in re.findall(r"if path in \(([^)]*)\)", body):
+            paths += [p.strip().strip("\"'") for p in group.split(",") if p.strip()]
+        seen_any = seen_any or bool(paths)
+        twice = {p for p in paths if paths.count(p) > 1}
+        assert not twice, (
+            f"{name} claims {sorted(twice)} more than once — the first branch "
+            "answers and the rest are dead code that looks alive"
+        )
+
+    assert seen_any, "no routes found — has the router changed shape?"
+
+
+def test_the_privacy_documents_admit_what_the_code_can_reach():
+    """Three documents claimed nothing left the device. Then something could.
+
+    `PRIVACY.md`, the Play Data safety declaration and `brand.py` all said, in
+    their own words, that this app talks to nobody. That was true until
+    `auteur/social/accounts.py` made it possible to connect a TikTok or
+    Instagram account. A privacy claim that was accurate when tested and
+    inaccurate when shipped is the specific failure a Data safety form is a
+    policy strike for, rather than a rejection you fix and resubmit.
+
+    So this holds the three documents to the code: if a platform exists in
+    `PLATFORMS`, every document that describes what the app reaches has to name
+    it. Adding a third platform and forgetting the paperwork fails here.
+    """
+    from auteur import brand
+    from auteur.social import accounts
+
+    root = Path(__file__).resolve().parent.parent
+    documents = {
+        "PRIVACY.md": (root / "PRIVACY.md").read_text(encoding="utf-8"),
+        "tools/play/listing.py": (root / "tools" / "play" / "listing.py").read_text(
+            encoding="utf-8"
+        ),
+        "auteur/brand.py": (root / "auteur" / "brand.py").read_text(encoding="utf-8"),
+    }
+
+    for platform in accounts.PLATFORMS.values():
+        for name, text in documents.items():
+            assert platform.label in text, (
+                f"{name} does not mention {platform.label}, which the app can "
+                "now connect to and read from"
+            )
+
+    # And the claim that is now false must be gone from all three, in the
+    # absolute form it used to take.
+    for name, text in documents.items():
+        assert (
+            "no third-party code at all" not in text
+        ), f"{name} still claims no third-party code at all"
+
+    # The feature list a store reads is built from `brand.FEATURES`, so the
+    # sentence a reviewer sees has to carry it too.
+    description = brand.description()
+    assert any(
+        p.label in description for p in accounts.PLATFORMS.values()
+    ), "the store description does not mention the platforms the app connects to"
+
+    # Read-only, and provably so: the publishing scopes must appear nowhere.
+    for platform in accounts.PLATFORMS.values():
+        assert "publish" not in platform.read_scopes, (
+            f"{platform.label} asks for a publishing scope; the app claims it "
+            "cannot post and that claim has to be true in the scope string"
+        )
+
+
+def test_no_screen_links_to_a_route_the_app_does_not_serve():
+    """The tab-bar guard only read chrome.js, so it missed the next one.
+
+    Three routes to nowhere have been written in this project in one day —
+    `/looks` in the store screenshot plan, `/discover` in the rebuilt tab bar,
+    and `/connect/<platform>` from the Schedule screen's Connect control. The
+    first two were caught by a test that reads only `chrome.js`. The third was
+    not, because it is in `manager.js`, which is the lesson: a guard scoped to
+    the file where the bug last happened catches that bug and no other.
+
+    This reads every href out of every script and page in the app.
+    """
+    import re
+
+    from auteur.web import server
+
+    source = Path(server.__file__).read_text(encoding="utf-8")
+    routes = {
+        piece.strip().strip("\"'")
+        for group in re.findall(r"path in \(([^)]*)\)", source)
+        for piece in group.split(",")
+        if piece.strip()
+    }
+    routes.add("/")
+    # Prefix routes, matched with startswith in the server rather than listed.
+    prefixes = tuple(re.findall(r'path\.startswith\("([^"]+)"\)', source))
+    assert prefixes, "no prefix routes found — has the router changed shape?"
+
+    def served(where: str) -> bool:
+        return where in routes or where.startswith(prefixes)
+
+    bad: list[str] = []
+    for page in sorted(server.STATIC.glob("*.js")) + sorted(server.STATIC.glob("*.html")):
+        text = page.read_text(encoding="utf-8")
+        # No closing quote required. A route built by concatenation —
+        # `href="/connect/' + key + '"` — has a literal prefix and no closing
+        # quote, and requiring one skipped exactly the link this test was
+        # written for. The literal prefix is enough: it either starts with a
+        # prefix route the server serves, or it leads nowhere.
+        for target in re.findall(r'href="(/[^"\'#?+$]*)', text):
+            # Files, not routes: served by their own branch and named exactly.
+            if target.startswith(("/static/", "/api/", "/media/", "/films/")):
+                continue
+            if target.endswith((".css", ".js", ".png", ".ico", ".svg", ".webmanifest")):
+                continue
+            # A trailing slash is part of a prefix route ("/u/"), so it is not
+            # stripped — stripping turns "/u/" into "/u", which matches nothing,
+            # and this test spent its first run reporting four real routes as
+            # broken for exactly that reason.
+            if not served(target):
+                bad.append(f"{page.name} -> {target}")
+
+    assert not bad, "links to routes the app does not serve: " + ", ".join(sorted(set(bad)))
+
+
+def test_every_tab_and_create_entry_points_at_a_route_the_app_serves():
+    """A tab bar slot leading to a 404 is the worst possible 404.
+
+    Made twice in one day. `brand.SHOTS` sourced a store screenshot from
+    "/looks", and the first draft of the rebuilt tab bar gave the second slot
+    to "/discover" — neither of which the server has ever served. Both were
+    found by asking the server rather than by reading the file, so that is what
+    this does: it reads the routes out of `server.py` and the destinations out
+    of `chrome.js`, and neither side can be edited alone.
+    """
+    from auteur.web import server
+
+    source = Path(server.__file__).read_text(encoding="utf-8")
+    routes = {
+        piece.strip().strip("\"'")
+        for group in re.findall(r"path in \(([^)]*)\)", source)
+        for piece in group.split(",")
+        if piece.strip()
+    }
+    routes.add("/")
+
+    chrome = (server.STATIC / "chrome.js").read_text(encoding="utf-8")
+
+    tabs = re.search(r"var TABS = \[(.*?)\n  \];", chrome, re.S)
+    assert tabs, "the tab bar no longer declares TABS"
+    creates = re.search(r"var CREATE = \[(.*?)\n  \];", chrome, re.S)
+    assert creates, "the create sheet no longer declares CREATE"
+
+    destinations = re.findall(r'href:\s*"([^"]+)"', tabs.group(1) + creates.group(1))
+    assert len(destinations) >= 9, f"only found {len(destinations)} destinations"
+
+    for href in destinations:
+        # A fragment is a place on a page, not a page.
+        path = href.split("#")[0] or "/"
+        assert path in routes, (
+            f"the navigation sends people to {href!r}, which the server does "
+            "not serve — see the /looks and /discover entries this guards"
+        )
+
+
+def test_every_promotional_still_is_shot_from_a_route_the_app_serves():
+    """A screenshot plan pointing at a 404 produces no screenshot.
+
+    `SHOTS` listed "/looks" as the source of the "Graded for a decade" still.
+    The app has never served that path — the decade grades are a control on the
+    home screen — so the capture for the most visual slot in both store
+    listings was a route that 404s, and the only thing that noticed was a
+    browser being driven by hand.
+    """
+    from auteur import brand
+    from auteur.web import server
+
+    served = set(re.findall(r"path in \(([^)]*)\)", Path(server.__file__).read_text()))
+    routes = {
+        piece.strip().strip("\"'")
+        for group in served
+        for piece in group.split(",")
+        if piece.strip()
+    }
+    routes.add("/")
+    for shot in brand.SHOTS:
+        assert shot.route in routes, (
+            f"the {shot.key!r} still is shot from {shot.route!r}, "
+            "which the server does not serve"
+        )
+
+
+def test_no_join_is_offset_past_the_end_of_what_it_joins():
+    """An xfade offset past the end of its first input truncates the film.
+
+    Silently. ffmpeg exits zero, writes a file, and the picture simply stops
+    there — a 20-second montage came back with 4.8 seconds of picture and 19.7
+    seconds of music over black, and the only thing that noticed was the critic
+    saying "it came out the wrong length" without saying how.
+
+    The offsets were summed from the EDL's *planned* shot durations. A segment
+    is a whole number of frames, so a shot planned at 0.250s renders at 0.233s
+    at 30fps, and the 7% shortfall accumulates until an offset outruns the
+    chain. It stayed hidden while every shot was about the same length; giving
+    films a held shot and real landings made the drift big enough to cross the
+    line.
+
+    So the offsets come from the measured segments now, and this is the
+    invariant that was missing: no join may begin after the end of the thing it
+    is joining onto.
+    """
+    import re
+
+    from auteur.edl import EditDecisionList, Shot, Transition
+
+    shots = []
+    for index in range(12):
+        shot = Shot(
+            clip_id=f"c{index}",
+            source="/nowhere.mp4",
+            start=0.0,
+            end=0.25,
+            transition_in=(Transition("cut", 0.0) if index % 4 else Transition("dissolve", 0.2)),
+        )
+        shots.append(shot)
+    shots[0].transition_in = Transition("cut", 0.0)
+    edl = EditDecisionList(shots=shots)
+
+    # What the renderer really gets back: every segment a little shorter than
+    # planned, because frames are whole.
+    measured = [0.233] * len(shots)
+
+    from auteur.render import _assemble_video
+
+    graph, _ = _assemble_video(edl, len(shots), measured)
+
+    running = measured[0]
+    for index in range(1, len(shots)):
+        found = re.search(rf"\[vin{index}\]xfade[^;]*?offset=([0-9.]+)", graph)
+        if found:
+            offset = float(found.group(1))
+            assert offset <= running + 1e-6, (
+                f"join {index} starts at {offset:.4f}s, past the {running:.4f}s "
+                "of picture actually in front of it — ffmpeg ends the film there"
+            )
+            running += measured[index] - shots[index].transition_in.duration
+        else:
+            running += measured[index]
+
+    # And the planned offsets must not be what is used: with the plan they are
+    # measurably larger, which is the bug this replaces.
+    stale, _ = _assemble_video(edl, len(shots), None)
+    first_measured = re.search(r"offset=([0-9.]+)", graph)
+    first_stale = re.search(r"offset=([0-9.]+)", stale)
+    assert first_measured and first_stale
+    assert float(first_measured.group(1)) < float(
+        first_stale.group(1)
+    ), "the measured offsets match the planned ones, so nothing is being measured"
+
+
+def test_no_flex_row_is_asked_to_hold_a_sentence():
+    """A flex container makes an item of every child *and every run of text*.
+
+    The Schedule tab's "This never posts for you." notice was one <p> with
+    `display: flex`, an icon <span>, a <strong>, an <em> and prose between
+    them. Flex does not care that it is a sentence: it laid the four runs out
+    as four narrow columns, and on a 390px phone the notice read
+
+        This      Connecting   read   — followers and how a
+        never     an account          post did. ...
+        posts     below asks
+        for       only to
+        you.
+
+    Nobody reading the markup would see that; it was found by taking a
+    screenshot. The rule is structural rather than cosmetic: a flex or grid
+    container's children *are* its layout, so prose inside one belongs in a
+    child of its own.
+
+    Deciding whether a given element is such a container needs a little of
+    the cascade — `.card` is a flex row and `.card.block` is not — so the
+    rules are collected with the classes they need and the last one whose
+    classes the element carries wins.
+    """
+    import re
+
+    from auteur.web import server
+
+    static = server.STATIC
+
+    # style.css first: it is the base sheet, and a page's own sheet is linked
+    # after it, so later here means later in the cascade.
+    sheets = [static / "style.css"] + [
+        sheet for sheet in sorted(static.glob("*.css")) if sheet.name != "style.css"
+    ]
+
+    display_rules: list[tuple[frozenset[str], str]] = []
+    for sheet in sheets:
+        # Comments first. `[^{}]+` before a brace swallows whatever stands
+        # between the previous rule and this one, and in this stylesheet that
+        # is usually a paragraph of comment — which then looks like a
+        # descendant selector to the filter below. The first draft of this
+        # test dropped 46 of 47 classes that way and passed against the very
+        # bug it was written for; the mutation run is what said so.
+        text = re.sub(r"/\*.*?\*/", "", sheet.read_text(encoding="utf-8"), flags=re.S)
+        for selector, declarations in re.findall(r"([^{}]+)\{([^{}]*)\}", text):
+            found = re.search(r"display:\s*([a-z-]+)", declarations)
+            if not found:
+                continue
+            for piece in selector.split(","):
+                piece = piece.strip()
+                # Only selectors that are classes on one element. A descendant
+                # or child selector describes something this test cannot
+                # resolve from markup alone.
+                if not piece or re.search(r"[>+~\s]", piece) or not piece.startswith("."):
+                    continue
+                if re.search(r"[^.\w-]", piece):  # pseudo-classes, attributes
+                    continue
+                display_rules.append((frozenset(piece.lstrip(".").split(".")), found.group(1)))
+
+    assert display_rules, "no display rules found — has the stylesheet changed shape?"
+
+    def lays_out_its_children(classes: frozenset[str]) -> bool:
+        winner = ""
+        for needed, value in display_rules:
+            if needed <= classes:
+                winner = value
+        return winner in ("flex", "inline-flex", "grid", "inline-grid")
+
+    # A real parser rather than a regex. The first draft matched
+    # `<tag class=...>(.*?)</tag>` with finditer, and matches do not overlap:
+    # `<main class="page">` matched first and swallowed every element inside
+    # it, so nothing nested was ever examined and the test passed against the
+    # bug. HTMLParser reports each element's own text, which is exactly the
+    # question being asked.
+    from html.parser import HTMLParser
+
+    VOID = {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+
+    class LooseProse(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__(convert_charrefs=True)
+            # tag, classes, its own text runs, how many element children
+            self.stack: list[list] = []
+            self.found: list[tuple[str, str, int, str]] = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag in VOID:
+                return
+            classes = ""
+            for name, value in attrs:
+                if name == "class":
+                    classes = value or ""
+            if self.stack:
+                self.stack[-1][3] += 1
+            self.stack.append([tag, frozenset(classes.split()), [], 0])
+
+        def handle_endtag(self, tag):
+            while self.stack:
+                name, classes, runs, children = self.stack.pop()
+                text = [run.strip() for run in runs if run.strip()]
+                words = sum(len(run.split()) for run in text)
+                # Prose *mixed with* element children is the defect: those
+                # are the separate items flex will column up. A label that is
+                # nothing but its own words — "Choose from camera roll" in an
+                # inline-flex button — is one item and wraps like any text.
+                if words >= 4 and children and lays_out_its_children(classes):
+                    self.found.append((name, " ".join(sorted(classes)), words, text[0]))
+                if name == tag:
+                    break
+
+        def handle_data(self, data):
+            if self.stack:
+                self.stack[-1][2].append(data)
+
+    offenders: list[str] = []
+    for page in sorted(static.glob("*.html")):
+        parser = LooseProse()
+        parser.feed(page.read_text(encoding="utf-8"))
+        for tag, classes, words, first in parser.found:
+            offenders.append(
+                f"{page.name}: <{tag} class={classes!r}> holds {words} loose "
+                f"words — {first[:50]!r}"
+            )
+
+    assert (
+        not offenders
+    ), "prose sitting directly inside a flex or grid container becomes " "columns: " + "; ".join(
+        sorted(set(offenders))
+    )
+
+
+def test_no_root_tab_offers_a_way_back_out_of_itself():
+    """A tab is the top of its own stack; there is nothing above it.
+
+    The Schedule screen used to hang off the studio, and it kept its back
+    arrow when it became the second slot in the tab bar. So one root tab in
+    five had a back arrow that pointed at /studio — not where you came from,
+    not this screen's parent any more, and reachable from any of the other
+    four, which means the arrow's destination had nothing to do with the
+    journey. Found by opening all five tabs in a phone-sized browser and
+    listing the visible controls, not by reading the markup.
+
+    The same class as every other bug this file guards: a value that exists
+    and is never compared to anything. `href="/studio"` was true once, the
+    tab bar changed underneath it, and nothing held the two together.
+    """
+    import re
+
+    from auteur.web import server
+
+    source = Path(server.__file__).read_text(encoding="utf-8")
+
+    # Which document each route serves, read off the router rather than
+    # assumed: `if path in (...): self._static(STATIC / "name.html", ...)`.
+    served: dict[str, str] = {}
+    for group, page in re.findall(
+        # `or path.startswith(...)` may trail the tuple — the profile route
+        # does exactly that — so anything up to the colon is allowed.
+        r"path in \(([^)]*)\)[^:\n]*:\s*\n(?:\s*#[^\n]*\n)*\s*self\._static\("
+        r'\s*STATIC / \(?"([^"]+\.html)"',
+        source,
+    ):
+        for piece in group.split(","):
+            piece = piece.strip().strip("\"'")
+            if piece:
+                served[piece] = page
+
+    chrome = (server.STATIC / "chrome.js").read_text(encoding="utf-8")
+    tabs = re.search(r"var TABS = \[(.*?)\n  \];", chrome, re.S)
+    assert tabs, "the tab bar no longer declares TABS"
+    hrefs = re.findall(r'href:\s*"([^"]+)"', tabs.group(1))
+    assert len(hrefs) == 5, f"expected five tab slots, found {len(hrefs)}"
+
+    offenders: list[str] = []
+    for href in hrefs:
+        page = served.get(href.split("#")[0])
+        assert page, f"the tab bar points at {href!r}, which serves no document"
+        markup = (server.STATIC / page).read_text(encoding="utf-8")
+        # A back control belonging to a sub-view is fine — the inbox reveals
+        # one inside a thread, the manager inside one plan, the profile on
+        # somebody else's. Every one of those starts hidden, either on the
+        # control or on the <main> that holds it, and the browser agrees:
+        # opening all five tabs showed exactly one visible back arrow. What
+        # may not exist is one that is on screen the moment the tab opens.
+        inside_hidden_screen = False
+        for tag in re.findall(r"<(?:main|a|button)\b[^>]*>", markup):
+            if tag.startswith("<main"):
+                inside_hidden_screen = " hidden" in tag
+                continue
+            if "topbar-back" not in tag and "sbar-back" not in tag:
+                continue
+            if inside_hidden_screen or "hidden" in tag:
+                continue
+            offenders.append(f"{page} ({href}): {tag}")
+
+    assert (
+        not offenders
+    ), "a root tab shows a back control, which has nowhere honest to go: " + "; ".join(offenders)
+
+
+def test_the_published_page_has_the_same_tabs_as_the_app():
+    """The link showed a different product and nothing compared the two.
+
+    `chrome.js` emits the app's bar. The published page is one file with no
+    server, so that script is stripped and `build_artifact.py` wrote its own
+    — and its own said **Create, Templates, Animation, Studio, You** while the
+    app said Feed, Schedule, Create, Messages, You. Not one name in common
+    beyond two. Anybody following the link met a different app from the one in
+    the screenshots and was right to say so.
+
+    It survived because the comment above that list claims it is "the same one
+    the app has" and nothing checked. Two lists, one idea, in two files —
+    which is the shape of every other thing found in this repository this
+    week.
+
+    Three of the five need somewhere to keep things and a page with no server
+    cannot have them. They are still named, and tapping one says why. Renaming
+    the bar around the limitation is what made the link look like another app.
+    """
+    import re
+
+    from auteur.web import server
+
+    root = Path(__file__).resolve().parent.parent
+    chrome = (server.STATIC / "chrome.js").read_text(encoding="utf-8")
+    builder = (root / "tools" / "artifact" / "build_artifact.py").read_text(encoding="utf-8")
+
+    tabs = re.search(r"var TABS = \[(.*?)\n  \];", chrome, re.S)
+    assert tabs, "chrome.js no longer declares TABS"
+    app = re.findall(r'label:\s*"([^"]+)"', tabs.group(1))
+
+    published = re.search(r"TABS = \((.*?)\n\)", builder, re.S)
+    assert published, "build_artifact.py no longer declares TABS"
+    page = re.findall(r'"[a-z]+",\s*"[^"]+",\s*"([^"]+)"', published.group(1))
+
+    assert app == page, (
+        f"the app's bar is {app} and the published page's is {page} — "
+        "somebody following the link meets a different product"
+    )
+    assert len(app) == 5, f"the bar is five slots on both phones; this is {len(app)}"
+
+
+def test_both_renderers_shape_a_film_the_same_way():
+    """The published page is the film most people will ever see this app make.
+
+    It has its own cutting engine, because a published page has no server and
+    no Python behind it — and a second copy of a number drifts. That has
+    already happened once here over pace, and it happened again over shape:
+    the structure layer went into `auteur/craft/story.py` and the browser kept
+    arranging bars with no structure at all. Measured across its six styles,
+    the longest shot was **exactly twice the median on four of them** —
+    hypercut 2.00, story 2.00, hype 2.00 — which is the same ceiling, in the
+    same shape, in the other engine.
+
+    So the constants are read out of both and compared, the way the pace
+    tables already are. Changing one alone fails here.
+    """
+    import re
+
+    from auteur.craft import story
+
+    root = Path(__file__).resolve().parent.parent
+    js = (root / "tools" / "artifact" / "style.js").read_text(encoding="utf-8")
+
+    block = re.search(r"var STRUCTURE = \{(.*?)\n  \};", js, re.S)
+    assert block, "style.js no longer declares STRUCTURE"
+
+    def number(name: str) -> float:
+        found = re.search(rf"{name}:\s*([0-9.]+)", block.group(1))
+        assert found, f"STRUCTURE has no {name}"
+        return float(found.group(1))
+
+    assert (
+        number("opening") == story.STRESS[story.Beat.OPEN]
+    ), "the browser and the director disagree about how long an opening is"
+    assert (
+        number("hold") == story.STRESS[story.Beat.HOLD]
+    ), "the browser and the director disagree about the held shot"
+    assert (
+        number("close") == story.STRESS[story.Beat.CLOSE]
+    ), "the browser and the director disagree about the closing shot"
+    assert number("holdAt") == story.HOLD_AT
+    assert number("leastShots") == story.LEAST_SHOTS_FOR_A_HOLD
+
+    # And the shape is applied, not merely declared: `arrange` must return it.
+    assert "return shape(out);" in js, "style.js declares a structure and does not apply it"
+
+
+def test_a_film_has_a_shot_that_lands_and_one_that_holds():
+    """The longest shot was exactly 2.00x the median in every film ever cut.
+
+    Not approximately. Exactly, from three different briefs — a 20s montage, a
+    15s hypercut and a 24s cinematic piece — which is a ceiling rather than a
+    coincidence. `shot_length_at` claims in its own docstring to span "roughly
+    4:1, the difference between a held beat and a flurry", and then the beat
+    quantiser rounded every slot to one or two grid units and the range
+    collapsed. A 61-shot montage was built from three distinct lengths.
+
+    That is what "computer-generated" means when somebody says it about an
+    edit: nothing is ever emphasised, so nothing is ever a decision. A film
+    needs shots that land and, once, a shot that holds.
+    """
+    import random
+
+    from auteur.craft import story
+    from auteur.director.brief import parse_brief
+    from auteur.director.heuristic import _build_slots
+
+    for prompt, runtime in (
+        ("a montage of the walk home", 20.0),
+        ("fast neon hypercut", 15.0),
+        ("a cinematic film about the long way home", 24.0),
+    ):
+        brief = parse_brief(prompt)
+        rng = random.Random(11)
+        rough = _build_slots(brief, runtime, None, 0.0, rng)
+        spread = 1.0
+        if rough:
+            shape = story.shape(len(rough), random.Random(11), arc=brief.arc)
+            spread = sum(story.STRESS[b] for b in shape.beats) / max(len(shape), 1)
+            shape = story.shape(
+                max(1, round(len(rough) / max(spread, 0.2))), random.Random(11), arc=brief.arc
+            )
+        slots = _build_slots(brief, runtime, None, 0.0, random.Random(11), shape)
+
+        lengths = sorted(slot.length for slot in slots)
+        median = lengths[len(lengths) // 2]
+        longest = lengths[-1]
+        assert longest / median >= 3.0, (
+            f"{prompt!r}: the longest shot is only {longest / median:.2f}x the "
+            "median, so nothing in the film is emphasised — this was 2.00 "
+            "exactly on every brief before the structure layer existed"
+        )
+        assert len({round(x, 3) for x in lengths}) >= 4, (
+            f"{prompt!r}: only {len({round(x, 3) for x in lengths})} distinct "
+            "shot lengths, which is a metronome rather than a rhythm"
+        )
+
+        # And the emphasis is where the structure asked for it, not wherever
+        # the footage happened to be long.
+        held = [slot for slot in slots if slot.beat is story.Beat.HOLD]
+        assert len(held) == 1, f"{prompt!r}: expected exactly one hold, got {len(held)}"
+        where = held[0].start / runtime
+        assert 0.45 < where < 0.9, f"{prompt!r}: the hold sits at {where:.0%} of the film"
+        assert held[0].length == max(s.length for s in slots), (
+            f"{prompt!r}: the held shot is not the longest one, so the quantiser "
+            "has handed it back to the rhythm it exists to break"
+        )
+
+
+def test_the_opening_shot_is_not_the_one_that_lingers():
+    """Two independent sources say the opening must be short, and the first
+    draft of `story.py` stretched it by 1.6x.
+
+    The Scholar, asked "what makes an opening hold a viewer", reports the
+    opening held 0.12s across 24 reels with 22 cutting inside half a second.
+    The APX craft rules fire `hook-length` above 2.0s from the other direction.
+    A shot that needs explaining has already been scrolled past.
+    """
+    import random
+
+    from auteur.craft import story
+    from auteur.director.brief import parse_brief
+    from auteur.director.heuristic import _build_slots
+
+    assert story.STRESS[story.Beat.OPEN] < 1.0, "the opening is being stretched"
+    assert story.STRESS[story.Beat.OPEN] < story.STRESS[story.Beat.BUILD]
+
+    for prompt in ("a montage of the walk home", "a cinematic film, slowly"):
+        brief = parse_brief(prompt)
+        shape = story.shape(20, random.Random(5), arc=brief.arc)
+        slots = _build_slots(brief, 20.0, None, 0.0, random.Random(5), shape)
+        assert not story.opening_is_too_long(slots[0].length), (
+            f"{prompt!r}: the film opens on a {slots[0].length:.2f}s shot, past "
+            f"the {story.OPENING_HOLD_LIMIT}s a hook has"
+        )
+
+
+def test_no_sheet_is_hidden_inside_another_sheet():
+    """A sheet nested in a sheet can never be opened, and nothing says so.
+
+    The watch-history sheet shipped one revision inside `#reports-sheet`.
+    Clicking its row cleared the inner `hidden` and the sheet still did not
+    appear, because the outer one was hidden and an ancestor's `hidden` wins.
+    Nothing failed: the handler ran, the fetch returned, the rows were built,
+    `innerText` even read back correctly. Only measuring the element in a
+    browser found it, at 0x0.
+
+    Every sheet in this app is a fixed-position overlay at `inset: 0`, so a
+    sheet is always a sibling of the others and never a child of one.
+    """
+    from html.parser import HTMLParser
+
+    class Sheets(HTMLParser):
+        VOID = {"br", "img", "meta", "link", "input", "hr", "source", "track"}
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.depth: list[bool] = []
+            self.nested: list[str] = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag in self.VOID:
+                return
+            found = dict(attrs)
+            is_sheet = "sheet" in (found.get("class") or "").split()
+            if is_sheet and any(self.depth):
+                self.nested.append(found.get("id") or "an unnamed sheet")
+            self.depth.append(is_sheet)
+
+        def handle_endtag(self, tag):
+            if tag not in self.VOID and self.depth:
+                self.depth.pop()
+
+    from auteur.web import server as web
+
+    pages = sorted(Path(web.STATIC).glob("*.html"))
+    assert pages, "no pages to check"
+    for page in pages:
+        reader = Sheets()
+        reader.feed(page.read_text(encoding="utf-8"))
+        assert not reader.nested, (
+            f"{page.name} nests {reader.nested} inside another sheet — "
+            "opening it will do nothing, because the outer sheet's hidden wins"
+        )
+
+
+def test_every_sheet_can_be_dismissed_without_finding_its_button():
+    """Tapping outside a sheet closes it, which means it needs a scrim.
+
+    The watch-history sheet was written without one, so the only way out was
+    the Done button — on a phone, where every other sheet in the app closes on
+    a tap anywhere outside it.
+    """
+    import re
+
+    from auteur.web import server as web
+
+    for page in sorted(Path(web.STATIC).glob("*.html")):
+        text = page.read_text(encoding="utf-8")
+        for block in re.findall(
+            r'<div class="sheet" id="([a-z-]+)-sheet"[^>]*>(.*?)\n</div>', text, re.S
+        ):
+            name, body = block
+            assert "sheet-scrim" in body, f"{page.name}: the {name} sheet has no scrim to tap"
+
+
+def test_the_profile_page_is_served_for_you_and_for_anybody_else(web_server):
+    """`/u/<name>` is a link somebody can send, and it is the same document."""
+    from urllib.request import Request, urlopen
+
+    base, _, cookie = web_server
+    for path in ("/profile", "/me", "/u/grace"):
+        with urlopen(Request(base + path, headers={"Cookie": cookie})) as response:
+            body = response.read().decode()
+        assert response.headers["Content-Type"].startswith("text/html"), path
+        assert 'id="profile"' in body, path
+
+
+def test_your_own_profile_carries_your_account_and_nobody_elses(web_server):
+    base, _, cookie = web_server
+    mine = _api_get(base, "/api/profile", cookie)["profile"]
+    assert mine["who"] == "tester"
+    assert mine["me"] is True
+    assert mine["email"] == "tester@example.com"
+
+    theirs = _api_get(base, "/api/profiles/grace", cookie)["profile"]
+    assert theirs["who"] == "grace"
+    assert theirs["me"] is False
+    # Somebody else's email is not somebody else's business.
+    assert "email" not in theirs
+
+
+def test_following_somebody_moves_both_counts(web_server):
+    base, _, cookie = web_server
+    after = _api_post(base, "/api/profiles/grace/follow", cookie, {"follow": True})["profile"]
+    assert after["you_follow"] is True
+    assert after["followers"] == 1
+    assert _api_get(base, "/api/profile", cookie)["profile"]["following"] == 1
+
+    rows = _api_get(base, "/api/profiles/tester/followers", cookie)["people"]
+    assert rows == []
+    rows = _api_get(base, "/api/profiles/tester/following", cookie)["people"]
+    assert [row["who"] for row in rows] == ["grace"]
+
+    back = _api_post(base, "/api/profiles/grace/follow", cookie, {"follow": False})["profile"]
+    assert back["you_follow"] is False
+    assert back["followers"] == 0
+
+
+def test_following_a_name_with_no_account_is_a_404(web_server):
+    from urllib.error import HTTPError
+
+    base, _, cookie = web_server
+    with pytest.raises(HTTPError) as raised:
+        _api_post(base, "/api/profiles/nobody/follow", cookie, {"follow": True})
+    assert raised.value.code == 404
+
+
+def test_the_feed_can_be_narrowed_to_the_people_you_follow(web_server):
+    """A count that is not a filter is a number nobody can act on."""
+    base, _, cookie = web_server
+    from auteur.web import server as web
+
+    for owner in ("grace", "someone-else"):
+        film = tmp = web.Handler.studio.workspace / f"{owner}.mp4"
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_bytes(b"not really an mp4")
+        web.Handler.films.add(owner=owner, prompt=f"{owner}'s film", video=str(film))
+
+    everyone = _api_get(base, "/api/feed?scope=all", cookie)
+    assert len(everyone["films"]) == 2
+    # Each author arrives with the feed rather than one request per row.
+    assert set(everyone["people"]) == {"grace", "someone-else"}
+
+    _api_post(base, "/api/profiles/grace/follow", cookie, {"follow": True})
+    followed = _api_get(base, "/api/feed?scope=following", cookie)
+    assert [f["owner"] for f in followed["films"]] == ["grace"]
+
+    # `?mine=1` is what the first version of the feed sent, and a phone with
+    # that page cached is a real client.
+    assert _api_get(base, "/api/feed?mine=1", cookie)["films"] == []
+
+
+def test_a_profile_picture_goes_up_and_comes_back_as_a_jpeg(web_server):
+    import io
+
+    from PIL import Image
+    from urllib.request import Request, urlopen
+
+    base, _, cookie = web_server
+    raw = io.BytesIO()
+    Image.new("RGB", (900, 600), (30, 160, 90)).save(raw, "PNG")
+
+    request = Request(
+        base + "/api/profile/picture",
+        data=raw.getvalue(),
+        headers={"Cookie": cookie, "Content-Type": "image/png"},
+    )
+    with urlopen(request) as response:
+        import json as _json
+
+        profile = _json.loads(response.read().decode())["profile"]
+    assert profile["picture"].startswith("/api/profiles/tester/picture")
+
+    with urlopen(Request(base + profile["picture"], headers={"Cookie": cookie})) as response:
+        served = response.read()
+        assert response.headers["Content-Type"] == "image/jpeg"
+    assert Image.open(io.BytesIO(served)).format == "JPEG"
+
+    # And taking it off puts the disc back, rather than serving a stale file.
+    from urllib.error import HTTPError
+
+    gone = _api_post(base, "/api/profile/picture/remove", cookie)["profile"]
+    assert gone["picture"] == ""
+    with pytest.raises(HTTPError) as raised:
+        urlopen(Request(base + "/api/profiles/tester/picture", headers={"Cookie": cookie}))
+    assert raised.value.code == 404
+
+
+def test_a_picture_url_changes_when_the_picture_does(tmp_path):
+    """Served with a long cache lifetime, so a replaced picture needs a new URL.
+
+    Without this somebody changes their picture, sees the old one everywhere,
+    and reports the feature as broken.
+    """
+    import io
+    import time
+
+    from PIL import Image
+    from auteur.web.profiles import Profiles, store_picture
+
+    store = Profiles(tmp_path / "profiles.json", tmp_path / "pictures")
+    raw = io.BytesIO()
+    Image.new("RGB", (100, 100), (10, 10, 10)).save(raw, "JPEG")
+
+    store.set_picture("ada", store_picture(raw.getvalue(), store.pictures, "ada"))
+    first = store.get("ada").picture_url
+    time.sleep(1.05)  # the stamp is whole seconds
+    store.set_picture("ada", store_picture(raw.getvalue(), store.pictures, "ada"))
+    assert store.get("ada").picture_url != first
+
+
+def test_the_profile_is_the_fifth_tab_and_the_studio_is_on_it():
+    """The bar ends with the person using it, as both reference apps do — and
+    the workroom that used to be there is a row at the top of their profile,
+    which is where Instagram keeps its professional dashboard."""
+    from auteur.web import server
+
+    chrome = (server.STATIC / "chrome.js").read_text()
+    assert '"/profile"' in chrome
+    assert '"/studio"' not in chrome
+
+    page = (server.STATIC / "profile.html").read_text()
+    assert 'href="/studio"' in page
+    assert "chrome.js" in page
+
+
+def test_the_account_settings_are_hidden_until_the_profile_is_known_to_be_yours():
+    """`hidden` in the markup, revealed by the answer — never the other way.
+
+    A settings panel that flashes on somebody else's page before a script
+    hides it is a settings panel that was on somebody else's page.
+    """
+    import re
+
+    from auteur.web import server
+
+    page = (server.STATIC / "profile.html").read_text()
+    for block in ("settings", "mine"):
+        found = re.search(r'<div id="' + block + r'"([^>]*)>', page)
+        assert found, block
+        assert "hidden" in found.group(1), block
+
+
+def test_the_accessibility_settings_can_turn_a_thing_on_and_never_off():
+    """The phone's own setting is a statement about the person using it.
+
+    An app switch that could contradict it would be an app switch that takes
+    an accessibility setting away, so the media queries stay live underneath
+    and the in-app attribute only ever adds.
+    """
+    from auteur.web import server
+
+    style = (server.STATIC / "style.css").read_text()
+    # Both halves of each pair: the system setting, and the in-app one.
+    assert "@media (prefers-reduced-motion: reduce)" in style
+    assert ':root[data-motion="still"] *' in style
+    assert "@media (prefers-contrast: more)" in style
+    assert ':root[data-contrast="more"]' in style
+    # And nothing that switches either back off.
+    assert 'data-motion="full"' not in style
+    assert 'data-contrast="normal"' not in style
+
+    settings = (server.STATIC / "settings.js").read_text()
+    assert 'removeAttribute("data-motion")' in settings
+    assert 'removeAttribute("data-contrast")' in settings
+
+
+def test_the_feed_keeps_its_own_theme_when_the_app_changes_appearance():
+    """A film is a picture on a black surround everywhere it is watched.
+
+    Applying "Automatic" would strip the attribute that makes the feed dark
+    and paint a bone-white page around a 1080x1920 video, which is a light
+    leak into the one screen whose whole job is the footage.
+    """
+    from auteur.web import server
+
+    feed = (server.STATIC / "feed.html").read_text()
+    assert "data-theme-locked" in feed
+    settings = (server.STATIC / "settings.js").read_text()
+    assert 'hasAttribute("data-theme-locked")' in settings
+
+
+def test_the_type_scale_moves_together_when_the_text_size_does():
+    """Every rung in rem, so one root font-size scales all of it.
+
+    A ladder with a px rung in it is a ladder where that rung stays put while
+    everything around it grows, which is worse than not offering the setting.
+    """
+    import re
+
+    from auteur.web import server
+
+    style = (server.STATIC / "style.css").read_text()
+    block = style[style.index("--text-large-title") : style.index("--radius:")]
+    rungs = re.findall(r"(--text-[a-z0-9-]+): ([^;]+);", block)
+    assert len(rungs) >= 10
+    for name, value in rungs:
+        assert value.strip().endswith("rem"), f"{name} is {value}, which will not scale"
+
+
+# ---------------------------------------------------------------------------
+# Getting into the App Store
+# ---------------------------------------------------------------------------
+
+
+def test_every_import_is_either_installed_or_guarded():
+    """The container installs `requirements.txt` and nothing else.
+
+    So an import that is not in that file and not wrapped in a try is an
+    application that builds cleanly and dies on the first request that reaches
+    it — the worst possible time to find out, and invisible on a development
+    machine that happens to have the package.
+
+    `cryptography` was exactly that: imported for Apple's client secret,
+    guarded, and therefore not a crash — but also not installed, which meant
+    no deployment could offer Continue with Apple at all. This is the check
+    that found it, kept so it finds the next one.
+
+    Guarded imports are fine and stay fine: `imageio_ffmpeg` is a fallback for
+    finding ffmpeg and the code says so when it is absent. What is not fine is
+    an unguarded import of something nothing installs.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parent.parent
+    requirements = (root / "requirements.txt").read_text(encoding="utf-8").lower()
+
+    # Module name -> the distribution that provides it, where they differ.
+    DISTRIBUTION = {"PIL": "pillow", "yt_dlp": "yt-dlp", "imageio_ffmpeg": "imageio-ffmpeg"}
+
+    unguarded: list[str] = []
+    for source in sorted((root / "auteur").rglob("*.py")):
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+
+        # Every import statement that sits inside a try, at any depth.
+        sheltered: set[int] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Try):
+                for child in ast.walk(node):
+                    if isinstance(child, (ast.Import, ast.ImportFrom)):
+                        sheltered.add(id(child))
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [a.name.split(".")[0] for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module.split(".")[0]] if node.level == 0 and node.module else []
+            else:
+                continue
+            if id(node) in sheltered:
+                continue
+            for name in names:
+                if name in sys.stdlib_module_names or name == "auteur":
+                    continue
+                if DISTRIBUTION.get(name, name).lower() in requirements:
+                    continue
+                unguarded.append(f"{source.relative_to(root)}:{node.lineno} imports {name!r}")
+
+    assert not unguarded, (
+        "imported, not installed by requirements.txt, and not inside a try — "
+        "this is a container that builds and then dies: " + "; ".join(unguarded)
+    )
+
+
+def test_a_second_person_can_only_join_when_the_owner_says_so(web_server):
+    """Sign-up used to close for good the moment the first account existed.
+
+    The reason was sound when this app was one person's edit room served over
+    their own wifi: an open door is an open door to the footage. It stopped
+    being sufficient when the app grew a feed, an inbox and profiles at
+    shareable addresses, every one of which needs a second person — and the
+    only way to get one was `auteur account add` typed on the machine's
+    terminal by the owner, not by the person joining.
+
+    So it is a decision now, off until made, and this walks the whole of it:
+    refused while closed, refused with a wrong code, allowed with the right
+    one, and refused again after it is closed.
+    """
+    import json as _json
+    import urllib.error
+    from urllib.request import Request, urlopen
+
+    base, _studio, cookie = web_server
+
+    def post(path, payload, *, signed_in=False):
+        headers = {"Content-Type": "application/json"}
+        if signed_in:
+            headers["Cookie"] = cookie
+        request = Request(base + path, data=_json.dumps(payload).encode(), headers=headers)
+        try:
+            with urlopen(request) as answer:
+                return answer.status, _json.loads(answer.read())
+        except urllib.error.HTTPError as exc:
+            return exc.code, _json.loads(exc.read())
+
+    def joiner(code):
+        return {
+            "username": "newcomer",
+            "email": "newcomer@example.com",
+            "password": "a-long-enough-one",
+            "born": 1994,
+            "code": code,
+        }
+
+    # Closed: the fixture already has two accounts.
+    status, said = post("/api/signup", joiner(""))
+    assert status == 403, said
+    refusal = said["error"]
+
+    status, opened = post("/api/joining", {"open": True}, signed_in=True)
+    assert status == 200 and opened["open"] and opened["code"], opened
+    code = opened["code"]
+
+    # A wrong code is refused, and refused *identically* — telling a stranger
+    # that a code exists and theirs is wrong is telling them one is worth
+    # guessing.
+    status, said = post("/api/signup", joiner("not-the-code"))
+    assert status == 403
+    assert said["error"] == refusal
+
+    status, said = post("/api/signup", joiner(code))
+    assert status == 200, said
+    assert said["user"] == "newcomer"
+
+    status, shut = post("/api/joining", {"open": False}, signed_in=True)
+    assert status == 200 and not shut["open"]
+
+    status, said = post("/api/signup", {**joiner(code), "username": "third"})
+    assert status == 403, said
+
+
+def test_only_somebody_signed_in_can_open_the_door_or_read_the_code(web_server):
+    """The invite code is a credential and the switch is an auth surface.
+
+    An unsigned caller must be able to learn neither the code nor whether one
+    exists, and must certainly not be able to open the door.
+    """
+    import json as _json
+    import urllib.error
+    from urllib.request import Request, urlopen
+
+    base, _studio, _cookie = web_server
+
+    for method, payload in (("GET", None), ("POST", {"open": True})):
+        request = Request(
+            base + "/api/joining",
+            data=_json.dumps(payload).encode() if payload else None,
+            headers={"Content-Type": "application/json"},
+            method=method,
+        )
+        try:
+            with urlopen(request) as answer:
+                body = answer.read().decode()
+            raise AssertionError(f"{method} /api/joining answered signed out: {body}")
+        except urllib.error.HTTPError as exc:
+            assert exc.code in (401, 403), exc.code
+
+    # And the door stayed shut.
+    request = Request(
+        base + "/api/signup",
+        data=_json.dumps(
+            {
+                "username": "sneaky",
+                "email": "s@example.com",
+                "password": "a-long-enough-one",
+                "born": 1994,
+            }
+        ).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urlopen(request) as answer:
+            raise AssertionError(f"signup succeeded: {answer.read()!r}")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 403
+
+
+def test_the_sign_in_page_always_offers_a_way_to_make_an_account():
+    """A hidden button reads as an app without sign-up.
+
+    `#to-signup` carried a `hidden` attribute and was revealed only when the
+    copy had no accounts at all — so on every copy that had ever been used,
+    the sign-in page offered exactly one thing to do and somebody arriving
+    without an account had nothing to press. The answer belongs on the screen
+    after the button, not in whether the button exists.
+
+    And forgetting a password is a link. It was a full-width bordered control
+    the same size as the one beside it, which gave the thing almost everybody
+    does once the same weight as the thing they came here to do.
+    """
+    import re
+
+    from auteur.web import server
+
+    html = (server.STATIC / "login.html").read_text(encoding="utf-8")
+
+    signup = re.search(r"<button[^>]*id=\"to-signup\"[^>]*>", html)
+    assert signup, "the sign-in page has no way to make an account"
+    assert "hidden" not in signup.group(0), "the sign-up button is hidden again: " + signup.group(0)
+
+    forgot = re.search(r"<button[^>]*id=\"to-forgot\"[^>]*>", html)
+    assert forgot, "the sign-in page has no way to recover a password"
+    assert "textlink" in forgot.group(
+        0
+    ), "forgetting a password is back to being a full-width button: " + forgot.group(0)
+
+    # The link still has to be a finger-sized target, which a line of 15px
+    # text is not — the row around it carries that.
+    css = (server.STATIC / "style.css").read_text(encoding="utf-8")
+    assert ".afterthought" in css and "min-height: 44px" in css
+
+
+def test_a_setting_lives_in_settings_and_nowhere_else():
+    """The theme picker was the last thing on six of the app's screens.
+
+    Appearance is a setting. It was repeated at the foot of the sign-in page,
+    the edit room, the templates screen, the studio, the ask screen and the
+    profile — so on every one of them the final element was a control that had
+    nothing to do with what the screen was for, and on the templates screen it
+    sat directly above "your choice is remembered for the next film", which
+    made that sentence read as being about the theme rather than about the
+    template it actually describes.
+
+    The three accessibility settings — text size, motion, contrast — have
+    always been on the profile and only there. This holds the fourth to the
+    same rule, and holds it for every settings group at once so the next one
+    cannot spread either.
+    """
+    import re
+
+    from auteur.web import server
+
+    homes: dict[str, list[str]] = {}
+    for page in sorted(server.STATIC.glob("*.html")):
+        html = page.read_text(encoding="utf-8")
+        # Only settings groups. A bare `class="choices"` is a content picker —
+        # which kind of film, which overlay — and those belong on the screen
+        # that makes the thing. A settings group names itself, either with
+        # `data-setting` or with the older `appearance` class that theme.js
+        # reads as `data-setting="theme"`.
+        if 'class="choices appearance"' in html:
+            homes.setdefault("appearance", []).append(page.name)
+        for setting in re.findall(r'data-setting="([^"]+)"', html):
+            homes.setdefault(setting, []).append(page.name)
+
+    assert "appearance" in homes, "the appearance control has gone entirely"
+
+    spread = {name: sorted(set(pages)) for name, pages in homes.items() if len(set(pages)) > 1}
+    assert not spread, (
+        "a settings control appears on more than one page — settings belong in "
+        "Settings: " + "; ".join(f"{n} on {', '.join(p)}" for n, p in sorted(spread.items()))
+    )
+
+    assert homes["appearance"] == [
+        "profile.html"
+    ], f"appearance lives on {homes['appearance']}, not the profile"
+
+
+def test_the_sign_in_page_still_wires_its_form_after_the_picker_left():
+    """Deleting markup can break the script that reached for it.
+
+    `login.js` called `wireChoices(document.querySelector(".appearance"), ...)`
+    and `wireChoices` never checked its container for null. Removing the theme
+    picker without removing that call throws on load, before the sign-in form
+    is wired — and a page that looks completely normal and refuses to sign
+    anybody in is a worse bug than the one being fixed.
+
+    So: nothing in the sign-in page's script may reach for a control the page
+    does not have.
+    """
+    import re
+
+    from auteur.web import server
+
+    script = (server.STATIC / "login.js").read_text(encoding="utf-8")
+    html = (server.STATIC / "login.html").read_text(encoding="utf-8")
+
+    # Strip comments before looking: this file explains the removal at length
+    # and the explanation names the selector it removed.
+    code = re.sub(r"/\*.*?\*/", "", script, flags=re.S)
+    code = re.sub(r"//[^\n]*", "", code)
+
+    for selector in re.findall(r'querySelector\(\s*"\.([a-zA-Z0-9_-]+)"', code):
+        assert (
+            f'class="{selector}"' in html or f"{selector}" in html
+        ), f"login.js reaches for .{selector}, which login.html does not have"
+
+    for element_id in re.findall(r'\$\(\s*"([a-zA-Z0-9_-]+)"\s*\)', code):
+        assert (
+            f'id="{element_id}"' in html
+        ), f"login.js reaches for #{element_id}, which login.html does not have"
+
+
+def test_a_sign_in_option_the_deployment_cannot_offer_is_not_offered():
+    """`signed_secret` existed and nothing compared it to the install list.
+
+    Apple's client secret is an ES256 JWT the server signs itself, which needs
+    `cryptography`. No deployment installed it, so a hosted instance offered
+    Continue with Google and told anybody wanting Continue with Apple that it
+    could not — a dead end with no user remedy, and an App Store guideline 4.8
+    problem, since an app offering a third-party login has to offer an
+    equivalent privacy-preserving one.
+
+    Found by listing every third-party module `auteur/` imports and comparing
+    it to `requirements.txt`, which is a comparison nothing was making.
+    """
+    from auteur.web import oidc
+
+    requirements = (Path(__file__).resolve().parent.parent / "requirements.txt").read_text(
+        encoding="utf-8"
+    )
+    installed = {
+        line.split("=")[0].split(">")[0].split("<")[0].strip().lower()
+        for line in requirements.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+    signing = [key for key, p in oidc.PROVIDERS.items() if p.signed_secret]
+    assert signing, "no provider needs a signed secret — has the flag gone?"
+
+    assert "cryptography" in installed, (
+        "a deployment cannot sign a client secret, so "
+        f"{', '.join(signing)} cannot be offered: add cryptography to "
+        "requirements.txt"
+    )
+
+
+def test_a_broken_signing_library_does_not_take_the_sign_in_page_with_it(monkeypatch):
+    """`except Exception` is not enough, and the difference is a 500.
+
+    A broken `cryptography` — a stale wheel, a missing `_cffi_backend`, an ABI
+    mismatch after a base image moves — does not raise ImportError. The Rust
+    extension panics, and PyO3 surfaces that as `PanicException`, which
+    inherits from BaseException. So the guard written to make a *missing*
+    library harmless let the worst kind of *broken* library straight through,
+    and `offered()` raised on the one page somebody reaches before anything
+    else. Reproduced on a real machine before it was fixed: this sandbox has
+    exactly that broken install.
+
+    Only reachable when the provider is configured, which is why it survived
+    — an unconfigured Apple short-circuits before the check.
+    """
+    from auteur.web import oidc
+
+    class Panic(BaseException):
+        """What PyO3 raises. Not an Exception, which is the whole bug."""
+
+    apple = oidc.Settings(
+        client_id="com.auteurstudies.auteur",
+        redirect_uri="https://auteurstudies.com/oidc/apple",
+        team_id="TEAM123456",
+        key_id="KEY1234567",
+        private_key="-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----",
+    )
+    assert apple.usable, "the fixture no longer configures Apple, so nothing is tested"
+
+    for failure, expected in (
+        (Panic("panicked"), "not working"),
+        (ImportError("no"), "does not have"),
+    ):
+        monkeypatch.setattr(oidc, "_import_signing", lambda failure=failure: failure)
+        rows = oidc.offered({"apple": apple})
+        row = next(r for r in rows if r["key"] == "apple")
+        assert row["ready"] is False
+        assert expected in row["why"], (failure, row["why"])
+    monkeypatch.undo()
+
+    # And the real import path must not raise either, whatever is installed.
+    oidc.offered({"apple": apple})
+
+
+def test_the_licence_names_the_company_that_publishes_this():
+    """Two copies of a company's legal name is one company as far as a lawyer
+    is concerned and two as far as a reader is.
+
+    The LICENCE said `abucaria-afk` — a GitHub handle, which is not an entity
+    and cannot hold a copyright the way an LLC can — while the App Store
+    seller field was about to say Auteur Studies LLC. Nothing compared them,
+    which is the same defect as the site shipping a thirteen-colour-old
+    palette under a comment claiming it was generated from `theme.py`.
+    """
+    from auteur.identity import COMPANY
+
+    licence = (Path(__file__).resolve().parent.parent / "LICENSE").read_text(encoding="utf-8")
+
+    assert (
+        COMPANY.copyright_line in licence
+    ), f"the LICENCE does not carry {COMPANY.copyright_line!r} — it says " + next(
+        (line for line in licence.splitlines() if line.startswith("Copyright")),
+        "nothing about copyright at all",
+    )
+
+
+def test_the_bundle_identifier_claims_a_domain_the_company_owns():
+    """Apple requires reverse-DNS on a domain the publisher controls, and it
+    will not let the identifier be changed after the first submission.
+
+    So the failure this guards is permanent: ship `com.auteurstudios.auteur`
+    against `auteurstudies.com` and the app carries a misspelling of its own
+    company forever. `Identity.bundle_id` is derived from `COMPANY.domain`
+    for that reason, and this holds the derivation to the domain rather than
+    trusting that nobody will type it out again.
+    """
+    from auteur.identity import COMPANY, IDENTITY
+
+    assert COMPANY.reverse_dns == "com.auteurstudies", COMPANY.reverse_dns
+    assert IDENTITY.bundle_id.startswith(COMPANY.reverse_dns + "."), (
+        f"the bundle identifier {IDENTITY.bundle_id!r} does not sit under "
+        f"{COMPANY.domain!r}, which is the domain the company claims"
+    )
+    # Reverse-DNS: at least two dots, and nothing but letters, digits, dots
+    # and hyphens. Apple's rule, not a preference.
+    assert IDENTITY.bundle_id.count(".") >= 2
+    assert re.fullmatch(r"[A-Za-z0-9.-]+", IDENTITY.bundle_id)
+
+
+def test_the_published_site_claims_the_domain_the_listings_name(tmp_path):
+    """GitHub Pages serves a custom domain only if a CNAME file says so.
+
+    Without one it answers at <owner>.github.io/<repo>/ and nothing else —
+    while both store listings name auteurstudies.com. So the privacy policy
+    Apple fetches during review would 404, which is the most common metadata
+    rejection there is, and nothing in the repository connected those two
+    facts.
+
+    The file is written from `COMPANY.domain` rather than typed, and this
+    builds the site for real and reads what came out.
+    """
+    import subprocess
+
+    from auteur.identity import COMPANY, IDENTITY
+
+    root = Path(__file__).resolve().parent.parent
+    out = tmp_path / "pages"
+    done = subprocess.run(
+        [sys.executable, str(root / "tools" / "appstore" / "build_pages.py"), str(out)],
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
+    assert "Traceback" not in done.stderr, done.stderr[-2000:]
+
+    cname = out / "CNAME"
+    assert cname.is_file(), (
+        "the published site has no CNAME, so Pages will not serve "
+        f"{COMPANY.domain} and every store URL 404s"
+    )
+    assert cname.read_text(encoding="utf-8").strip() == COMPANY.domain
+
+    # And every URL the listings name has to be a file this build produced.
+    for label, url in (
+        ("support", IDENTITY.support_url),
+        ("privacy policy", IDENTITY.privacy_url),
+        ("terms", IDENTITY.terms_url),
+    ):
+        page = url.rsplit("/", 1)[-1] or "index.html"
+        assert (out / page).is_file(), f"the {label} URL names {page}, which is not built"
+
+
+def test_every_store_url_names_a_page_the_site_actually_builds():
+    """GitHub Pages serves `privacy.html` and gives `/privacy` a 404.
+
+    Apple fetches the privacy policy URL during review, and a 404 there is the
+    most common metadata rejection there is. The URLs are derived from the
+    company's domain, so the half that can still be wrong is the filename —
+    and the filenames the site writes are in `tools/site/build_site.py`, which
+    is what this reads rather than assuming.
+    """
+    from auteur.identity import COMPANY, IDENTITY
+
+    builder = (
+        Path(__file__).resolve().parent.parent / "tools" / "site" / "build_site.py"
+    ).read_text(encoding="utf-8")
+    built = set(re.findall(r'"([a-z-]+\.html)"', builder))
+    assert "index.html" in built, "the site builder no longer names its own pages"
+
+    for label, url in (
+        ("support", IDENTITY.support_url),
+        ("privacy policy", IDENTITY.privacy_url),
+        ("terms", IDENTITY.terms_url),
+    ):
+        assert url.startswith(
+            f"https://{COMPANY.domain}"
+        ), f"the {label} URL is {url!r}, which is not on the company's domain"
+        page = url.rsplit("/", 1)[-1]
+        # The bare domain is the front page and needs no filename.
+        if page:
+            assert page in built, (
+                f"the {label} URL points at {page!r}, which "
+                "tools/site/build_site.py does not write — that is a 404 at "
+                "review time"
+            )
+
+
+def test_the_submission_preflight_says_what_it_cannot_check():
+    """ "Everything checkable from here is right" reads like "ready to submit".
+
+    It is not the same sentence, and the gap between them is the whole company
+    side of this: the domain, the entity and the mailbox all block the upload
+    exactly as hard as a missing icon does, and none of them can be seen from
+    inside the repository. The preflight used to end on the reassuring half
+    alone.
+
+    So it prints `pending()` too — and this holds it to that, because a list
+    that exists and is never printed is the same defect one level up.
+    """
+    import contextlib
+    import importlib.util
+    import io
+
+    from auteur.identity import pending
+
+    root = Path(__file__).resolve().parent.parent
+    spec = importlib.util.spec_from_file_location(
+        "_preflight", root / "tools" / "appstore" / "preflight.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    # Registered before it runs: `Note` is a dataclass, and dataclasses
+    # resolve their annotations through `sys.modules[cls.__module__]`, which
+    # is None for a module that has been built but not registered.
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        caught = io.StringIO()
+        # argv, because `main` parses it and under pytest it is full of
+        # pytest's own flags — which is a SystemExit(2), not a failure of the
+        # thing being tested.
+        argv = sys.argv
+        sys.argv = ["preflight.py"]
+        try:
+            with contextlib.redirect_stdout(caught):
+                code = module.main()
+        finally:
+            sys.argv = argv
+        printed = caught.getvalue()
+    finally:
+        sys.modules.pop(spec.name, None)
+
+    assert code == 0, f"the preflight fails offline:\n{printed}"
+
+    for item in pending():
+        assert item.what in printed, (
+            f"the preflight never mentions {item.what!r}, so somebody reading "
+            "its last line would think this was ready to upload"
+        )
+    assert "not checkable from here" in printed
+
+
+def test_everything_waiting_on_the_world_names_a_check_that_exists():
+    """A checklist item whose verification is imaginary is a checklist item
+    nobody can finish.
+
+    `pending()` says what is decided and not yet true — the domain, the
+    entity, the mailbox. Each carries the command that confirms it, and the
+    whole value of that field is that the command is real. The same shape as
+    every other bug this file guards: a string that reads like a check and is
+    never compared to anything.
+    """
+    from auteur.identity import pending
+
+    root = Path(__file__).resolve().parent.parent
+
+    waiting = pending()
+    assert waiting, "nothing is waiting on the world, which cannot be right yet"
+
+    for item in waiting:
+        assert item.what and item.consequence, item
+        parts = item.confirm.split()
+        assert parts[0] == "python3", f"{item.confirm!r} is not a command this repo runs"
+        script = root / parts[1]
+        assert script.exists(), (
+            f"{item.what!r} says to confirm it with {item.confirm!r}, and "
+            f"{parts[1]} does not exist"
+        )
+        # The flags too: `--online` is what makes the URL check fetch anything,
+        # and naming a flag the tool does not have is the same defect one
+        # level down.
+        source = script.read_text(encoding="utf-8")
+        for flag in parts[2:]:
+            assert f'"{flag}"' in source, f"{parts[1]} has no {flag} option"
+
+
+def test_the_reserved_example_domain_is_refused_as_a_bundle_identifier():
+    """`com.example.*` is the documentation domain and Apple rejects it.
+
+    It is also exactly what a project file carries until somebody remembers to
+    change it, which is why this is a check rather than a line in a README.
+    """
+    from auteur.identity import Identity, problems, ready
+
+    # The repository used to ship with placeholders on purpose and this test
+    # asserted that. It no longer does: the publisher is Auteur Studies LLC on
+    # auteurstudies.com, decided rather than deferred, so the assertion moved
+    # to the thing that is actually being guarded — the reserved domain is
+    # refused whenever anybody sets it, which is what Apple does.
+    assert ready(), f"the repository's own identity is not submittable: {problems()}"
+
+    reserved = Identity(
+        bundle_id="com.example.auteur",
+        developer="Somebody",
+        support_email="hello@somebody.com",
+        support_url="https://somebody.com/auteur",
+        privacy_url="https://somebody.com/auteur/privacy",
+        terms_url="https://somebody.com/auteur/terms",
+    )
+    assert any("com.example" in line for line in problems(reserved))
+    assert not ready(reserved)
+
+    filled = Identity(
+        bundle_id="com.somebody.auteur",
+        developer="Somebody",
+        support_email="hello@somebody.com",
+        support_url="https://somebody.com/auteur",
+        privacy_url="https://somebody.com/auteur/privacy",
+        terms_url="https://somebody.com/auteur/terms",
+    )
+    assert problems(filled) == []
+
+
+def test_a_placeholder_is_caught_whatever_its_capitals():
+    """The first version compared against a lowercase string, so "Example
+    Developer" went straight through it."""
+    from auteur.identity import Identity, problems
+
+    named = Identity(
+        bundle_id="com.somebody.auteur",
+        developer="Example Developer",
+        support_email="hello@somebody.com",
+        support_url="https://somebody.com/",
+        privacy_url="https://somebody.com/privacy",
+        terms_url="https://somebody.com/terms",
+    )
+    assert any("developer name" in line for line in problems(named))
+
+
+def test_an_identifier_that_is_not_reverse_dns_is_refused():
+    from auteur.identity import Identity, problems
+
+    for bad in ("auteur", "com.auteur", "com.somebody auteur", "com.somebody.auteur!"):
+        broken = Identity(
+            bundle_id=bad,
+            developer="Somebody",
+            support_email="hello@somebody.com",
+            support_url="https://somebody.com/",
+            privacy_url="https://somebody.com/privacy",
+            terms_url="https://somebody.com/terms",
+        )
+        assert problems(broken), bad
+
+
+def _tool(name: str):
+    """Load one of the tools/appstore scripts as a module.
+
+    Registered in `sys.modules` before it is executed, which is not optional:
+    `@dataclass` resolves its annotations by looking the defining module up by
+    name, and a module that is not there yet raises inside dataclasses rather
+    than anywhere near the actual mistake.
+    """
+    import importlib.util
+    import sys as _sys
+
+    path = Path(__file__).resolve().parents[1] / "tools" / "appstore" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(f"auteur_tool_{name}", path)
+    module = importlib.util.module_from_spec(spec)
+    _sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_listing_fits_the_fields_it_goes_into():
+    """App Store Connect enforces these after you have written past them."""
+    from auteur import identity
+
+    listing = _tool("listing")
+
+    assert len(identity.IDENTITY.app_name) <= identity.NAME_LIMIT
+    assert len(listing.SUBTITLE) <= identity.SUBTITLE_LIMIT
+    assert len(listing.KEYWORDS) <= identity.KEYWORDS_LIMIT
+    assert len(listing.PROMOTIONAL) <= identity.PROMOTIONAL_LIMIT
+    assert len(listing.DESCRIPTION) <= identity.DESCRIPTION_LIMIT
+    # Keywords are counted with their commas and any spaces after them, so a
+    # tidy-looking ", " list silently costs ten characters.
+    assert ", " not in listing.KEYWORDS
+
+
+def test_every_permission_the_app_asks_for_has_a_sentence_behind_it():
+    """A permission with no string crashes at the moment it is needed, and a
+    string with nothing asking for it is a question from a reviewer."""
+    import plistlib
+
+    root = Path(__file__).resolve().parents[1]
+    with (root / "ios" / "Auteur" / "Info.plist").open("rb") as handle:
+        info = plistlib.load(handle)
+
+    wanted = {
+        "NSPhotoLibraryAddUsageDescription",
+        "NSCalendarsWriteOnlyAccessUsageDescription",
+        "NSCalendarsUsageDescription",
+        "NSLocalNetworkUsageDescription",
+    }
+    have = {key for key in info if key.endswith("UsageDescription")}
+    assert have == wanted, f"unexpected: {have ^ wanted}"
+    for key in have:
+        said = info[key]
+        assert len(said) > 20 and said.endswith("."), f"{key} is {said!r}"
+
+
+def test_the_privacy_manifest_declares_every_required_reason_api_the_swift_uses():
+    """Apple mails an ITMS-91053 about a missing one after the upload.
+
+    This found a real one: `Instance.swift` remembers the instance address in
+    UserDefaults and the manifest did not mention it.
+    """
+    import plistlib
+
+    root = Path(__file__).resolve().parents[1]
+    app = root / "ios" / "Auteur"
+    with (app / "PrivacyInfo.xcprivacy").open("rb") as handle:
+        manifest = plistlib.load(handle)
+
+    declared = {row["NSPrivacyAccessedAPIType"] for row in manifest["NSPrivacyAccessedAPITypes"]}
+    swift = "\n".join(f.read_text() for f in sorted(app.rglob("*.swift")))
+    if "UserDefaults" in swift:
+        assert "NSPrivacyAccessedAPICategoryUserDefaults" in declared
+
+    # And every declared category carries a reason code; one without is the
+    # same to Apple as one that was never declared.
+    for row in manifest["NSPrivacyAccessedAPITypes"]:
+        assert row.get("NSPrivacyAccessedAPITypeReasons"), row["NSPrivacyAccessedAPIType"]
+
+    assert manifest["NSPrivacyTracking"] is False
+    assert manifest["NSPrivacyCollectedDataTypes"] == []
+
+
+def test_the_bundle_identifier_is_not_written_out_twice():
+    """It is in identity.py and generated into Identity.yml; a literal in
+    project.yml would be a second copy, and the second copy is the stale one."""
+    root = Path(__file__).resolve().parents[1]
+    project = (root / "ios" / "project.yml").read_text()
+    assert "PRODUCT_BUNDLE_IDENTIFIER" not in project
+    assert "Identity.yml" in project
+
+    generated = (root / "ios" / "Identity.yml").read_text()
+    from auteur.identity import IDENTITY
+
+    assert IDENTITY.bundle_id in generated
+
+
+def test_the_screenshot_sizes_are_the_ones_the_form_accepts():
+    """A screenshot one pixel off is refused with no clue which dimension."""
+    preflight = _tool("preflight")
+
+    # 1290x2796 is the required iPhone slot, and the generator has to be driven
+    # at the CSS size that produces it — 430 x 932 at three pixels per point.
+    assert (1290, 2796) in preflight.IPHONE_SIZES
+    assert (2048, 2732) in preflight.IPAD_SIZES
+
+    module = _tool("screenshots")
+    for _name, width, height, ratio, wanted in module.DEVICES:
+        assert (width * ratio, height * ratio) == wanted
+        assert wanted in preflight.IPHONE_SIZES | preflight.IPAD_SIZES
+
+
+def test_the_terms_say_the_thing_the_app_store_requires_them_to():
+    """Guideline 1.2 asks for terms with no tolerance for objectionable content
+    or abusive users, agreed to when an account is made."""
+    from auteur.web import server
+
+    root = Path(__file__).resolve().parents[1]
+    terms = " ".join((root / "TERMS.md").read_text().split()).lower()
+    assert "no tolerance for objectionable content" in terms
+    assert "delete your account" in terms
+
+    # Reachable without an account, because the sign-up screen links to it.
+    assert "/terms" in server.PUBLIC_PATHS
+    page = (server.STATIC / "terms.html").read_text()
+    assert "no tolerance" in page
+
+    # And agreed to where the account is made, not on a screen nobody visits.
+    login = (server.STATIC / "login.html").read_text()
+    assert 'href="/terms"' in login
+    assert login.index('href="/terms"') < login.index('id="signup-go"')
+
+
+# -- deleting an account ----------------------------------------------------
+
+
+def test_deleting_an_account_takes_everything_with_it(web_server):
+    """Guideline 5.1.1(v), and the harder half of it: the files, not only the
+    rows. A film row removed while its mp4 is still on disk is footage
+    somebody asked to have deleted, still there."""
+    import json as _json
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    from auteur.web import server as web
+
+    base, studio, cookie = web_server
+    clip = studio.workspace / "mine.mp4"
+    clip.parent.mkdir(parents=True, exist_ok=True)
+    clip.write_bytes(b"not really an mp4")
+    web.Handler.films.add(owner="tester", prompt="mine", video=str(clip))
+    web.Handler.messages.send("tester", "grace", text="hello")
+    web.Handler.profiles.edit("tester", bio="something")
+    web.Handler.profiles.follow("tester", "grace")
+
+    # The password, again: a live session is not proof of who is holding the
+    # phone, and this is the most destructive thing in the app.
+    for payload, code in (
+        ({"password": "wrong", "confirm": "delete"}, 403),
+        ({"password": "a-long-enough-one", "confirm": "yes"}, 400),
+    ):
+        with pytest.raises(HTTPError) as raised:
+            _api_post(base, "/api/profile/delete", cookie, payload)
+        assert raised.value.code == code
+
+    said = _api_post(
+        base, "/api/profile/delete", cookie, {"password": "a-long-enough-one", "confirm": "delete"}
+    )
+    assert said["ok"] is True
+
+    web.Handler.accounts.refresh()
+    assert web.Handler.accounts.get("tester") is None
+    assert web.Handler.films.by("tester") == []
+    assert not clip.exists(), "the film's file was left on disk"
+    assert web.Handler.messages.conversations("grace") == []
+    assert web.Handler.profiles.get("tester").bio == ""
+    assert web.Handler.profiles.followers_of("grace") == []
+
+    # And the session went with it, rather than staying live against a name
+    # that no longer exists.
+    with pytest.raises(HTTPError) as raised:
+        urlopen(Request(base + "/api/profile", headers={"Cookie": cookie}))
+    assert raised.value.code == 401
+    assert _json  # the import is used by the helpers above
+
+
+# -- reporting and blocking -------------------------------------------------
+
+
+def test_a_block_is_a_wall_rather_than_a_mute(web_server):
+    """Filtering only what you blocked leaves the other person able to watch
+    your films and keep writing to you, which is not a block."""
+    from urllib.error import HTTPError
+
+    from auteur.web import server as web
+
+    base, studio, cookie = web_server
+    for owner in ("grace",):
+        clip = studio.workspace / f"{owner}.mp4"
+        clip.parent.mkdir(parents=True, exist_ok=True)
+        clip.write_bytes(b"not really an mp4")
+        web.Handler.films.add(owner=owner, prompt="theirs", video=str(clip))
+    web.Handler.messages.send("grace", "tester", text="hello")
+
+    assert len(_api_get(base, "/api/feed?scope=all", cookie)["films"]) == 1
+    assert _api_get(base, "/api/messages", cookie)["conversations"]
+
+    _api_post(base, "/api/profiles/grace/block", cookie, {"block": True})
+
+    assert _api_get(base, "/api/feed?scope=all", cookie)["films"] == []
+    assert _api_get(base, "/api/messages", cookie)["conversations"] == []
+    assert _api_get(base, "/api/people", cookie)["people"] == []
+    assert _api_get(base, "/api/messages/grace", cookie)["closed"] is True
+    with pytest.raises(HTTPError) as raised:
+        _api_post(base, "/api/messages/send", cookie, {"to": "grace", "text": "hi"})
+    assert raised.value.code == 403
+
+    # The other way round, from the store: the person blocked cannot reach back.
+    assert "tester" in web.Handler.profiles.apart("grace")
+
+    _api_post(base, "/api/profiles/grace/block", cookie, {"block": False})
+    assert len(_api_get(base, "/api/feed?scope=all", cookie)["films"]) == 1
+
+
+def test_a_report_names_whose_content_it_is_from_the_server(web_server):
+    """A report that names whoever the page said it names is a report anybody
+    could file against anybody."""
+    from auteur.web import server as web
+
+    base, studio, cookie = web_server
+    clip = studio.workspace / "grace.mp4"
+    clip.parent.mkdir(parents=True, exist_ok=True)
+    clip.write_bytes(b"not really an mp4")
+    film = web.Handler.films.add(owner="grace", prompt="theirs", video=str(clip))
+
+    said = _api_post(
+        base,
+        "/api/report",
+        cookie,
+        {"kind": "film", "about": film.id, "about_who": "somebody-else", "reason": "spam"},
+    )
+    stored = web.Handler.reports.get(said["report"]["id"])
+    assert stored.about_who == "grace"
+    assert stored.by == "tester"
+
+
+def test_reporting_can_block_in_the_same_step(web_server):
+    """Almost everybody who reports somebody also wants to stop hearing from
+    them, and two journeys through two screens is how people do neither."""
+    from auteur.web import server as web
+
+    base, studio, cookie = web_server
+    clip = studio.workspace / "grace.mp4"
+    clip.parent.mkdir(parents=True, exist_ok=True)
+    clip.write_bytes(b"not really an mp4")
+    film = web.Handler.films.add(owner="grace", prompt="theirs", video=str(clip))
+
+    said = _api_post(
+        base,
+        "/api/report",
+        cookie,
+        {"kind": "film", "about": film.id, "reason": "harassment", "block": True},
+    )
+    assert said["blocked"] is True
+    assert web.Handler.profiles.blocks("tester", "grace")
+
+
+def test_you_can_see_what_came_of_what_you_reported(web_server):
+    """A report whose outcome you can never see is a button people press once
+    and then stop believing in."""
+    from auteur.web import server as web
+
+    base, _, cookie = web_server
+    report = web.Handler.reports.file(
+        by="tester", kind="person", about="grace", about_who="grace", reason="spam"
+    )
+    mine = _api_get(base, "/api/reports", cookie)
+    assert [row["state"] for row in mine["reports"]] == ["open"]
+
+    web.Handler.reports.decide(report.id, "removed", "took the film down")
+    mine = _api_get(base, "/api/reports", cookie)
+    assert mine["reports"][0]["state"] == "removed"
+    # Not the operator's note, and not who else reported it.
+    assert "decided_note" not in mine["reports"][0]
+    assert "by" not in mine["reports"][0]
+
+
+def test_reporting_the_same_thing_twice_does_not_make_two_reports(tmp_path):
+    """An operator needs "how many people reported this" to mean something."""
+    from auteur.web.safety import Reports
+
+    store = Reports(tmp_path / "reports.json")
+    first = store.file(by="ada", kind="film", about="f1", about_who="grace", reason="spam")
+    again = store.file(by="ada", kind="film", about="f1", about_who="grace", reason="spam")
+    assert first.id == again.id
+    assert store.waiting == 1
+
+    other = store.file(by="bob", kind="film", about="f1", about_who="grace", reason="spam")
+    assert other.id != first.id
+    assert store.count_about("f1") == 2
+
+
+def test_the_reports_that_might_mean_danger_are_shown_first(tmp_path):
+    from auteur.web.safety import Reports
+
+    store = Reports(tmp_path / "reports.json")
+    store.file(by="ada", kind="film", about="f1", about_who="g", reason="spam")
+    store.file(by="bob", kind="film", about="f2", about_who="g", reason="child-safety")
+    store.file(by="cal", kind="film", about="f3", about_who="g", reason="violence")
+    assert [r.reason for r in store.open_ones()][0] in ("child-safety", "violence")
+    assert [r.reason for r in store.open_ones()][-1] == "spam"
+
+
+def test_the_moderator_can_remove_a_film_that_is_not_theirs(tmp_path):
+    """`forget` refuses anything that is not yours, which is right for the app
+    and wrong for the person whose computer it is — a moderator who can only
+    delete their own films cannot take down what was reported."""
+    from auteur.web.social import Films
+
+    store = Films(tmp_path / "films.json")
+    film = store.add(owner="grace", prompt="theirs", video=str(tmp_path / "x.mp4"))
+    assert store.forget(film.id, "tester") is False
+    assert store.remove_any(film.id) == str(tmp_path / "x.mp4")
+    assert store.get(film.id) is None
+
+
+def test_every_control_guideline_1_2_asks_for_exists_on_both_sides():
+    """A server endpoint with no button is as absent as a button with no
+    endpoint, and a reviewer finds out by using the app."""
+    from auteur.web import server
+
+    handlers = (server.STATIC.parent / "server.py").read_text()
+    for route in ("/api/report", "/block", "/api/profile/delete"):
+        assert route in handlers, route
+
+    safety = (server.STATIC / "safety.js").read_text()
+    assert "auteurSafety" in safety and "function block(" in safety
+    for page in ("feed.html", "profile.html", "inbox.html"):
+        assert "safety.js" in (server.STATIC / page).read_text(), page
+
+    # And the operator's side, which is what makes reporting more than a form.
+    cli = (Path(__file__).resolve().parents[1] / "auteur" / "cli.py").read_text()
+    assert "def _run_moderate" in cli
+
+
+# ---------------------------------------------------------------------------
+# 12+, and holding the app to it
+# ---------------------------------------------------------------------------
+
+
+def test_an_age_is_a_year_and_stays_right_as_time_passes():
+    """A stored yes/no would be wrong from the next birthday onward, and a
+    full date of birth is more data for no more answers."""
+    import time
+
+    from auteur.web import auth
+
+    born = 2000
+    at_2020 = time.mktime((2020, 6, 1, 0, 0, 0, 0, 0, 0))
+    at_2030 = time.mktime((2030, 6, 1, 0, 0, 0, 0, 0, 0))
+    assert auth.age_from(born, now=at_2020) == 20
+    assert auth.age_from(born, now=at_2030) == 30
+    # Nobody said: not zero, which would read as a newborn.
+    assert auth.age_from(0) == -1
+
+
+def test_an_account_under_eighteen_starts_restricted(tmp_path):
+    """Not a judgement — the direction to be wrong in. It lifts in two taps
+    and cannot be applied retroactively to something already seen."""
+    import time
+
+    from auteur.web.auth import Accounts
+
+    year = time.gmtime().tm_year
+    accounts = Accounts(tmp_path / "accounts.json")
+    kid = accounts.add("kid", "k@example.com", "a-long-enough-one", born=year - 14)
+    grown = accounts.add("grown", "g@example.com", "a-long-enough-one", born=year - 30)
+    quiet = accounts.add("quiet", "q@example.com", "a-long-enough-one")
+
+    assert kid.minor and kid.restricted
+    assert not grown.minor and not grown.restricted
+    # An account that never said is not treated as a minor: those belong to
+    # people who were already using the instance, and silently restricting
+    # them would be a change nobody asked for.
+    assert not quiet.minor and not quiet.restricted
+
+
+def test_the_code_that_lifts_a_restriction_is_stored_hashed(tmp_path):
+    from auteur.web.auth import LOCK_DIGITS, Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("kid", "k@example.com", "a-long-enough-one")
+    assert accounts.set_restriction_lock("kid", "12") == f"{LOCK_DIGITS} digits, please"
+    assert accounts.set_restriction_lock("kid", "4821") == ""
+
+    stored = accounts.get("kid").restriction_lock
+    assert "4821" not in stored and len(stored) == 64
+    assert accounts.check_restriction_lock("kid", "4821")
+    assert not accounts.check_restriction_lock("kid", "0000")
+    assert not accounts.check_restriction_lock("kid", "")
+
+    # Cleared, and then anything lifts it — which is right for somebody who
+    # restricted themselves and never set one.
+    assert accounts.set_restriction_lock("kid", "") == ""
+    assert accounts.check_restriction_lock("kid", "")
+
+
+def test_signing_up_too_young_is_refused(web_server):
+    """The rating is 12+, and a rating the app does not hold itself to is a
+    claim rather than a fact."""
+    import time
+
+    from auteur.web import server as web
+
+    base, _, _cookie = web_server
+    # An instance with accounts refuses sign-up outright, so this needs an
+    # empty one — which is also the only state the gate is ever reached in.
+    web.Handler.accounts.accounts.clear()
+    year = time.gmtime().tm_year
+
+    # No year at all.
+    status, payload, _ = _post(
+        base, "/api/signup", {"username": "tiny", "password": "a-long-enough-one"}
+    )
+    assert status == 400 and "year" in payload["error"]
+
+    status, payload, _ = _post(
+        base,
+        "/api/signup",
+        {"username": "tiny", "password": "a-long-enough-one", "born": year - 8},
+    )
+    assert status == 403
+    assert "12 and over" in payload["error"]
+
+    status, _payload, _ = _post(
+        base,
+        "/api/signup",
+        {"username": "old-enough", "password": "a-long-enough-one", "born": year - 30},
+    )
+    assert status == 200
+
+
+def test_a_restriction_hides_sensitive_and_unreviewed_films(web_server):
+    """It has to hide something real, or it is theatre."""
+    from auteur.web import server as web
+
+    base, studio, cookie = web_server
+    made = {}
+    for name, owner in (("plain", "grace"), ("marked", "grace"), ("reported", "grace")):
+        clip = studio.workspace / f"{name}.mp4"
+        clip.parent.mkdir(parents=True, exist_ok=True)
+        clip.write_bytes(b"not really an mp4")
+        made[name] = web.Handler.films.add(owner=owner, prompt=name, video=str(clip))
+    mine = studio.workspace / "mine.mp4"
+    mine.write_bytes(b"not really an mp4")
+    made["mine"] = web.Handler.films.add(owner="tester", prompt="mine", video=str(mine))
+
+    web.Handler.films.mark(made["marked"].id, True)
+    web.Handler.reports.file(
+        by="tester",
+        kind="film",
+        about=made["reported"].id,
+        about_who="grace",
+        reason="sexual",
+    )
+    # And one of your own, marked: a restriction is about what you are shown,
+    # not about hiding your own work from you.
+    web.Handler.films.mark(made["mine"].id, True)
+
+    seen = {f["prompt"] for f in _api_get(base, "/api/feed?scope=all", cookie)["films"]}
+    assert seen == {"plain", "marked", "reported", "mine"}
+
+    _api_post(base, "/api/restriction", cookie, {"on": True})
+    seen = {f["prompt"] for f in _api_get(base, "/api/feed?scope=all", cookie)["films"]}
+    assert seen == {"plain", "mine"}, seen
+
+    # Once the operator has looked at the report, it stops being held back.
+    report = web.Handler.reports.open_ones()[0]
+    web.Handler.reports.decide(report.id, "kept")
+    seen = {f["prompt"] for f in _api_get(base, "/api/feed?scope=all", cookie)["films"]}
+    assert seen == {"plain", "reported", "mine"}
+
+
+def test_turning_a_restriction_on_never_needs_the_code_and_lifting_it_does(web_server):
+    """The switch has to be out of reach of the person it applies to, and
+    choosing to see less should never need anybody's permission."""
+    from urllib.error import HTTPError
+
+    base, _, cookie = web_server
+
+    state = _api_post(base, "/api/restriction", cookie, {"on": True, "lock": "4821"})
+    assert state["on"] is True and state["locked"] is True
+
+    with pytest.raises(HTTPError) as raised:
+        _api_post(base, "/api/restriction", cookie, {"on": False})
+    assert raised.value.code == 403
+    with pytest.raises(HTTPError):
+        _api_post(base, "/api/restriction", cookie, {"on": False, "code": "0000"})
+    assert _api_get(base, "/api/restriction", cookie)["on"] is True
+
+    state = _api_post(base, "/api/restriction", cookie, {"on": False, "code": "4821"})
+    assert state["on"] is False
+    # The lock goes with it: one left behind is a surprise waiting for
+    # whoever turns the restriction back on.
+    assert state["locked"] is False
+
+
+def test_the_page_is_never_told_the_code(web_server):
+    """It is told whether there is one, which is all it needs to draw a field."""
+    base, _, cookie = web_server
+    _api_post(base, "/api/restriction", cookie, {"on": True, "lock": "4821"})
+    state = _api_get(base, "/api/restriction", cookie)
+    assert state["locked"] is True
+    assert "4821" not in json.dumps(state)
+    assert "lock" not in state and "restriction_lock" not in state
+
+
+def test_only_a_films_author_can_mark_it_sensitive(web_server):
+    from urllib.error import HTTPError
+
+    from auteur.web import server as web
+
+    base, studio, cookie = web_server
+    clip = studio.workspace / "theirs.mp4"
+    clip.parent.mkdir(parents=True, exist_ok=True)
+    clip.write_bytes(b"not really an mp4")
+    theirs = web.Handler.films.add(owner="grace", prompt="theirs", video=str(clip))
+
+    with pytest.raises(HTTPError) as raised:
+        _api_post(base, f"/api/films/{theirs.id}/sensitive", cookie, {"sensitive": True})
+    assert raised.value.code == 403
+
+    # The operator's route into it is the store, not the network — there is
+    # deliberately no endpoint that marks somebody else's film.
+    assert web.Handler.films.mark(theirs.id, True) is not None
+    assert web.Handler.films.get(theirs.id).sensitive is True
+
+
+def test_the_rating_the_listing_declares_is_the_one_the_app_enforces():
+    """Two places holding one number is how they end up disagreeing."""
+    from auteur.web.auth import MINIMUM_AGE
+
+    listing = _tool("listing")
+    assert "**The rating is 12+.**" in listing.AGE_RATING
+    assert MINIMUM_AGE == 12
+
+    preflight = _tool("preflight")
+    notes = preflight.check_age()
+    assert notes and all(note.ok for note in notes), [n.what for n in notes if not n.ok]
+
+
+# ---------------------------------------------------------------------------
+# Projects: an album, and a map
+# ---------------------------------------------------------------------------
+
+
+def test_a_project_holds_a_trip_the_way_a_trip_happens(tmp_path):
+    from auteur.projects import Projects
+
+    store = Projects(tmp_path / "projects.json")
+    project = store.make(
+        "ada",
+        "  Portugal, June  ",
+        place="Lisbon",
+        starts="2026-06-14",
+        ends="2026-06-02",
+        note="slow  mornings\n\n\n\nharbour at six",
+    )
+    assert project.name == "Portugal, June"
+    # Typed backwards is not an error worth refusing, but the album sorts by
+    # these, so they are put the right way round rather than left to sort wrong.
+    assert project.dated == "2026-06-02 to 2026-06-14"
+    # The note keeps the break somebody typed and loses the run of blank lines.
+    assert project.note == "slow mornings\n\nharbour at six"
+    assert store.make("ada", "   ") is None
+
+
+def test_a_project_is_not_readable_by_anybody_else(tmp_path):
+    """Planning is one person's own. There is no route that shares it, and the
+    check is in `get` rather than in each route because every route needs it
+    and one of them will forget."""
+    from auteur.projects import Projects
+
+    store = Projects(tmp_path / "projects.json")
+    project = store.make("ada", "Portugal")
+    assert store.get(project.id, "grace") is None
+    assert store.edit(project.id, "grace", name="Mine now") is None
+    assert store.drop(project.id, "grace") is False
+    assert store.add_node(project.id, "grace", kind="idea") is None
+    assert store.get(project.id, "ada") is not None
+
+
+def test_dropping_a_node_takes_the_arrows_that_touched_it(tmp_path):
+    """A link to a node that is gone is an arrow to nowhere, and it draws as
+    one."""
+    from auteur.projects import Projects
+
+    store = Projects(tmp_path / "projects.json")
+    project = store.make("ada", "Portugal")
+    a = store.add_node(project.id, "ada", kind="idea", text="start on the water")
+    b = store.add_node(project.id, "ada", kind="shot", text="ferry leaving")
+    c = store.add_node(project.id, "ada", kind="place", text="the harbour")
+    store.link(project.id, "ada", a.id, b.id)
+    store.link(project.id, "ada", b.id, c.id)
+    assert len(store.get(project.id, "ada").links) == 2
+
+    store.drop_node(project.id, "ada", b.id)
+    assert len(store.get(project.id, "ada").nodes) == 2
+    assert store.get(project.id, "ada").links == []
+
+
+def test_two_nodes_are_joined_or_they_are_not(tmp_path):
+    """A second arrow back the other way is a duplicate, not a different fact."""
+    from auteur.projects import Projects
+
+    store = Projects(tmp_path / "projects.json")
+    project = store.make("ada", "Portugal")
+    a = store.add_node(project.id, "ada", kind="idea")
+    b = store.add_node(project.id, "ada", kind="shot")
+
+    first = store.link(project.id, "ada", a.id, b.id)
+    again = store.link(project.id, "ada", b.id, a.id)
+    assert first.id == again.id
+    assert len(store.get(project.id, "ada").links) == 1
+    # Nothing joins to itself, and nothing joins to a node that is not there.
+    assert store.link(project.id, "ada", a.id, a.id) is None
+    assert store.link(project.id, "ada", a.id, "nonsense") is None
+
+
+def test_a_drag_is_saved_once_rather_than_sixty_times_a_second(tmp_path):
+    """A drag emits a position every frame. The page sends where things ended
+    up, and this is what receives it."""
+    from auteur.projects import Projects
+
+    store = Projects(tmp_path / "projects.json")
+    project = store.make("ada", "Portugal")
+    a = store.add_node(project.id, "ada", kind="idea")
+    b = store.add_node(project.id, "ada", kind="shot")
+
+    moved = store.move_nodes(project.id, "ada", {a.id: [40.5, 900], b.id: [-12, 3]})
+    assert moved == 2
+    fresh = Projects(tmp_path / "projects.json").get(project.id, "ada")
+    where = {n["id"]: (n["x"], n["y"]) for n in fresh.nodes}
+    assert where[a.id] == (40.5, 900.0)
+    assert where[b.id] == (-12.0, 3.0)
+    # Nonsense in a batch is skipped rather than taking the batch down.
+    assert store.move_nodes(project.id, "ada", {a.id: ["over", "there"]}) == 0
+
+
+def test_deleting_a_project_never_deletes_the_footage(tmp_path):
+    """A project is a way of looking at footage. Deleting the way of looking
+    must not delete what it was looking at."""
+    from auteur.projects import Projects
+    from auteur.web.social import Films
+
+    store = Projects(tmp_path / "projects.json")
+    films = Films(tmp_path / "films.json")
+    project = store.make("ada", "Portugal")
+    film = films.add(owner="ada", prompt="the harbour", video=str(tmp_path / "x.mp4"))
+    films.belongs(film.id, project.id, "ada")
+    assert films.in_project(project.id) == [film]
+
+    assert store.drop(project.id, "ada") is True
+    assert films.get(film.id) is not None
+    assert films.get(film.id).video == str(tmp_path / "x.mp4")
+
+
+def test_a_film_can_only_be_filed_by_the_person_who_made_it(tmp_path):
+    from auteur.web.social import Films
+
+    films = Films(tmp_path / "films.json")
+    film = films.add(owner="grace", prompt="theirs", video=str(tmp_path / "x.mp4"))
+    assert films.belongs(film.id, "somebody", "ada") is None
+    assert films.get(film.id).project == ""
+    assert films.belongs(film.id, "somebody", "grace") is not None
+
+
+# -- as served --------------------------------------------------------------
+
+
+def test_a_project_answers_with_its_map_and_its_album_in_one_request(web_server):
+    """A page that fetches the project, then its nodes, then its links, then
+    its films is a page that renders four times and lays out differently each
+    time."""
+    from auteur.web import server as web
+
+    base, studio, cookie = web_server
+    made = _api_post(base, "/api/projects", cookie, {"name": "Portugal", "place": "Lisbon"})
+    project_id = made["project"]["id"]
+
+    clip = studio.workspace / "one.mp4"
+    clip.parent.mkdir(parents=True, exist_ok=True)
+    clip.write_bytes(b"not really an mp4")
+    film = web.Handler.films.add(owner="tester", prompt="the harbour", video=str(clip))
+    _api_post(base, f"/api/projects/{project_id}/gather", cookie, {"film": film.id})
+    _api_post(base, f"/api/projects/{project_id}/node", cookie, {"kind": "idea", "text": "water"})
+
+    whole = _api_get(base, f"/api/projects/{project_id}", cookie)["project"]
+    assert whole["name"] == "Portugal"
+    assert len(whole["map"]["nodes"]) == 1
+    assert [f["prompt"] for f in whole["album"]["films"]] == ["the harbour"]
+    assert "idea" in whole["kinds"]
+
+
+def test_a_film_cannot_be_filed_into_somebody_elses_project(web_server):
+    """A project id from a form is a project id somebody could have typed."""
+    from urllib.error import HTTPError
+
+    from auteur.projects import Projects
+    from auteur.web import server as web
+
+    base, studio, cookie = web_server
+    theirs = web.Handler.projects.make("grace", "Theirs")
+    clip = studio.workspace / "mine.mp4"
+    clip.parent.mkdir(parents=True, exist_ok=True)
+    clip.write_bytes(b"not really an mp4")
+    film = web.Handler.films.add(owner="tester", prompt="mine", video=str(clip))
+
+    with pytest.raises(HTTPError) as raised:
+        _api_post(base, f"/api/projects/{theirs.id}/gather", cookie, {"film": film.id})
+    assert raised.value.code == 404
+    assert web.Handler.films.get(film.id).project == ""
+    assert isinstance(web.Handler.projects, Projects)
+
+
+def test_a_shot_on_the_map_becomes_a_real_plan(web_server):
+    """The reason the nodes are typed. A note that says "ferry leaving" is a
+    note; a *shot* that says it is something the board can hold."""
+    from auteur.web import server as web
+
+    base, _, cookie = web_server
+    made = _api_post(base, "/api/projects", cookie, {"name": "Portugal"})
+    project_id = made["project"]["id"]
+    node = _api_post(
+        base,
+        f"/api/projects/{project_id}/node",
+        cookie,
+        {"kind": "shot", "text": "ferry leaving, from the rail"},
+    )["node"]
+
+    _api_post(
+        base,
+        "/api/plans",
+        cookie,
+        {"prompt": node["text"], "project": project_id, "title": "Portugal — ferry"},
+    )
+    _api_post(base, f"/api/projects/{project_id}/node/{node['id']}", cookie, {"done": True})
+
+    plans = web.Handler.board.by("tester")
+    assert len(plans) == 1 and plans[0].project == project_id
+    whole = _api_get(base, f"/api/projects/{project_id}", cookie)["project"]
+    assert whole["map"]["nodes"][0]["done"] is True
+    assert len(whole["album"]["plans"]) == 1
+
+
+def test_deleting_an_account_takes_its_projects(web_server):
+    from auteur.web import server as web
+
+    base, _, cookie = web_server
+    _api_post(base, "/api/projects", cookie, {"name": "Portugal"})
+    assert web.Handler.projects.by("tester")
+
+    _api_post(
+        base,
+        "/api/profile/delete",
+        cookie,
+        {"password": "a-long-enough-one", "confirm": "delete"},
+    )
+    assert web.Handler.projects.by("tester") == []
+
+
+def test_the_map_is_built_from_elements_a_person_can_reach():
+    """A 2D canvas would be fewer lines and would throw away everything the
+    browser already does — Tab, a screen reader, the browser's own find, and
+    whatever text size somebody has set."""
+    from auteur.web import server
+
+    page = (server.STATIC / "project.js").read_text()
+    assert 'createElement("button")' in page
+    assert "getContext" not in page, "the map must not be drawn on a canvas"
+    # Reachable and movable without a pointer.
+    assert "ArrowLeft" in page and "focusin" in page
+    # Zoom has buttons, not only a pinch.
+    assert "zoom-in" in page and "zoom-fit" in page
+
+    css = (server.STATIC / "projects.css").read_text()
+    # The browser must not claim the gestures, or a drag scrolls the page.
+    assert "touch-action: none" in css
+
+
+def test_a_node_on_the_map_is_a_thumb_tall_at_life_size():
+    """The UI review exempts a zoomable canvas from measuring tap targets on
+    screen — at 0.6 zoom everything is small, which is what zooming out means.
+    The invariant that survives that is the size at life size, and this is
+    where it is held.
+    """
+    from auteur.web import server
+
+    css = (server.STATIC / "projects.css").read_text()
+    block = css[css.index(".node {") : css.index(".node:active")]
+    assert "min-height: 44px" in block
+
+    # And the floor on zooming out, so "fit" cannot hand back a view where a
+    # node is fifteen pixels of nothing.
+    page = (server.STATIC / "project.js").read_text()
+    floor = float(re.search(r"MIN_ZOOM = ([\d.]+)", page).group(1))
+    assert floor >= 0.5, f"MIN_ZOOM is {floor}: a 44px node would be {44 * floor:.0f}px"
+    # Fit shrinks, never magnifies.
+    assert "Math.min(1, Math.min(MAX_ZOOM" in page

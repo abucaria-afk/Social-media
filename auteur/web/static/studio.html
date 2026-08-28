@@ -11,26 +11,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#0c0b0a">
+  <meta name="theme-color" content="#131110">
   <title>auteur · studio</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icon-180.png">
+  <!-- Before anything paints: appearance and the three accessibility
+       settings, from one file rather than copied into every page's head. -->
+  <script src="/static/settings.js"></script>
   <link rel="stylesheet" href="/static/theme.css">
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/studio.css">
   <link rel="stylesheet" href="/static/animations.css">
-  <script>
-    // Applied before the stylesheet paints, so the page never flashes the
-    // wrong theme on the way in.
-    (function () {
-      try {
-        var saved = localStorage.getItem("auteur-theme");
-        if (saved === "light" || saved === "dark") {
-          document.documentElement.setAttribute("data-theme", saved);
-        }
-      } catch (e) {}
-    })();
-  </script>
 </head>
 <body>
 
@@ -116,9 +107,10 @@
     <h2 class="panel-title">Graphics over the cut</h2>
     <p class="panel-hint" id="graphics-state">checking…</p>
     <ul class="agreed" id="graphics-rules"></ul>
-    <a class="studio-link" href="/overlays">
-      <span class="studio-link-title">The animation tab</span>
-      <span class="studio-link-note">Watch each shape move · pick which ones · how busy</span>
+    <a class="room room-wide" href="/overlays">
+      <span class="room-mark" aria-hidden="true">◎</span>
+      <span class="room-name">The animation tab</span>
+      <span class="room-note">Watch each shape move · pick which ones · how busy</span>
     </a>
   </section>
 
@@ -134,27 +126,51 @@
     <p class="studio-empty" id="scholar-empty" hidden>
       Nothing about this app yet — it studies the edit first.
     </p>
-    <a class="studio-link" href="/ask">
-      <span class="studio-link-title">Ask it something</span>
-      <span class="studio-link-note">Put a question to it in your own words</span>
+    <a class="room room-wide" href="/ask">
+      <span class="room-mark" aria-hidden="true">✻</span>
+      <span class="room-name">Ask it something</span>
+      <span class="room-note">Put a question to it in your own words</span>
     </a>
   </section>
 
-  <div class="settings">
-    <span class="settings-label">Appearance</span>
-    <div class="choices appearance" role="radiogroup" aria-label="Appearance">
-      <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
-      <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
-      <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
-    </div>
-  </div>
 
   <button class="studio-go" id="run">Cut it</button>
-  <p class="studio-foot">
-    Agents change the edit. They never post. — <a href="/">back to the edit room</a>
+  <h2 class="panel-title">The rest of it</h2>
+  <div class="inset-group">
+    <a class="inset-row" href="/projects">
+      <span class="inset-label">Projects</span>
+      <span class="inset-value" id="more-projects"></span>
+      <span class="chevron" aria-hidden="true">›</span>
+    </a>
+    <a class="inset-row" href="/manager">
+      <span class="inset-label">Manager</span>
+      <span class="inset-value" id="more-manager"></span>
+      <span class="chevron" aria-hidden="true">›</span>
+    </a>
+    <a class="inset-row" href="/overlays">
+      <span class="inset-label">Animation</span>
+      <span class="inset-value" id="more-overlays"></span>
+      <span class="chevron" aria-hidden="true">›</span>
+    </a>
+    <a class="inset-row" href="/ask">
+      <span class="inset-label">The Scholar</span>
+      <span class="inset-value" id="more-scholar"></span>
+      <span class="chevron" aria-hidden="true">›</span>
+    </a>
+    <a class="inset-row" href="/connect">
+      <span class="inset-label">Where it goes</span>
+      <span class="inset-value">Instagram · TikTok</span>
+      <span class="chevron" aria-hidden="true">›</span>
+    </a>
+  </div>
+  <p class="group-caption">
+    Agents change the edit. They never post anywhere, and linking an account
+    only stores the name.
   </p>
 </main>
 
+<script src="/static/trouble.js"></script>
+<script src="/static/chrome.js"></script>
 <script src="/static/theme.js"></script>
 <script src="/static/studio.js"></script>
 </body>

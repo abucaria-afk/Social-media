@@ -11,8 +11,98 @@
  * palette the icons and the terminal read. Nothing here hard-codes a hex. */
 
 :root {
-  --radius: 18px;
-  --radius-sm: 14px;
+  /* Type.
+   *
+   * One family at three sizes is not a hierarchy, it is a paragraph with some
+   * bold in it. Three jobs, three treatments: a tight grotesque for anything
+   * that is a *name*, the system text face for anything that is a *sentence*,
+   * and a monospace for numbers — this app is full of measured values in
+   * columns, and proportional digits make 0.167 and 0.125 the wrong widths to
+   * compare at a glance.
+   *
+   * All three are stacks the device already has. A webfont would be one
+   * network request between somebody and their own camera roll, on the screen
+   * where the app is meant to feel like it is already installed. */
+  --font-display: ui-sans-serif, -apple-system, "SF Pro Display", "Segoe UI Variable Display",
+                  "Helvetica Neue", Inter, system-ui, sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
+               "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Type: the ramp the phones ship, not a ratio somebody picked.
+   *
+   * What was here was 1.2 on a 15px base, invented. These are the sizes the
+   * two mobile operating systems actually render their own text at, which
+   * happen to agree closely — 17 and 16 for body, and near-identical rungs
+   * above and below. The names are the ones the platforms use, so a rule that
+   * says "footnote" is asking for a thing that exists rather than for a
+   * number somebody has to look up.
+   *
+   * 17 for body, larger than the 15 this had. The density argument that
+   * produced the 15 was not wrong, it was applied at the wrong level: a
+   * message list is dense because its *secondary* line is set in a smaller
+   * rung, not because everything shrinks. Instagram, Messages and WhatsApp
+   * all set the name at body size and the preview two rungs down. So does
+   * this now.
+   *
+   * In rem so the browser's own text-size control scales all of it together,
+   * and see the Dynamic Type block below for the part that follows the size
+   * set in the operating system rather than in the browser. */
+  --text-large-title: 2.125rem; /* 34 */
+  --text-title-1: 1.75rem;      /* 28 */
+  --text-title-2: 1.375rem;     /* 22 */
+  --text-title-3: 1.25rem;      /* 20 */
+  --text-headline: 1.0625rem;   /* 17, semibold */
+  --text-body: 1.0625rem;       /* 17 */
+  --text-callout: 1rem;         /* 16 */
+  --text-subhead: 0.9375rem;    /* 15 */
+  --text-footnote: 0.8125rem;   /* 13 */
+  --text-caption: 0.75rem;      /* 12 */
+  --text-caption-2: 0.6875rem;  /* 11 */
+
+  /* The one size that is not on this ladder, and must not be.
+   *
+   * iOS zooms the page whenever a focused text field is set below 16px, and
+   * `1rem` is 16px only while the root is at its default — the browser's own
+   * text-size control moves it. A field written as `var(--text-callout)`
+   * therefore reads as 16px on a normal setting and zooms the whole app on a
+   * smaller one, which is the kind of bug that only shows up on somebody
+   * else's phone.
+   *
+   * So `textarea` and the text inputs carry a literal 16px. It is the only
+   * absolute type size in the app that is not the text-size setting itself,
+   * and it is here rather than as a token because a token invites being used
+   * somewhere the reason does not apply. */
+
+  /* The old names, kept pointing at the nearest rung so nothing has to be
+     renamed in one pass. New rules should use the names above. */
+  --step--2: var(--text-caption-2);
+  --step--1: var(--text-footnote);
+  --step-0: var(--text-body);
+  --step-1: var(--text-title-3);
+  --step-2: var(--text-title-2);
+  --step-3: var(--text-title-1);
+  --step-4: var(--text-large-title);
+
+  /* Corners, tightened for the same reason. An 18px radius on a 44px control
+     is most of the way to a pill and reads as soft where these apps read as
+     crisp; the pill is kept deliberately, for pills. */
+  --radius: 14px;
+  --radius-sm: 10px;
+  /* The big corner, for the two things that genuinely want one: a sheet
+     rising from the bottom edge, and a message bubble. Named because it was
+     being written as a raw 18px in style.css and a raw 16px in inbox.css —
+     two values for one idea, in two files, which is how a corner vocabulary
+     becomes five numbers nobody chose. */
+  --radius-lg: 18px;
+
+  /* The bar along the bottom. Everything that scrolls has to clear it. */
+  --tabbar: 52px;
+
+  /* The page gutter. Named because the sticky top bar has to cancel it to run
+     edge to edge, and a bar that is 16px narrower than the page it sits on is
+     the kind of wrong nobody can name but everybody sees. */
+  --pad: 16px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
@@ -21,12 +111,31 @@
 
 * { box-sizing: border-box; }
 
+/* Form controls do not inherit type. Nothing said they should, so every
+   <button>, <input>, <select> and <textarea> in this app was rendered by the
+   browser in its own default — Arial in Chromium — while everything around
+   them was the system face.
+   
+   That is not a subtle difference. On the make screen the seven words a
+   person actually chooses between — Hypercut, Montage, Neon, Warm, Cinematic,
+   Black & white, Punchy — were all in a different typeface from the sentence
+   above them asking which they wanted. Measured before this rule: three
+   families on one screen where the design specifies two. */
+button, input, select, textarea, optgroup {
+  font: inherit;
+  /* Safari also refuses to inherit the colour on a disabled control, and a
+     disabled chip that goes grey-blue rather than the palette's muted ink is
+     the same class of leak. */
+  color: inherit;
+  letter-spacing: inherit;
+}
+
 html, body {
   margin: 0;
   padding: 0;
   background: var(--ground);
   color: var(--text);
-  font: 17px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font: var(--text-body)/1.4 var(--font-body);
   -webkit-text-size-adjust: 100%;
   overscroll-behavior-y: none;
 }
@@ -64,11 +173,20 @@ body {
 .masthead { margin: 8px 0 22px; }
 .masthead h1 {
   margin: 0;
-  font-size: 34px;
-  letter-spacing: -0.5px;
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-size: var(--step-2);
+  /* Tight, because a name set at display size with default tracking reads as
+     a heading in a document rather than as the thing the app is called. */
+  letter-spacing: -0.03em;
+  font-weight: 800;
+  line-height: 1.02;
 }
-.masthead .sub { margin: 6px 0 0; color: var(--text-muted); font-size: 16px; }
+.masthead .sub {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: var(--step--1);
+  max-width: 34ch;
+}
 
 /* -- cards --------------------------------------------------------------- */
 
@@ -79,8 +197,8 @@ body {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 16px;
-  margin-bottom: 14px;
+  padding: 13px 14px;
+  margin-bottom: 10px;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -109,19 +227,20 @@ body {
   border-radius: 999px;
   border: 1px solid var(--ember);
   color: var(--ember-text);
-  font-size: 15px;
+  font-size: var(--text-subhead);
   font-weight: 600;
 }
 .card.picker:active .card-action { background: var(--line); }
 .card.picker.has-files .card-action { border-style: dashed; }
 
 .step-number {
-  flex: 0 0 26px;
-  height: 26px;
+  flex: 0 0 21px;
+  height: 21px;
+  margin-top: 1px;
   border-radius: 50%;
   background: var(--line);
-  color: var(--text);
-  font-size: 14px;
+  color: var(--text-muted);
+  font-size: var(--step--2);
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -129,8 +248,21 @@ body {
 }
 
 .card-body { flex: 1 1 auto; min-width: 0; display: block; }
-.card-title { display: block; font-weight: 600; font-size: 17px; margin-bottom: 4px; }
-.card-hint { display: block; color: var(--text-muted); font-size: 14px; margin-top: 8px; }
+.card-title {
+  display: block;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--step-0);
+  letter-spacing: -0.012em;
+  margin-bottom: 3px;
+}
+.card-hint {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--step--1);
+  line-height: 1.45;
+  margin-top: 8px;
+}
 
 textarea {
   width: 100%;
@@ -140,13 +272,13 @@ textarea {
   color: var(--text);
   background: var(--ground);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   /* Spelled out rather than the `font:` shorthand: `inherit` is not a valid
      family inside it, so the whole declaration is dropped and the field keeps
      the browser's monospace default. */
   font-family: inherit;
   /* 16px minimum, or iOS zooms the whole page in when the field is focused. */
-  font-size: 16px;
+  font-size: 16px; /* literal: see the iOS zoom note below */
   line-height: 1.4;
   resize: vertical;
 }
@@ -166,7 +298,7 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   border: 1px solid var(--line);
   background: transparent;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--text-subhead);
 }
 .chip:active { background: var(--line); }
 
@@ -175,11 +307,11 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   flex: 1 1 0;
   min-height: 56px;
   padding: 8px 4px;
-  border-radius: 14px;
+  border-radius: var(--radius);
   border: 1px solid var(--line);
   background: transparent;
   color: var(--text);
-  font-size: 15px;
+  font-size: var(--text-subhead);
   font-weight: 600;
   display: flex;
   flex-direction: column;
@@ -188,7 +320,7 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   gap: 2px;
 }
 /* 11px is below what anybody reads comfortably at arm's length on glass. */
-.choice small { font-weight: 400; font-size: 13px; color: var(--text-muted); }
+.choice small { font-weight: 400; font-size: var(--text-footnote); color: var(--text-muted); }
 .choice.is-on {
   border-color: var(--ember);
   /* Flat fill first for anything older than Chrome 111 / Safari 16.2, which
@@ -196,24 +328,31 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   background: var(--raised);
   background: color-mix(in srgb, var(--ember) 14%, transparent);
 }
-.choice.is-on small { color: var(--ember-text); }
+/* Deliberately not accent. A selected choice already says so twice — an
+   accent border and an accent tint behind it, which is the pattern both
+   phones use for a selected segment. Colouring the sub-label as well was a
+   third signal for one state, and it is what took the home screen to twelve
+   accent-coloured elements. The label stays muted; the container carries the
+   state. */
 
 /* -- buttons ------------------------------------------------------------- */
 
 .go {
   display: block;
   width: 100%;
-  min-height: 56px;
-  margin-top: 18px;
+  min-height: 48px;
+  margin-top: 14px;
   border: 0;
   border-radius: var(--radius);
   background: var(--ember);
   color: var(--on-ember);
-  font-size: 18px;
+  font-family: var(--font-display);
+  font-size: var(--step-0);
   font-weight: 700;
+  letter-spacing: -0.01em;
   text-align: center;
   text-decoration: none;
-  line-height: 56px;
+  line-height: 48px;
 }
 .go:disabled { opacity: 0.45; }
 .go:active { transform: scale(0.99); }
@@ -227,14 +366,47 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   border-radius: var(--radius);
   background: transparent;
   color: var(--text-muted);
-  font-size: 16px;
+  font-size: var(--text-callout);
   text-align: center;
   text-decoration: none;
   line-height: 46px;
 }
 
-.fineprint { margin: 12px 0 0; text-align: center; color: var(--text-muted); font-size: 13px; }
-.error { color: var(--rust); font-size: 15px; margin: 12px 0 0; }
+/* A sentence you can press. For the thing somebody does once a year — a
+   forgotten password — where a full-width bordered control gives it the same
+   weight as the thing they came to do.
+
+   A <button>, not an <a>: it goes nowhere, it changes the screen. Styled back
+   down to text because a button element carries a box by default, and given
+   the accent colour so that it reads as pressable rather than as a caption —
+   the same colour the app underlines everywhere else. */
+.textlink {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ember-text);
+  font-size: var(--text-subhead);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.textlink:active { opacity: 0.6; }
+
+/* The row it sits in carries the finger, since the text itself is one line
+   of 15px and a 15px target is not one. */
+.afterthought {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin: 14px 0 0;
+  text-align: center;
+}
+
+.fineprint { margin: 12px 0 0; text-align: center; color: var(--text-muted); font-size: var(--text-footnote); }
+.error { color: var(--rust); font-size: var(--text-subhead); margin: 12px 0 0; }
 
 /* -- working ------------------------------------------------------------- */
 
@@ -260,8 +432,14 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   .ring-fill { animation: none; border-color: var(--ember); opacity: 0.5; }
 }
 
-#stage { margin: 0; font-size: 22px; font-weight: 700; }
-.detail { margin: 6px 0 18px; color: var(--text-muted); font-size: 15px; min-height: 22px; }
+#stage {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--step-2);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.detail { margin: 6px 0 18px; color: var(--text-muted); font-size: var(--text-subhead); min-height: 22px; }
 
 .bar {
   height: 8px;
@@ -282,7 +460,7 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   margin: 22px 0 0;
   padding: 0;
   text-align: left;
-  font-size: 14px;
+  font-size: var(--text-footnote);
   color: var(--text-muted);
 }
 .log li { padding: 5px 0; border-bottom: 1px solid var(--line); }
@@ -291,10 +469,24 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
 
 /* -- done ---------------------------------------------------------------- */
 
-.done-title { font-size: 26px; margin: 10px 0 16px; color: var(--moss); }
+.done-title {
+  font-family: var(--font-display);
+  font-size: var(--step-2);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 10px 0 16px;
+  color: var(--moss);
+}
 .done-title.bad { color: var(--rust); }
 
-video {
+/* The player on the "your film is ready" screen, and only that one. This was a
+   bare `video` selector, which is fine while there is one video in the app and
+   wrong the moment there is a feed: `max-height: 62vh` silently capped every
+   film in the feed at 523px on an 844px screen, and the black band under it
+   read as a fault in the render rather than as a stylesheet reaching too far.
+   A tag selector is a claim about every element of that kind that will ever
+   exist in this app. */
+#player {
   width: 100%;
   max-height: 62vh;
   background: var(--ground);
@@ -307,7 +499,10 @@ video {
   margin: 16px 0 0;
   padding: 0;
   color: var(--text-muted);
-  font-size: 15px;
+  font-size: var(--step--1);
+  /* These are measurements — shot counts, seconds, medians — and they are read
+     down the column rather than across the line. */
+  font-variant-numeric: tabular-nums;
 }
 .facts li { padding: 4px 0; }
 .facts li::before { content: "·  "; color: var(--ember-text); }
@@ -319,10 +514,10 @@ video {
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-left: 3px solid var(--ember);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text-muted);
-  font-size: 15px;
+  font-size: var(--text-subhead);
   line-height: 1.5;
 }
 
@@ -336,7 +531,7 @@ video {
 .settings { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line); }
 .settings-label {
   display: block;
-  font-size: 14px;
+  font-size: var(--text-footnote);
   font-weight: 600;
   color: var(--text-muted);
 }
@@ -359,10 +554,10 @@ input[type="email"] {
   color: var(--text);
   background: var(--ground);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   font-family: inherit;
   /* 16px minimum, or iOS zooms the page in the moment the field is focused. */
-  font-size: 16px;
+  font-size: 16px; /* literal: see the iOS zoom note below */
   line-height: 1.4;
 }
 input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
@@ -379,10 +574,10 @@ input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   min-width: 44px;
   padding: 0 12px;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ember-text);
-  font-size: 15px;
+  font-size: var(--text-subhead);
   font-weight: 600;
 }
 
@@ -391,10 +586,10 @@ input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-left: 3px solid var(--ember);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text-muted);
-  font-size: 15px;
+  font-size: var(--text-subhead);
 }
 .notice.error { border-left-color: var(--rust); color: var(--rust); }
 
@@ -406,7 +601,7 @@ input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 18px;
-  font-size: 14px;
+  font-size: var(--text-footnote);
   color: var(--text-muted);
 }
 .whoami button {
@@ -416,43 +611,94 @@ input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   border-radius: 999px;
   background: transparent;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--text-footnote);
 }
 
-/* The link through to the studio. Sits under the main form on the first
-   screen: visible, and not competing with the one button that matters. */
-.studio-link {
-  display: block;
+/* The rooms.
+   Five stacked full-width cards that all looked the same and said nothing
+   about their own contents — fine at two, useless at five, because the only
+   way to find out what was in a room was to go there. A grid instead: two
+   across on the narrowest phone, each tile naming what it holds and carrying
+   a live count filled in by app.js. */
+.rooms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 1.25rem 0;
+}
+
+.room {
+  display: grid;
+  /* The mark sits in its own column so the three lines of text share one left
+     edge. Aligning the name to the glyph instead left the note and the state
+     hanging off a ragged margin. */
+  grid-template-columns: 1.6rem minmax(0, 1fr);
+  grid-template-areas:
+    "mark name"
+    ".    note"
+    ".    state";
+  align-content: start;
+  gap: 0.1rem 0.5rem;
+  min-height: 104px;
+  padding: 0.8rem 0.85rem;
   text-decoration: none;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--ember);
-  border-radius: 0.85rem;
-  padding: 0.85rem 1rem;
-  margin: 1rem 0;
-  transition: border-color 0.15s;
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s, background 0.15s, transform 0.12s;
 }
 
-.studio-link:hover { border-color: var(--ember); }
+.room:hover,
+.room:focus-visible { border-color: var(--ember); background: var(--raised); }
+.room:active { transform: scale(0.985); }
 
-.studio-link-title {
-  display: block;
-  color: var(--text);
-  font-weight: 600;
-  font-size: 0.98rem;
+/* Spans the grid, because "where it goes" is the one room that is about
+   leaving rather than about a library, and a half-width tile put it in a
+   row of one. */
+.room-wide {
+  grid-column: 1 / -1;
+  min-height: 0;
+  grid-template-areas:
+    "mark name"
+    ".    note";
 }
+.room-wide .room-state { display: none; }
 
-.studio-link-title::after {
-  content: " →";
+.room-mark {
+  grid-area: mark;
   color: var(--ember-text);
+  font-size: var(--step-1);
+  line-height: 1.15;
 }
 
-.studio-link-note {
-  display: block;
+.room-name {
+  grid-area: name;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: var(--step-0);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.room-note {
+  grid-area: note;
   color: var(--text-faint);
-  font-size: 0.82rem;
-  margin-top: 0.15rem;
-  line-height: 1.4;
+  font-size: var(--step--1);
+  line-height: 1.35;
+}
+
+/* The count. Tabular so two rooms sitting side by side line their numbers
+   up instead of drifting by a digit. */
+.room-state {
+  grid-area: state;
+  align-self: end;
+  margin-top: 0.4rem;
+  color: var(--ember-text);
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  font-variant-numeric: tabular-nums;
+  min-height: 1.1em;
 }
 
 
@@ -467,4 +713,1017 @@ input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
 .choices.decades .choice {
   flex: none;
   min-height: 56px;
+}
+
+/* ===========================================================================
+   The tab bar
+   ---------------------------------------------------------------------------
+   Fixed to the bottom on every page, five slots, create in the middle. This is
+   the one piece of this app nobody should have to read: it is the bar both the
+   apps on the same home screen already use, in the same place, at the same
+   height, with the same filled-when-selected icons. Anything clever here is a
+   cost paid by every person who opens this.
+   ========================================================================= */
+
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  align-items: center;
+  height: calc(var(--tabbar) + var(--safe-bottom));
+  padding: 0 4px var(--safe-bottom);
+  background: color-mix(in srgb, var(--ground) 86%, transparent);
+  /* Frosted, like the two bars this is modelled on. Falls back to the flat
+     colour above wherever backdrop-filter is not supported, which is fine —
+     the bar is still opaque enough to read against a moving film. */
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-top: 1px solid var(--line);
+}
+
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 44px;
+  text-decoration: none;
+  color: var(--text-faint);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tab.is-on { color: var(--text); }
+
+.tab-icon {
+  display: block;
+  line-height: 0;
+  position: relative;
+}
+
+.tab-label {
+  font-size: var(--step--2);
+  letter-spacing: 0.01em;
+}
+
+/* Create. A filled slab rather than a fifth outline, because on both apps this
+   is the one control that is not a place you go — it is the thing you make. */
+.tab-big .tab-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 29px;
+  border-radius: var(--radius-sm);
+  background: var(--ember);
+  color: var(--on-ember);
+}
+
+.tab-big { color: var(--text-muted); }
+.tab-big.is-on { color: var(--text); }
+
+.tab-badge {
+  position: absolute;
+  top: -3px;
+  right: -8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--rust);
+  color: var(--ground);
+  font: 600 var(--step--2)/16px var(--font-display);
+  text-align: center;
+}
+
+/* -- The page ------------------------------------------------------------
+   The column every screen that is not the feed is laid out in: a gutter down
+   both sides, and a ceiling on the width so it does not become a line of text
+   the width of a laptop.
+
+   This was written out identically in inbox.css and in manager.css, which is
+   two copies of one rule and no copy at all for any page that loads neither.
+   The profile was that page: its title started at x=0, its picture was clipped
+   by the left edge of the screen, and its Follow button ran off the right one.
+   Third time this exact shape of bug has turned up — `.topbar-back`, then the
+   sheet, now this — so the rule is worth stating plainly: chrome that more
+   than one screen uses lives here, not in the stylesheet of whichever screen
+   happened to need it first. */
+.page {
+  --pad: 16px;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 var(--pad);
+}
+
+/* Everything that scrolls has to end above the bar. */
+body.has-tabbar #app,
+body.has-tabbar .page {
+  padding-bottom: calc(var(--tabbar) + var(--safe-bottom) + 16px);
+}
+
+/* ===========================================================================
+   The top bar
+   ---------------------------------------------------------------------------
+   Compact, sticky, one line. Replaces the tall mastheads: a 40px title and a
+   subtitle is a book jacket, and it cost a third of the screen on every page.
+   ========================================================================= */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  margin: 0 calc(-1 * var(--pad));
+  padding: calc(var(--safe-top) + 6px) 16px 6px;
+  background: color-mix(in srgb, var(--ground) 88%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
+.topbar h1 {
+  margin: 0;
+  font: 700 var(--step-1)/1.2 var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+.topbar .topbar-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+/* An identity, without an avatar upload flow. The hue is the name's own hash,
+   so the same person is the same colour on every screen they appear on — which
+   is most of what an avatar is doing in a list of eight rows. */
+.avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  /* Both from the name's own hue, so the disc stays inside the palette's
+     logic instead of reaching for a hard-coded white. */
+  --hue: 28;
+  background: hsl(var(--hue) 40% 44%);
+  color: hsl(var(--hue) 55% 97%);
+  font: 600 var(--step-0)/1 var(--font-display);
+  text-transform: uppercase;
+}
+
+.avatar-sm { width: 30px; height: 30px; font-size: var(--step--1); }
+
+/* And a real picture, once somebody sets one. `overflow: hidden` on the disc
+   rather than a radius on the image, so a picture that is not quite square —
+   which the server does not allow, but a cached one from before it did might
+   be — is still clipped to the circle instead of overhanging it. */
+.avatar { overflow: hidden; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+
+/* One row for the one room that is not in the bar. */
+.onward {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+}
+
+/* The little mark beside each row on the profile. Faint, not accent.
+   
+   Measured on the running app: the home screen had twelve accent-coloured
+   elements and the profile eleven, while the feed had none. An accent used
+   twelve times on one screen is not an accent — it is a second text colour,
+   and the eye stops treating it as "press this". These marks are decoration
+   beside a label that is already a link; they were wearing the accent for no
+   reason other than that it was available. */
+.onward-mark { color: var(--text-faint); font-size: var(--step-1); line-height: 1; }
+.onward-lines { min-width: 0; flex: 1; }
+.onward-name { display: block; font: 600 var(--step-0)/1.3 var(--font-display); }
+.onward-note { display: block; color: var(--text-faint); font-size: var(--step--1); }
+.onward-state { color: var(--text-faint); font: var(--step--1) var(--font-mono); }
+
+/* ===========================================================================
+   Platform behaviour
+   ---------------------------------------------------------------------------
+   This app is opened from a phone's home screen far more often than from a
+   desktop browser, and the difference between "a website in standalone mode"
+   and "an app" is a short list of specific things. They are collected here
+   rather than scattered, because every one of them is a rule about the
+   *platform* and not about this product.
+
+   Nothing here is invented. Every pattern below is one that Instagram,
+   TikTok and YouTube all ship, on both phones — a collapsing title, a
+   translucent bar, grouped rows, a bottom tab bar. Those apps are the
+   grammar people already read, and the cost of a novel pattern is paid by
+   every person who opens this and has to work it out.
+   ========================================================================= */
+
+/* -- Dynamic Type ---------------------------------------------------------
+   The sizes above are in rem, which follows Safari's own text-size control and
+   ignores the one in Settings > Display & Brightness > Text Size. That setting
+   is the one people who need larger text actually use, and the only web hook
+   for it is the `-apple-system-*` font shorthands: they carry the *user's*
+   current Dynamic Type size, not the default.
+
+   So body copy asks for it, and everything else stays on the rem ladder. Using
+   the shorthand everywhere would mean giving up the family and the weights,
+   since `font:` sets all of them — which is why this is scoped to the text
+   where the size matters most and the styling matters least. */
+@supports (font: -apple-system-body) {
+  .card-hint,
+  .fineprint,
+  .thread-last,
+  .bubble,
+  .reel-prompt,
+  .list-note {
+    font: -apple-system-body;
+    /* Put the family back; the shorthand is only wanted for its size. */
+    font-family: var(--font-body);
+  }
+}
+
+/* -- Materials ------------------------------------------------------------
+   A bar is not a colour, it is a material: the content behind it shows
+   through, blurred and saturated. Both platforms do this and all three
+   reference apps rely on it — it is how a bar stays legible over a feed that
+   is a moving photograph. Two weights, because a sheet and a bar are not the
+   same depth and using one value for both makes the sheet read as a bar. */
+.material-bar,
+.tabbar,
+.topbar,
+.composer {
+  background: color-mix(in srgb, var(--ground) 82%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
+.material-thick,
+.sheet-body {
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(30px);
+  backdrop-filter: saturate(180%) blur(30px);
+}
+
+/* Where backdrop-filter is unavailable the material has to become opaque, or
+   the bar is a tinted window onto whatever is scrolling under it. */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .material-bar, .tabbar, .topbar, .composer { background: var(--ground); }
+  .material-thick, .sheet-body { background: var(--surface); }
+}
+
+/* -- Collapsing titles ----------------------------------------------------
+   The screen's name is set large in the content, scrolls away with it, and a
+   compact copy in the bar fades in as it goes. This is one pattern with two
+   names — a large title on one platform, a large top app bar on the other —
+   and Instagram, YouTube and TikTok all ship it on both. Driven by a scroll
+   listener in chrome.js rather than `animation-timeline: scroll()`, which is
+   not available widely enough to rely on. */
+.large-title {
+  margin: 4px 0 10px;
+  font: 700 var(--text-large-title)/1.1 var(--font-display);
+  letter-spacing: -0.022em;
+}
+
+.topbar h1 {
+  margin: 0;
+  font: 600 var(--text-headline)/1.2 var(--font-display);
+  letter-spacing: -0.01em;
+  /* Hidden until the large title has scrolled under the bar. */
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+}
+
+.topbar.is-collapsed h1 { opacity: 1; }
+
+/* The hairline under a bar appears only once there is content beneath it, the
+   way a UINavigationBar's does. */
+.topbar { border-bottom: 1px solid transparent; }
+.topbar.is-collapsed { border-bottom-color: var(--line); }
+
+/* -- Grouped rows ---------------------------------------------------------
+   Rows in a rounded group, inset from the edge, with separators that start
+   where the label starts rather than at the screen edge, and a caption under
+   the group explaining it. Every settings screen in every one of the
+   reference apps is built out of this, on both platforms. */
+.inset-group {
+  margin: 0 0 22px;
+  padding: 0;
+  list-style: none;
+  background: var(--surface);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.inset-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 14px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* Inset from the text, not from the screen — the separator on the platform
+   starts where the label starts. */
+.inset-row + .inset-row { box-shadow: inset 0 1px 0 var(--line); }
+.inset-row:active { background: var(--raised); }
+
+.inset-label { flex: 1; min-width: 0; font-size: var(--text-body); }
+.inset-value { color: var(--text-faint); font-size: var(--text-body); }
+
+/* The chevron. Not an emoji and not an icon font: one character that every
+   Apple platform draws the same way. */
+.inset-row .chevron {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: var(--text-subhead);
+}
+
+.group-caption {
+  margin: -14px 4px 22px;
+  padding: 0 14px;
+  color: var(--text-faint);
+  font-size: var(--text-footnote);
+  line-height: 1.35;
+}
+
+/* -- Increased contrast and reduced motion --------------------------------
+   Both are operating-system accessibility settings — on either phone — and
+   both are readable from CSS. Honouring them is not decoration: the whole app
+   is a surface somebody looks at for a long time.
+
+   Each has a second selector, `[data-contrast="more"]` and
+   `[data-motion="still"]`, stamped on the root by settings.js when somebody
+   turns it on inside the app. Note what is *not* here: there is no attribute
+   that turns either of these off. Somebody who set "reduce motion" in their
+   phone's settings has said something about themselves, and an app's own
+   switch has no business contradicting it — so the media queries stay live
+   underneath in every case and the in-app control only ever adds. That is why
+   these are two selectors on one rule rather than the `:root:not([data-…])`
+   guard the theme uses: the theme is a preference and can go either way, and
+   these cannot. */
+@media (prefers-contrast: more) {
+  :root { --line: var(--text-faint); }
+  .card, .inset-group { border: 1px solid var(--line); }
+  .card-hint, .group-caption, .fineprint { color: var(--text-muted); }
+}
+
+:root[data-contrast="more"] { --line: var(--text-faint); }
+:root[data-contrast="more"] .card,
+:root[data-contrast="more"] .inset-group { border: 1px solid var(--line); }
+:root[data-contrast="more"] .card-hint,
+:root[data-contrast="more"] .group-caption,
+:root[data-contrast="more"] .fineprint { color: var(--text-muted); }
+/* The faint rungs of the palette are the ones that fail first when somebody
+   asks for more contrast, and they are also the ones carrying secondary text
+   on every list row in the app. Moved up to the muted rung, which clears AA
+   against `raised` — the surface it is most often on — rather than only
+   against `ground`. */
+:root[data-contrast="more"] { --text-faint: var(--text-muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+:root[data-motion="still"] * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* -- Standalone ------------------------------------------------------------
+   Launched from the home screen there is no browser chrome and no way back, so
+   the app has to own the whole window: no rubber-band scroll past the top, no
+   text selection on things that are not text, no callout menu on a long press
+   over a control. In a tab none of this applies and the browser's own
+   behaviour is the right one. */
+@media (display-mode: standalone) {
+  html, body {
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  /* Except anything somebody might actually want to copy. */
+  p, li, textarea, input, .bubble, .heard, .facts, .said {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
+/* Footage the phone handed over through its share sheet. */
+.handed {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--ember);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--ember) 12%, var(--surface));
+}
+
+.handed-mark { color: var(--ember-text); font-size: var(--text-title-3); line-height: 1; }
+.handed-lines { flex: 1; min-width: 0; }
+.handed-title { display: block; font: 600 var(--text-callout)/1.3 var(--font-display); }
+
+.handed-note {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--text-footnote);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.handed-drop {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  font: 600 var(--text-footnote)/1 var(--font-display);
+  cursor: pointer;
+}
+
+/* The back button and the bar's trailing action.
+ *
+ * These lived in inbox.css, which is the only page that had them at the time.
+ * The manager reuses the same top bar and does not load that file, so both
+ * controls rendered at their intrinsic size — an 18x25 back arrow and a 43x21
+ * button, well under the 44px a thumb reliably hits, on a page that had just
+ * been built. Chrome shared by more than one page belongs in the shared
+ * stylesheet; that is the whole reason this file exists. */
+.topbar-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  margin-left: -10px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text);
+  font-size: var(--text-title-2);
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.chip-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ember);
+  color: var(--on-ember);
+  font: 600 var(--text-footnote)/1 var(--font-display);
+  cursor: pointer;
+}
+
+/* -- Sheets ---------------------------------------------------------------
+   A panel that comes up from the bottom edge, with the page dimmed behind it.
+   It is the share sheet, the action sheet and the form sheet on both phones,
+   and it is what every one of the reference apps uses for a choice that
+   belongs to the screen you are already on rather than to a new one.
+
+   Shared, not per-page. This was in feed.css when the feed was the only screen
+   with a sheet; the edit room's two-step dialog then used the same classes
+   without that file and came out as a static block under a full-page scrim. */
+.sheet { position: fixed; inset: 0; z-index: 80; }
+.sheet-scrim { position: absolute; inset: 0; background: var(--scrim); }
+
+.sheet-body {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* 82, not 72. A share sheet is a short list and 72 was right for it; the
+     report sheet is a form, and the two of them share this rule. */
+  max-height: 82dvh;
+  overflow-y: auto;
+  padding: 8px 16px calc(var(--safe-bottom) + 18px);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--surface);
+  color: var(--text);
+  animation: sheet-up 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .sheet-body { animation: none; } }
+:root[data-motion="still"] .sheet-body { animation: none; }
+
+.sheet-grip {
+  width: 36px;
+  height: 4px;
+  margin: 4px auto 10px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.sheet-title { margin: 0 0 10px; font: 700 var(--step-1)/1.2 var(--font-display); }
+.sheet-note { margin: 10px 0; color: var(--moss); font-size: var(--step--1); }
+
+.people { margin: 0 0 12px; padding: 0; list-style: none; }
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.person-name { font: 600 var(--step-0)/1.2 var(--font-display); }
+.person-note { display: block; color: var(--text-faint); font-size: var(--step--1); }
+.person-sent { margin-left: auto; color: var(--moss); font-size: var(--step--1); }
+
+/* A sheet is a modal: the page behind it must not scroll under your thumb
+   while it is open, which is what this class on <body> is for. */
+body.sheet-open { overflow: hidden; }
+
+/* -- signing in with somebody else's account ------------------------------
+   Listed whether or not this copy has been configured for them. A provider
+   that is simply absent reads as a capability the app does not have; a row
+   that says what it needs reads as one waiting on a client id, which is what
+   it usually is. */
+
+.providers { margin: 18px 0 0; }
+
+.providers-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  color: var(--text-faint);
+  font-size: var(--text-footnote);
+}
+
+.providers-or::before,
+.providers-or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.provider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  margin-bottom: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: 600 var(--text-callout)/1.3 var(--font-display);
+  text-decoration: none;
+}
+
+.provider.is-off { cursor: default; opacity: 0.72; }
+.provider-label { display: block; }
+
+.provider-why {
+  display: block;
+  color: var(--text-muted);
+  font: var(--text-footnote)/1.35 var(--font-body);
+}
+
+/* The marks are drawn, not fetched: a logo loaded from a provider's CDN is a
+   request to that provider from the sign-in page of an app whose whole promise
+   is that it runs on your own machine.
+   
+   Monochrome rather than in each provider's brand colours, which would be four
+   hard-coded hexes that are not this app's palette to own — the stylesheet has
+   one source of colour and a third party's brand is not it. */
+.provider-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--raised);
+  color: var(--text);
+  font: 700 var(--text-footnote)/1 var(--font-display);
+}
+
+.provider-mark::before { content: attr(data-mark); }
+
+/* The published page's own navigation. In the app this is the tab bar, which
+   is injected by a script; a page with no routes has to carry its own. */
+.rooms-flat { display: grid; gap: 8px; margin-top: 18px; }
+.rooms-flat .onward { margin-top: 0; }
+
+/* The shared secret, and the recovery codes. Both are read off the screen and
+   typed somewhere else, so both are monospace with room between characters —
+   O and 0 at body size in a proportional face is how a code gets mistyped
+   three times and blamed on the server. */
+.two-step-secret {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  font: var(--text-callout)/1.6 var(--font-mono);
+  letter-spacing: 0.08em;
+  word-break: break-all;
+  -webkit-user-select: all;
+  user-select: all;
+}
+
+.recovery {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  margin: 12px 0 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  list-style: none;
+  font: var(--text-footnote)/1.7 var(--font-mono);
+  letter-spacing: 0.04em;
+  -webkit-user-select: all;
+  user-select: all;
+}
+
+/* What went wrong. A panel rather than an alert: an alert stops the page, and
+   the commonest script error is one that has already broken something else —
+   interrupting on top of that turns a degraded screen into an unusable one. */
+.trouble {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(var(--tabbar) + var(--safe-bottom) + 12px);
+  z-index: 90;
+  padding: 12px 14px;
+  border: 1px solid var(--rust);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--ground) 55%, transparent);
+}
+
+.trouble-what { margin: 0 0 4px; font: 600 var(--text-callout)/1.3 var(--font-display); }
+
+.trouble-detail {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font: var(--text-caption)/1.45 var(--font-mono);
+  word-break: break-word;
+}
+
+.trouble-acts { display: flex; gap: 8px; }
+
+.trouble-acts button {
+  flex: 1;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--text);
+  font: 600 var(--text-footnote)/1 var(--font-display);
+  cursor: pointer;
+}
+
+/* -- Reporting and blocking ------------------------------------------------
+   The dialog safety.js builds, and the two controls that open it. Shared,
+   because the feed, a profile and a conversation all raise the same one. */
+
+/* Two across, in a grid.
+   Wrapped flex put the eight reasons on seven rows of a phone, which pushed
+   the "Report it" button off the bottom of the sheet — the primary action of
+   a dialog reachable only by scrolling is a dialog people abandon. A grid
+   pairs them up and takes four rows, which fits with the button in view. */
+.choices.reasons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.choices.reasons .choice {
+  min-height: 44px;
+  padding: 8px 10px;
+  font-size: var(--text-footnote);
+  text-align: left;
+  line-height: 1.25;
+}
+
+#safety-sheet textarea {
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--ground);
+  color: var(--text);
+  /* 17px or larger, or iOS Safari zooms the page in on focus. */
+  font: var(--text-body)/1.35 var(--font-body);
+  resize: none;
+}
+
+/* A checkbox with its label as one 44px target, because a 13px tick box is
+   not something a thumb hits. */
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  margin: 0 0 6px;
+  font-size: var(--text-subhead);
+  cursor: pointer;
+}
+
+.check input { width: 20px; height: 20px; accent-color: var(--ember); }
+
+/* The line that says what just happened. Fixed above the tab bar, gone in a
+   few seconds — a report that produces no visible response is a button people
+   press twice. */
+.said {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(var(--tabbar) + var(--safe-bottom) + 14px);
+  z-index: 90;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--raised);
+  color: var(--text);
+  font-size: var(--text-subhead);
+  /* Built from the scrim rather than a literal black: the scrim is already
+     "the dim this theme uses", so the shadow gets lighter in daylight and
+     heavier at night without a second value to keep in step. */
+  box-shadow: 0 8px 30px color-mix(in srgb, var(--scrim) 60%, transparent);
+  animation: said-in 200ms ease-out;
+}
+
+@keyframes said-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .said { animation: none; } }
+:root[data-motion="still"] .said { animation: none; }
+
+/* The "more" control: three dots, on a film and in a top bar. Drawn small and
+   hit at 44. */
+.more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: var(--text-title-3);
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* Somebody you have blocked, on their own profile: the page still exists —
+   you may want to undo it — and it says plainly what state it is in. */
+.blocked-note {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--text-subhead);
+  line-height: 1.4;
+}
+
+/* The line above the button that makes an account. Not a tick box: agreement
+   is what making the account means, and it says so where the decision is. */
+.agreeing { margin: 14px 2px 10px; line-height: 1.45; }
+.agreeing a { color: var(--ember-text); }
+
+/* The button that destroys something. Filled, like the other primary buttons,
+   because a destructive action drawn as a quiet outline is one people tap by
+   mistake — and red, because that is the only signal that survives being read
+   quickly.
+
+   Here rather than in profile.css: safety.js raises its sheet on the feed and
+   the inbox too, and neither of those loads that file. Fourth time this shape
+   has turned up in this stylesheet, which is why the rule is written at the
+   top of the `.page` block. */
+.danger-go {
+  background: var(--rust);
+  color: var(--on-rust);
+}
+
+/* -- A grid of films ------------------------------------------------------
+   Three across, square, one pixel apart: the grid on the profile tab of
+   every app this one is trying to feel like, and now also the album of a
+   project. Squares rather than the feed's full-bleed reels because a grid
+   is for finding one film, not for watching them. */
+
+/* Three across, square, one pixel apart. This is the grid on the profile tab
+   of every app this one is trying to feel like, and the reason it is squares
+   rather than the feed's full-bleed reels is that a profile is for finding one
+   film, not for watching them. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  margin: 0 calc(var(--pad) * -1) 22px;
+}
+
+.grid-cell {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  border: 0;
+  padding: 0;
+  background: var(--raised);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.grid-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* The play mark, so a square reads as a film rather than a photograph. */
+.grid-cell::after {
+  content: "▶";
+  position: absolute;
+  right: 6px;
+  top: 5px;
+  color: var(--on-photo);
+  font-size: var(--text-caption-2);
+  /* On a bright frame a white glyph disappears; the shadow is what makes it
+     legible on both without a plate behind it. Built from `scrim`, the
+     palette's own dim, rather than a literal black. */
+  text-shadow: 0 1px 3px var(--scrim);
+}
+
+.grid-likes {
+  position: absolute;
+  left: 6px;
+  bottom: 5px;
+  color: var(--on-photo);
+  font: 600 var(--text-caption-2)/1 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px var(--scrim);
+}
+
+
+/* -- A list inside a sheet --------------------------------------------------
+   The watch history and the reception of your own films. In style.css rather
+   than profile.css because that mistake has been made six times in this
+   repository already: a rule that any page might raise a sheet from belongs
+   with the sheet, not with the first page that happened to need it. */
+.stack { display: grid; gap: 8px; margin: 0 0 18px; }
+
+.stack-row {
+  display: flex;
+  align-items: baseline;
+  /* Wraps, rather than pushing the right-hand half off the edge. At 390px a
+     row reading "the long way home  13 plays - 100% finished" does not fit on
+     one line, and without this the tail was clipped by the border: the count
+     was there, the word after it was not, and nothing about the row said so. */
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.stack-row .what {
+  color: var(--text);
+  /* Without min-width a flex item will not shrink below its content, so the
+     ellipsis below never had a chance to apply. */
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stack-row .how {
+  color: var(--text-muted);
+  font-size: var(--text-footnote);
+  /* Pinned right on one line, and right on its own line once it wraps. */
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+.stack-row .how.done { color: var(--moss); }
+
+.sheet-subtitle {
+  font-size: var(--text-footnote);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+  margin: 4px 0 10px;
+}
+
+.stack-empty {
+  color: var(--text-faint);
+  margin: 0 0 18px;
+  /* An unbroken token wider than the phone pushes the whole page sideways,
+     and the words this carries are environment-variable names —
+     AUTEUR_INSTAGRAM_CLIENT_SECRET is 30 characters with nowhere for the
+     browser to break it. `anywhere` rather than `break-word` because
+     break-word will not split inside a word that has already been placed. */
+  overflow-wrap: anywhere;
+}
+
+
+/* -- the Create sheet ------------------------------------------------------
+   In style.css and not in a page's own file, because the tab bar is injected
+   on every page and a sheet styled in one of them is an unstyled list on the
+   other twelve. That mistake has been made six times in this repository. */
+
+.make-list { display: grid; gap: 6px; margin: 6px 0 16px; }
+
+.make-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  /* 60, not 44: this row carries two lines of text and the floor is the
+     minimum for a target, not a good height for one. */
+  min-height: 60px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: var(--text);
+}
+.make-row:active { background: var(--raised); }
+.make-row:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+
+.make-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--ember-text);
+}
+
+.make-words { display: grid; gap: 2px; min-width: 0; }
+.make-title { font-weight: 600; }
+.make-note {
+  color: var(--text-muted);
+  font-size: var(--text-footnote);
+  /* One line, truncated. Two lines of explanation per row turns a chooser
+     into a page somebody has to read. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* An invite code, meant to be read aloud and typed by somebody else. Tabular
+   so an l and a 1 are not the same width, and selectable because most people
+   will copy it rather than read it. */
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  -webkit-user-select: all;
+  user-select: all;
 }

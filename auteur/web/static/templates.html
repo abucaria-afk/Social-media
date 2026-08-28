@@ -3,20 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0c0b0a" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f6f1e6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#131110" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef4fb" media="(prefers-color-scheme: light)">
 <meta name="color-scheme" content="dark light">
 <meta name="description" content="Reels read shot by shot, so your pictures can be cut to their timing.">
-<script>
-  (function () {
-    try {
-      var mode = localStorage.getItem("auteur-theme");
-      if (mode === "light" || mode === "dark") {
-        document.documentElement.setAttribute("data-theme", mode);
-      }
-    } catch (e) { /* private mode: fall through to the system setting */ }
-  })();
-</script>
+<!-- Before the stylesheet, before anything paints. Appearance and the three
+     accessibility settings, applied from one file rather than copied into the
+     head of every page. Deferring it would show one frame of the wrong theme —
+     or a screenful of small text to somebody who has asked for large — which
+     is the flash people notice most on a phone. -->
+<script src="/static/settings.js"></script>
 <link rel="icon" href="/icon-192.png">
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/style.css">
@@ -68,21 +64,19 @@
     <p class="notice" id="reel-said" hidden></p>
   </section>
 
-  <div class="settings">
-    <span class="settings-label">Appearance</span>
-    <div class="choices appearance" role="radiogroup" aria-label="Appearance">
-      <button type="button" class="choice is-on" data-value="system" role="radio" aria-checked="true">Automatic<small>match my phone</small></button>
-      <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
-      <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
-    </div>
-  </div>
-
+  <!-- The theme picker used to sit here, between the reel and this line,
+       which made "your choice is remembered" read as being about the theme.
+       It is about the template — templates.js keeps it under
+       `auteur-template` — and with the picker gone the sentence is next to
+       what it describes again. -->
   <p class="studio-foot">
-    Your choice is remembered for the next film. — <a href="/">the edit room</a> · <a href="/studio">the studio</a>
+    Your choice is remembered for the next film.
   </p>
 
 </main>
 
+<script src="/static/trouble.js"></script>
+<script src="/static/chrome.js"></script>
 <script src="/static/theme.js"></script>
 <script src="/static/templates.js"></script>
 </body>

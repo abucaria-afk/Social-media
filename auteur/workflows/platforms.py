@@ -15,6 +15,31 @@ search through the renderer.
 platforms documented as of the date below. They are not fetched at runtime and
 nothing here can tell when one of them moves — a video that is rejected as too
 long is the first sign. Treat the file as a default to correct, not a fact.
+
+That warning was written and then not acted on, which is the normal fate of a
+warning. Checked against current guidance in 2026-08, three of the six had
+moved, and all three in the same direction — the ceilings had risen while this
+file kept the old ones and refused films the platforms would have taken:
+
+  - Instagram Reels: 180s here, and Instagram now accepts about twenty minutes.
+  - Instagram feed video: 60s here, and it has taken up to an hour for years.
+  - TikTok: 600s here, which is the in-app *recording* limit. This program
+    uploads a finished file, and an upload takes far longer.
+
+Checking them turned up something the file could not express. Instagram accepts
+a twenty-minute Reel and recommends a three-minute one, so a film can be
+entirely legal and entirely invisible, and one `max_seconds` cannot say that.
+`reach_seconds` is the second ceiling: past it nothing is refused, the work
+simply stops being shown to anybody who does not already follow you. For an app
+that makes short films, that is the number that decides whether the work is
+seen, and it is the one this file did not have.
+
+**Where the sources disagree, the generous ceiling wins and the reach number
+carries the advice.** TikTok's 60-minute upload is reported by several trade
+sources and contradicted by others saying 10 minutes is still the practical
+maximum; none of them is TikTok's own documentation. A ceiling that is too
+generous costs a warning nobody needed. One that is too tight refuses a film
+that would have posted, which is worse, and is the failure this file just had.
 """
 
 from __future__ import annotations
@@ -90,6 +115,10 @@ class SafeArea:
 class PlatformSpec:
     """One destination, and everything the edit needs to know about it."""
 
+    #: The key this is looked up by. Not a label — `name` reads like one and is
+    #: not: it is "instagram-reel", and showing it to somebody puts a lookup key
+    #: on their screen, which is exactly what happened on the manager's board.
+    #: `title` below is the readable one.
     name: str
     service: str
     surface: str
@@ -107,9 +136,24 @@ class PlatformSpec:
     hashtag_limit: int
     #: Some surfaces publish a still alongside the video and let you choose it.
     wants_cover: bool
+    #: The length past which the surface stops pushing the film to people who
+    #: do not already follow you — zero where there is no such cliff.
+    #:
+    #: One ceiling was never enough and checking the numbers against what the
+    #: platforms say now is what made that obvious. Instagram will *accept* a
+    #: Reel of about twenty minutes and will not *recommend* one over three,
+    #: so a film can be entirely legal and entirely invisible. For an app that
+    #: makes short films the second number is the one that decides whether the
+    #: work is seen, and it was the number this file did not have.
+    reach_seconds: float = 0.0
     #: Story-style surfaces cut a long film into cards of this length.
     card_seconds: float = 0.0
     note: str = ""
+
+    @property
+    def title(self) -> str:
+        """What to show a person: "Instagram Reels", not "instagram-reel"."""
+        return f"{self.service} {self.surface}".strip()
 
     @property
     def is_vertical(self) -> bool:
@@ -129,10 +173,33 @@ class PlatformSpec:
             return f"{seconds:.1f}s is over {self.service}'s {self.max_seconds:.0f}s limit"
         return ""
 
+    def reach_problem(self, seconds: float) -> str:
+        """Why this runtime would go unseen, or "" if it is fine.
+
+        Separate from `duration_problem` because it is a different kind of bad
+        news: nothing is refused, the film simply is not shown to anybody new.
+        Reporting the two together would either block a legal upload or stay
+        quiet about a film that was never going to travel.
+        """
+        if self.reach_seconds and seconds > self.reach_seconds:
+            return (
+                f"{seconds:.1f}s is over {self.service}'s {self.reach_seconds:.0f}s — "
+                "it will post, but it stops being recommended to people who do not "
+                "already follow you"
+            )
+        return ""
+
     def describe(self) -> str:
+        # The ceiling worth showing is the one that changes what somebody does.
+        # Once the hard limits were checked they turned out to be twenty
+        # minutes and an hour, and "3-3600s" is a true sentence that helps
+        # nobody — the number that matters is where the surface stops pushing.
+        ceiling = self.reach_seconds or self.max_seconds
+        span = f"{self.min_seconds:.0f}-{ceiling:.0f}s"
+        if self.reach_seconds and self.max_seconds > self.reach_seconds:
+            span += f" seen ({self.max_seconds:.0f}s allowed)"
         return (
-            f"{self.format.width}x{self.format.height} · "
-            f"{self.min_seconds:.0f}-{self.max_seconds:.0f}s "
+            f"{self.format.width}x{self.format.height} · {span} "
             f"(aim {self.ideal_seconds:.0f}s) · {self.fps}fps"
         )
 
@@ -149,7 +216,11 @@ PLATFORMS: dict[str, PlatformSpec] = {
         surface="Reels",
         format=_VERTICAL,
         min_seconds=3.0,
-        max_seconds=180.0,
+        # Instagram accepts a Reel far longer than it will recommend one. The
+        # 180s that used to sit here was the recommendation cliff wearing the
+        # hard limit's clothes, so a legal film read as refused.
+        max_seconds=1200.0,
+        reach_seconds=180.0,
         ideal_seconds=25.0,
         fps=30,
         # Header and audio strip at the top; caption, handle and the action
@@ -166,7 +237,10 @@ PLATFORMS: dict[str, PlatformSpec] = {
         surface="Feed",
         format=FORMATS["portrait"],
         min_seconds=3.0,
-        max_seconds=60.0,
+        # Feed video has not been capped at a minute for years — it takes up
+        # to an hour. 60s here was refusing films Instagram would have taken.
+        max_seconds=3600.0,
+        reach_seconds=180.0,
         ideal_seconds=20.0,
         fps=30,
         # The feed draws almost nothing over the media; the margins here are
@@ -200,7 +274,13 @@ PLATFORMS: dict[str, PlatformSpec] = {
         surface="For You",
         format=_VERTICAL,
         min_seconds=3.0,
-        max_seconds=600.0,
+        # 600s is TikTok's in-app *recording* limit. This program uploads a
+        # finished file, and an upload takes up to an hour — a distinction the
+        # old number collapsed. Sources disagree on how widely the 60-minute
+        # upload has rolled out, so the ceiling is generous and the reach
+        # number below is what the advice is actually built on.
+        max_seconds=3600.0,
+        reach_seconds=600.0,
         ideal_seconds=25.0,
         fps=30,
         # The heaviest interface of the lot: a tall action rail on the right

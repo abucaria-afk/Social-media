@@ -1,22 +1,48 @@
 """The palette, in one place, in two lightings.
 
 Every surface the program shows — the terminal, the web app, the home-screen
-icon — reads from this module. Colours defined twice drift apart, and a phone
-app that does not look like the tool it fronts reads as a different product.
+icon, the site, the store listings — reads from this module. Colours defined
+twice drift apart, and a phone app that does not look like the tool it fronts
+reads as a different product.
 
-Both palettes are sampled from the footage this editor was built for: torchlit
-night photography, where a warm subject sits in a near-black frame. The dark
-palette is that frame — the shadow clusters (#080808–#282828), the cream-amber
-subject at hue 30–36, low-saturation forest green, a silver highlight. The
-light palette is the *lit side* of the same photographs: the torch-struck cream
-at hue 30–40 (#f6ead2, #ead2ae, #d2ae8a). One scene, two exposures, rather than
-a dark theme and an unrelated white one.
+**The two schemes are two white balances.** Cinema has exactly two, and every
+piece of footage this app touches was shot under one of them: daylight at
+5600K, which is blue, and tungsten at 3200K, which is orange. So daylight is
+the light scheme — blues and light blues on white — and tungsten is the dark
+one, an orange on near-black. The app is white-balanced to the light you are
+holding it in.
 
-Two roles exist only because a colour cannot always do both jobs. `ember` is
-the accent as a *fill* — the primary button, the progress bar — and it stays
-the same warm amber in both lightings, because it is the thing people
-recognise. `ember_text` is the accent as *text*, and on a pale ground it has to
-darken sharply or it cannot be read.
+That is why `ember`, the accent, is a blue in one scheme and an orange in the
+other, which is not the usual arrangement and is the point. The palette this
+replaced ran an orange accent against blue-grey neutrals in *both* schemes, and
+an orange-on-blue-grey app with grey cards is a colourway a very large shop
+already owns; it read as that shop rather than as an editing tool. Splitting
+the two hues across the two lightings means they are never on screen together,
+so the resemblance is gone and each scheme gets a single temperature to be.
+
+**No greys.** A neutral with no hue in it is the colour of something nobody
+chose. Daylight's neutrals carry the blue — the ground is a paper with sky in
+it and the cards are actually white — and tungsten's carry the warmth, so its
+near-blacks sit under the orange rather than fighting it.
+
+Two roles exist because a colour cannot always do both jobs. `ember` is the
+accent as a *fill* — the primary button, the progress bar — and it is free to
+be saturated, because what has to be legible is the text sitting on it.
+`ember_text` is the accent as *text*, and it has to darken on white paper or it
+cannot be read.
+
+`moss` is the "it worked" role and is deliberately not on either temperature
+axis: a green in both schemes, so success never reads as just more accent.
+
+Every role that carries text clears WCAG AA against **every surface it can sit
+on** — the ground, a card, and a control on a card — in both lightings, which
+is a test rather than a claim. It used to be checked against the ground alone,
+and that is a different question: `text_faint` cleared 5.46 on the ground and
+4.20 on a raised control, so seventy pieces of text in the app were under the
+bar while the palette test was green. Anything that only ever sits on the
+ground still has to clear the hardest case, because nothing stops the next
+screen from putting it on a card. The worst pair in this palette is 4.99:1 in
+daylight and 5.81:1 in tungsten.
 """
 
 from __future__ import annotations
@@ -34,50 +60,101 @@ ROLES: dict[str, str] = {
     "ember_text": "the accent as text, dark enough to read on this ground",
     "on_ember": "text sitting on an ember fill",
     "cream": "the accent's soft tint, for large gentle fills",
-    "moss": "it worked",
+    "moss": "it worked — a green in both schemes, on neither temperature axis",
     "rust": "it did not work, or needs attention",
+    "on_rust": "text sitting on a rust fill — the one destructive button",
+    "scrim": "the dim behind a sheet — the one role that carries its own alpha",
+    "on_photo": "text and marks drawn on top of somebody's footage",
 }
 
-#: Night. The frame the footage is shot in, and the program's own look.
+#: Tungsten, 3200K. Orange on near-black — the light a room is lit by
+#: after dark, and the warmer of cinema's two white balances.
 DARK: dict[str, str] = {
-    "ground": "#0c0b0a",
-    "surface": "#171614",
-    "raised": "#201e1b",
-    "line": "#2e2b26",
-    "text": "#f2ede4",
-    "text_muted": "#a9a49a",
-    "text_faint": "#8b857a",
-    "ember": "#e9a85c",
-    "ember_text": "#e9a85c",
-    "on_ember": "#241703",
-    "cream": "#e8c8a8",
-    "moss": "#8fb283",
-    "rust": "#d4785a",
+    # Tungsten. A near-black with warmth in it rather than a blue-grey ink:
+    # the accent above is an orange, and an orange on a cool grey is the
+    # combination this palette exists to stop looking like.
+    "ground": "#131110",
+    "surface": "#1d1917",
+    "raised": "#282320",
+    "line": "#39322d",
+    "text": "#f8f4ef",
+    "text_muted": "#bfb3a8",
+    "text_faint": "#a99c91",
+    "ember": "#f0a55f",
+    "ember_text": "#f5b779",
+    "on_ember": "#2a1606",
+    "cream": "#efd9bd",
+    # Green, not the light blue of the daylight scheme. "It worked" has to be
+    # its own colour in both lightings, and a blue here would put blue and
+    # orange back on the same screen.
+    "moss": "#79c48d",
+    "rust": "#f08878",
+    # A near-black on the light salmon rust wears in the dark scheme, at
+    # 6.99:1. The same ink as `on_ember`, because both are "text on a bright
+    # fill" and two different near-blacks a shade apart is a distinction
+    # nobody can see and everybody has to maintain.
+    "on_rust": "#2a1606",
+    # Eight digits: the last pair is the alpha. A scrim is not a colour the
+    # page can be painted in, it is a dim over whatever is already there, so
+    # it is the one role stored translucent. It lives here rather than as an
+    # rgba() in style.css for the same reason everything else does — one
+    # palette, in one file, or the stylesheet drifts away from it.
+    "scrim": "#0000008c",
+    # White in both schemes, and that is the point rather than an oversight.
+    # The ground under this is a frame of somebody's film, not the theme's
+    # surface — a play mark that went dark in daylight would be a dark mark on
+    # whatever the footage happens to be, which is a coin toss. It is paired
+    # with a shadow built from `scrim` so it holds on a bright frame too.
+    "on_photo": "#ffffff",
 }
 
-#: The lit side of the same photographs. Warm paper, not clinical white.
-#: text_muted and text_faint darkened to meet WCAG AA (4.5:1) on the ground.
+#: Daylight, 5600K. Blue and light blue on white — the cooler of cinema's
+#: two white balances, and the one a phone is usually held in.
 LIGHT: dict[str, str] = {
-    "ground": "#f6f1e6",
-    "surface": "#fffdf7",
-    "raised": "#efe6d5",
-    "line": "#d8cab2",
-    "text": "#1c1815",
-    "text_muted": "#4d4639",
-    "text_faint": "#5e5649",
-    "ember": "#e9a85c",
-    "ember_text": "#6b4009",
-    "on_ember": "#241703",
-    "cream": "#ead2ae",
-    "moss": "#2d5433",
-    "rust": "#8b2e14",
+    # Daylight. The ground is a paper with sky in it and the cards are
+    # actually white, so the lift off the page is real rather than a grey
+    # rectangle on a slightly different grey.
+    "ground": "#eef4fb",
+    "surface": "#ffffff",
+    "raised": "#dfeaf7",
+    "line": "#c6d8ec",
+    # Ink, not black: the same blue carried all the way down.
+    "text": "#0d1b2c",
+    "text_muted": "#48596e",
+    "text_faint": "#536477",
+    "ember": "#0b62c4",
+    # Darker than the fill by a long way. A button blue is a fine button and
+    # an unreadable link — this clears 8.01:1 on a white card.
+    "ember_text": "#0a5099",
+    "on_ember": "#ffffff",
+    # The light blue, doing the job a soft tint does: large gentle fills.
+    "cream": "#d5e6fa",
+    # A deep teal-green. Distinct from the blue accent at a glance, which a
+    # lighter green next to this much blue would not be.
+    "moss": "#0f6b5c",
+    "rust": "#b3261e",
+    # White, at 6.54:1 on the red rust wears in daylight. This is the button
+    # that deletes an account and it can afford to be plain.
+    "on_rust": "#ffffff",
+    # Lighter than the dark scheme's, and tinted with the ink rather than pure
+    # black. The same 55% black that reads as a dim over a near-black page
+    # reads as a blackout over a bright one, and the content behind a sheet is
+    # meant to still be visible.
+    "scrim": "#0d1b2c66",
+    "on_photo": "#ffffff",
 }
 
 SCHEMES: dict[str, dict[str, str]] = {"dark": DARK, "light": LIGHT}
 
-#: The browser tab / status bar colour. Only the dark one is needed here: the
-#: page carries both in media-scoped <meta theme-color> tags.
+#: The browser tab / status bar colour, in both lightings. Every page carries
+#: these twice — once in a media-scoped <meta theme-color> tag and once in
+#: theme.js, which repaints the tag when somebody overrides the system setting
+#: — and the manifest carries the dark one again. They are hand-written copies
+#: of these two constants, so they are held to them by test rather than by
+#: anybody remembering: recolouring the palette without this check left every
+#: status bar the old warm brown while the page behind it went blue.
 THEME_COLOR = DARK["ground"]
+LIGHT_THEME_COLOR = LIGHT["ground"]
 
 #: What the appearance switch offers. "system" is the default: follow the phone.
 MODES = ("system", "light", "dark")

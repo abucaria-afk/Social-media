@@ -18,7 +18,8 @@
   // `seconds: ""` means "no length given" — the prompt decides. Anything else
   // is an explicit override the person tapped.
   var state = { jobId: null, timer: null, shape: "reel", seconds: "", era: "",
-               template: "", videoUrl: null, lastStage: "", lastPercent: -1 };
+               template: "", project: "", videoUrl: null, lastStage: "",
+               lastPercent: -1 };
 
   function show(name) {
     Object.keys(screens).forEach(function (key) {
@@ -44,6 +45,30 @@
   wireChoices($("shape"), function (value) { state.shape = value; });
   wireChoices($("seconds"), function (value) { state.seconds = value; });
   wireChoices($("era"), function (value) { state.era = value; });
+  wireChoices($("project"), function (value) { state.project = value; });
+
+  /* The projects somebody has, offered as a place to file the film. Fetched
+     rather than hard-coded, and the card stays hidden when there are none —
+     a control for a thing you do not have is a question you cannot answer. */
+  fetch("/api/projects", { credentials: "same-origin", cache: "no-store" })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      var all = (data && data.projects) || [];
+      if (!all.length) { return; }
+      var host = $("project");
+      all.slice(0, 8).forEach(function (row) {
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "choice";
+        button.setAttribute("role", "radio");
+        button.setAttribute("aria-checked", "false");
+        button.dataset.value = row.id;
+        button.textContent = row.name;
+        host.appendChild(button);
+      });
+      $("project-card").hidden = false;
+    })
+    .catch(function () { /* the card stays hidden, and nothing else changes */ });
 
   /* The template lives on its own tab now.
    *
@@ -53,21 +78,96 @@
    * same one-setting-two-readers arrangement the animation tab uses. */
   try { state.template = localStorage.getItem("auteur-template") || ""; } catch (e) {}
 
+  /* What is actually in each room.
+   *
+   * The five tiles used to be five identical cards whose only content was
+   * their own name, so the only way to learn that the library held 29 reels
+   * or that the Scholar had 400 learnings was to open the room. Each count
+   * comes from the same endpoint the room itself reads — never restated
+   * here, which is how a tile ends up confidently naming a number the
+   * program stopped having. A room whose endpoint is down keeps its blank
+   * line rather than showing a zero that is not true. */
   (function () {
-    var note = $("template-link-note");
-    if (!note || !state.template) { return; }
-    fetch("/api/templates", { credentials: "same-origin" })
-      .then(function (r) { return r.json(); })
-      .then(function (said) {
-        var all = (said && said.templates) || [];
+    function say(id, text) {
+      var slot = $(id);
+      if (slot) { slot.textContent = text; }
+    }
+
+    function count(n, one, many) {
+      return n + " " + (n === 1 ? one : (many || one + "s"));
+    }
+
+    function room(id, url, read) {
+      if (!$(id)) { return; }
+      fetch(url, { credentials: "same-origin", cache: "no-store" })
+        .then(function (r) { return r.json(); })
+        .then(function (said) { say(id, read(said || {}) || ""); })
+        .catch(function () { /* the tile still links through */ });
+    }
+
+    room("room-templates", "/api/templates", function (said) {
+      var all = said.templates || [];
+      // Two readers of one setting, the way the animation tab does it: the
+      // templates tab writes `auteur-template`, this reads it back and says
+      // which reel the next film will be cut to.
+      var note = $("template-link-note");
+      if (note && state.template) {
         for (var i = 0; i < all.length; i++) {
           if (all[i].id === state.template) {
-            note.textContent = "Cutting to " + all[i].label + " · " + all[i].note;
-            return;
+            note.textContent = "cutting to " + all[i].label;
+            break;
           }
         }
+      }
+      return count(all.length, "reel");
+    });
+
+    room("room-scholar", "/api/scholar", function (said) {
+      if (!said.available) { return "not running"; }
+      return count(said.learnings || 0, "learning");
+    });
+
+    room("room-overlays", "/api/overlays", function (said) {
+      return count((said.kinds || []).length, "shape");
+    });
+
+    room("room-studio", "/api/crew", function (said) {
+      return count(said.kinds || 0, "proposal");
+    });
+  })();
+
+  /* Footage shared into the app from Photos, Gallery, or any other app.
+   *
+   * The share target posts the files and redirects here. If the make screen
+   * did not say so, the files would be sitting on the server invisibly and the
+   * screen would still be asking somebody to pick some — which reads as the
+   * share having failed. */
+  (function () {
+    var box = $("handed");
+    if (!box) { return; }
+
+    function clear() {
+      box.hidden = true;
+      fetch("/api/shared/clear", { method: "POST", credentials: "same-origin" })
+        .catch(function () { /* it is claimed when the film is made anyway */ });
+    }
+
+    fetch("/api/shared", { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (said) {
+        if (!said || !said.waiting) { return; }
+        $("handed-title").textContent =
+          said.waiting + (said.waiting === 1 ? " clip" : " clips") + " from your camera roll";
+        $("handed-note").textContent = said.names
+          ? said.names.slice(0, 3).join(", ") + (said.waiting > 3 ? " and more" : "")
+          : "";
+        box.hidden = false;
+        // A caption came with the share often enough to be worth using.
+        if (said.said && !$("prompt").value) { $("prompt").value = said.said; }
       })
-      .catch(function () { /* the link still works */ });
+      .catch(function () { /* nothing waiting, or signed out */ });
+
+    $("handed-drop").addEventListener("click", clear);
   })();
 
   // -- who is signed in -----------------------------------------------------
@@ -148,6 +248,7 @@
        control that sets a variable nobody transmits is a control that does
        nothing, which is worse than not offering one. */
     form.append("era", state.era);
+    form.append("project", state.project || "");
     form.append("template", state.template);
     for (var i = 0; i < clips.files.length; i++) {
       form.append("clips", clips.files[i], clips.files[i].name);
@@ -412,3 +513,9 @@
     }
   };
 })();
+
+/* Two-step verification used to be wired here, because its switch was on this
+ * page. It is on the profile now, with the rest of the account settings, and
+ * so is its code — see profile.js. Leaving a copy behind would be two
+ * implementations of one dialog, and the second one is always the stale one.
+ */

@@ -32,7 +32,17 @@ log = logging.getLogger("auteur.edl")
 #: recurs. Anything shorter was not trimmed but *dropped*, with a note calling
 #: it a flash frame, so a montage in the style of the footage being chased came
 #: out with a third of its shots silently missing.
-MIN_SHOT = 0.083
+#: The shortest a shot may be. 0.125s, which is three frames at 24fps.
+#:
+#: Not chosen — measured. Across the twenty-three reference reels the Scholar
+#: has read shot by shot, the single fastest hold anywhere in the corpus is
+#: 0.125s; the median hypercut holds 0.167s. This was 0.083, two frames, a
+#: number nobody measured, and the cost of it was visible in every fast render:
+#: twenty-five shots under a tenth of a second in one twelve-second film, which
+#: the critic scores as flash frames and a person reads as a strobe. A film
+#: cutting faster than anything it is imitating is not a faster version of the
+#: reference, it is a different and worse thing.
+MIN_SHOT = 0.125
 MAX_SHOT = 12.0
 
 TRANSITIONS = {
@@ -52,6 +62,15 @@ TRANSITIONS = {
     "slide-right",
     "wipe",
     "morph",
+    # The two joins the reference reels are actually made of: an aperture
+    # opening through the outgoing shot, and part of the outgoing shot still
+    # standing over the incoming one. Both were added to the renderer and to
+    # every style's vocabulary and neither ever reached a film, because this
+    # set is what `Transition.normalise` validates against and anything not in
+    # it is quietly renamed to "dissolve". The director was choosing carries
+    # and the EDL was writing down dissolves.
+    "portal",
+    "carry",
 }
 MOTIONS = {
     "none",
@@ -107,6 +126,10 @@ class Transition:
     def normalise(self) -> Transition:
         kind = (self.kind or "cut").strip().lower()
         if kind not in TRANSITIONS:
+            # Loudly. Falling back silently is how two joins were added to the
+            # renderer, wired into every style, and never once appeared in a
+            # film — the tally said "dissolve" and everybody believed it.
+            log.warning("unknown transition %r; using a dissolve", kind)
             kind = "dissolve" if self.duration > 0 else "cut"
         duration = 0.0 if kind == "cut" else _clamp(self.duration or 0.4, 0.08, 2.0)
         return Transition(kind, round(duration, 3))
@@ -233,6 +256,19 @@ class Look:
     #: 0..1 strength of the named preset.
     strength: float = 1.0
 
+    #: Auto-levelling, measured from this shot's own footage: where its black
+    #: point sits, and the gamma that puts its midtone where a viewer expects
+    #: one. Both default to doing nothing.
+    #:
+    #: This exists because the browser renderer levels a picture from its own
+    #: histogram before grading it and the ffmpeg path did not, so the two
+    #: disagreed about every decade by 9 to 15 levels out of 255 — the app and
+    #: the desktop render showed different films, and the gap tracked how
+    #: underexposed the source was.
+    black: float = 0.0  # 0..0.5, the input level that becomes 0
+    white: float = 1.0  # 0.2..1.0, the input level that becomes 1
+    gamma: float = 1.0  # 0.45..2.2, applied after the stretch
+
     def normalise(self) -> Look:
         return Look(
             preset=(self.preset or "neutral").strip().lower(),
@@ -241,12 +277,19 @@ class Look:
             saturation=_clamp(self.saturation, -1.0, 1.0),
             contrast=_clamp(self.contrast, -1.0, 1.0),
             strength=_clamp(self.strength, 0.0, 1.0),
+            black=_clamp(self.black, 0.0, 0.5),
+            # Never below the black point, or colorlevels inverts the picture.
+            white=_clamp(self.white, max(0.2, self.black + 0.05), 1.0),
+            gamma=_clamp(self.gamma, 0.45, 2.2),
         )
 
     @property
     def is_identity(self) -> bool:
         return (
             self.preset in ("neutral", "none", "")
+            and self.black < 0.005
+            and self.white > 0.995
+            and abs(self.gamma - 1.0) < 0.01
             and abs(self.exposure) < 0.01
             and abs(self.temperature) < 0.01
             and abs(self.saturation) < 0.01

@@ -1,0 +1,289 @@
+/* Projects: the list of albums, and one project's map.
+ *
+ * The map is the only screen in this app that is not a list or a feed, so it
+ * is the only one with layout worth explaining. Everything on it lives in
+ * *world* coordinates inside `.map-world`, which carries a single transform.
+ * Panning and zooming change that one property; nothing re-lays-out, and a
+ * node's stored position is where it is on the map rather than where it
+ * happened to be on the screen that put it there.
+ */
+
+/* -- the list ------------------------------------------------------------ */
+
+.albums { margin: 4px 0 0; padding: 0; list-style: none; }
+
+.album {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  color: inherit;
+  text-decoration: none;
+}
+
+.albums li:last-child .album { border-bottom: 0; }
+
+/* A cover, because an album drawn as a row of text is a list. The newest film
+   in it, or its own chosen one — see `_projects` in the server. */
+.album-cover {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 76px;
+  height: 76px;
+  border-radius: var(--radius);
+  background: var(--raised) center / cover no-repeat;
+  color: var(--text-faint);
+  font-size: var(--text-title-2);
+}
+
+.album-lines { flex: 1; min-width: 0; }
+.album-name { display: block; font: 600 var(--text-body)/1.25 var(--font-display); }
+.album-when { display: block; color: var(--text-muted); font-size: var(--text-footnote); }
+.album-facts { display: block; color: var(--text-faint); font-size: var(--text-footnote); }
+
+/* -- one project --------------------------------------------------------- */
+
+.project-when { margin: 0 0 4px; color: var(--text-muted); font-size: var(--text-subhead); }
+.project-note {
+  margin: 0 0 14px;
+  color: var(--text-muted);
+  font-size: var(--text-subhead);
+  line-height: 1.45;
+  /* The note keeps the line breaks somebody typed — see `_tidy` in
+     projects.py — so it has to be rendered with them. */
+  white-space: pre-line;
+}
+
+/* Two faces of one thing, underlined like the feed's scopes rather than
+   drawn as a segmented pill: the same control in two places should not be two
+   different shapes. */
+.faces { display: flex; gap: 18px; margin: 6px 0 14px; }
+
+.face {
+  min-height: 44px;
+  padding: 8px 2px;
+  border: 0;
+  background: none;
+  color: var(--text-faint);
+  font: 600 var(--text-body)/1 var(--font-display);
+  cursor: pointer;
+}
+
+.face.is-on { color: var(--text); }
+.face.is-on::after {
+  content: "";
+  display: block;
+  height: 2px;
+  margin: 6px auto -8px;
+  border-radius: 1px;
+  background: var(--ember);
+}
+
+/* -- the map ------------------------------------------------------------- */
+
+.map {
+  position: relative;
+  height: min(58dvh, 560px);
+  margin: 0 calc(var(--pad) * -1);
+  overflow: hidden;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  /* The browser must not claim the gestures: without this, a drag scrolls the
+     page and a pinch zooms the whole document, and the map never sees either. */
+  touch-action: none;
+  cursor: grab;
+  /* A faint grid, so panning an empty map is visibly panning rather than
+     nothing happening. Two gradients rather than an image: no request, and it
+     recolours with the theme. */
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-position: -1px -1px;
+  opacity: 1;
+}
+
+.map.is-linking { cursor: crosshair; }
+
+.map-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+}
+
+/* Anchored at the world origin and allowed to draw outside itself, so a line
+   can go anywhere without the SVG needing a size or a viewBox that somebody
+   has to keep in step with the content. */
+.map-links {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.map-link {
+  stroke: var(--text-faint);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.node {
+  position: absolute;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 8px;
+  width: 170px;
+  /* A node is something you tap, so it is at least a thumb tall at life size.
+     Zoomed out it is smaller, which is what zooming out means — `MIN_ZOOM` in
+     project.js is the floor that keeps that from going silly. */
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--ground);
+  color: var(--text);
+  font: var(--text-footnote)/1.35 var(--font-body);
+  text-align: left;
+  /* Above the links, which are drawn from centre to centre and would
+     otherwise cross the boxes they join. */
+  z-index: 1;
+  cursor: grab;
+}
+
+.node:active { cursor: grabbing; }
+.node:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+
+.node-mark { color: var(--ember-text); font-size: var(--text-callout); line-height: 1.2; }
+.node-text { overflow-wrap: anywhere; }
+
+.node-done {
+  grid-column: 2;
+  color: var(--moss);
+  font-size: var(--text-caption-2);
+}
+
+.node.is-done { border-style: dashed; }
+
+/* Each kind gets its own left edge. Colour alone would be the distinction
+   nobody notices; the glyph inside carries it too. */
+.node-shot { border-left: 3px solid var(--ember); }
+.node-look { border-left: 3px solid var(--cream); }
+.node-reel { border-left: 3px solid var(--moss); }
+.node-film { border-left: 3px solid var(--ember-text); }
+.node-place { border-left: 3px solid var(--rust); }
+.node-person { border-left: 3px solid var(--text-faint); }
+
+.map-blank {
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  max-width: 70%;
+  color: var(--text-faint);
+  font-size: var(--text-subhead);
+  text-align: center;
+  pointer-events: none;
+}
+
+.map-zoom {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--ground);
+}
+
+.map-zoom button {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: var(--text-title-3);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.map-zoom button + button { border-top: 1px solid var(--line); }
+
+/* What can be added. A wrapping row rather than a scroller, because the last
+   two kinds in a scroller are two kinds nobody knows exist. */
+.adders { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 10px; }
+
+.adder {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: 600 var(--text-footnote)/1 var(--font-display);
+  cursor: pointer;
+}
+
+.adder:active { background: var(--raised); }
+
+.choices.kinds { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.choices.kinds .choice { flex: 0 1 auto; min-height: 44px; padding: 8px 12px; }
+
+/* -- the album ----------------------------------------------------------- */
+
+.loose-poster {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+
+/* -- the sheets ---------------------------------------------------------- */
+
+#new-sheet input,
+#new-sheet textarea,
+#edit-sheet input,
+#edit-sheet textarea,
+#node-sheet textarea {
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--ground);
+  color: var(--text);
+  /* 17px or larger, or iOS Safari zooms the page in on focus and there is no
+     pinch back out of it. */
+  font: var(--text-body)/1.35 var(--font-body);
+  resize: none;
+  box-sizing: border-box;
+}
+
+.two-up { display: flex; gap: 10px; }
+.two-up > span { flex: 1 1 0; min-width: 0; }
+
+.spare { color: var(--text-faint); font-weight: 400; }
+
+/* A plan in the album. The title can be long and the date must not be
+   squeezed out of the row by it — `.inset-label` is `flex: 1` with a
+   `min-width: 0`, so without a floor on the value the date wraps to one
+   character per line while the title claims the rest. */
+.plan-row { align-items: flex-start; }
+.plan-row .inset-label { line-height: 1.35; }
+.plan-row .inset-value { flex: 0 0 auto; white-space: nowrap; }

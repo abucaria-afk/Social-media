@@ -1,53 +1,68 @@
-# 🎬 Social-media — auteur, an autonomous cinematic editor
+# 🎬 auteur — a film from your camera roll
 
 ![Python CI](https://github.com/abucaria-afk/Social-media/actions/workflows/python-ci.yml/badge.svg?branch=main)
 ![CodeQL](https://github.com/abucaria-afk/Social-media/actions/workflows/codeql.yml/badge.svg?branch=main)
 ![License](https://img.shields.io/github/license/abucaria-afk/Social-media)
 
-Point it at a pile of unsorted clips, give it a sentence of direction, and it
-returns a finished, graded, beat-cut, sound-designed short film — from the
-command line, or from your phone.
+Say what you want in a sentence. It frames every shot, cuts to the cadence of
+your words, grades it, and hands you the film.
+
+Not a template you drop clips into — it reads the footage, decides what each
+shot is for, and cuts. A montage comes back at a third of a second a shot and a
+hypercut at a sixth, because those are the numbers the reference reels are cut
+at, measured rather than chosen.
 
 **Try it without installing anything:**
-<https://claude.ai/code/artifact/f399bd38-1934-4fff-a04d-d73b21af1ece>
+<https://claude.ai/code/artifact/11666d9b-4b2f-4c15-818b-185262d6cc2a>
 
 That link is the app's own front end with a browser renderer standing in for
 ffmpeg, so it cuts a real film from your own camera roll on your own phone.
-[VERSIONS.md](VERSIONS.md) says which build is behind the link, what changed in
-each one, and — just as importantly — what the published page cannot do.
+[VERSIONS.md](VERSIONS.md) says which build is behind the link and — just as
+importantly — what the published page cannot do.
+
+It does not post for you and it has no opinion about your follower count. Every
+share is something you do.
 
 ---
 
-## Quick start
+## Three ways in
+
+| | |
+| --- | --- |
+| **A browser** | The link above. Nothing to install, and it cuts on your device. |
+| **A phone** | iOS and Android builds wrap the same front end in a web view. Both are built; neither is submitted yet. |
+| **A terminal** | The full ffmpeg pipeline, the agents, the Scholar and the planning board. |
 
 ```bash
-python -m pip install --upgrade pip
 pip install -r requirements.txt
 
 python -m auteur demo                        # makes practice clips, then edits them
 python -m auteur edit ./rushes 'moody neon chase, 20 seconds, "AFTER DARK"'
 python -m auteur serve                       # then open the printed address on your phone
-
-python -m auteur media scan ./rushes         # index your footage once
-python -m auteur workflow run tiktok ./rushes 'harbour at dusk' --schedule next
-python -m auteur schedule due                # what to post now
-
-python -m auteur insight fit ./exports/*.csv # what your numbers say
-python -m auteur workflow run tiktok ./rushes 'crate day' \
-    --agents supervised --data ./exports/*.csv
 ```
 
-`demo` needs no footage, no arguments and no API key: it synthesises clips and a
-120 BPM track, edits them, and shows you the whole pipeline working.
+`serve` is the whole app: making films, a feed of what has been made, messages,
+profiles, projects and the planning board — on your machine, in a folder you
+chose, with no account on anybody's service.
 
-`serve` puts the same agent behind a mobile web app you can add to the iPhone
-home screen — or install from Chrome on desktop and Android. Pick clips from the
-camera roll, say what you want, and save the finished film back to Photos. It
-has its own sign-in with password reset, and a light/dark/automatic switch.
+### At a real address
 
-**Requirements:** Python 3.10+ and ffmpeg. A system ffmpeg works; the
-`ffmpeg-binaries` wheel in `requirements.txt` is preferred because distro builds
-sometimes ship without `libx264`, `xfade` or `loudnorm`.
+```bash
+docker compose up --build     # then open http://localhost:8000
+```
+
+The same server, in a container, so it can go on a host and have a URL. This
+matters more than it sounds: the **published link is a single file with no
+server behind it**, so it can only ever show the making half — no feed, no
+messages, no schedule, because all three need somewhere to keep things. A
+container is how you see the app at full capacity without running Python
+yourself.
+
+Set `AUTEUR_PUBLIC_URL`, `AUTEUR_PUBLIC_HTTPS` and `AUTEUR_TRUST_PROXY` when it
+is reachable from beyond your own machine. Behind a reverse proxy the last one
+is not optional — without it the app sees plain http, marks the sign-in cookie
+insecure, and the sign-in fails in a way that looks exactly like a wrong
+password.
 
 ---
 
@@ -64,6 +79,33 @@ See **[AUTEUR.md](AUTEUR.md)** for the full documentation: every command, how
 the edit is planned, what the critic measures, and the limitations.
 
 ---
+
+## Shipping it
+
+One set of words describes this app. `auteur/brand.py` holds them, and the App
+Store listing, the Play listing and the website all generate from it — because
+when they were written separately they drifted, and the site spent months
+selling a green accent for an app whose accent was teal.
+
+```bash
+python3 tools/site/build_site.py             # docs/index.html, palette from theme.py
+python3 tools/appstore/listing.py            # every App Store Connect field
+python3 tools/play/listing.py                # every Play Console field
+python3 tools/appstore/preflight.py          # what either store would send back
+```
+
+The preflight covers both stores. Play asks two things Apple never does — a
+Data safety declaration it will not infer from the binary, and working reviewer
+access for anything behind a sign-in — and both are answered in
+`tools/play/listing.py`.
+
+Three values have to be yours before either store will take it:
+`AUTEUR_BUNDLE_ID`, `AUTEUR_DEVELOPER` and `AUTEUR_SUPPORT_EMAIL`. Until they
+are set the preflight fails on them, deliberately: `com.example` is a reserved
+domain that Apple and Google both refuse.
+
+---
+
 
 ## How it cuts
 
@@ -290,8 +332,21 @@ python3 tools/artifact/ask_scholar.py URL           # what the Scholar says back
 
 ### Known gaps
 
-Stated here rather than discovered: the transition vocabulary and the levelling
-pass are in the browser renderer only, so a desktop `auteur edit` still hard-cuts
-every join and grades a decade slightly darker than the app does.
-`check_eras_match.py` fails on purpose until that is fixed, and names the cause
-in its own output.
+Stated here rather than discovered.
+
+The two renderers agree about a decade now, within about 3 levels out of 255,
+and the desktop path has the same joins the browser one does — `check_joins.py`
+and `check_eras_match.py` both pass. What is still only in the browser is the
+per-shot *salience* read: the desktop path frames a shot from its subject track
+rather than from an edge map, so a portal opens on the centre of the frame
+rather than on whatever the eye lands on.
+
+Sign-in with Apple is present and cannot work on an ordinary install: its
+client secret is a JWT signed with a key Apple issues, which needs a crypto
+library this project does not depend on, and it requires an https redirect on a
+domain registered with them. The sign-in page says so rather than offering a
+button that fails. Google needs only a client id.
+
+The iOS app in `ios/` has never been compiled — there is no Mac here. Every
+check that can be made without one is made by the test suite, and `ios/README.md`
+lists what is most likely to need fixing first.

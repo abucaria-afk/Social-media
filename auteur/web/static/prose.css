@@ -1,0 +1,72 @@
+/* A page of words. The only one in this app, so it is allowed a measure and a
+   rhythm the rest of the interface does not need. */
+.prose {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: calc(var(--safe-top) + 28px) 20px calc(var(--safe-bottom) + 48px);
+}
+
+.prose h1 {
+  margin: 0 0 6px;
+  font: 700 var(--text-large-title)/1.1 var(--font-display);
+  letter-spacing: -0.022em;
+}
+
+.prose h2 {
+  margin: 34px 0 8px;
+  font: 600 var(--text-title-3)/1.25 var(--font-display);
+  letter-spacing: -0.012em;
+}
+
+.prose p {
+  /* Near 65 characters, which is where a line stops being work to read. */
+  margin: 0 0 14px;
+  font-size: var(--text-body);
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.prose p strong { color: var(--text); }
+
+.prose code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--raised);
+  font: var(--text-footnote) var(--font-mono);
+  color: var(--text);
+}
+
+.prose table {
+  width: 100%;
+  margin: 0 0 20px;
+  border-collapse: collapse;
+  font-size: var(--text-footnote);
+}
+
+.prose th,
+.prose td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  color: var(--text-muted);
+}
+
+.prose th {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+/* The way back, at the foot of a policy page. A prose link is 20px tall, and
+   this one is a navigation control rather than a word in a sentence — so it
+   gets the height every other control in the app has. */
+.prose-away { margin: 32px 0 8px; }
+
+.prose-away a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 2px;
+  font-weight: 600;
+}

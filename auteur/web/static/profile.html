@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#131110" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef4fb" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="Your picture, your films, and how this app looks to you.">
+<!-- Before anything paints: appearance and the three accessibility settings.
+     This page is the one that sets them, so a flash of the old size here would
+     be the setting appearing to fight the person changing it. -->
+<script src="/static/settings.js"></script>
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/profile.css">
+<title>Auteur — profile</title>
+</head>
+<body>
+
+<main class="page" id="profile">
+  <header class="topbar">
+    <button type="button" class="topbar-back" id="back" aria-label="Back" hidden>←</button>
+    <h1 id="bar-name">Profile</h1>
+    <span class="topbar-right">
+      <button type="button" class="chip-button" id="edit-open" hidden>Edit</button>
+      <button type="button" class="more" id="more" hidden
+              aria-label="Report or block this person">⋯</button>
+    </span>
+  </header>
+
+  <h2 class="large-title" id="big-name">…</h2>
+
+  <!-- The header. Picture on the left, three counts on the right, the way both
+       reference apps lay a profile out — the counts sit beside the picture
+       rather than under it so the bio starts above the fold. -->
+  <section class="who">
+    <button type="button" class="who-pic" id="picture" aria-label="Change your picture">
+      <img id="picture-img" alt="" hidden>
+      <span class="who-initial" id="picture-initial" aria-hidden="true">?</span>
+      <span class="who-pic-badge" id="picture-badge" aria-hidden="true" hidden>＋</span>
+    </button>
+    <ul class="counts">
+      <li class="count">
+        <span class="count-number" id="count-films">0</span>
+        <span class="count-label">Films</span>
+      </li>
+      <li class="count">
+        <button type="button" class="count-open" id="open-followers">
+          <span class="count-number" id="count-followers">0</span>
+          <span class="count-label">Followers</span>
+        </button>
+      </li>
+      <li class="count">
+        <button type="button" class="count-open" id="open-following">
+          <span class="count-number" id="count-following">0</span>
+          <span class="count-label">Following</span>
+        </button>
+      </li>
+    </ul>
+  </section>
+
+  <p class="who-bio" id="bio" hidden></p>
+  <!-- rel on a link somebody else wrote. `noopener` because the new tab would
+       otherwise get a handle on this one through window.opener, and
+       `nofollow ugc` because a profile field is user content, not an
+       endorsement by whoever runs the instance. -->
+  <a class="who-link" id="link" href="#" rel="noopener noreferrer nofollow ugc"
+     target="_blank" hidden></a>
+
+  <p class="blocked-note" id="blocked-note" hidden></p>
+
+  <div class="who-actions" id="actions">
+    <button type="button" class="go" id="follow" hidden>Follow</button>
+    <button type="button" class="ghost" id="message" hidden>Message</button>
+    <button type="button" class="ghost" id="edit-profile" hidden>Edit profile</button>
+    <button type="button" class="ghost" id="unblock" hidden>Unblock</button>
+  </div>
+
+  <p class="error" id="page-error" role="alert" hidden></p>
+
+  <!-- Everything below here is only for your own profile. -->
+  <div id="mine" hidden>
+    <!-- The studio, where the tab bar used to have it. Same idea as the
+         professional dashboard row Instagram puts at the top of your own
+         profile: the workroom belongs to you, not to the five slots everybody
+         navigates with. -->
+    <a class="onward" href="/studio">
+      <span class="onward-mark" aria-hidden="true">◱</span>
+      <span class="onward-lines">
+        <span class="onward-name">Studio</span>
+        <span class="onward-note">Projects, the crew, and the plan board</span>
+      </span>
+      <span class="onward-state" aria-hidden="true">›</span>
+    </a>
+  </div>
+
+  <h3 class="settings-label" id="films-label">Films</h3>
+  <div class="grid" id="films"></div>
+  <div class="blank" id="films-blank" hidden>
+    <p class="blank-line" id="blank-line">No films yet.</p>
+    <p class="blank-sub" id="blank-sub">Anything finished here shows up on this page.</p>
+    <a class="go" id="blank-go" href="/">Make one</a>
+  </div>
+
+  <div id="settings" hidden>
+    <h3 class="settings-label">Your account</h3>
+    <div class="inset-group">
+      <div class="inset-row" id="email-row">
+        <span class="inset-label">Email</span>
+        <span class="inset-value" id="email">…</span>
+      </div>
+      <button type="button" class="inset-row" id="two-step-row">
+        <span class="inset-label">Two-step verification</span>
+        <span class="inset-value" id="two-step-state">…</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </button>
+      <a class="inset-row" href="/connect">
+        <span class="inset-label">Where it goes</span>
+        <span class="inset-value">Instagram · TikTok</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </a>
+      <a class="inset-row" href="/privacy">
+        <span class="inset-label">Privacy</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </a>
+      <a class="inset-row" href="/terms">
+        <span class="inset-label">Terms of use</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </a>
+      <button type="button" class="inset-row" id="my-reports">
+        <span class="inset-label">Things I reported</span>
+        <span class="inset-value" id="reports-state"></span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </button>
+      <button type="button" class="inset-row" id="my-watching">
+        <span class="inset-label">What I have watched</span>
+        <span class="inset-value" id="watching-state"></span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </button>
+    </div>
+    <p class="group-caption">
+      A password that has leaked somewhere else stops being enough on its own.
+      Two-step needs an authenticator app.
+    </p>
+
+    <h3 class="settings-label">What you see</h3>
+    <div class="inset-group">
+      <button type="button" class="inset-row" id="restriction-row">
+        <span class="inset-label">Sensitive films</span>
+        <span class="inset-value" id="restriction-state">…</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </button>
+    </div>
+    <p class="group-caption" id="restriction-note">
+      Hides films their author or the person running this copy has marked
+      sensitive, and anything reported that nobody has looked at yet. Your own
+      films are never hidden from you.
+    </p>
+
+    <!-- Who else may have an account here.
+         Sign-up closed itself for good the moment the first account existed,
+         which was right when this app was one person's edit room and stopped
+         being right when it grew a feed, an inbox and profiles other people
+         appear on. Until now the only way to add somebody was
+         `auteur account add` typed on the machine's terminal — by the owner,
+         not by the person joining. -->
+    <h3 class="settings-label">People</h3>
+    <div class="inset-group">
+      <button type="button" class="inset-row" id="joining-row">
+        <span class="inset-label">Let other people join</span>
+        <span class="inset-value" id="joining-state">…</span>
+      </button>
+      <div class="inset-row" id="joining-code-row" hidden>
+        <span class="inset-label">Invite code</span>
+        <span class="inset-value mono" id="joining-code"></span>
+      </div>
+    </div>
+    <p class="group-caption" id="joining-note">
+      Off unless you turn it on. While it is on, anybody with the code can
+      make an account on this copy — <strong>treat the code as a
+      password</strong>. Turning it off and on again makes a new one, so a
+      code that got further than you meant stops working.
+    </p>
+
+    <h3 class="settings-label">Appearance</h3>
+    <div class="settings">
+      <div class="choices appearance" role="radiogroup" aria-label="Appearance">
+        <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
+        <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
+        <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
+      </div>
+    </div>
+
+    <h3 class="settings-label">Accessibility</h3>
+    <div class="settings">
+      <span class="settings-label settings-sub" id="text-label">Text size</span>
+      <div class="choices sizes" data-setting="text" role="radiogroup" aria-labelledby="text-label">
+        <button type="button" class="choice" data-value="default" role="radio" aria-checked="false"><span class="size-a size-a-1">A</span><small>Default</small></button>
+        <button type="button" class="choice" data-value="large" role="radio" aria-checked="false"><span class="size-a size-a-2">A</span><small>Large</small></button>
+        <button type="button" class="choice" data-value="larger" role="radio" aria-checked="false"><span class="size-a size-a-3">A</span><small>Larger</small></button>
+        <button type="button" class="choice" data-value="largest" role="radio" aria-checked="false"><span class="size-a size-a-4">A</span><small>Largest</small></button>
+      </div>
+    </div>
+
+    <div class="settings">
+      <span class="settings-label settings-sub" id="motion-label">Motion</span>
+      <div class="choices" data-setting="motion" role="radiogroup" aria-labelledby="motion-label">
+        <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
+        <button type="button" class="choice" data-value="still" role="radio" aria-checked="false">Reduce motion<small>no sliding or fading</small></button>
+      </div>
+    </div>
+
+    <div class="settings">
+      <span class="settings-label settings-sub" id="contrast-label">Contrast</span>
+      <div class="choices" data-setting="contrast" role="radiogroup" aria-labelledby="contrast-label">
+        <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
+        <button type="button" class="choice" data-value="more" role="radio" aria-checked="false">Increase contrast<small>stronger edges and text</small></button>
+      </div>
+    </div>
+
+    <p class="group-caption">
+      These three are kept on this device, not on your account, because they
+      are about the screen you are reading rather than about who you are. If
+      your phone already asks for less motion or more contrast, that is
+      followed here whatever this says — Automatic never turns either off.
+    </p>
+
+    <div class="inset-group">
+      <button type="button" class="inset-row danger" id="sign-out">
+        <span class="inset-label">Sign out</span>
+      </button>
+      <button type="button" class="inset-row danger" id="delete-account">
+        <span class="inset-label">Delete my account</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </button>
+    </div>
+    <p class="group-caption">
+      Deleting takes your films, your messages, your plans and your picture
+      with it, off this computer, straight away. There is no undo and no copy
+      kept anywhere.
+    </p>
+  </div>
+</main>
+
+<!-- Editing your own name, bio and link. -->
+<div class="sheet" id="edit-sheet" hidden>
+  <div class="sheet-scrim" data-close="edit"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Edit profile">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Edit profile</h2>
+
+    <label class="field-label" for="edit-name">Name</label>
+    <input type="text" id="edit-name" maxlength="40" autocomplete="name"
+           placeholder="What you would like to be called">
+
+    <label class="field-label" for="edit-bio">Bio</label>
+    <textarea id="edit-bio" maxlength="150" rows="3"
+              placeholder="One or two lines about what you make"></textarea>
+    <p class="counter"><span id="bio-left">150</span> left</p>
+
+    <label class="field-label" for="edit-link">Link</label>
+    <input type="url" id="edit-link" maxlength="120" inputmode="url"
+           autocapitalize="off" autocorrect="off" spellcheck="false"
+           placeholder="https://">
+
+    <p class="error" id="edit-error" role="alert" hidden></p>
+    <button type="button" class="go" id="edit-save">Save</button>
+    <button type="button" class="ghost" id="picture-remove" hidden>Remove my picture</button>
+    <button type="button" class="ghost" data-close="edit">Cancel</button>
+  </div>
+</div>
+
+<!-- Hiding sensitive films, and the code that stops the person it applies to
+     from simply turning it off again. -->
+<div class="sheet" id="restriction-sheet" hidden>
+  <div class="sheet-scrim" data-close="restriction"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Sensitive films">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Sensitive films</h2>
+    <p class="sheet-note" id="restriction-why"></p>
+
+    <div id="restriction-on" hidden>
+      <p class="sheet-note">
+        Turning this on hides films marked sensitive, and anything reported
+        that has not been looked at yet.
+      </p>
+      <label class="check">
+        <input type="checkbox" id="restriction-want-lock">
+        <span>Need a code to turn it off again</span>
+      </label>
+      <div id="restriction-lock-box" hidden>
+        <label class="field-label" for="restriction-new-lock">A four-digit code</label>
+        <input type="text" id="restriction-new-lock" inputmode="numeric" maxlength="4"
+               autocomplete="off" autocorrect="off" spellcheck="false" placeholder="0000">
+        <p class="card-hint">
+          Set this yourself if it is your account, or have somebody set it for
+          you if it is not. There is no way to recover it from inside the app —
+          whoever runs this copy can clear it with
+          <code>auteur account password --lock ''</code>.
+        </p>
+      </div>
+      <p class="error" id="restriction-error" role="alert" hidden></p>
+      <button type="button" class="go" id="restriction-go">Hide sensitive films</button>
+    </div>
+
+    <div id="restriction-off" hidden>
+      <p class="sheet-note" id="restriction-off-note">
+        Sensitive films are hidden from this account.
+      </p>
+      <div id="restriction-code-box" hidden>
+        <label class="field-label" for="restriction-code">The code</label>
+        <input type="password" id="restriction-code" inputmode="numeric" maxlength="4"
+               autocomplete="off" autocorrect="off" spellcheck="false">
+      </div>
+      <p class="error" id="restriction-off-error" role="alert" hidden></p>
+      <button type="button" class="ghost" id="restriction-lift">Show everything</button>
+    </div>
+
+    <button type="button" class="ghost" data-close="restriction">Close</button>
+  </div>
+</div>
+
+<!-- Deleting the account. Password and a typed word, because a live session is
+     not proof that the person holding the phone is the person who owns it, and
+     because a single tap should not be able to do this. -->
+<div class="sheet" id="delete-sheet" hidden>
+  <div class="sheet-scrim" data-close="delete"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Delete my account">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Delete my account</h2>
+    <p class="sheet-note" id="delete-what">
+      This removes your account and everything in it.
+    </p>
+    <ul class="going" id="delete-list">
+      <li>Every film you have made here, and the files behind them</li>
+      <li>Every conversation you are part of, both sides of it</li>
+      <li>Your picture, your name, your bio and who you follow</li>
+      <li>Every planned post on your board, and any reels you added</li>
+    </ul>
+    <p class="sheet-note">
+      It happens on this computer, straight away. Nothing is kept and there is
+      no undo.
+    </p>
+    <label class="field-label" for="delete-password">Your password</label>
+    <input type="password" id="delete-password" autocomplete="current-password">
+    <label class="field-label" for="delete-confirm">Type <strong>delete</strong> to confirm</label>
+    <input type="text" id="delete-confirm" autocapitalize="off" autocorrect="off"
+           spellcheck="false" placeholder="delete">
+    <p class="error" id="delete-error" role="alert" hidden></p>
+    <button type="button" class="go danger-go" id="delete-go">Delete my account</button>
+    <button type="button" class="ghost" data-close="delete">Keep my account</button>
+  </div>
+</div>
+
+<!-- What this person has reported, and what came of it. A report that
+     disappears is a button people stop pressing. -->
+<!-- What this computer recorded about what you watched. Its own sheet, a
+     sibling of the others: it spent one revision nested inside the reports
+     sheet, where un-hiding it did nothing because its ancestor was still
+     hidden, and it measured 0x0 in the browser. -->
+<div class="sheet" id="watching-sheet" hidden>
+  <div class="sheet-scrim" data-close="watching"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="What I have watched">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">What I have watched</h2>
+    <p class="sheet-note">
+      This is what this computer recorded, and it is the reason the feed can
+      put anything in an order. It never leaves here, and deleting your
+      account deletes all of it.
+    </p>
+    <div id="watching-list" class="stack"></div>
+    <h3 class="sheet-subtitle" id="watching-mine-title" hidden>How yours did</h3>
+    <div id="watching-mine" class="stack"></div>
+    <button type="button" class="go quiet" id="watching-close">Done</button>
+  </div>
+</div>
+
+<div class="sheet" id="reports-sheet" hidden>
+  <div class="sheet-scrim" data-close="reports"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Things I reported">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Things I reported</h2>
+    <ul class="reported" id="reported-list"></ul>
+    <p class="sheet-note" id="reported-empty" hidden>
+      You have not reported anything.
+    </p>
+    <h3 class="settings-label" id="blocked-label" hidden>Blocked</h3>
+    <ul class="people" id="blocked-list"></ul>
+    <button type="button" class="ghost" data-close="reports">Close</button>
+  </div>
+</div>
+
+<!-- Followers, or following. One sheet, two lists. -->
+<div class="sheet" id="people-sheet" hidden>
+  <div class="sheet-scrim" data-close="people"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-labelledby="people-title">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title" id="people-title">Followers</h2>
+    <ul class="people" id="people-list"></ul>
+    <p class="sheet-note" id="people-empty" hidden>Nobody yet.</p>
+    <button type="button" class="ghost" data-close="people">Close</button>
+  </div>
+</div>
+
+<!-- Turning two-step on, and off. It lives here rather than on the edit room's
+     home screen: it is an account setting, and this is where the account
+     settings are. -->
+<div class="sheet" id="two-step-sheet" hidden>
+  <div class="sheet-scrim" id="two-step-scrim"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Two-step verification">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title" id="two-step-title">Two-step verification</h2>
+
+    <div id="two-step-setup" hidden>
+      <p class="sheet-note">
+        Add this to an authenticator app, then type what it shows to prove it
+        worked. Nothing changes until you do.
+      </p>
+      <a class="ghost" id="two-step-uri" href="#">Open in my authenticator</a>
+      <p class="two-step-secret" id="two-step-secret"></p>
+      <p class="sheet-note">Or type that key in by hand.</p>
+      <label class="field-label" for="two-step-code">The six digits it shows</label>
+      <input type="text" id="two-step-code" inputmode="numeric" maxlength="6"
+             autocomplete="one-time-code" autocorrect="off" spellcheck="false">
+      <p class="error" id="two-step-error" role="alert" hidden></p>
+      <button type="button" class="go" id="two-step-confirm">Turn it on</button>
+    </div>
+
+    <div id="two-step-recovery" hidden>
+      <p class="sheet-note">
+        <strong>Write these down now.</strong> Each one gets you in once if you
+        lose the phone, and this is the only time they can be shown — they are
+        stored hashed, like a password.
+      </p>
+      <ul class="recovery" id="recovery-list"></ul>
+      <button type="button" class="ghost" id="recovery-copy">Copy them</button>
+    </div>
+
+    <div id="two-step-remove" hidden>
+      <p class="sheet-note">
+        It is on. Turning it off needs your password again — a borrowed phone
+        with a live session should not be able to remove it.
+      </p>
+      <label class="field-label" for="two-step-password">Your password</label>
+      <input type="password" id="two-step-password" autocomplete="current-password">
+      <p class="error" id="two-step-off-error" role="alert" hidden></p>
+      <button type="button" class="ghost" id="two-step-off">Turn it off</button>
+    </div>
+
+    <button type="button" class="ghost" id="two-step-close">Close</button>
+  </div>
+</div>
+
+<!-- Not visible, and not decoration: this is what opens the camera roll. A
+     file input styled to look like a button is a file input nobody can use
+     with a keyboard, so the real control is the picture itself and this is
+     what it clicks. -->
+<input type="file" id="picture-file" accept="image/*" hidden>
+
+<script src="/static/trouble.js"></script>
+<script src="/static/chrome.js"></script>
+<script src="/static/theme.js"></script>
+<script src="/static/safety.js"></script>
+<script src="/static/profile.js"></script>
+</body>
+</html>

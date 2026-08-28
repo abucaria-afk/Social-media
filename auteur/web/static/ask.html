@@ -10,24 +10,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#0c0b0a">
+  <meta name="theme-color" content="#131110">
   <title>auteur · ask the Scholar</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icon-180.png">
+  <!-- Before anything paints: appearance and the three accessibility
+       settings, from one file rather than copied into every page's head. -->
+  <script src="/static/settings.js"></script>
   <link rel="stylesheet" href="/static/theme.css">
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/studio.css">
   <link rel="stylesheet" href="/static/ask.css">
-  <script>
-    (function () {
-      try {
-        var saved = localStorage.getItem("auteur-theme");
-        if (saved === "light" || saved === "dark") {
-          document.documentElement.setAttribute("data-theme", saved);
-        }
-      } catch (e) {}
-    })();
-  </script>
 </head>
 <body>
 
@@ -60,21 +53,14 @@
               placeholder="Ask the Scholar something"></textarea>
     <button type="submit" class="ask-go" id="send" aria-label="Send">Ask</button>
   </form>
-  <div class="settings">
-    <span class="settings-label">Appearance</span>
-    <div class="choices appearance" role="radiogroup" aria-label="Appearance">
-      <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
-      <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
-      <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
-    </div>
-  </div>
 
   <p class="studio-foot">
-    It answers from what it has studied. — <a href="/studio">the studio</a> ·
-    <a href="/">the edit room</a>
+    It answers from what it has studied, and it says which reel it read it in.
   </p>
 </main>
 
+<script src="/static/trouble.js"></script>
+<script src="/static/chrome.js"></script>
 <script src="/static/theme.js"></script>
 <script src="/static/ask.js"></script>
 </body>

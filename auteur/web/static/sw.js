@@ -6,10 +6,19 @@
  * finished film would be served for the next film too.
  */
 
-var CACHE = "auteur-shell-v1";
+/* Bumped whenever SHELL changes: the activate handler deletes every cache
+   whose name is not this one, so a new name is what actually evicts the old
+   files. Leaving it at v1 while adding entries means the new ones are only
+   fetched on a device that has never installed the app. */
+var CACHE = "auteur-shell-v2";
 var SHELL = [
   "/",
+  "/static/theme.css",
   "/static/style.css",
+  /* Blocking, in the head of every page. Cached with the shell because a
+     first paint at the wrong size, offline, is exactly the case it exists to
+     prevent. */
+  "/static/settings.js",
   "/static/app.js",
   "/manifest.webmanifest",
   "/icon-192.png",

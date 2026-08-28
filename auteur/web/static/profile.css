@@ -1,0 +1,301 @@
+/* The profile: who somebody is, what they have made, and how this app looks.
+ *
+ * Two screens in one document. Your own profile carries the settings; anybody
+ * else's carries a Follow button and stops. Which one you get is decided by
+ * the address, and everything account-shaped is `hidden` until the server has
+ * said the profile is yours — never the other way round, because a settings
+ * panel that flashes on somebody else's page before a script hides it is a
+ * settings panel that was on somebody else's page.
+ */
+
+/* -- the header ---------------------------------------------------------- */
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin: 4px 0 14px;
+}
+
+/* The picture. A button on your own profile and a plain disc on anybody
+   else's — same box either way, so the layout does not move when the page
+   works out whose it is. */
+.who-pic {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 88px;
+  height: 88px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  /* The hue comes from the name, the same hash the feed and the inbox use, so
+     somebody without a picture is at least the same colour everywhere. */
+  --hue: 28;
+  background: hsl(var(--hue) 40% 44%);
+  color: hsl(var(--hue) 55% 97%);
+  overflow: hidden;
+  cursor: default;
+}
+
+.who-pic[data-mine="1"] { cursor: pointer; }
+
+.who-pic img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* The picture is stored square, but a browser that has not finished loading
+     it still lays the box out — without this the initial underneath shows
+     through the gap for a frame. */
+  display: block;
+}
+
+.who-initial {
+  font: 600 var(--text-title-1)/1 var(--font-display);
+  text-transform: uppercase;
+}
+
+/* The little plus over the corner of your own picture, which is the whole
+   affordance saying the disc is a control. Positioned against the disc, not
+   the section — a badge anchored to the wrong ancestor is the bug the tab
+   bar's unread count already had. */
+.who-pic-badge {
+  position: absolute;
+  right: 0;
+  bottom: 2px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--ground);
+  background: var(--ember);
+  color: var(--on-ember);
+  font: 600 var(--text-footnote)/1 var(--font-display);
+}
+
+.counts {
+  display: flex;
+  flex: 1 1 auto;
+  justify-content: space-around;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.count { text-align: center; }
+
+/* Two of the three are buttons and one is not, so the button has to carry no
+   styling of its own or the counts sit at different heights. */
+.count-open {
+  display: block;
+  min-width: 56px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.count-number {
+  display: block;
+  font: 700 var(--text-title-3)/1.15 var(--font-display);
+  /* Counts sit in a row and change; proportional digits make 11 and 41
+     different widths and the row jitters as they load. */
+  font-variant-numeric: tabular-nums;
+}
+
+.count-label {
+  display: block;
+  color: var(--text-faint);
+  font-size: var(--text-footnote);
+}
+
+.who-bio {
+  margin: 0 0 6px;
+  font-size: var(--text-subhead);
+  line-height: 1.4;
+}
+
+.who-link {
+  display: inline-block;
+  margin: 0 0 14px;
+  color: var(--ember-text);
+  font-size: var(--text-subhead);
+  font-weight: 600;
+  text-decoration: none;
+  /* A link somebody typed can be longer than the screen. */
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.who-actions {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 22px;
+}
+
+.who-actions button { flex: 1 1 0; margin: 0; }
+.who-actions button[hidden] { display: none; }
+
+/* Following somebody is the state, so the button stops shouting once it is
+   done — filled to act, outlined to undo, which is the pattern both reference
+   apps use and the reason nobody has to read it twice. */
+#follow.is-following {
+  background: var(--raised);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+/* The film grid moved to style.css. The project page shows one too, and it
+   does not load this file — the album's single film came out as a full-page
+   rectangle. Fifth time this exact shape: chrome that more than one screen
+   uses lives in the shared stylesheet. */
+
+/* -- the settings -------------------------------------------------------- */
+
+.settings-sub {
+  display: block;
+  margin: 0 0 2px;
+  color: var(--text-faint);
+  font-size: var(--text-footnote);
+  font-weight: 600;
+  text-transform: none;
+}
+
+/* Four rungs across a phone. The label under each is what makes this a size
+   control rather than four identical buttons with different letters. */
+.choices.sizes .choice {
+  flex-direction: column;
+  gap: 2px;
+  min-height: 60px;
+  padding: 8px 4px;
+}
+
+.size-a { font-family: var(--font-display); font-weight: 700; line-height: 1; }
+/* Fixed px, not rem: this is a *sample* of what each rung does, and a sample
+   that itself scales with the setting shows the same four sizes at every
+   setting — which is no information at all. */
+.size-a-1 { font-size: 13px; }
+.size-a-2 { font-size: 15px; }
+.size-a-3 { font-size: 18px; }
+.size-a-4 { font-size: 21px; }
+
+/* Sign out is destructive-ish and reads as such, in the palette's own red
+   rather than a hard-coded one. */
+.inset-row.danger .inset-label { color: var(--rust); }
+
+/* -- the edit sheet ------------------------------------------------------ */
+
+#edit-sheet input,
+#edit-sheet textarea {
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--ground);
+  color: var(--text);
+  /* 17px or larger, or iOS Safari zooms the whole page in on focus and there
+     is no way back out of it with a pinch. */
+  font: var(--text-body)/1.35 var(--font-body);
+  resize: none;
+}
+
+#edit-sheet input:focus-visible,
+#edit-sheet textarea:focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 1px;
+}
+
+.counter {
+  margin: 0 0 10px;
+  color: var(--text-faint);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.counter.is-full { color: var(--rust); }
+
+/* -- the people sheet ---------------------------------------------------- */
+
+.people-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 6px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.people-row:last-child { border-bottom: 0; }
+.people-lines { flex: 1; min-width: 0; }
+.people-name { display: block; font: 600 var(--text-body)/1.2 var(--font-display); }
+.people-who { display: block; color: var(--text-faint); font-size: var(--text-footnote); }
+.people-mark { flex: 0 0 auto; color: var(--text-faint); font-size: var(--text-footnote); }
+
+/* A caption belongs to the group above it, and `.group-caption` pulls itself
+   up by 14px to hug one. After a `.settings` block — which has its own bottom
+   margin — that pull lands the text on top of the last row of buttons. So on
+   this page the caption after settings keeps its own space. */
+.settings + .group-caption { margin-top: 4px; }
+
+/* -- deleting the account ------------------------------------------------ */
+
+/* What goes with it, listed rather than summarised. "Everything in it" is a
+   phrase somebody can agree to without knowing what they agreed to. */
+.going {
+  margin: 0 0 12px;
+  padding: 0 0 0 20px;
+  color: var(--text-muted);
+  font-size: var(--text-subhead);
+  line-height: 1.45;
+}
+
+.going li { margin: 3px 0; }
+
+
+/* -- what I reported ----------------------------------------------------- */
+
+.reported { margin: 0 0 14px; padding: 0; list-style: none; }
+
+.reported li {
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--text-subhead);
+}
+
+.reported li:last-child { border-bottom: 0; }
+.reported-when { display: block; color: var(--text-faint); font-size: var(--text-footnote); }
+
+/* The verdict. Three states and three colours, because "open" and "removed"
+   are the two the person who reported it actually wants to tell apart. */
+.reported-state { font-weight: 600; }
+.reported-state.is-open { color: var(--text-muted); }
+.reported-state.is-removed { color: var(--moss); }
+.reported-state.is-kept { color: var(--text-faint); }
+
+.unblock-row {
+  margin-left: auto;
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--text);
+  font: 600 var(--text-footnote)/1 var(--font-display);
+  cursor: pointer;
+}

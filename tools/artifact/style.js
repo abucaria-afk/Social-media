@@ -109,6 +109,38 @@
       invert: 0.0,
       push: 0.18,
       travel: 0.30
+    },
+
+    /* The pace the corpus sits at when it is not sprinting.
+     *
+     * There was no montage style here at all, so the word fell through to
+     * `story` — whose bars average 1.24 of the base hold and put the film out
+     * at about 26 cuts every ten seconds against the corpus's 20.1. The word
+     * had a measured pace on the app side and a borrowed rhythm here.
+     *
+     * The bars below are measured rather than picked. Across the thirteen
+     * montage reels, 46% of shots run one unit, 31% two, 7% three and 10%
+     * four; pooled, these bars run 65/25/5/5, which is more single-hold than
+     * the corpus because `hold` here is the *median* shot rather than the
+     * grid the reels are counted against — the two are not the same number.
+     * What is held to the corpus is the thing that can be measured off a
+     * finished film: a mean of 1.5 holds a shot, which at 0.334s is 20.0 cuts
+     * every ten seconds against the measured 20.1.
+     *
+     * Each bar is a phrase rather than a list: three quick and a longer, an
+     * alternation, a pair, three quick and a rest. A bar of all the same
+     * number would be a metronomic movement, which is the fault the whole
+     * arrangement exists to avoid. */
+    montage: {
+      label: "montage",
+      note: "cut at the reference pace — mostly hard cuts, a gesture carried across now and then",
+      transitions: { cut: 10, carry: 3, portal: 3, whip: 2, match: 2, push: 1 },
+      gestures: { hold: 5, press: 4, snap: 3, settle: 3, swing: 2, release: 1 },
+      bars: [[1, 1, 2, 1, 3], [1, 2, 1, 1, 2], [2, 1, 1, 2, 1], [1, 1, 1, 4, 1]],
+      accents: 0.16,
+      invert: 0.12,
+      push: 0.14,
+      travel: 0.32
     }
   };
 
@@ -116,8 +148,9 @@
    *
    * Words people actually type, same principle as the look and cadence
    * matching: a prompt is somebody describing a feeling. Anything unmatched
-   * gets `story`, which is the one that tries hardest to be invisible and is
-   * therefore the safest thing to be wrong about.
+   * gets `montage`, for the same reason the cadence falls back to a montage
+   * hold: it is the pace most of the corpus is cut at, and the two fallbacks
+   * have to be the same word or the default is two halves of different films.
    */
   /* Matched at a word boundary, without which every one of these also fires
    * inside longer words. That is not hypothetical: `rave` matched *travel*,
@@ -134,6 +167,10 @@
     ["hype", /hype|gym|workout|sport|training|aggressive|energy|energet|punchy|drop|rave|edm|techno|club|party|fast/],
     ["dreamy", /dream|soft|nostalg|memor|hazy|ethereal|gentle|calm|slow|romantic|wedding|love|sunset|golden/],
     ["gallery", /gallery|minimal|still|portrait|photo|quiet|editorial|fashion|clean|austere|documentary/],
+    /* Before `story`, so the word lands on the style named after it. After
+     * `hypercut` and `hype`, so "fast montage" is still cut fast — which is
+     * what the cadence table does with the same words. */
+    ["montage", /montage|recap|highlights|round\s*up|best\s*of/],
     ["story", /story|narrative|journey|trip|travel|day\s*in|vlog|cinematic|film/]
   ].map(function (entry) { return [entry[0], wordy(entry[1])]; });
 
@@ -142,7 +179,15 @@
     for (var i = 0; i < STYLE_WORDS.length; i++) {
       if (STYLE_WORDS[i][1].test(p)) { return STYLES[STYLE_WORDS[i][0]]; }
     }
-    return STYLES.story;
+    /* `montage`, because that is what the cadence falls back to.
+     *
+     * A prompt with no style word and no pace word went through two different
+     * fallbacks that did not agree: the cadence said montage and held each
+     * shot 0.334s, and this said `story` and multiplied it by story's bars.
+     * The film came out at 25 cuts every ten seconds instead of 20 — the
+     * measured hold arranged to somebody else's rhythm. Both fallbacks are
+     * the same word now, which is the only way the default can be one thing. */
+    return STYLES.montage;
   }
 
   /* Draw from a weighted bag, never returning what was returned last time.
@@ -210,7 +255,69 @@
       }
     }
     if (out.length) { out[0].role = "hook"; }
-    return out;
+    return shape(out);
+  }
+
+  /* The structure above the bars.
+   *
+   * The bars give a film local rhythm — short short long, inside a phrase.
+   * They do not give it a shape, and measured across the six styles here the
+   * longest shot was **exactly twice the median on four of them**: hypercut
+   * 2.00, story 2.00, hype 2.00, dreamy 1.33, gallery 1.50. Only montage
+   * reached 4.00, and even that is a 4 that lands wherever its bar happens to
+   * fall rather than a held shot placed at the film's peak.
+   *
+   * That is the same ceiling the Python director had, found the same way, and
+   * it matters more here: this is the renderer behind the published link, so
+   * it is the film most people will ever see this app make.
+   *
+   * Three rules, and they are the same three `auteur/craft/story.py` applies,
+   * with the same constants — a test reads both and fails if they drift, the
+   * way the pace tables are already held together.
+   */
+  var STRUCTURE = {
+    /* The opening is the shortest shot, not the longest. Across the 24
+     * reference reels it is held 0.12s, and 22 of them cut inside half a
+     * second; the APX craft rules fire `hook-length` above 2.0s from the
+     * other direction. Both say the same thing. */
+    opening: 0.6,
+    /* One shot much longer than everything around it, past the peak. It is
+     * five rather than three because it has to clear a landing at two by
+     * enough that nobody reads it as another landing. */
+    hold: 5.0,
+    holdAt: 0.68,
+    /* Somewhere to put the viewer down. */
+    close: 2.5,
+    /* Below this a film is one phrase, and a hold would spend a third of it
+     * on one frame. */
+    leastShots: 9
+  };
+
+  function shape(bars) {
+    if (!bars.length) { return bars; }
+    /* Set, not multiplied.
+     *
+     * A bar already carries the local variation — 0.5 in a hypercut, 2 in a
+     * gallery — so multiplying compounds the two and the result depends on
+     * which bar the hold happens to land on. Measured that way: montage came
+     * out at ten times its median and hypercut at two and a half, from the
+     * same rule. These numbers are lengths in hold-units, which is exactly
+     * what `STRESS` is in `auteur/craft/story.py`, where BUILD is 1.0. */
+    bars[0].beats = STRUCTURE.opening;
+    if (bars.length >= STRUCTURE.leastShots) {
+      var at = Math.min(
+        bars.length - 2,
+        Math.max(2, Math.round(bars.length * STRUCTURE.holdAt))
+      );
+      bars[at].beats = STRUCTURE.hold;
+      /* Named, so the renderer below can choose the still shot for it rather
+       * than the busiest — which is the half of this that the length alone
+       * does not buy. */
+      bars[at].role = "hold";
+      bars[bars.length - 1].beats = STRUCTURE.close;
+      bars[bars.length - 1].role = "close";
+    }
+    return bars;
   }
 
   /* Everything about one shot that is a matter of taste rather than of
@@ -284,6 +391,7 @@
     ACCENTS: ACCENTS,
     styleFor: styleFor,
     arrange: arrange,
+    structure: STRUCTURE,
     choices: choices,
     pickFrom: pickFrom
   };

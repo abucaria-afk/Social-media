@@ -1,0 +1,48 @@
+# Render: point it at this repo and it builds the Dockerfile.
+#
+#   https://dashboard.render.com  →  New  →  Blueprint  →  pick this repo
+#
+# Nothing else to configure. Render reads this file, builds the container, and
+# gives the service an https address — which is the whole reason this file
+# exists: the published single-page link cannot have the feed, the messages or
+# the schedule, because those need a server to keep things in.
+
+services:
+  - type: web
+    name: auteur
+    runtime: docker
+    plan: starter
+    healthCheckPath: /login
+    # The films. Without this the disk is ephemeral and every deploy loses
+    # everything anybody made, which is worse than not deploying.
+    disk:
+      name: auteur-data
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      # Render sets PORT itself and the Dockerfile reads it.
+      #
+      # Behind Render's proxy the app sees plain http unless told otherwise.
+      # Without TRUST_PROXY the sign-in cookie is not marked Secure, the
+      # browser drops it, and signing in fails in a way indistinguishable from
+      # a wrong password — so this is not an optimisation.
+      - key: AUTEUR_TRUST_PROXY
+        value: "1"
+      - key: AUTEUR_PUBLIC_HTTPS
+        value: "1"
+      # The first account. Set these in the dashboard rather than here: this
+      # file is in the repository and a password in a repository is a password
+      # that has been published.
+      - key: AUTEUR_USERNAME
+        sync: false
+      - key: AUTEUR_PASSWORD
+        sync: false
+      # Only needed once you are reading numbers back from the platforms.
+      - key: AUTEUR_TIKTOK_CLIENT_KEY
+        sync: false
+      - key: AUTEUR_TIKTOK_CLIENT_SECRET
+        sync: false
+      - key: AUTEUR_INSTAGRAM_CLIENT_ID
+        sync: false
+      - key: AUTEUR_INSTAGRAM_CLIENT_SECRET
+        sync: false

@@ -1,0 +1,105 @@
+# The privacy policy and the terms, at a URL that answers.
+#
+# App Store Connect refuses a submission whose privacy policy URL does not
+# resolve, and an app carrying other people's content needs terms at a URL too
+# (guideline 1.2). Both documents live in this repository as markdown and are
+# converted by the same code the app uses, so there is exactly one copy of each
+# and no way for the published one to drift from the one in the app.
+#
+# Turning this on: Settings → Pages → Source: GitHub Actions. Until then the
+# workflow still runs and still builds the site, it just has nowhere to put it,
+# which is the harmless half of the failure.
+name: Publish the policy pages
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'PRIVACY.md'
+      - 'TERMS.md'
+      - 'auteur/identity.py'
+      - 'auteur/web/assets.py'
+      - 'auteur/web/static/*.css'
+      - 'tools/appstore/build_pages.py'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+# Least privilege: read the repository, write a Pages deployment, and nothing
+# else. `id-token` is what the deploy action authenticates with.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and a queued one waits rather than cancelling —
+# cancelling a deploy mid-flight is how a site ends up half-published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install what the converter needs
+        # Pillow, for the icons `assets.ensure` writes on the way past. numpy
+        # comes with the package; nothing else here is needed to convert
+        # markdown.
+        run: python -m pip install --quiet pillow
+
+      - name: Build
+        env:
+          # Set these as repository variables to publish under your own
+          # details rather than the placeholders — the same names the app and
+          # the preflight read.
+          AUTEUR_DEVELOPER: ${{ vars.AUTEUR_DEVELOPER }}
+          AUTEUR_SUPPORT_EMAIL: ${{ vars.AUTEUR_SUPPORT_EMAIL }}
+          AUTEUR_SUPPORT_URL: ${{ vars.AUTEUR_SUPPORT_URL }}
+          AUTEUR_PRIVACY_URL: ${{ vars.AUTEUR_PRIVACY_URL }}
+          AUTEUR_TERMS_URL: ${{ vars.AUTEUR_TERMS_URL }}
+        run: python3 tools/appstore/build_pages.py build/pages
+
+      - name: Check the pages are not empty
+        # A converter that silently produced a stub would publish a policy
+        # page with no policy on it, which is worse than not publishing.
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import sys
+          bad = []
+          for name, must in (
+              ("privacy.html", "Nobody operates a service here"),
+              ("terms.html", "no tolerance for objectionable content"),
+              ("index.html", "Reporting something inside the app"),
+          ):
+              page = Path("build/pages") / name
+              text = page.read_text(encoding="utf-8") if page.is_file() else ""
+              if must not in text:
+                  bad.append(f"{name}: missing {must!r}")
+          if bad:
+              print("\n".join(bad))
+              sys.exit(1)
+          print("all three pages carry what they should")
+          PY
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/pages
+
+  deploy:
+    name: Publish
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

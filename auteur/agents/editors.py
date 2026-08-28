@@ -284,7 +284,19 @@ class LoopAgent:
                 tail = copy.deepcopy(opener)
                 # A short return to the opening frame: long enough to register
                 # as the same place, short enough that the join is invisible.
-                span = min(0.9, opener.source_duration)
+                #
+                # Measured against the film rather than fixed at 0.9s. That
+                # constant was written when a montage held a shot for 0.9s, so
+                # the return was one shot long and did read as invisible. The
+                # montage default is 0.334s now, which made this tail 2.7 holds
+                # — and on a hypercut 5.4 — so the shot that was supposed to
+                # slip past unnoticed became the longest one in the film, sat
+                # at the end where a loop is meant to snap round. Two of the
+                # film's own holds registers as the same place without stopping
+                # the reel dead.
+                holds = sorted(shot.duration for shot in target.shots)
+                typical = holds[len(holds) // 2] if holds else 0.45
+                span = min(max(typical * 2.0, 0.2), 0.9, opener.source_duration)
                 tail.start = opener.start
                 tail.end = opener.start + span
                 tail.transition_in = Transition(kind="cut")

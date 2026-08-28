@@ -193,7 +193,15 @@ class Brief:
     letterbox: float = 0.0
     duration: float | None = None
     #: Transition vocabulary this film is allowed to use, in preference order.
-    transitions: tuple[str, ...] = ("cut", "cut", "cut", "dissolve", "whip-left", "dip-to-black")
+    transitions: tuple[str, ...] = (
+        "cut",
+        "cut",
+        "cut",
+        "dissolve",
+        "portal",
+        "whip-left",
+        "dip-to-black",
+    )
     #: Strings the director asked to appear on screen, in order.
     on_screen_text: list[str] = field(default_factory=list)
     #: Explicit instructions we recognised but did not consume.
@@ -386,7 +394,13 @@ def _arc_for(text: str, style: str) -> str:
 
 def parse_brief(prompt: str, *, duration: float | None = None) -> Brief:
     """Turn a sentence of direction into something the system can execute."""
-    prompt = (prompt or "").strip() or "a cinematic montage"
+    # The fallback for an empty prompt must not smuggle in direction nobody
+    # gave. It used to read "a cinematic montage", and "cinematic" is a pace
+    # word worth 1.3s a shot — so somebody who typed nothing got a film cut
+    # four times slower than the montage default two lines of table below,
+    # from an adjective they never wrote. A default is the one prompt where
+    # every word has to be inert.
+    prompt = (prompt or "").strip() or "a montage"
     lowered = prompt.lower()
 
     style = _first_match(prompt, STYLE_WORDS) or "montage"
@@ -404,7 +418,14 @@ def parse_brief(prompt: str, *, duration: float | None = None) -> Brief:
             "music-video": 0.6,
             "highlights": 0.7,
             "travel": 1.4,
-            "montage": 0.9,
+            # Measured, not chosen — and this one mattered most, because
+            # `montage` is the *default*: it is what a film is cut at when
+            # nobody says a pace word, which is most films. Of the twenty-three
+            # reference reels, thirteen cut between 0.2s and 0.75s a shot, and
+            # their median is 0.334s. The 0.9 that used to be here was two and
+            # a half times slower than that, so every film the app made by
+            # default was slower than everything it was measured against.
+            "montage": 0.334,
             # Measured, not chosen. Across seventeen reference reels — with
             # their sign-off cards excluded, since a held card is not an edit —
             # the median shot runs 0.167s and the median rate is 27.8 cuts per
@@ -445,15 +466,38 @@ def parse_brief(prompt: str, *, duration: float | None = None) -> Brief:
     ):
         brief.transitions = ("cut",)
     elif style == "hypercut":
-        # The references cut hard. At 0.167s a shot there is no room for a
-        # transition anyway — a 0.22s dissolve would outlast the shot.
-        brief.transitions = ("cut",)
+        # The references cut hard, and at a 0.167s median a shot has no room
+        # for a transition — a 0.22s dissolve would outlast it. But the
+        # reference reels are not *only* fast: they open a portal on the
+        # handful of shots that are long enough to hold one, and cut
+        # everything else. Leaving these in the bag and letting the length
+        # ceiling below decide is what produces that, rather than a film
+        # where every join is the same and the whole thing reads as a
+        # slideshow on fast-forward.
+        brief.transitions = ("cut", "cut", "cut", "cut", "cut", "portal", "carry")
+    elif style == "montage" and base <= 0.5:
+        # A third of a second a shot. A 0.22s dissolve is two thirds of that,
+        # so most joins are cuts — but a montage is not a hypercut, and the
+        # references at this pace do carry a gesture across a join more often
+        # than the fast ones do. More movement in the bag than `hypercut`
+        # gets, less than a 0.9s film would have taken.
+        brief.transitions = ("cut", "cut", "cut", "cut", "carry", "portal", "whip-left")
     elif style in ("music-video", "highlights") or base < 0.7:
-        brief.transitions = ("cut", "cut", "cut", "whip-left", "whip-right", "zoom-blur", "glitch")
+        brief.transitions = (
+            "cut",
+            "cut",
+            "cut",
+            "whip-left",
+            "whip-right",
+            "portal",
+            "carry",
+            "zoom-blur",
+            "glitch",
+        )
     elif style in ("documentary", "explainer", "travel") or base > 1.6:
-        brief.transitions = ("cut", "cut", "dissolve", "dissolve", "dip-to-black")
+        brief.transitions = ("cut", "cut", "dissolve", "dissolve", "carry", "dip-to-black")
     elif look in ("kodak", "bloom", "amber"):
-        brief.transitions = ("cut", "cut", "dissolve", "light-leak", "film-burn")
+        brief.transitions = ("cut", "cut", "dissolve", "light-leak", "carry", "film-burn")
 
     if any(word in lowered for word in ("no music", "silent", "natural sound", "no soundtrack")):
         brief.beat_sync = False

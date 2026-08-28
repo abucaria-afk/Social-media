@@ -1,0 +1,61 @@
+# The Xcode project, as a file that can be reviewed.
+#
+# An .xcodeproj is a directory of generated XML that merges badly and hides
+# what changed; this is the same information in twenty readable lines, and
+# `xcodegen` turns it into the project. Nothing here is a preference: every
+# value below is either required by App Store Connect or forced by what the
+# renderer needs.
+name: Auteur
+
+# The bundle identifier and the two version numbers are not here. They are in
+# `auteur/identity.py` — the one place a publisher fills in — and written out
+# to `Identity.yml` by `ios/scripts/build_bundle.py`. A value that has to be
+# changed by hand in a project file, with a line in a README asking for it, is
+# a value that ships unchanged; this one is checked by the preflight and by the
+# test suite instead.
+include:
+  - Identity.yml
+
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    # 16.0, and this is the one number in this file that is a *measurement*
+    # rather than a default. The renderer records a film by pulling frames off
+    # a canvas: it needs `canvas.captureStream()`, which WebKit shipped in
+    # 15.4, and `MediaRecorder`, which shipped earlier. 16.0 clears both with
+    # room, and the app checks at launch and says so rather than failing into
+    # a blank screen if it is ever run somewhere that cannot.
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    ENABLE_USER_SCRIPT_SANDBOXING: true
+    # Warnings that catch the mistakes this app could actually make.
+    SWIFT_STRICT_CONCURRENCY: complete
+    GCC_TREAT_WARNINGS_AS_ERRORS: false
+
+targets:
+  Auteur:
+    type: application
+    platform: iOS
+    sources:
+      - path: Auteur
+        excludes:
+          - "Web/**/.*"
+    settings:
+      base:
+        PRODUCT_NAME: Auteur
+        INFOPLIST_FILE: Auteur/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # No capabilities are requested at all. This app has no network
+        # entitlement, no background modes, no push, and no iCloud — which is
+        # what "nothing leaves your phone" has to mean in the project file and
+        # not only in the copy.
+        CODE_SIGN_STYLE: Automatic
+    info:
+      path: Auteur/Info.plist

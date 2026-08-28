@@ -1,0 +1,195 @@
+/* Messages.
+ *
+ * A list of rows, then bubbles with a composer pinned to the bottom. Both
+ * shapes are lifted wholesale from the two apps this sits next to on a home
+ * screen, down to which side each bubble sits on and the fact that the row
+ * shows the last line rather than a subject.
+ */
+
+/* -- the list ------------------------------------------------------------ */
+
+.threads { margin: 4px 0 0; padding: 0; list-style: none; }
+
+.thread-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 8px 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.thread-row + .thread-row { border-top: 1px solid var(--line); }
+
+.thread-lines { min-width: 0; flex: 1; }
+.thread-name { display: block; font: 600 var(--step-0)/1.3 var(--font-display); }
+
+.thread-last {
+  display: block;
+  color: var(--text-faint);
+  font-size: var(--step--1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.thread-row.is-unread .thread-last { color: var(--text); font-weight: 600; }
+.thread-when { color: var(--text-faint); font-size: var(--step--2); white-space: nowrap; }
+
+.thread-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ember);
+}
+
+/* -- the conversation ---------------------------------------------------- */
+
+.bubbles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0 12px;
+  /* Room for the composer, which is fixed over the tab bar. */
+  padding-bottom: calc(var(--tabbar) + var(--safe-bottom) + 62px);
+}
+
+.bubble {
+  max-width: 76%;
+  padding: 8px 12px;
+  border-radius: var(--radius-lg);
+  font-size: var(--step-0);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.bubble.theirs {
+  align-self: flex-start;
+  border-bottom-left-radius: 5px;
+  background: var(--raised);
+  color: var(--text);
+}
+
+.bubble.mine {
+  align-self: flex-end;
+  border-bottom-right-radius: 5px;
+  background: var(--ember);
+  color: var(--on-ember);
+}
+
+/* A film in a conversation plays there. Sending one should not be a link
+   somebody has to leave the conversation to follow. */
+.bubble-film {
+  max-width: 62%;
+  padding: 0;
+  overflow: hidden;
+  background: #000;
+  border-radius: var(--radius-lg);
+}
+
+/* Capped, or a 9:16 film sent into a conversation is 830px tall on an 844px
+   screen and the reply under it is off the bottom. A shared reel is a preview
+   in a conversation, not a viewing. */
+.bubble-film video {
+  display: block;
+  width: 100%;
+  max-height: 42dvh;
+  object-fit: cover;
+  background: #000;
+}
+
+.bubble-film figcaption {
+  padding: 7px 10px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--step--1);
+}
+
+.bubble-when {
+  align-self: center;
+  margin: 8px 0 2px;
+  color: var(--text-faint);
+  font-size: var(--step--2);
+}
+
+.composer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--tabbar) + var(--safe-bottom));
+  z-index: 50;
+  display: flex;
+  gap: 8px;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--ground) 92%, transparent);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  border-top: 1px solid var(--line);
+}
+
+.composer input {
+  flex: 1;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--text);
+  font: var(--step-0) var(--font-body);
+}
+
+.composer input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
+
+.composer-send {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ember);
+  color: var(--on-ember);
+  font-size: var(--step-1);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.composer-send:disabled { opacity: 0.4; }
+
+/* -- nothing yet --------------------------------------------------------- */
+
+.blank { display: grid; justify-items: center; gap: 4px; padding: 56px 20px; text-align: center; }
+.blank-line { margin: 0; font: 600 var(--step-1)/1.3 var(--font-display); }
+.blank-sub { margin: 0 0 16px; color: var(--text-faint); font-size: var(--step--1); }
+.blank .go { max-width: 280px; }
+
+/* The conversation's header: picture, name, and both of them a link to the
+   profile. `opacity: 1` on the h1 because the collapsing-title rule in
+   style.css hides `.topbar h1` until the page has scrolled — right for a large
+   title that scrolls away, wrong here, where the name in the bar is the only
+   place the name appears. */
+.thread-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.thread-head h1 { opacity: 1; }
+
+/* A conversation with somebody blocked. Not an error and not an empty list —
+   both of those look like something failed to load. */
+.bubble-note {
+  margin: 40px 12px;
+  color: var(--text-faint);
+  font-size: var(--text-subhead);
+  text-align: center;
+}

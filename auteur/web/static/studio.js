@@ -58,7 +58,9 @@
   // -- what the data says -----------------------------------------------
 
   function drawInsight(model) {
+    // The bar truncates to one line now, so the full sentence lives here.
     $("provenance").textContent = model.provenance;
+    $("provenance").title = model.provenance;
 
     var targets = [
       ["hook", model.elite_three_second, "0.80"],
@@ -322,4 +324,40 @@
     $("graphics-panel").hidden = false;
   }
   get("/api/overlays").then(drawGraphics).catch(function () {});
+})();
+
+
+/* The counts on the "rest of it" rows, from the same endpoints those pages
+ * read. A row that names a number the program stopped having is worse than a
+ * row that names none, so a failed fetch leaves the value blank. */
+(function () {
+  function fill(id, url, read) {
+    var slot = document.getElementById(id);
+    if (!slot) { return; }
+    fetch(url, { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (said) { if (said) { slot.textContent = read(said) || ""; } })
+      .catch(function () { /* the row still links through */ });
+  }
+
+  function count(n, one) { return n + " " + (n === 1 ? one : one + "s"); }
+
+  fill("more-projects", "/api/projects", function (said) {
+    var all = said.projects || [];
+    if (!all.length) { return "none yet"; }
+    var films = all.reduce(function (sum, p) { return sum + p.films; }, 0);
+    return count(all.length, "project") + (films ? " · " + count(films, "film") : "");
+  });
+  fill("more-manager", "/api/plans", function (said) {
+    var live = (said.plans || []).filter(function (p) {
+      return p.status !== "posted" && p.status !== "dropped";
+    });
+    return live.length ? count(live.length, "planned") : "nothing planned";
+  });
+  fill("more-overlays", "/api/overlays", function (said) {
+    return count((said.kinds || []).length, "shape");
+  });
+  fill("more-scholar", "/api/scholar", function (said) {
+    return said.available ? count(said.learnings || 0, "learning") : "not running";
+  });
 })();

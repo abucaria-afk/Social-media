@@ -6,24 +6,17 @@
      the controls back inside the safe area. Without it the page is letterboxed
      by white bars on every modern iPhone. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0c0b0a" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f6f1e6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#131110" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef4fb" media="(prefers-color-scheme: light)">
 <meta name="color-scheme" content="dark light">
 <meta name="description" content="Turn clips from your camera roll into a finished film.">
 
-<!-- Before the stylesheet, before anything paints. Applying the saved choice
-     from app.js instead would show one frame of the wrong theme on every
-     load — the flash people notice most on a phone in a dark room. -->
-<script>
-  (function () {
-    try {
-      var mode = localStorage.getItem("auteur-theme");
-      if (mode === "light" || mode === "dark") {
-        document.documentElement.setAttribute("data-theme", mode);
-      }
-    } catch (e) { /* private mode: fall through to the system setting */ }
-  })();
-</script>
+<!-- Before the stylesheet, before anything paints. Appearance and the three
+     accessibility settings, applied from one file rather than copied into the
+     head of every page. Deferring it would show one frame of the wrong theme —
+     or a screenful of small text to somebody who has asked for large — which
+     is the flash people notice most on a phone. -->
+<script src="/static/settings.js"></script>
 
 <!-- Home-screen app on iOS: full screen, no browser chrome. -->
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -58,6 +51,18 @@
 
     <form id="form" novalidate>
 
+      <!-- Footage the phone's own share sheet handed over. Hidden unless
+           there is some, because a permanently visible empty state is how
+           people learn to stop reading a panel. -->
+      <div class="handed" id="handed" hidden>
+        <span class="handed-mark" aria-hidden="true">↧</span>
+        <span class="handed-lines">
+          <span class="handed-title" id="handed-title"></span>
+          <span class="handed-note" id="handed-note"></span>
+        </span>
+        <button type="button" class="handed-drop" id="handed-drop">Clear</button>
+      </div>
+
       <label class="card picker scroll-reveal zoom-hover" for="clips" data-delay="1">
         <span class="step-number">1</span>
         <span class="card-body">
@@ -88,6 +93,12 @@
                  a median 0.167s shot. Four ceilings in the code used to make it
                  unreachable and there was still no way to request it. -->
             <button type="button" class="chip" data-prompt="a hypercut, cut hard to the beat">Hypercut</button>
+            <!-- The pace the corpus sits at when it is not sprinting: 0.334s
+                 a shot, measured across the thirteen reels that are not
+                 hypercuts. It was already the default style and had no chip,
+                 so the one thing most films are cut as could not be asked
+                 for by name. -->
+            <button type="button" class="chip" data-prompt="a montage, cut at the pace of the reels">Montage</button>
             <button type="button" class="chip" data-prompt="fast neon montage">Neon</button>
             <button type="button" class="chip" data-prompt="warm summer memories, gentle">Warm</button>
             <button type="button" class="chip" data-prompt="slow and cinematic">Cinematic</button>
@@ -142,6 +153,17 @@
         </span>
       </div>
 
+      <!-- Which project it belongs to. Hidden until there is one to pick, so
+           somebody who has never made a project never sees a control for a
+           thing they do not have. -->
+      <div class="card block" id="project-card" hidden>
+        <span class="card-title">Part of</span>
+        <div class="choices projects" id="project" role="radiogroup" aria-label="Project">
+          <button type="button" class="choice is-on" data-value="" role="radio" aria-checked="true">Nothing<small>on its own</small></button>
+        </div>
+        <span class="card-hint">The finished film lands in that project's album.</span>
+      </div>
+
 
       <p class="error" id="start-error" role="alert" hidden></p>
 
@@ -149,53 +171,31 @@
       <p class="fineprint">It takes a couple of minutes. Keep this page open.</p>
     </form>
 
-    <!-- The studio: what the data says, and what the agents want to change
-         about the cut you just made. Deliberately a link rather than a panel
-         on this page — the first screen should stay one prompt and one
-         button. -->
-    <a class="studio-link" href="/templates">
-      <span class="studio-link-title">Templates</span>
-      <span class="studio-link-note" id="template-link-note">
-        Cut your pictures to a real reel's timing · add one of your own
+    <!-- Where it goes. The other four rooms are in the bar along the bottom
+         now; this one is not a place you spend time, it is a setting, so it
+         stays here as one row rather than taking a fifth of the bar. -->
+    <a class="onward" href="/connect">
+      <span class="onward-mark" aria-hidden="true">⇢</span>
+      <span class="onward-lines">
+        <span class="onward-name">Where it goes</span>
+        <span class="onward-note">Instagram and TikTok · nothing here posts for you</span>
       </span>
+      <span class="onward-state" id="room-connect"></span>
     </a>
 
-    <a class="studio-link" href="/studio">
-      <span class="studio-link-title">Studio</span>
-      <span class="studio-link-note">
-        What your numbers say · let the agents re-cut it · you approve
+    <!-- Your account, your picture and the accessibility settings all live on
+         the You tab now. This row is the way in from here; the two-step
+         control that used to sit inline is on that page, with the rest of the
+         account settings, rather than halfway down the create screen. -->
+    <a class="onward" href="/profile">
+      <span class="onward-mark" aria-hidden="true">◉</span>
+      <span class="onward-lines">
+        <span class="onward-name">You</span>
+        <span class="onward-note">Your picture, your films, and how this app looks</span>
       </span>
+      <span class="onward-state" aria-hidden="true">›</span>
     </a>
 
-    <a class="studio-link" href="/connect">
-      <span class="studio-link-title">Where it goes</span>
-      <span class="studio-link-note">
-        Link Instagram and TikTok · cut to the right shape · caption ready
-      </span>
-    </a>
-
-    <a class="studio-link" href="/overlays">
-      <span class="studio-link-title">Animation</span>
-      <span class="studio-link-note">
-        The shapes that go over the cut · how they arrive · how busy
-      </span>
-    </a>
-
-    <a class="studio-link" href="/ask">
-      <span class="studio-link-title">Ask the Scholar</span>
-      <span class="studio-link-note">
-        What it has learned from your reels · why an agent proposed something
-      </span>
-    </a>
-
-    <div class="settings">
-      <span class="settings-label">Appearance</span>
-      <div class="choices appearance" role="radiogroup" aria-label="Appearance">
-        <button type="button" class="choice is-on" data-value="system" role="radio" aria-checked="true">Automatic<small>match my phone</small></button>
-        <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
-        <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
-      </div>
-    </div>
 
     <!-- Install. Chrome fires beforeinstallprompt and gets a real button;
          every other browser gets the instructions for that browser. -->
@@ -242,6 +242,8 @@
 
 </main>
 
+<script src="/static/trouble.js"></script>
+<script src="/static/chrome.js"></script>
 <script src="/static/theme.js"></script>
 <script src="/static/app.js"></script>
 </body>

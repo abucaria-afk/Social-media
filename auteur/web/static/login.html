@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0c0b0a" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f6f1e6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#131110" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef4fb" media="(prefers-color-scheme: light)">
 <meta name="color-scheme" content="dark light">
 <meta name="robots" content="noindex">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -14,16 +14,12 @@
 <link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="icon" href="/icon-192.png">
 <link rel="manifest" href="/manifest.webmanifest">
-<script>
-  (function () {
-    try {
-      var mode = localStorage.getItem("auteur-theme");
-      if (mode === "light" || mode === "dark") {
-        document.documentElement.setAttribute("data-theme", mode);
-      }
-    } catch (e) { /* private mode */ }
-  })();
-</script>
+<!-- Before the stylesheet, before anything paints. Appearance and the three
+     accessibility settings, applied from one file rather than copied into the
+     head of every page. Deferring it would show one frame of the wrong theme —
+     or a screenful of small text to somebody who has asked for large — which
+     is the flash people notice most on a phone. -->
+<script src="/static/settings.js"></script>
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/style.css">
 <link rel="stylesheet" href="/static/animations.css">
@@ -56,29 +52,92 @@
       </div>
 
       <p class="error" id="signin-error" role="alert" hidden></p>
+
+      <!-- The second step. Hidden until the password has been accepted and
+           found insufficient, so the ordinary sign-in is still two fields. -->
+      <div class="card" id="step2" hidden>
+        <span class="card-body">
+          <label class="card-title" for="step2-code">The code from your authenticator</label>
+          <input type="text" id="step2-code" name="one-time-code"
+                 inputmode="numeric" autocomplete="one-time-code"
+                 pattern="[0-9A-Za-z]*" maxlength="14" enterkeyhint="go"
+                 autocapitalize="characters" autocorrect="off" spellcheck="false">
+          <span class="card-hint">
+            Six digits. If you have lost the phone, one of your recovery codes
+            works here instead — each of them once.
+          </span>
+        </span>
+      </div>
+
       <button type="submit" class="go" id="signin-go">Sign in</button>
-      <button type="button" class="ghost" id="to-forgot">I forgot my password</button>
-      <!-- Only shown when there is nobody to sign in as. Before this the only
-           way in was reading a generated password off the terminal, which
-           means the first step of the whole product needed a terminal. -->
-      <button type="button" class="ghost" id="to-signup" hidden>
-        Nobody has claimed this yet — make my account
-      </button>
+
+      <!-- Filled from /api/sign-in-with. Providers that are not set up are
+           still listed, saying what they need: a button that is simply absent
+           reads as a feature this app does not have, which is not the case. -->
+      <div class="providers" id="providers" hidden>
+        <p class="providers-or"><span>or</span></p>
+        <div id="provider-list"></div>
+      </div>
+      <!-- Sign up is a button and is always here.
+           It used to be hidden unless this copy had no accounts at all, which
+           meant that on every copy that had ever been used the sign-in page
+           offered exactly one thing to do. A person arriving without an
+           account had nothing to read and nothing to press. It is a control
+           now whatever the answer is, and the answer is on the screen after
+           it rather than in whether the control exists. -->
+      <button type="button" class="ghost" id="to-signup">Create an account</button>
+
+      <!-- And forgetting a password is a link, not a button.
+           It was a full-width bordered control the same size as Create an
+           account, which gave the same weight to the thing almost everybody
+           does once as to the thing they came here to do. It is a sentence
+           you can press. -->
+      <p class="afterthought">
+        <button type="button" class="textlink" id="to-forgot">I forgot my password</button>
+      </p>
     </form>
   </section>
 
   <!-- 2. Forgot -------------------------------------------------------- -->
   <section class="screen" id="screen-signup" hidden>
     <form id="signup-form" novalidate>
-      <div class="card block">
-        <span class="card-title">Claim this one</span>
-        <p class="card-hint">
-          It is yours and it stays on your machine. Nobody else can make an
-          account after this.
+      <!-- Said when this copy is not taking accounts at all, in place of the
+           form. Not a hidden button: somebody who wants an account gets told
+           what would give them one. -->
+      <p class="notice" id="signup-closed" hidden></p>
+
+      <div class="card block" id="signup-fields">
+        <span class="card-title" id="signup-title">Claim this one</span>
+        <p class="card-hint" id="signup-lede">
+          It is yours and it stays on your machine.
         </p>
+
+        <!-- Only when this copy asks for one. The first account on an
+             unclaimed copy never does, and a field that is not needed is a
+             field that is not there. -->
+        <div id="invite-row" hidden>
+          <label class="card-title spaced" for="invite-code">Your invite code</label>
+          <input type="text" id="invite-code" name="invite" autocomplete="off"
+                 autocapitalize="none" autocorrect="off" spellcheck="false"
+                 placeholder="from whoever runs this copy">
+        </div>
+
         <label class="card-title spaced" for="new-username">A name</label>
         <input type="text" id="new-username" name="username" autocomplete="username"
                autocapitalize="none" autocorrect="off" spellcheck="false">
+        <!-- The server has read this field since the day sign-up was written;
+             the form never had it, so every first account was made with no
+             address on it — which is what a password reset is sent to, what
+             "continue with Google" matches on, and where a calendar invite
+             would go. -->
+        <label class="card-title spaced" for="new-email">Your email</label>
+        <input type="email" id="new-email" name="email" autocomplete="email"
+               inputmode="email" autocapitalize="none" autocorrect="off" spellcheck="false"
+               placeholder="you@example.com">
+        <p class="card-hint">
+          Used to sign you back in, to reset a password, and to match a Google
+          or Apple account to this one. It stays on this machine.
+        </p>
         <label class="card-title spaced" for="signup-password">A password</label>
         <span class="reveal">
           <input type="password" id="signup-password" name="password"
@@ -87,7 +146,36 @@
                   aria-label="Show password">Show</button>
         </span>
         <p class="card-hint">Ten characters or more.</p>
+
+        <!-- The age gate. A year rather than a full date: it is the least
+             that answers both questions the app has — old enough, and still a
+             minor — and it stays right as time passes. Nothing on this screen
+             hints at which answer gets you in, which is the point of an age
+             gate; a field that says "must be 12 or over" is a field everybody
+             passes. -->
+        <label class="card-title spaced" for="signup-born">The year you were born</label>
+        <input type="text" id="signup-born" name="born" inputmode="numeric"
+               maxlength="4" autocomplete="bday-year" autocorrect="off"
+               spellcheck="false" placeholder="1994">
+        <p class="card-hint">
+          Kept on this machine and used for two things: whether this app is for
+          you, and whether it starts with sensitive films hidden. Nothing else
+          ever sees it.
+        </p>
       </div>
+      <!-- Agreed to by making the account, not by ticking a box.
+           Apple requires an app with a feed and an inbox to make people agree
+           to terms with no tolerance for objectionable content or abusive
+           users (guideline 1.2), and a checkbox nobody reads is not agreement
+           — this says what making the account means, right above the button
+           that makes it, with both documents one tap away. -->
+      <p class="fineprint agreeing">
+        Making an account means agreeing to the
+        <a href="/terms" target="_blank" rel="noopener">terms of use</a> —
+        including that there is no tolerance for objectionable content or
+        abusive behaviour here — and to the
+        <a href="/privacy" target="_blank" rel="noopener">privacy policy</a>.
+      </p>
       <p class="error" id="signup-error" role="alert" hidden></p>
       <button type="submit" class="go" id="signup-go">Make my account</button>
       <button type="button" class="ghost" id="signup-back">Back to signing in</button>
@@ -135,17 +223,10 @@
     </form>
   </section>
 
-  <div class="settings">
-    <span class="settings-label">Appearance</span>
-    <div class="choices appearance" role="radiogroup" aria-label="Appearance">
-      <button type="button" class="choice is-on" data-value="system" role="radio" aria-checked="true">Automatic<small>match my phone</small></button>
-      <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
-      <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
-    </div>
-  </div>
 
 </main>
 
+<script src="/static/trouble.js"></script>
 <script src="/static/login.js"></script>
 </body>
 </html>

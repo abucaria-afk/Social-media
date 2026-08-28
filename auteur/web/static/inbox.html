@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#131110" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef4fb" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="Send a film to somebody, and talk about it.">
+<!-- Before the stylesheet, before anything paints. Appearance and the three
+     accessibility settings, applied from one file rather than copied into the
+     head of every page. Deferring it would show one frame of the wrong theme —
+     or a screenful of small text to somebody who has asked for large — which
+     is the flash people notice most on a phone. -->
+<script src="/static/settings.js"></script>
+<link rel="icon" href="/icon-192.png">
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/inbox.css">
+<title>Auteur — messages</title>
+</head>
+<body>
+
+<!-- Two screens in one page: the list, and one conversation. A conversation is
+     not a separate page because coming back from one should not re-fetch the
+     list and lose your place in it, which is what a link does. -->
+<main class="page" id="list-screen">
+  <header class="topbar">
+    <h1>Messages</h1>
+    <span class="topbar-right">
+      <button type="button" class="chip-button" id="new-message">New</button>
+    </span>
+  </header>
+
+  <ul class="threads" id="threads"></ul>
+
+  <div class="blank" id="list-blank" hidden>
+    <p class="blank-line">No messages yet.</p>
+    <p class="blank-sub">Send somebody a film from the feed, or start here.</p>
+    <button type="button" class="go" id="blank-new">Write to someone</button>
+  </div>
+</main>
+
+<main class="page" id="thread-screen" hidden>
+  <header class="topbar">
+    <button type="button" class="topbar-back" id="thread-back" aria-label="Back to messages">←</button>
+    <!-- The name and the picture open their profile, which is where they go in
+         every messages app. An <a> around both, so the tap target is the whole
+         thing rather than the seven characters of a short name. -->
+    <a class="thread-head" id="thread-profile" href="#">
+      <span class="avatar avatar-sm" id="thread-avatar" aria-hidden="true"></span>
+      <h1 id="thread-who">…</h1>
+    </a>
+    <span class="topbar-right">
+      <button type="button" class="more" id="thread-more"
+              aria-label="Report or block this person">⋯</button>
+    </span>
+  </header>
+
+  <div class="bubbles" id="bubbles"></div>
+
+  <form class="composer" id="composer">
+    <input type="text" id="composer-text" autocomplete="off" enterkeyhint="send"
+           placeholder="Message" aria-label="Message">
+    <button type="submit" class="composer-send" id="composer-send" aria-label="Send">↑</button>
+  </form>
+</main>
+
+<!-- Who to write to. -->
+<div class="sheet" id="people-sheet" hidden>
+  <div class="sheet-scrim" id="people-scrim"></div>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-label="Write to">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Write to</h2>
+    <ul class="people" id="people"></ul>
+    <button type="button" class="ghost" id="people-close">Close</button>
+  </div>
+</div>
+
+<script src="/static/trouble.js"></script>
+<script src="/static/chrome.js"></script>
+<script src="/static/safety.js"></script>
+<script src="/static/inbox.js"></script>
+</body>
+</html>

@@ -6,6 +6,14 @@ pillow>=10.0
 # with libx264, xfade and loudnorm.
 ffmpeg-binaries>=1.1.0
 
+# Signing in with Apple. Apple's client secret is an ES256 JWT the server has
+# to sign itself, and this is the only way to sign one. Not optional for a
+# deployment: without it a hosted instance offers Continue with Google and
+# tells anybody who wants Continue with Apple that it cannot, which is both a
+# dead end for them and an App Store guideline 4.8 problem — an app offering a
+# third-party login has to offer an equivalent privacy-preserving one.
+cryptography>=43
+
 # Optional: lets Claude direct the edit. Without it the algorithmic director
 # does the job and the film still gets made.
 anthropic>=0.124.0
