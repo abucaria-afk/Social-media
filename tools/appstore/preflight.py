@@ -607,13 +607,22 @@ def main() -> int:
             print(f"          confirm with: {item.confirm}")
         print()
 
+    # The count of what is not checkable from here is printed either way.
+    # It used to sit only on the success path, so the moment anything else
+    # was red the tool went quiet about the domain, the entity and the
+    # mailbox — which is the case where somebody is most likely to fix the
+    # one red line and take that for ready. A clean checkout is exactly that
+    # case: the store screenshots live in `build/`, which is generated and
+    # gitignored, so every CI run reports one failure and would have lost
+    # this line.
+    if waiting:
+        print(f"  {len(waiting)} thing(s) above are not checkable from here.")
+
     if bad:
         print(f"  {bad} thing(s) would come back from a store review. Fix them first.")
         print()
         return 1
     print("  everything checkable from here is right.")
-    if waiting:
-        print(f"  {len(waiting)} thing(s) above are not checkable from here.")
     print()
     return 0
 

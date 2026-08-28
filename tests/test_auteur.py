@@ -12152,6 +12152,70 @@ def test_every_store_url_names_a_page_the_site_actually_builds():
         )
 
 
+def test_the_submission_preflight_says_what_it_cannot_check():
+    """ "Everything checkable from here is right" reads like "ready to submit".
+
+    It is not the same sentence, and the gap between them is the whole company
+    side of this: the domain, the entity and the mailbox all block the upload
+    exactly as hard as a missing icon does, and none of them can be seen from
+    inside the repository. The preflight used to end on the reassuring half
+    alone.
+
+    So it prints `pending()` too — and this holds it to that, because a list
+    that exists and is never printed is the same defect one level up.
+    """
+    import contextlib
+    import importlib.util
+    import io
+
+    from auteur.identity import pending
+
+    root = Path(__file__).resolve().parent.parent
+    spec = importlib.util.spec_from_file_location(
+        "_preflight", root / "tools" / "appstore" / "preflight.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    # Registered before it runs: `Note` is a dataclass, and dataclasses
+    # resolve their annotations through `sys.modules[cls.__module__]`, which
+    # is None for a module that has been built but not registered.
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        caught = io.StringIO()
+        # argv, because `main` parses it and under pytest it is full of
+        # pytest's own flags — which is a SystemExit(2), not a failure of the
+        # thing being tested.
+        argv = sys.argv
+        sys.argv = ["preflight.py"]
+        try:
+            with contextlib.redirect_stdout(caught):
+                code = module.main()
+        finally:
+            sys.argv = argv
+        printed = caught.getvalue()
+    finally:
+        sys.modules.pop(spec.name, None)
+
+    # Not the exit code. The preflight reports on the whole submission, and
+    # on a clean checkout one of those things is legitimately missing: the
+    # store screenshots live in `build/`, which is generated and gitignored,
+    # so it says "no screenshots" and exits 1. The first draft asserted 0 and
+    # so passed only on a machine that had run the screenshot tool at some
+    # point — green here and red on every CI run, which is the worst way for
+    # a test to be wrong. What is asserted instead is that it ran and
+    # produced its report; a crash fails the run before this line.
+    assert code in (0, 1), f"the preflight neither passed nor reported: {code}"
+    assert "before the upload" in printed, printed[:400]
+
+    for item in pending():
+        assert item.what in printed, (
+            f"the preflight never mentions {item.what!r}, so somebody reading "
+            "its last line would think this was ready to upload"
+        )
+    assert "not checkable from here" in printed
+
+
 def test_everything_waiting_on_the_world_names_a_check_that_exists():
     """A checklist item whose verification is imaginary is a checklist item
     nobody can finish.
