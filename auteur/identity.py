@@ -115,27 +115,28 @@ class Company:
     def copyright_line(self) -> str:
         return f"Copyright (c) {FOUNDED} {self.legal_name}"
 
-    def _page(self, name: str) -> str:
-        # `.html` and not a bare path. GitHub Pages serves `privacy.html` at
-        # `/privacy.html` and gives `/privacy` a 404 — and a privacy policy
-        # URL that 404s is the single most common metadata rejection there
-        # is. The filename here is the filename `tools/site/build_site.py`
-        # actually writes, and a test holds the two together.
-        return f"https://{self.domain}/{name}"
-
     @property
     def support_url(self) -> str:
-        # The site's front page, which is what Apple's "Support URL" field
+        # The company's own site, which is what Apple's "Support URL" field
         # wants: somewhere a person lands and finds a way to ask something.
+        # This one is not built here — it is the Wix site at the apex.
         return f"https://{self.domain}/"
 
-    @property
-    def privacy_url(self) -> str:
-        return self._page("privacy.html")
+    def documents_for(self, slug: str) -> str:
+        """Where a product's policy documents are served from.
 
-    @property
-    def terms_url(self) -> str:
-        return self._page("terms.html")
+        A subdomain, because the apex is the company's own site and this
+        repository does not build that. The privacy policy and the terms *are*
+        built here, from PRIVACY.md and TERMS.md, and they have to keep being
+        built here: a copy pasted into a website drifts from what the code can
+        actually reach, and an inaccurate Play Data safety declaration is a
+        policy strike rather than a correction.
+
+        So the two live on different hosts on purpose — the company's story
+        where the company tells it, and the documents where the code that
+        makes them true is.
+        """
+        return f"{slug}.{self.domain}"
 
 
 #: The live one.
@@ -146,12 +147,19 @@ COMPANY = Company()
 class Identity:
     """Who is publishing this, and where people reach them."""
 
+    #: The product, in one lowercase word. It is the last piece of the bundle
+    #: identifier and the subdomain the policy documents are served from, so
+    #: it is written once and both are derived from it.
+    slug: str = _env("AUTEUR_SLUG", "atlas")
+
     #: Reverse-DNS, and it has to be a domain the publisher controls, which is
     #: why it is *derived* from the company's domain rather than typed. Apple
     #: rejects `com.example.*` outright — it is the reserved documentation
     #: domain — and it also refuses to change a bundle identifier after the
     #: first submission, so this is the one value here that is permanent.
-    bundle_id: str = _env("AUTEUR_BUNDLE_ID", f"{COMPANY.reverse_dns}.auteur")
+    #: Nothing has been submitted yet, which is the only reason the product
+    #: could be renamed from `auteur` to `atlas` at all.
+    bundle_id: str = _env("AUTEUR_BUNDLE_ID", f"{COMPANY.reverse_dns}.atlas")
 
     #: The seller name on both stores, and the name in the copyright line.
     #: The company's, because that is whose name it is.
@@ -160,22 +168,36 @@ class Identity:
     #: Also the company's: one address for everything it publishes.
     support_email: str = _env("AUTEUR_SUPPORT_EMAIL", COMPANY.support_email)
 
-    #: The three URLs App Store Connect asks for, on the company's own domain.
+    #: The three URLs App Store Connect asks for, and they are not all on the
+    #: same host on purpose.
     #:
-    #: These used to default to this repository's GitHub Pages addresses,
-    #: which had the great virtue of being live. They are now the company's,
-    #: which is where they belong and where they are not yet live — so
-    #: `pending()` names the registration as the thing standing between here
-    #: and a submission, and `preflight.py --online` fetches all three and
-    #: fails on a 404. A privacy policy URL that does not resolve is the
-    #: single most common metadata rejection there is.
+    #: Support is the company's own site, at the apex — which this repository
+    #: does not build. The privacy policy and the terms are built here, from
+    #: PRIVACY.md and TERMS.md, and are served from the product's subdomain by
+    #: GitHub Pages. Keeping them here rather than pasting them into the
+    #: company site is the point: a pasted copy drifts from what the code can
+    #: actually reach, and an inaccurate Play Data safety declaration is a
+    #: policy strike rather than a correction.
+    #:
+    #: `.html` and not a bare path, because Pages serves `privacy.html` at
+    #: `/privacy.html` and gives `/privacy` a 404 — the single most common
+    #: metadata rejection there is. A test holds these filenames to the
+    #: filenames the site builder actually writes.
     support_url: str = _env("AUTEUR_SUPPORT_URL", COMPANY.support_url)
-    privacy_url: str = _env("AUTEUR_PRIVACY_URL", COMPANY.privacy_url)
-    terms_url: str = _env("AUTEUR_TERMS_URL", COMPANY.terms_url)
+    privacy_url: str = _env(
+        "AUTEUR_PRIVACY_URL", f"https://{COMPANY.documents_for('atlas')}/privacy.html"
+    )
+    terms_url: str = _env(
+        "AUTEUR_TERMS_URL", f"https://{COMPANY.documents_for('atlas')}/terms.html"
+    )
 
     #: What the app is called on the home screen and in the store. Checked
     #: against Apple's 30-character limit, which is not advice.
-    app_name: str = _env("AUTEUR_APP_NAME", "Auteur")
+    #:
+    #: `Auteur` alone was the app's name back when it was the only thing here
+    #: and the company had no name of its own. Auteur Studies is the umbrella
+    #: now and this is one product under it, so the name says both.
+    app_name: str = _env("AUTEUR_APP_NAME", "Auteur Atlas")
 
     #: The version people see, and the build number that has to go up on every
     #: upload. App Store Connect refuses a build number it has seen before,
@@ -289,16 +311,24 @@ def pending(company: Company | None = None) -> list[Waiting]:
         # registrar's own hosting, not at GitHub Pages, so every URL in both
         # store listings still answers with a parking page or a 404.
         Waiting(
-            what=f"point {who.domain} at GitHub Pages",
+            what=f"add a CNAME for {who.documents_for('atlas')}",
             consequence=(
-                "all three store URLs answer with the registrar's page "
-                "instead of the policy documents — and a privacy policy URL "
-                "that does not resolve is the most common metadata rejection "
-                "there is. Four A records on the apex: 185.199.108.153, "
-                "185.199.109.153, 185.199.110.153, 185.199.111.153; a CNAME "
-                "on www to abucaria-afk.github.io. Then Settings -> Pages -> "
-                "Custom domain, and tick Enforce HTTPS once the certificate "
-                "has been issued"
+                "the privacy policy and the terms have nowhere to answer "
+                "from, and a privacy policy URL that does not resolve is the "
+                "most common metadata rejection there is. One record, and it "
+                "touches nothing that exists: atlas CNAME abucaria-afk"
+                ".github.io. Not the apex — auteurstudies.com is the "
+                "company's own site and moving it would take that down"
+            ),
+            confirm="python3 tools/appstore/preflight.py --online",
+        ),
+        Waiting(
+            what="publish the company site at the apex",
+            consequence=(
+                "the Support URL on both store listings points at "
+                f"https://{who.domain}/, and that site is still a draft. "
+                "Apple fetches the support URL during review the same way it "
+                "fetches the privacy policy"
             ),
             confirm="python3 tools/appstore/preflight.py --online",
         ),
@@ -324,9 +354,11 @@ def pending(company: Company | None = None) -> list[Waiting]:
             consequence=(
                 "the documents are built and deployed by "
                 ".github/workflows/pages.yml and the CNAME file naming the "
-                "custom domain is written by tools/appstore/build_pages.py, "
-                "but nothing is served until Settings -> Pages -> Source is "
-                "set to GitHub Actions"
+                "subdomain is written by tools/appstore/build_pages.py, but "
+                "nothing is served until Settings -> Pages -> Source is set "
+                "to GitHub Actions, with the custom domain set to "
+                f"{who.documents_for('atlas')} and Enforce HTTPS ticked once "
+                "the certificate is issued"
             ),
             confirm="python3 tools/appstore/preflight.py --online",
         ),

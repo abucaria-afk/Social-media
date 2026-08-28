@@ -22,14 +22,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .identity import IDENTITY
+
 #: When the store limits below were last checked against the stores' own
 #: guidance. Same discipline as `workflows/platforms.py`: a number nobody
 #: dates is a number nobody re-checks.
 AS_OF = "2026-08"
 
-#: What the thing is called. Lower case, because it is set in the app's own
-#: type and reads as a word rather than a brand shouting.
-NAME = "auteur"
+#: What the thing is called — read from `identity.py` rather than written
+#: again here.
+#:
+#: These were two values for one thing: `brand.NAME` said "auteur" and
+#: `IDENTITY.app_name` said "Auteur", and nothing compared them. That is the
+#: same defect as the site shipping a hand-copied palette under a comment
+#: claiming it was generated — and it would have shipped a store listing
+#: naming the app one thing while the site's wordmark named it another.
+#:
+#: It also stopped being lower case, and for a reason rather than a whim: the
+#: app is one product under Auteur Studies now, so the name has to say which
+#: product it is.
+NAME = IDENTITY.app_name
 
 #: One line, under thirty characters, because that is the tightest box either
 #: store gives you — App Store subtitle and Play title are both 30.
@@ -209,25 +221,37 @@ def description() -> str:
     Typed twice it drifts twice. This is the same `FEATURES` the site renders,
     so a claim added to one appears in the other or in neither.
     """
+    # Every wrapped string in the list below is parenthesised. Inside a list
+    # literal, an intended concatenation and a forgotten comma look exactly
+    # the same — CodeQL flags the shape for that reason, and it is right to:
+    # the reader cannot tell either. The brackets say which one it is.
     lines = [POSITIONING, "", "WHAT IT DOES", ""]
     lines += [f"• {feature.headline} — {feature.body}" for feature in FEATURES]
     lines += [
         "",
         "PLAN BEFORE YOU SHOOT",
         "",
-        "The manager plans a post before the photograph exists: a shot list "
-        "grouped into setups you can shoot in one go, a caption, and a check on "
-        "the things that decide whether anybody sees it.",
+        (
+            "The manager plans a post before the photograph exists: a shot "
+            "list grouped into setups you can shoot in one go, a caption, and "
+            "a check on the things that decide whether anybody sees it."
+        ),
         "",
         CAVEAT,
         "",
         "FOR EVERYONE",
         "",
-        "Text size, reduced motion and increased contrast are settings in the "
-        "app, and the system's own accessibility settings are always honoured.",
+        (
+            "Text size, reduced motion and increased contrast are settings in "
+            "the app, and the system's own accessibility settings are always "
+            "honoured."
+        ),
         "",
-        "Auteur is for people 12 and over. An account for somebody under 18 "
-        "starts with sensitive films hidden, and that can be locked with a code.",
+        (
+            "Auteur is for people 12 and over. An account for somebody under "
+            "18 starts with sensitive films hidden, and that can be locked "
+            "with a code."
+        ),
     ]
     return "\n".join(lines)
 

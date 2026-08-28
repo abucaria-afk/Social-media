@@ -1909,8 +1909,8 @@ def _scholar_sources(scholar, say: Reporter) -> None:
     store that only agrees with itself looks exactly like a store that knows a
     lot until somebody counts the channels.
     """
-    import collections
     import datetime
+    from collections import Counter
 
     from .scholar.published import stale
 
@@ -1918,7 +1918,7 @@ def _scholar_sources(scholar, say: Reporter) -> None:
     if not rows:
         return
 
-    kinds = collections.Counter(row.source_channel.split(":")[0] for row in rows)
+    kinds = Counter(row.source_channel.split(":")[0] for row in rows)
     inside = sum(n for k, n in kinds.items() if k in ("local", "film", "across", "scroll"))
     outside = sum(n for k, n in kinds.items() if k in ("published", "corroborate", "yt"))
 

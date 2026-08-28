@@ -11717,7 +11717,6 @@ def test_the_sign_in_page_always_offers_a_way_to_make_an_account():
     the same size as the one beside it, which gave the thing almost everybody
     does once the same weight as the thing they came here to do.
     """
-    import re
 
     from auteur.web import server
 
@@ -11755,7 +11754,6 @@ def test_a_setting_lives_in_settings_and_nowhere_else():
     same rule, and holds it for every settings group at once so the next one
     cannot spread either.
     """
-    import re
 
     from auteur.web import server
 
@@ -11797,7 +11795,6 @@ def test_the_sign_in_page_still_wires_its_form_after_the_picker_left():
     So: nothing in the sign-in page's script may reach for a control the page
     does not have.
     """
-    import re
 
     from auteur.web import server
 
@@ -11852,6 +11849,60 @@ def test_a_sign_in_option_the_deployment_cannot_offer_is_not_offered():
         f"{', '.join(signing)} cannot be offered: add cryptography to "
         "requirements.txt"
     )
+
+
+def test_loading_the_signing_library_swallows_two_things_and_no_others(monkeypatch):
+    """The BaseException handler is an allowlist, so prove it is one.
+
+    It has to reach past `Exception`, because a broken `cryptography` panics
+    out of its Rust extension and PyO3 raises that as `PanicException`, which
+    inherits from BaseException. What it must not become is a catch-all: a
+    KeyboardInterrupt swallowed here is a Ctrl-C the server ignores.
+
+    Driven through the real import rather than by patching the function, by
+    standing a module in `sys.modules` whose attribute access raises whatever
+    this test wants — which is what `from ... import hashes` actually does.
+    """
+
+    from auteur.web import oidc
+
+    class Panic(BaseException):
+        """Stands in for pyo3_runtime.PanicException, matched by name."""
+
+    Panic.__name__ = "PanicException"
+
+    class Rogue(BaseException):
+        """Anything else that reaches a BaseException handler."""
+
+    def raising(what):
+        module = types.ModuleType("cryptography.hazmat.primitives")
+
+        def angry(name):
+            # Only the attribute the import actually asks for. A module that
+            # raises at *every* lookup poisons anything that later
+            # introspects it — pytest's own reporting included, which turned
+            # a clean failure into an INTERNALERROR the first time.
+            if name == "hashes":
+                raise what
+            raise AttributeError(name)
+
+        module.__getattr__ = angry
+        return module
+
+    for kind, swallowed in (
+        (ImportError("no such thing"), True),
+        (ValueError("installed, and broken"), True),
+        (Panic("the extension panicked"), True),
+        (Rogue("not ours"), False),
+        (KeyboardInterrupt(), False),
+    ):
+        monkeypatch.setitem(sys.modules, "cryptography.hazmat.primitives", raising(kind))
+        if swallowed:
+            got = oidc._import_signing()
+            assert got is kind, f"{type(kind).__name__} was not returned: {got!r}"
+        else:
+            with pytest.raises(type(kind)):
+                oidc._import_signing()
 
 
 def test_a_broken_signing_library_does_not_take_the_sign_in_page_with_it(monkeypatch):
@@ -11943,19 +11994,68 @@ def test_the_bundle_identifier_claims_a_domain_the_company_owns():
     assert re.fullmatch(r"[A-Za-z0-9.-]+", IDENTITY.bundle_id)
 
 
+def test_the_app_calls_itself_what_the_store_listing_calls_it():
+    """One name, in the one place, and every screen reads it.
+
+    The product was renamed from Auteur to Auteur Atlas when Auteur Studies
+    became the umbrella above it — and the name was written out by hand in
+    nineteen places: every page title, two home-screen names, the manifest,
+    three scripts, the terms. `brand.NAME` said "auteur" while
+    `IDENTITY.app_name` said "Auteur", which is the same defect one level up:
+    two values for one thing, and nothing comparing them.
+
+    `brand.NAME` reads the identity now. The static files cannot, so this is
+    what holds them: nothing user-facing may name the app anything other than
+    what the store listing names it.
+
+    The home-screen name is checked separately because iOS truncates it and
+    the store limit is no help there.
+    """
+
+    from auteur import brand
+    from auteur.identity import IDENTITY, NAME_LIMIT
+    from auteur.web import server
+
+    assert (
+        brand.NAME == IDENTITY.app_name
+    ), f"brand says {brand.NAME!r} and the listing says {IDENTITY.app_name!r}"
+    assert len(IDENTITY.app_name) <= NAME_LIMIT
+
+    name = IDENTITY.app_name
+    stale: list[str] = []
+
+    for page in sorted(server.STATIC.glob("*.html")):
+        markup = page.read_text(encoding="utf-8")
+        title = re.search(r"<title>(.*?)</title>", markup, re.S)
+        if title and "Auteur" in title.group(1) and name not in title.group(1):
+            stale.append(f"{page.name} <title> says {title.group(1).strip()!r}")
+        for content in re.findall(
+            r'<meta name="apple-mobile-web-app-title" content="([^"]*)"', markup
+        ):
+            if content != name:
+                stale.append(f"{page.name} home-screen name is {content!r}")
+
+    manifest = json.loads((server.STATIC / "manifest.webmanifest").read_text(encoding="utf-8"))
+    for key in ("name", "short_name"):
+        if name not in manifest.get(key, ""):
+            stale.append(f"manifest {key} is {manifest.get(key)!r}")
+
+    assert not stale, f"the app names itself something other than {name!r}: " + "; ".join(stale)
+
+    # A home-screen name iOS will not truncate. Not a store rule — a phone
+    # one, and the store's 30 is no guide to it.
+    assert len(manifest["short_name"]) <= 15, manifest["short_name"]
+
+
 def test_the_published_site_claims_the_domain_the_listings_name(tmp_path):
     """GitHub Pages serves a custom domain only if a CNAME file says so.
 
-    Without one it answers at <owner>.github.io/<repo>/ and nothing else —
-    while both store listings name auteurstudies.com. So the privacy policy
-    Apple fetches during review would 404, which is the most common metadata
-    rejection there is, and nothing in the repository connected those two
-    facts.
-
-    The file is written from `COMPANY.domain` rather than typed, and this
-    builds the site for real and reads what came out.
+    And the CNAME has to be the product's subdomain, never the apex. The apex
+    is the company's own site — a live Wix site — and a CNAME claiming it,
+    followed by the DNS to match, would replace that site with this one. So
+    this asserts both halves: that a CNAME exists at all, and that it is not
+    the apex.
     """
-    import subprocess
 
     from auteur.identity import COMPANY, IDENTITY
 
@@ -11971,29 +12071,44 @@ def test_the_published_site_claims_the_domain_the_listings_name(tmp_path):
 
     cname = out / "CNAME"
     assert cname.is_file(), (
-        "the published site has no CNAME, so Pages will not serve "
-        f"{COMPANY.domain} and every store URL 404s"
+        "the published site has no CNAME, so Pages will not serve a custom "
+        "domain and the store URLs 404"
     )
-    assert cname.read_text(encoding="utf-8").strip() == COMPANY.domain
+    claimed = cname.read_text(encoding="utf-8").strip()
+    assert claimed == COMPANY.documents_for(IDENTITY.slug), claimed
+    assert claimed != COMPANY.domain, (
+        "the CNAME claims the apex, which is the company's own site — "
+        "publishing there replaces it"
+    )
 
-    # And every URL the listings name has to be a file this build produced.
+    # And the documents the listings name are files this build produced.
     for label, url in (
-        ("support", IDENTITY.support_url),
         ("privacy policy", IDENTITY.privacy_url),
         ("terms", IDENTITY.terms_url),
     ):
-        page = url.rsplit("/", 1)[-1] or "index.html"
+        page = url.rsplit("/", 1)[-1]
         assert (out / page).is_file(), f"the {label} URL names {page}, which is not built"
 
 
 def test_every_store_url_names_a_page_the_site_actually_builds():
-    """GitHub Pages serves `privacy.html` and gives `/privacy` a 404.
+    """Two hosts, on purpose, and each has to be right about itself.
 
-    Apple fetches the privacy policy URL during review, and a 404 there is the
-    most common metadata rejection there is. The URLs are derived from the
-    company's domain, so the half that can still be wrong is the filename —
-    and the filenames the site writes are in `tools/site/build_site.py`, which
-    is what this reads rather than assuming.
+    Support points at the company's own site at the apex, which this
+    repository does not build — auteurstudies.com is a Wix site, and an
+    earlier version of this test would have had it moved to GitHub Pages,
+    which would have taken it down.
+
+    The privacy policy and the terms are built here, from PRIVACY.md and
+    TERMS.md, and are served from the product's own subdomain. They stay here
+    because a copy pasted into a website drifts from what the code can
+    actually reach, and an inaccurate Play Data safety declaration is a policy
+    strike rather than a correction.
+
+    So: support on the apex, documents on the subdomain, and every document
+    URL naming a file the builder actually writes. GitHub Pages serves
+    `privacy.html` at `/privacy.html` and gives `/privacy` a 404, and a
+    privacy policy URL that 404s is the most common metadata rejection there
+    is.
     """
     from auteur.identity import COMPANY, IDENTITY
 
@@ -12003,22 +12118,31 @@ def test_every_store_url_names_a_page_the_site_actually_builds():
     built = set(re.findall(r'"([a-z-]+\.html)"', builder))
     assert "index.html" in built, "the site builder no longer names its own pages"
 
+    assert IDENTITY.support_url == f"https://{COMPANY.domain}/", (
+        f"the support URL is {IDENTITY.support_url!r}; it should be the "
+        "company's own site at the apex"
+    )
+
+    documents = COMPANY.documents_for(IDENTITY.slug)
+    assert documents != COMPANY.domain, (
+        "the documents are on the apex, which is the company's own site — "
+        "publishing there would replace it"
+    )
+    assert documents.endswith("." + COMPANY.domain), documents
+
     for label, url in (
-        ("support", IDENTITY.support_url),
         ("privacy policy", IDENTITY.privacy_url),
         ("terms", IDENTITY.terms_url),
     ):
         assert url.startswith(
-            f"https://{COMPANY.domain}"
-        ), f"the {label} URL is {url!r}, which is not on the company's domain"
+            f"https://{documents}/"
+        ), f"the {label} URL is {url!r}, which is not on {documents}"
         page = url.rsplit("/", 1)[-1]
-        # The bare domain is the front page and needs no filename.
-        if page:
-            assert page in built, (
-                f"the {label} URL points at {page!r}, which "
-                "tools/site/build_site.py does not write — that is a 404 at "
-                "review time"
-            )
+        assert page in built, (
+            f"the {label} URL points at {page!r}, which "
+            "tools/site/build_site.py does not write — that is a 404 at "
+            "review time"
+        )
 
 
 def test_the_submission_preflight_says_what_it_cannot_check():
@@ -12066,7 +12190,16 @@ def test_the_submission_preflight_says_what_it_cannot_check():
     finally:
         sys.modules.pop(spec.name, None)
 
-    assert code == 0, f"the preflight fails offline:\n{printed}"
+    # Not the exit code. The preflight reports on the whole submission, and
+    # on a clean checkout one of those things is legitimately missing: the
+    # store screenshots live in `build/`, which is generated and gitignored,
+    # so it says "no screenshots" and exits 1. The first draft asserted 0 and
+    # so passed only on a machine that had run the screenshot tool at some
+    # point — green here and red on every CI run, which is the worst way for
+    # a test to be wrong. What is asserted instead is that it ran and
+    # produced its report; a crash fails the run before this line.
+    assert code in (0, 1), f"the preflight neither passed nor reported: {code}"
+    assert "before the upload" in printed, printed[:400]
 
     for item in pending():
         assert item.what in printed, (

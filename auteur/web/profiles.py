@@ -410,6 +410,14 @@ class Profiles:
             candidate.relative_to(self.pictures.resolve())
             candidate.unlink(missing_ok=True)
         except (OSError, ValueError):
+            # Nothing to do and nothing to report. ValueError is
+            # `relative_to` refusing a path that resolved outside the picture
+            # folder — the traversal guard doing its job, on a filename that
+            # was never ours to delete. OSError is the file already being
+            # gone, or a permission this process does not have. In all three
+            # the caller's intent — that this picture is not on disk — is
+            # either already true or not ours to bring about, and raising
+            # would fail a profile edit over a stale filename.
             pass
 
     def follow(self, who: str, other: str) -> bool:
