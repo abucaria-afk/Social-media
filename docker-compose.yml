@@ -1,0 +1,44 @@
+# The app at a real address, on your own machine or anybody's host.
+#
+#   docker compose up --build
+#
+# Then open the printed address. Everything works: making films, the feed that
+# ranks on what was actually watched, messages, projects, the schedule. That is
+# the difference between this and the published single-page link, which has no
+# server behind it and so has only the making half.
+
+services:
+  auteur:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # The films, outside the container. Named rather than a bind mount so it
+      # survives `docker compose down` and does not depend on a host path.
+      - auteur-data:/data
+    environment:
+      # Set these when it is reachable from anywhere but this machine. Sign-in
+      # cookies are marked Secure behind HTTPS, and a reverse proxy has to be
+      # trusted before the app will believe the forwarded scheme — otherwise it
+      # sees http, marks the cookie insecure, and the sign-in silently fails
+      # in a way that looks like a wrong password.
+      # AUTEUR_PUBLIC_URL: https://auteur.example.com
+      # AUTEUR_PUBLIC_HTTPS: "1"
+      # AUTEUR_TRUST_PROXY: "1"
+
+      # The three the store preflight refuses to pass without.
+      # AUTEUR_BUNDLE_ID: com.yourname.auteur
+      # AUTEUR_DEVELOPER: Your Name
+      # AUTEUR_SUPPORT_EMAIL: you@example.com
+
+      # Reading numbers back from the platforms. Nothing is collected without
+      # these and the Schedule tab says so rather than drawing an empty chart.
+      # AUTEUR_TIKTOK_CLIENT_KEY:
+      # AUTEUR_TIKTOK_CLIENT_SECRET:
+      # AUTEUR_INSTAGRAM_CLIENT_ID:
+      # AUTEUR_INSTAGRAM_CLIENT_SECRET:
+      PORT: "8000"
+    restart: unless-stopped
+
+volumes:
+  auteur-data:

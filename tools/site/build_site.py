@@ -32,7 +32,7 @@ OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "docs" / "index.html"
 #: Where a person can actually get it. A landing page whose buttons do nothing
 #: is worse than one without buttons, so anything not yet real says so rather
 #: than linking to a store page that does not exist.
-TRY_IT = "https://claude.ai/code/artifact/41d2b681-6de3-468c-8a5f-60b5bc61229f"
+TRY_IT = "https://claude.ai/code/artifact/11666d9b-4b2f-4c15-818b-185262d6cc2a"
 
 
 def _vars(scheme: str) -> str:

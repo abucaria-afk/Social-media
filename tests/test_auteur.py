@@ -10332,6 +10332,53 @@ def _api_post(base, path, cookie, payload=None):
         return _json.loads(response.read().decode())
 
 
+def test_the_container_runs_the_app_with_flags_that_exist():
+    """A Dockerfile is code nobody type-checks.
+
+    The first draft of this one set `AUTEUR_WORKSPACE=/data`, an environment
+    variable this project has never had. Nothing would have failed: the server
+    would have started, ignored it, and written every film into the container's
+    own filesystem, where a restart loses them. An invented flag in a shell
+    string is exactly the class of mistake that survives review and shows up as
+    lost footage.
+
+    So the CMD is parsed and its options are checked against the parser the CLI
+    actually builds, and any AUTEUR_* name the compose file sets is checked
+    against the ones the code reads.
+    """
+    import shlex
+
+    root = Path(__file__).resolve().parent.parent
+    dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
+
+    line = [ln for ln in dockerfile.splitlines() if ln.startswith("CMD ")]
+    assert line, "the Dockerfile does not say how to run the app"
+    inner = line[0][line[0].index("python -m auteur") : line[0].rindex('"')]
+    words = shlex.split(inner.replace("${PORT}", "8000"))
+    assert words[:4] == ["python", "-m", "auteur", "serve"], words[:4]
+
+    from auteur.cli import _build_parser
+
+    # `parse_args` refuses an option the parser does not define, which is the
+    # whole point — an invented flag has to fail here rather than in a
+    # container somebody has already deployed.
+    parsed = _build_parser().parse_args(words[3:])
+    assert parsed.host == "0.0.0.0", "a container that binds loopback is unreachable"
+    assert parsed.out == "/data", "the films must land on the volume, not in the image"
+
+    source = "\n".join(path.read_text(encoding="utf-8") for path in (root / "auteur").rglob("*.py"))
+    known = set(re.findall(r"AUTEUR_[A-Z_]+", source))
+    known |= {"AUTEUR_TIKTOK_CLIENT_KEY", "AUTEUR_TIKTOK_CLIENT_SECRET"}
+    known |= {"AUTEUR_INSTAGRAM_CLIENT_ID", "AUTEUR_INSTAGRAM_CLIENT_SECRET"}
+
+    compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
+    for name in set(re.findall(r"AUTEUR_[A-Z_]+", compose)):
+        assert name in known, (
+            f"docker-compose.yml sets {name}, which nothing in auteur/ reads — "
+            "see the invented AUTEUR_WORKSPACE this guards"
+        )
+
+
 def test_every_tab_and_create_entry_points_at_a_route_the_app_serves():
     """A tab bar slot leading to a 404 is the worst possible 404.
 

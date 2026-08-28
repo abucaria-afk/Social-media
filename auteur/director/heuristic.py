@@ -139,7 +139,12 @@ def _median_gap(beats: list[float]) -> float:
 
 
 def _build_slots(
-    brief: Brief, target: float, audio: AudioAnalysis | None, offset: float, rng: random.Random
+    brief: Brief,
+    target: float,
+    audio: AudioAnalysis | None,
+    offset: float,
+    rng: random.Random,
+    structure: story_craft.Structure | None = None,
 ) -> list[_Slot]:
     """Lay out the rhythm of the film before choosing a single frame.
 
@@ -168,24 +173,40 @@ def _build_slots(
         # resolve to the same shot length.
         want *= 0.86 + 0.28 * rng.random()
 
+        # What this shot is *for*, which is what stops every length being a
+        # function of position. Without this the longest shot in the film came
+        # out at exactly 2.00x the median on every brief tried.
+        beat = structure.at(index) if structure else story_craft.Beat.BUILD
+        want *= story_craft.STRESS[beat]
+        held = beat is story_craft.Beat.HOLD
+        ceiling = min(HELD_SLOT, target * HELD_SHARE) if held else MAX_SLOT
+        want = float(np.clip(want, MIN_SLOT, max(MIN_SLOT, ceiling)))
+
         end = cursor + want
         if beats:
             upcoming = [b for b in beats if b > cursor + MIN_SLOT * 0.9]
             if upcoming:
                 best, best_cost = None, float("inf")
-                for count, beat_time in enumerate(upcoming[:8], start=1):
+                # 24 rather than 8: a held shot is several bars long, and a
+                # window of eight grid lines cannot reach it — the snap would
+                # silently give the hold back to the rhythm it exists to break.
+                for count, beat_time in enumerate(upcoming[:24], start=1):
                     length = beat_time - cursor
-                    if length > MAX_SLOT:
+                    if length > ceiling:
                         break
                     cost = abs(length - want)
                     if count not in MUSICAL_MULTIPLES:
-                        cost += 0.3
+                        # A hold is allowed to sit off the musical grid. It is
+                        # the one shot whose job is to stop the rhythm, and
+                        # rounding it to 8 beats to keep it tidy is how it
+                        # became another landing.
+                        cost += 0.05 if held else 0.3
                     if cost < best_cost:
                         best, best_cost = beat_time, cost
                 if best is not None:
                     end = best
 
-        end = min(float(np.clip(end, cursor + MIN_SLOT, cursor + MAX_SLOT)), target)
+        end = min(float(np.clip(end, cursor + MIN_SLOT, cursor + ceiling)), target)
         if target - end < MIN_SLOT:  # absorb a runt tail into the final shot
             end = target
 
@@ -196,6 +217,7 @@ def _build_slots(
                 end=round(end, 4),
                 energy=energy,
                 on_downbeat=round(end, 3) in downbeats,
+                beat=beat,
             )
         )
         cursor = end

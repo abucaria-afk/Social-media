@@ -1,0 +1,40 @@
+# Fly: `fly launch --no-deploy` then `fly deploy`, from this directory.
+#
+# Same container as everywhere else. The one thing worth knowing is the volume:
+# without it a deploy replaces the machine and every film goes with it.
+#
+#   fly volumes create auteur_data --size 10
+#   fly secrets set AUTEUR_USERNAME=you AUTEUR_PASSWORD='four unrelated words'
+#   fly deploy
+
+app = "auteur"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8000"
+  # Fly terminates TLS at its edge and forwards http, so the app has to be
+  # told the outside is https or it marks the sign-in cookie insecure.
+  AUTEUR_TRUST_PROXY = "1"
+  AUTEUR_PUBLIC_HTTPS = "1"
+
+[[mounts]]
+  source = "auteur_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # Not zero. Rendering is minutes of ffmpeg, and a machine that stops while a
+  # film is being cut loses the film. Somebody's footage is not a cold start.
+  auto_stop_machines = false
+  min_machines_running = 1
+
+[[http_service.checks]]
+  grace_period = "20s"
+  interval = "30s"
+  method = "GET"
+  path = "/login"
+  timeout = "5s"

@@ -186,8 +186,77 @@
     }).join("");
     document.body.appendChild(nav);
     document.body.classList.add("has-tabbar");
+    createSheet(nav);
     badge();
     largeTitles();
+  }
+
+  /* The plus opens rather than goes.
+   *
+   * On both apps this is modelled on, the middle button asks which kind of
+   * thing you are making before taking you anywhere. That is not decoration:
+   * "make a film", "cut to a template" and "make a template" are three
+   * different jobs that used to be scattered across a tab, a sub-page and a
+   * fragment, and a person who has not found the third one does not know the
+   * app can do it.
+   *
+   * The tab stays a real link to "/" so it works with no JavaScript, opens in
+   * a new tab on a middle click, and has somewhere to go if this fails. */
+  function createSheet(nav) {
+    var tab = nav.querySelector('.tab[data-tab="make"]');
+    if (!tab) return;
+
+    var sheet = document.createElement("div");
+    sheet.className = "sheet";
+    sheet.id = "create-sheet";
+    sheet.hidden = true;
+    sheet.innerHTML =
+      '<div class="sheet-scrim" data-close-create></div>' +
+      '<div class="sheet-body" role="dialog" aria-modal="true" ' +
+      'aria-label="Make something">' +
+      '<div class="sheet-grip" aria-hidden="true"></div>' +
+      '<h2 class="sheet-title">Make something</h2>' +
+      '<div class="make-list">' +
+      CREATE.map(function (item) {
+        return (
+          '<a class="make-row" href="' + item.href + '">' +
+          '<span class="make-icon">' + svg(item.icon, false) + "</span>" +
+          '<span class="make-words"><span class="make-title">' + item.title +
+          '</span><span class="make-note">' + item.note + "</span></span>" +
+          "</a>"
+        );
+      }).join("") +
+      "</div>" +
+      '<button type="button" class="go quiet" data-close-create>Not now</button>' +
+      "</div>";
+    document.body.appendChild(sheet);
+
+    function open() {
+      sheet.hidden = false;
+      document.body.classList.add("sheet-open");
+      /* Focus the first thing in the sheet, or a keyboard is still on the tab
+         bar behind a modal it cannot see. */
+      var first = sheet.querySelector(".make-row");
+      if (first) first.focus();
+    }
+    function close() {
+      sheet.hidden = true;
+      document.body.classList.remove("sheet-open");
+      tab.focus();
+    }
+
+    tab.addEventListener("click", function (event) {
+      /* Let a modified click through: somebody asking for a new tab means it. */
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+      event.preventDefault();
+      if (sheet.hidden) { open(); } else { close(); }
+    });
+    sheet.addEventListener("click", function (event) {
+      if (event.target.closest("[data-close-create]")) close();
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !sheet.hidden) close();
+    });
   }
 
   /* The unread count on the inbox tab. One request on load; the inbox page

@@ -39,6 +39,12 @@ import time
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
+#: When the endpoints and scope names below were last read off the platforms'
+#: own documentation. Same discipline as `workflows/platforms.py` and
+#: `brand.py`: a number nobody dates is a number nobody re-checks. Both
+#: platforms have renamed scopes inside the last two years.
+AS_OF = "2026-08"
+
 
 @dataclass(frozen=True)
 class Platform:
@@ -61,15 +67,27 @@ class Platform:
     #: that asks for publishing rights in order to draw a chart is one people
     #: are right to refuse.
     read_scopes: str
+    #: Where the numbers come from once an account is connected.
+    insights: str
     #: What has to be true before the platform will approve the application at
     #: all. Written down because it is the part that takes weeks, and finding
     #: out about it after building is how this kind of feature dies.
     gate: str
+    #: The page these values were read off, and when. Every one of these was
+    #: first written from memory and then checked against the platform's own
+    #: documentation, which is the only reason they can be trusted — a scope
+    #: name recalled rather than read is a consent screen that refuses with no
+    #: explanation, and this project has a long history of numbers that were
+    #: never checked against their source.
+    source: str
     #: The environment variables a publisher sets. Nothing is hard-coded and no
     #: default is plausible-looking: an unset client id has to fail, not work
     #: badly.
     id_var: str
     secret_var: str
+    # Last, because a field with a default cannot precede one without. Third
+    # time this exact ordering has bitten in this repository.
+    checked: str = AS_OF
 
 
 PLATFORMS: dict[str, Platform] = {
@@ -82,6 +100,8 @@ PLATFORMS: dict[str, Platform] = {
         # per-video figures. Publishing is `video.publish` and is not asked for
         # here — see the note on scopes above.
         read_scopes="user.info.basic,user.info.stats,video.list",
+        insights="https://open.tiktokapis.com/v2/video/query/",
+        source="https://developers.tiktok.com/doc/login-kit-manage-user-access-tokens/",
         gate=(
             "A TikTok developer application, and an audit before it may leave "
             "sandbox. In sandbox only accounts explicitly added as testers can "
@@ -97,6 +117,13 @@ PLATFORMS: dict[str, Platform] = {
         authorize="https://www.instagram.com/oauth/authorize",
         token="https://api.instagram.com/oauth/access_token",
         read_scopes="instagram_business_basic,instagram_business_manage_insights",
+        # `GET /{ig-user-id}/insights?metric=...&period=day`. Note that
+        # `impressions` and `profile_views` are being retired in favour of
+        # `views`, so a metric list is not a constant to hard-code once and
+        # forget — which is why this carries a date and a source like
+        # everything else that describes somebody else's product.
+        insights="https://graph.facebook.com/{account}/insights",
+        source="https://developers.facebook.com/documentation/instagram-platform/insights",
         gate=(
             "A Meta app, and the account has to be a Business or Creator "
             "account rather than a personal one — Instagram returns no "

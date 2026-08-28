@@ -1576,3 +1576,49 @@ body.sheet-open { overflow: hidden; }
 }
 
 .stack-empty { color: var(--text-faint); margin: 0 0 18px; }
+
+
+/* -- the Create sheet ------------------------------------------------------
+   In style.css and not in a page's own file, because the tab bar is injected
+   on every page and a sheet styled in one of them is an unstyled list on the
+   other twelve. That mistake has been made six times in this repository. */
+
+.make-list { display: grid; gap: 6px; margin: 6px 0 16px; }
+
+.make-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  /* 60, not 44: this row carries two lines of text and the floor is the
+     minimum for a target, not a good height for one. */
+  min-height: 60px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: var(--text);
+}
+.make-row:active { background: var(--raised); }
+.make-row:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+
+.make-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 12px;
+  background: var(--raised);
+  color: var(--ember-text);
+}
+
+.make-words { display: grid; gap: 2px; min-width: 0; }
+.make-title { font-weight: 600; }
+.make-note {
+  color: var(--text-muted);
+  font-size: var(--text-footnote);
+  /* One line, truncated. Two lines of explanation per row turns a chooser
+     into a page somebody has to read. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

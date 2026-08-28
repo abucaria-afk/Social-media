@@ -13,7 +13,7 @@ hypercut at a sixth, because those are the numbers the reference reels are cut
 at, measured rather than chosen.
 
 **Try it without installing anything:**
-<https://claude.ai/code/artifact/41d2b681-6de3-468c-8a5f-60b5bc61229f>
+<https://claude.ai/code/artifact/11666d9b-4b2f-4c15-818b-185262d6cc2a>
 
 That link is the app's own front end with a browser renderer standing in for
 ffmpeg, so it cuts a real film from your own camera roll on your own phone.
@@ -44,6 +44,25 @@ python -m auteur serve                       # then open the printed address on 
 `serve` is the whole app: making films, a feed of what has been made, messages,
 profiles, projects and the planning board — on your machine, in a folder you
 chose, with no account on anybody's service.
+
+### At a real address
+
+```bash
+docker compose up --build     # then open http://localhost:8000
+```
+
+The same server, in a container, so it can go on a host and have a URL. This
+matters more than it sounds: the **published link is a single file with no
+server behind it**, so it can only ever show the making half — no feed, no
+messages, no schedule, because all three need somewhere to keep things. A
+container is how you see the app at full capacity without running Python
+yourself.
+
+Set `AUTEUR_PUBLIC_URL`, `AUTEUR_PUBLIC_HTTPS` and `AUTEUR_TRUST_PROXY` when it
+is reachable from beyond your own machine. Behind a reverse proxy the last one
+is not optional — without it the app sees plain http, marks the sign-in cookie
+insecure, and the sign-in fails in a way that looks exactly like a wrong
+password.
 
 ---
 
