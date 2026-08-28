@@ -322,5 +322,74 @@
     });
   })();
 
+  /* The accounts a film can go out to, and — when there are none — why.
+   *
+   * The second half is the whole point. A Schedule screen with an empty chart
+   * on it is indistinguishable from an account nobody watched, and this app
+   * shipped an insight layer fitted to a simulation for months. So when a
+   * platform is not configured the row says so and names what it needs,
+   * rather than sitting there looking connectable. */
+  function drawPlatforms(data) {
+    var rows = (data.available || []).map(function (p) {
+      var state, action;
+      if (p.connected) {
+        state = "Connected";
+        action = '<button type="button" class="chip-ghost" data-drop="' + p.key + '">Disconnect</button>';
+      } else if (p.configured) {
+        state = "Not connected";
+        action = '<a class="chip-button" href="/connect/' + p.key + '">Connect</a>';
+      } else {
+        /* Not "Connect" greyed out. A control that looks like it should work
+           and does nothing is worse than a sentence saying why. */
+        state = "Needs setting up";
+        action = "";
+      }
+      return (
+        '<div class="inset-row" data-platform="' + p.key + '">' +
+        '<span class="inset-label">' + escaped(p.label) + "</span>" +
+        '<span class="inset-value">' + state + "</span>" +
+        action +
+        "</div>"
+      );
+    });
+    $("platforms").innerHTML = rows.join("");
+
+    var missing = data.missing || [];
+    var list = $("platforms-missing");
+    list.hidden = missing.length === 0;
+    list.innerHTML = missing
+      .map(function (line) { return '<li class="stack-empty">' + escaped(line) + "</li>"; })
+      .join("");
+
+    if (missing.length && data.checked) {
+      $("platforms-note").textContent =
+        "Nothing is connected, so nothing leaves this machine. What each " +
+        "platform requires was last checked against its own documentation in " +
+        data.checked + ".";
+    }
+  }
+
+  function loadPlatforms() {
+    fetch("/api/linked-accounts", { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { if (data) { drawPlatforms(data); } })
+      .catch(function () { /* signed out: the section stays empty */ });
+  }
+
+  document.addEventListener("click", function (event) {
+    var drop = event.target.closest("[data-drop]");
+    if (!drop) { return; }
+    fetch("/api/disconnect", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ platform: drop.dataset.drop })
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { if (data) { drawPlatforms(data); } })
+      .catch(function () {});
+  });
+
+  loadPlatforms();
   loadBoard();
 })();

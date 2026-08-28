@@ -181,6 +181,7 @@ def start(workspace: Path):
     from auteur.web.safety import Reports
     from auteur.web.social import Films, Messages
     from auteur.projects import Projects
+    from auteur.social.accounts import Connections
     from auteur.web.watching import Watching
 
     assets.ensure(web.STATIC)
@@ -198,6 +199,10 @@ def start(workspace: Path):
     # was never set — a 500 on a route the shipped app serves, in the harness
     # that photographs the app for the store.
     web.Handler.projects = Projects(Projects.default_path(workspace))
+    # Linked platform accounts. Unset, the Schedule screen renders nothing at
+    # all rather than the honest "needs setting up" it is supposed to show —
+    # the third store in a row this harness forgot.
+    web.Handler.connections = Connections(Connections.default_path(workspace))
     web.Handler.sign_in_with = oidc.load(workspace)
     web.Handler.attempts = oidc.Attempts()
     # The feed ranks by what gets watched, so a harness that leaves this unset

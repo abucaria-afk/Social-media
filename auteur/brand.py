@@ -98,8 +98,10 @@ FEATURES: list[Feature] = [
     ),
     Feature(
         "It runs on your device",
-        "No account with anybody, no third-party analytics, no advertising "
-        "identifier, no third-party code at all. It works in aeroplane mode.",
+        "No third-party analytics, no advertising identifier, no third-party "
+        "code. Making a film works in aeroplane mode. The only thing that ever "
+        "talks to another company is a TikTok or Instagram account you connect "
+        "yourself, to read back how a post did.",
     ),
     Feature(
         "A feed that learns, on your own machine",

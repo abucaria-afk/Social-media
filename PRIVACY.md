@@ -12,8 +12,19 @@ can live inside a single phone: they need a server. The server is one *you*
 run, with `auteur serve`, usually on your own wifi, holding its files in a
 folder you chose. So "nothing leaves your phone" is not quite the right
 sentence, and the right one is longer: **nothing goes anywhere you did not put
-it.** There is no account with anybody, no third-party analytics, and no
-address in this program that you did not type.
+it.** There is no third-party analytics, no advertising identifier, and no
+address in this program that you did not type or approve on a consent screen.
+
+There is now one exception and it is worth stating before anything else,
+because it is the only thing in this app that talks to a company other than
+you. **You can connect a TikTok or Instagram account** on the Schedule screen,
+to read back how a post did. That is a deliberate act — a consent screen on
+their site, which you can refuse — and until you do it, no request is made to
+either of them. What is asked for is reading only: followers, and the figures
+for posts you already made. Publishing is a separate permission on both
+platforms and this app does not request it, so it cannot post as you even if
+something went wrong. Disconnecting deletes the token, and so does deleting
+your account.
 
 ## The iOS app
 
@@ -21,7 +32,9 @@ address in this program that you did not type.
 whole edit room — a page loaded from inside the app itself, plus a small amount
 of native code — and it works with the phone in aeroplane mode, which is the
 simplest way to confirm it. There is no analytics, no crash reporting service,
-no advertising identifier and no account.
+no advertising identifier and no account. Making a film is entirely local: this
+paragraph is unchanged by the platform connections above, because those live on
+the instance and the phone in aeroplane mode has no instance to talk to.
 
 **Connected to your own instance, it reaches that and nothing else.** The feed,
 the messages and the planned posts live there because they cannot live in one

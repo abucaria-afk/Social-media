@@ -65,9 +65,32 @@ network.
 | --- | --- | --- |
 | Shared with the developer | None | There is no developer-operated service. |
 | Third-party SDKs | None | No analytics, no crash reporting, no ad network. |
+| Third-party services | TikTok and Instagram, only if the user connects one | See below. Not an SDK: ordinary HTTPS requests to their published APIs, made only after the user completes their consent screen. |
 | Advertising ID | Not used | Not requested, not linked, not present. |
-| Data encrypted in transit | Yes, where configured | An instance is reached over the user's own network; HTTPS when they set it up. |
-| Deletion request route | Yes | Account deletion is in the app, and erases the watch history with it. |
+| Data encrypted in transit | Yes, where configured | An instance is reached over the user's own network; HTTPS when they set it up. The platform APIs are HTTPS always. |
+| Deletion request route | Yes | Account deletion is in the app, and erases the watch history and any platform tokens with it. |
+
+**Connecting a platform account.** On the Schedule screen a person may connect
+a TikTok or Instagram account in order to read back how a post did. This is the
+one thing in the app that contacts a company other than the person running the
+instance, so it is declared plainly rather than folded into the paragraph above:
+
+* It happens only when somebody taps Connect and completes the platform's own
+  consent screen, which they can refuse.
+* The scopes requested are **read-only** — `user.info.basic,user.info.stats,video.list`
+  on TikTok, `instagram_business_basic,instagram_business_manage_insights` on
+  Instagram. Publishing is a separate permission on both and is not requested,
+  so the app cannot post as anybody even in error.
+* What comes back — follower counts and per-post figures — is stored on the
+  instance, which is the user's own machine. It is not sent to the publisher,
+  because there is nowhere to send it.
+* Disconnecting deletes the access token. So does deleting the account.
+
+The previous version of this file said "Third-party SDKs: None" and stopped
+there, which was true of the build it was written for. A Data safety
+declaration that was accurate when tested and inaccurate when shipped is a
+policy strike rather than a rejection you can fix and resubmit, so this section
+lands in the same change as the code that makes it necessary.
 
 **With no instance, nothing is collected at all.** Making a film — choosing
 footage, writing the brief, cutting, grading, saving — happens entirely on the

@@ -37,13 +37,27 @@
     say what the film is, and it works out what you have to go and shoot.
   </p>
 
-  <!-- Said once, at the top, and again in the API's own payload. -->
+  <!-- Said once, at the top, and again in the API's own payload.
+       This used to read "no request is ever made to one", full stop. That
+       stopped being true the moment an account could be connected below, and
+       a privacy claim that was true of the version you tested is the exact
+       thing a Data safety declaration is a policy strike for. -->
   <p class="never-posts">
     <span aria-hidden="true">⃠</span>
-    This does everything except post. There is no account connected to any
-    service and no request is ever made to one — when you have posted something
-    yourself, mark it here and it leaves the board.
+    <strong>This never posts for you.</strong> Connecting an account below
+    asks only to <em>read</em> — followers and how a post did. Publishing is a
+    separate permission on both platforms and this app does not ask for it.
+    When you have posted something yourself, mark it here and it leaves the
+    board. With nothing connected, no request leaves this machine at all.
   </p>
+
+  <h3 class="section">Accounts</h3>
+  <div class="inset-group" id="platforms"></div>
+  <p class="group-caption" id="platforms-note">
+    Reading how a post did is the only reason to connect anything here, and it
+    is the only thing asked for. Disconnecting deletes the token.
+  </p>
+  <ul class="stack" id="platforms-missing" hidden></ul>
 
   <h3 class="section">In your calendar</h3>
   <div class="inset-group">

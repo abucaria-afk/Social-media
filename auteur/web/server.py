@@ -591,6 +591,23 @@ class _Prefixed(io.RawIOBase):
         return len(block)
 
 
+#: Platform connections part way through the platform's consent screen, by
+#: `state`. In memory rather than on disk for the same reason `oidc.Attempts`
+#: is: an interrupted connection should not survive a restart.
+_CONNECTING: dict[str, tuple[str, str, float]] = {}
+_CONNECTING_LOCK = threading.Lock()
+#: How long somebody has to finish a consent screen. Ten minutes is generous
+#: for a form and short enough that an abandoned state is not lying around.
+CONNECTING_TTL = 600.0
+
+
+def _sweep_connecting() -> None:
+    """Drop states nobody came back with. Callers hold the lock."""
+    cutoff = time.time() - CONNECTING_TTL
+    for state in [key for key, row in _CONNECTING.items() if row[2] < cutoff]:
+        _CONNECTING.pop(state, None)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "auteur"
     #: HTTP/1.1 so connections are kept alive. The page polls every second or
@@ -604,6 +621,7 @@ class Handler(BaseHTTPRequestHandler):
     reports: Any = None  # a safety.Reports once serve() has run
     projects: Any = None  # a projects.Projects once serve() has run
     watching: Any = None  # a watching.Watching once serve() has run
+    connections: Any = None  # a social.accounts.Connections once serve() has run
     board: Any = None  # a manager.Board once serve() has run
     sign_in_with: Any = None  # provider settings once serve() has run
     attempts: Any = None  # an oidc.Attempts once serve() has run
@@ -1195,6 +1213,123 @@ class Handler(BaseHTTPRequestHandler):
             }
         )
 
+    def _start_connecting(self, platform_key: str) -> None:
+        """Send somebody to the platform's own consent screen.
+
+        Only ever reached from a Connect control, which only appears when the
+        publisher has supplied credentials — but it is checked again here,
+        because a route that trusts the page to have checked is a route anybody
+        can call directly.
+
+        The redirect URI has to match the one registered with the platform
+        exactly, down to the trailing slash, and a mismatch is refused by them
+        with a message that names the wrong thing. So it is built from the
+        app's own public URL rather than from the request's Host header, which
+        a proxy can rewrite.
+        """
+        import secrets
+        import urllib.parse
+
+        from ..social import accounts as social_accounts
+
+        who = self.current_user() or ""
+        if not who:
+            self._redirect("/login")
+            return
+        platform = social_accounts.PLATFORMS.get(platform_key)
+        if platform is None:
+            self._json({"error": "no such platform"}, 404)
+            return
+        if not social_accounts.configured(platform_key):
+            # Not a 500. Nothing is broken: a publisher has not supplied
+            # credentials, and the person looking at this can do nothing about
+            # it, so the message is for whoever runs the instance.
+            self._json(
+                {
+                    "error": f"{platform.label} is not set up on this instance",
+                    "needs": [platform.id_var, platform.secret_var],
+                    "why": platform.gate,
+                },
+                503,
+            )
+            return
+
+        # `state` is the CSRF defence the specification requires: it comes
+        # back unchanged, and a callback carrying one this instance never
+        # issued is somebody else's authorisation being replayed at this user.
+        # In memory, like the sign-in attempts next door, because a state that
+        # outlives the process that issued it is a replay waiting to happen.
+        state = secrets.token_urlsafe(24)
+        with _CONNECTING_LOCK:
+            _sweep_connecting()
+            _CONNECTING[state] = (who, platform_key, time.time())
+        query = urllib.parse.urlencode(
+            {
+                "client_id": os.environ.get(platform.id_var, ""),
+                "scope": platform.read_scopes,
+                "response_type": "code",
+                "redirect_uri": f"{self._site_root()}/connect/{platform_key}/done",
+                "state": state,
+            }
+        )
+        self._redirect(f"{platform.authorize}?{query}")
+
+    def _my_connections(self) -> None:
+        """Which platforms this person has connected, and why not the rest.
+
+        The second half is the part that matters. A Schedule screen showing an
+        empty chart is indistinguishable from an account with no views, and
+        this project has already shipped an insight layer fitted to a
+        simulation — so when there are no numbers the screen says which
+        credentials are missing and what each platform requires, rather than
+        drawing something plausible.
+        """
+        from ..social import accounts as social_accounts
+
+        who = self.current_user() or ""
+        if not who:
+            self._json({"connected": [], "available": [], "missing": []})
+            return
+
+        mine = {row.platform: row for row in self.connections.of(who)} if self.connections else {}
+        self._json(
+            {
+                "connected": [row.to_json() for row in mine.values()],
+                "available": [
+                    {
+                        "key": platform.key,
+                        "label": platform.label,
+                        "configured": social_accounts.configured(platform.key),
+                        "connected": platform.key in mine,
+                        # What is asked for, in the platform's own words, so
+                        # somebody can see it is reading and not publishing
+                        # before they tap Connect.
+                        "asks_for": platform.read_scopes,
+                        "gate": platform.gate,
+                    }
+                    for platform in social_accounts.PLATFORMS.values()
+                ],
+                "missing": social_accounts.what_is_missing(),
+                "checked": social_accounts.AS_OF,
+            }
+        )
+
+    def _disconnect_platform(self) -> None:
+        """Forget a platform account and drop its tokens."""
+        who = self.current_user() or ""
+        if not who or self.connections is None:
+            self._json({"error": "not signed in"}, 403)
+            return
+        body = self._json_body()
+        platform = str(body.get("platform", ""))
+        from ..social import accounts as social_accounts
+
+        if platform not in social_accounts.PLATFORMS:
+            self._json({"error": "no such platform"}, 400)
+            return
+        self.connections.disconnect(who, platform)
+        self._my_connections()
+
     def _my_profile(self) -> None:
         """Everything the profile page needs about the person looking at it."""
         who = self.current_user() or ""
@@ -1742,6 +1877,11 @@ class Handler(BaseHTTPRequestHandler):
         # people who are still here without making anybody more private.
         if self.watching is not None:
             self.watching.forget_everything_about(who)
+        if self.connections is not None:
+            # Guideline 5.1.1(v) is about the account being erasable from
+            # inside the app, and a live token that can still post to
+            # somebody's TikTok is the worst possible remnant of one.
+            self.connections.forget_everything_about(who)
         if self.board is not None:
             self.board.forget_everyones(who)
         # The reels somebody added as templates, which live under their name.
@@ -2024,6 +2164,16 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/overlays", "/overlays.html", "/animation"):
             self._static(STATIC / "overlays.html", "text/html; charset=utf-8")
             return
+        # `/connect/<platform>` starts a connection; `/connect` alone is the
+        # "where it goes" screen. Checked before that one, because
+        # startswith would otherwise swallow it.
+        if path.startswith("/connect/"):
+            rest = path[len("/connect/") :].strip("/")
+            if rest and "/" not in rest:
+                self._start_connecting(rest)
+                return
+            self._json({"error": "not found"}, 404)
+            return
         if path in ("/connect", "/connect.html", "/connections"):
             self._static(STATIC / "connect.html", "text/html; charset=utf-8")
             return
@@ -2085,6 +2235,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/feed":
             self._feed()
+            return
+        # Not "/api/connections": that is already the *destinations* a film can
+        # be handed off to — Instagram and TikTok as places to paste a caption
+        # — and claiming the path twice meant the first branch answered and
+        # this one was dead code. The page fetched it, got a payload with the
+        # wrong shape, read `undefined` and drew nothing, with no error
+        # anywhere. These are linked accounts, which is a different noun.
+        if path == "/api/linked-accounts":
+            self._my_connections()
             return
         if path == "/api/watching":
             self._my_watching()
@@ -3290,6 +3449,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/report":
             self._report()
             return
+        if path == "/api/disconnect":
+            self._disconnect_platform()
+            return
         if path == "/api/watched":
             self._record_watch()
             return
@@ -3710,6 +3872,7 @@ def serve(
     from .safety import Reports
     from .social import Films, Messages
     from .watching import Watching
+    from ..social.accounts import Connections
 
     assets.ensure(STATIC)
     root = Path(workspace or Path.cwd() / "auteur-web")
@@ -3728,6 +3891,10 @@ def serve(
     # the insight layer was fitted to a simulation of itself; this is where the
     # real numbers come from. It lives here, on this machine, and goes nowhere.
     Handler.watching = Watching(root / "watching")
+    # Accounts on TikTok and Instagram. Separate from `accounts`, which is who
+    # somebody is here — a token that can publish on a person's behalf does not
+    # belong in the same store as a sign-in.
+    Handler.connections = Connections(Connections.default_path(root))
     # A project: the album of what came back, and the map of what you were
     # thinking before you went.
     Handler.projects = Projects(Projects.default_path(root))

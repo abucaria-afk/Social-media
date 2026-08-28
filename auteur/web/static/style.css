@@ -1575,7 +1575,16 @@ body.sheet-open { overflow: hidden; }
   margin: 4px 0 10px;
 }
 
-.stack-empty { color: var(--text-faint); margin: 0 0 18px; }
+.stack-empty {
+  color: var(--text-faint);
+  margin: 0 0 18px;
+  /* An unbroken token wider than the phone pushes the whole page sideways,
+     and the words this carries are environment-variable names —
+     AUTEUR_INSTAGRAM_CLIENT_SECRET is 30 characters with nowhere for the
+     browser to break it. `anywhere` rather than `break-word` because
+     break-word will not split inside a word that has already been placed. */
+  overflow-wrap: anywhere;
+}
 
 
 /* -- the Create sheet ------------------------------------------------------

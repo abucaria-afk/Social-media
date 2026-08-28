@@ -10379,6 +10379,158 @@ def test_the_container_runs_the_app_with_flags_that_exist():
         )
 
 
+def test_no_route_is_claimed_twice():
+    """A second branch on the same path is dead code that looks alive.
+
+    `/api/connections` was already the list of *destinations* a finished film
+    can be handed off to. A second branch was added below it for linked
+    platform accounts, and the first one answered every request — so the
+    Schedule screen fetched the path, got a payload of the wrong shape, read
+    `undefined` off it and drew an empty section. No error, no warning, a 200
+    response, and a feature that silently did not exist.
+
+    Python cannot warn about this the way it warns about a duplicate
+    dictionary key, because the branches are separate statements. So it is
+    checked here: within each request method, no exact path may be claimed by
+    two branches.
+    """
+    import re
+
+    from auteur.web import server
+
+    source = Path(server.__file__).read_text(encoding="utf-8")
+
+    # Split by handler method so a path served on GET and POST is not a clash —
+    # those are different requests and both are reachable.
+    methods = re.split(r"\n    def (do_[A-Z]+)\(", source)
+    seen_any = False
+    for index in range(1, len(methods), 2):
+        name, body = methods[index], methods[index + 1]
+        paths: list[str] = []
+        for group in re.findall(r'if path == ("(?:/[^"]*)")', body):
+            paths.append(group.strip('"'))
+        for group in re.findall(r"if path in \(([^)]*)\)", body):
+            paths += [p.strip().strip("\"'") for p in group.split(",") if p.strip()]
+        seen_any = seen_any or bool(paths)
+        twice = {p for p in paths if paths.count(p) > 1}
+        assert not twice, (
+            f"{name} claims {sorted(twice)} more than once — the first branch "
+            "answers and the rest are dead code that looks alive"
+        )
+
+    assert seen_any, "no routes found — has the router changed shape?"
+
+
+def test_the_privacy_documents_admit_what_the_code_can_reach():
+    """Three documents claimed nothing left the device. Then something could.
+
+    `PRIVACY.md`, the Play Data safety declaration and `brand.py` all said, in
+    their own words, that this app talks to nobody. That was true until
+    `auteur/social/accounts.py` made it possible to connect a TikTok or
+    Instagram account. A privacy claim that was accurate when tested and
+    inaccurate when shipped is the specific failure a Data safety form is a
+    policy strike for, rather than a rejection you fix and resubmit.
+
+    So this holds the three documents to the code: if a platform exists in
+    `PLATFORMS`, every document that describes what the app reaches has to name
+    it. Adding a third platform and forgetting the paperwork fails here.
+    """
+    from auteur import brand
+    from auteur.social import accounts
+
+    root = Path(__file__).resolve().parent.parent
+    documents = {
+        "PRIVACY.md": (root / "PRIVACY.md").read_text(encoding="utf-8"),
+        "tools/play/listing.py": (root / "tools" / "play" / "listing.py").read_text(
+            encoding="utf-8"
+        ),
+        "auteur/brand.py": (root / "auteur" / "brand.py").read_text(encoding="utf-8"),
+    }
+
+    for platform in accounts.PLATFORMS.values():
+        for name, text in documents.items():
+            assert platform.label in text, (
+                f"{name} does not mention {platform.label}, which the app can "
+                "now connect to and read from"
+            )
+
+    # And the claim that is now false must be gone from all three, in the
+    # absolute form it used to take.
+    for name, text in documents.items():
+        assert (
+            "no third-party code at all" not in text
+        ), f"{name} still claims no third-party code at all"
+
+    # The feature list a store reads is built from `brand.FEATURES`, so the
+    # sentence a reviewer sees has to carry it too.
+    description = brand.description()
+    assert any(
+        p.label in description for p in accounts.PLATFORMS.values()
+    ), "the store description does not mention the platforms the app connects to"
+
+    # Read-only, and provably so: the publishing scopes must appear nowhere.
+    for platform in accounts.PLATFORMS.values():
+        assert "publish" not in platform.read_scopes, (
+            f"{platform.label} asks for a publishing scope; the app claims it "
+            "cannot post and that claim has to be true in the scope string"
+        )
+
+
+def test_no_screen_links_to_a_route_the_app_does_not_serve():
+    """The tab-bar guard only read chrome.js, so it missed the next one.
+
+    Three routes to nowhere have been written in this project in one day —
+    `/looks` in the store screenshot plan, `/discover` in the rebuilt tab bar,
+    and `/connect/<platform>` from the Schedule screen's Connect control. The
+    first two were caught by a test that reads only `chrome.js`. The third was
+    not, because it is in `manager.js`, which is the lesson: a guard scoped to
+    the file where the bug last happened catches that bug and no other.
+
+    This reads every href out of every script and page in the app.
+    """
+    import re
+
+    from auteur.web import server
+
+    source = Path(server.__file__).read_text(encoding="utf-8")
+    routes = {
+        piece.strip().strip("\"'")
+        for group in re.findall(r"path in \(([^)]*)\)", source)
+        for piece in group.split(",")
+        if piece.strip()
+    }
+    routes.add("/")
+    # Prefix routes, matched with startswith in the server rather than listed.
+    prefixes = tuple(re.findall(r'path\.startswith\("([^"]+)"\)', source))
+    assert prefixes, "no prefix routes found — has the router changed shape?"
+
+    def served(where: str) -> bool:
+        return where in routes or where.startswith(prefixes)
+
+    bad: list[str] = []
+    for page in sorted(server.STATIC.glob("*.js")) + sorted(server.STATIC.glob("*.html")):
+        text = page.read_text(encoding="utf-8")
+        # No closing quote required. A route built by concatenation —
+        # `href="/connect/' + key + '"` — has a literal prefix and no closing
+        # quote, and requiring one skipped exactly the link this test was
+        # written for. The literal prefix is enough: it either starts with a
+        # prefix route the server serves, or it leads nowhere.
+        for target in re.findall(r'href="(/[^"\'#?+$]*)', text):
+            # Files, not routes: served by their own branch and named exactly.
+            if target.startswith(("/static/", "/api/", "/media/", "/films/")):
+                continue
+            if target.endswith((".css", ".js", ".png", ".ico", ".svg", ".webmanifest")):
+                continue
+            # A trailing slash is part of a prefix route ("/u/"), so it is not
+            # stripped — stripping turns "/u/" into "/u", which matches nothing,
+            # and this test spent its first run reporting four real routes as
+            # broken for exactly that reason.
+            if not served(target):
+                bad.append(f"{page.name} -> {target}")
+
+    assert not bad, "links to routes the app does not serve: " + ", ".join(sorted(set(bad)))
+
+
 def test_every_tab_and_create_entry_points_at_a_route_the_app_serves():
     """A tab bar slot leading to a 404 is the worst possible 404.
 
