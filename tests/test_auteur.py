@@ -11717,7 +11717,6 @@ def test_the_sign_in_page_always_offers_a_way_to_make_an_account():
     the same size as the one beside it, which gave the thing almost everybody
     does once the same weight as the thing they came here to do.
     """
-    import re
 
     from auteur.web import server
 
@@ -11755,7 +11754,6 @@ def test_a_setting_lives_in_settings_and_nowhere_else():
     same rule, and holds it for every settings group at once so the next one
     cannot spread either.
     """
-    import re
 
     from auteur.web import server
 
@@ -11797,7 +11795,6 @@ def test_the_sign_in_page_still_wires_its_form_after_the_picker_left():
     So: nothing in the sign-in page's script may reach for a control the page
     does not have.
     """
-    import re
 
     from auteur.web import server
 
@@ -11866,7 +11863,6 @@ def test_loading_the_signing_library_swallows_two_things_and_no_others(monkeypat
     standing a module in `sys.modules` whose attribute access raises whatever
     this test wants — which is what `from ... import hashes` actually does.
     """
-    import types
 
     from auteur.web import oidc
 
@@ -12015,8 +12011,6 @@ def test_the_app_calls_itself_what_the_store_listing_calls_it():
     The home-screen name is checked separately because iOS truncates it and
     the store limit is no help there.
     """
-    import json
-    import re
 
     from auteur import brand
     from auteur.identity import IDENTITY, NAME_LIMIT
@@ -12062,7 +12056,6 @@ def test_the_published_site_claims_the_domain_the_listings_name(tmp_path):
     this asserts both halves: that a CNAME exists at all, and that it is not
     the apex.
     """
-    import subprocess
 
     from auteur.identity import COMPANY, IDENTITY
 
