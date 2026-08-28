@@ -160,6 +160,31 @@
       films are never hidden from you.
     </p>
 
+    <!-- Who else may have an account here.
+         Sign-up closed itself for good the moment the first account existed,
+         which was right when this app was one person's edit room and stopped
+         being right when it grew a feed, an inbox and profiles other people
+         appear on. Until now the only way to add somebody was
+         `auteur account add` typed on the machine's terminal — by the owner,
+         not by the person joining. -->
+    <h3 class="settings-label">People</h3>
+    <div class="inset-group">
+      <button type="button" class="inset-row" id="joining-row">
+        <span class="inset-label">Let other people join</span>
+        <span class="inset-value" id="joining-state">…</span>
+      </button>
+      <div class="inset-row" id="joining-code-row" hidden>
+        <span class="inset-label">Invite code</span>
+        <span class="inset-value mono" id="joining-code"></span>
+      </div>
+    </div>
+    <p class="group-caption" id="joining-note">
+      Off unless you turn it on. While it is on, anybody with the code can
+      make an account on this copy — <strong>treat the code as a
+      password</strong>. Turning it off and on again makes a new one, so a
+      code that got further than you meant stops working.
+    </p>
+
     <h3 class="settings-label">Appearance</h3>
     <div class="settings">
       <div class="choices appearance" role="radiogroup" aria-label="Appearance">

@@ -597,6 +597,43 @@
       .catch(function () {});
   }
 
+  /* Who else may have an account here.
+   *
+   * A row rather than a sheet: there are two states and one of them shows a
+   * code. A sheet would be a screen to open in order to press one thing.
+   */
+  function drawJoining(data) {
+    var open = !!(data && data.open);
+    $("joining-state").textContent = open ? "On" : "Off";
+    $("joining-row").dataset.on = open ? "1" : "";
+    $("joining-code-row").hidden = !(open && data.code);
+    $("joining-code").textContent = (data && data.code) || "";
+  }
+
+  function loadJoining() {
+    fetch("/api/joining", { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { if (data) { drawJoining(data); } })
+      .catch(function () { /* signed out, or offline */ });
+  }
+  loadJoining();
+
+  $("joining-row").addEventListener("click", function () {
+    /* The current state is on the row, so the click knows which way it is
+       going without a second request first. */
+    var turningOn = $("joining-row").dataset.on !== "1";
+    $("joining-state").textContent = "…";
+    fetch("/api/joining", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ open: turningOn })
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { drawJoining(data || { open: false }); })
+      .catch(function () { loadJoining(); });
+  });
+
   $("restriction-row").addEventListener("click", function () {
     $("restriction-error").hidden = true;
     $("restriction-off-error").hidden = true;

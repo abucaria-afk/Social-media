@@ -635,6 +635,39 @@ textarea:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
   line-height: 46px;
 }
 
+/* A sentence you can press. For the thing somebody does once a year — a
+   forgotten password — where a full-width bordered control gives it the same
+   weight as the thing they came to do.
+
+   A <button>, not an <a>: it goes nowhere, it changes the screen. Styled back
+   down to text because a button element carries a box by default, and given
+   the accent colour so that it reads as pressable rather than as a caption —
+   the same colour the app underlines everywhere else. */
+.textlink {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ember-text);
+  font-size: var(--text-subhead);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.textlink:active { opacity: 0.6; }
+
+/* The row it sits in carries the finger, since the text itself is one line
+   of 15px and a 15px target is not one. */
+.afterthought {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin: 14px 0 0;
+  text-align: center;
+}
+
 .fineprint { margin: 12px 0 0; text-align: center; color: var(--text-muted); font-size: var(--text-footnote); }
 .error { color: var(--rust); font-size: var(--text-subhead); margin: 12px 0 0; }
 
@@ -1945,6 +1978,17 @@ body.sheet-open { overflow: hidden; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* An invite code, meant to be read aloud and typed by somebody else. Tabular
+   so an l and a 1 are not the same width, and selectable because most people
+   will copy it rather than read it. */
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  -webkit-user-select: all;
+  user-select: all;
 }
 
 /* animations.css — Scroll reveals, zooms, transitions, and motion design.
@@ -3380,15 +3424,6 @@ body { background: var(--ground); }
          the You tab now. This row is the way in from here; the two-step
          control that used to sit inline is on that page, with the rest of the
          account settings, rather than halfway down the create screen. -->
-    <div class="settings">
-      <span class="settings-label">Appearance</span>
-      <div class="choices appearance" role="radiogroup" aria-label="Appearance">
-        <button type="button" class="choice is-on" data-value="system" role="radio" aria-checked="true">Automatic<small>match my phone</small></button>
-        <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
-        <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
-      </div>
-    </div>
-
     <!-- Install. Chrome fires beforeinstallprompt and gets a real button;
          every other browser gets the instructions for that browser. -->
     <div class="install" id="install" hidden>
@@ -3538,14 +3573,6 @@ body { background: var(--ground); }
     </p>
     </section>
 
-  <div class="settings">
-    <span class="settings-label">Appearance</span>
-    <div class="choices appearance" role="radiogroup" aria-label="Appearance">
-      <button type="button" class="choice" data-value="system" role="radio" aria-checked="false">Automatic<small>match my phone</small></button>
-      <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
-      <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
-    </div>
-  </div>
 
   <button class="studio-go" id="run">Cut it</button>
   <h2 class="panel-title">The rest of it</h2>
@@ -3658,15 +3685,11 @@ body { background: var(--ground); }
        the top of a page reads as the thing you are meant to do first. -->
   
 
-  <div class="settings">
-    <span class="settings-label">Appearance</span>
-    <div class="choices appearance" role="radiogroup" aria-label="Appearance">
-      <button type="button" class="choice is-on" data-value="system" role="radio" aria-checked="true">Automatic<small>match my phone</small></button>
-      <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
-      <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
-    </div>
-  </div>
-
+  <!-- The theme picker used to sit here, between the reel and this line,
+       which made "your choice is remembered" read as being about the theme.
+       It is about the template — templates.js keeps it under
+       `auteur-template` — and with the picker gone the sentence is next to
+       what it describes again. -->
   <p class="studio-foot">
     Your choice is remembered for the next film.
   </p>

@@ -78,25 +78,50 @@
         <p class="providers-or"><span>or</span></p>
         <div id="provider-list"></div>
       </div>
-      <button type="button" class="ghost" id="to-forgot">I forgot my password</button>
-      <!-- Only shown when there is nobody to sign in as. Before this the only
-           way in was reading a generated password off the terminal, which
-           means the first step of the whole product needed a terminal. -->
-      <button type="button" class="ghost" id="to-signup" hidden>
-        Nobody has claimed this yet — make my account
-      </button>
+      <!-- Sign up is a button and is always here.
+           It used to be hidden unless this copy had no accounts at all, which
+           meant that on every copy that had ever been used the sign-in page
+           offered exactly one thing to do. A person arriving without an
+           account had nothing to read and nothing to press. It is a control
+           now whatever the answer is, and the answer is on the screen after
+           it rather than in whether the control exists. -->
+      <button type="button" class="ghost" id="to-signup">Create an account</button>
+
+      <!-- And forgetting a password is a link, not a button.
+           It was a full-width bordered control the same size as Create an
+           account, which gave the same weight to the thing almost everybody
+           does once as to the thing they came here to do. It is a sentence
+           you can press. -->
+      <p class="afterthought">
+        <button type="button" class="textlink" id="to-forgot">I forgot my password</button>
+      </p>
     </form>
   </section>
 
   <!-- 2. Forgot -------------------------------------------------------- -->
   <section class="screen" id="screen-signup" hidden>
     <form id="signup-form" novalidate>
-      <div class="card block">
-        <span class="card-title">Claim this one</span>
-        <p class="card-hint">
-          It is yours and it stays on your machine. Nobody else can make an
-          account after this.
+      <!-- Said when this copy is not taking accounts at all, in place of the
+           form. Not a hidden button: somebody who wants an account gets told
+           what would give them one. -->
+      <p class="notice" id="signup-closed" hidden></p>
+
+      <div class="card block" id="signup-fields">
+        <span class="card-title" id="signup-title">Claim this one</span>
+        <p class="card-hint" id="signup-lede">
+          It is yours and it stays on your machine.
         </p>
+
+        <!-- Only when this copy asks for one. The first account on an
+             unclaimed copy never does, and a field that is not needed is a
+             field that is not there. -->
+        <div id="invite-row" hidden>
+          <label class="card-title spaced" for="invite-code">Your invite code</label>
+          <input type="text" id="invite-code" name="invite" autocomplete="off"
+                 autocapitalize="none" autocorrect="off" spellcheck="false"
+                 placeholder="from whoever runs this copy">
+        </div>
+
         <label class="card-title spaced" for="new-username">A name</label>
         <input type="text" id="new-username" name="username" autocomplete="username"
                autocapitalize="none" autocorrect="off" spellcheck="false">
@@ -198,14 +223,6 @@
     </form>
   </section>
 
-  <div class="settings">
-    <span class="settings-label">Appearance</span>
-    <div class="choices appearance" role="radiogroup" aria-label="Appearance">
-      <button type="button" class="choice is-on" data-value="system" role="radio" aria-checked="true">Automatic<small>match my phone</small></button>
-      <button type="button" class="choice" data-value="light" role="radio" aria-checked="false">Light</button>
-      <button type="button" class="choice" data-value="dark" role="radio" aria-checked="false">Dark</button>
-    </div>
-  </div>
 
 </main>
 

@@ -2147,9 +2147,30 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._json({"error": "not found"}, 404)
             return
+        if path == "/api/joining":
+            self._who_may_join()
+            return
         if path == "/api/can-signup":
             self.accounts.refresh()
-            self._json({"can": self.accounts.empty})
+            joining = self.accounts.joining()
+            first = self.accounts.empty
+            self._json(
+                {
+                    # Three states, not two. "Can I sign up" used to answer
+                    # yes only for the very first account and no forever
+                    # after, and the button was simply hidden — which reads as
+                    # an app without sign-up rather than a copy not taking any.
+                    "can": first or joining["open"],
+                    "first": first,
+                    "needs_code": (not first) and joining["needs_code"],
+                    "why": (
+                        ""
+                        if first or joining["open"]
+                        else "This copy is not taking new accounts. Whoever "
+                        "runs it can open it in Settings."
+                    ),
+                }
+            )
             return
         if path == "/api/session":
             self._json({"user": self.current_user()})
@@ -2409,6 +2430,47 @@ class Handler(BaseHTTPRequestHandler):
         self._connections().unlink(self.current_user() or "", platform)
         self._json(self._connection_state())
 
+    def _who_may_join(self) -> None:
+        """Whether this copy is taking accounts, and the code if it is.
+
+        Signed-in only, and the code is in the answer — the person asking is
+        the person who runs this copy, and the whole use of a code is to be
+        read out and passed on.
+        """
+        if not self.current_user():
+            self._json({"error": "sign in first"}, 403)
+            return
+        self.accounts.refresh()
+        state = self.accounts.joining()
+        self._json(
+            {
+                "open": state["open"],
+                "code": self.accounts.invite_code(),
+                # Said in the payload as well as on the screen, the same way
+                # the calendar link says it: this is a credential.
+                "warning": "Anybody with this code can make an account here.",
+            }
+        )
+
+    def _set_who_may_join(self) -> None:
+        """Open or close this copy to other people.
+
+        A fresh code every time it opens. Re-opening after closing must not
+        reinstate a code that has already been passed around — closing is what
+        somebody does *because* a code got further than they meant.
+        """
+        if not self.current_user():
+            self._json({"error": "sign in first"}, 403)
+            return
+        payload = self._json_body()
+        self.accounts.refresh()
+        if payload.get("open"):
+            code = self.accounts.open_joining(with_code=bool(payload.get("code", True)))
+            self._json({"open": True, "code": code})
+            return
+        self.accounts.close_joining()
+        self._json({"open": False, "code": ""})
+
     def _sign_up(self) -> None:
         """Make the first account, and only the first.
 
@@ -2418,17 +2480,21 @@ class Handler(BaseHTTPRequestHandler):
         it, which is the person who owns the footage.
         """
         self.accounts.refresh()
-        if not self.accounts.empty:
+        payload = self._json_body()
+        if not self.accounts.may_join(str(payload.get("code", ""))):
+            # One message for "closed" and for "wrong code", deliberately.
+            # Two would say which of the two it was, and telling an unknown
+            # caller that a code exists and theirs is wrong is telling them a
+            # code is worth guessing.
             self._json(
                 {
-                    "error": "This one is already claimed. "
-                    "Add more with `auteur account add` on the machine running it."
+                    "error": "This copy is not taking new accounts, or that "
+                    "invite code is not right. Whoever runs it can open it "
+                    "in Settings."
                 },
                 403,
             )
             return
-
-        payload = self._json_body()
         username = str(payload.get("username", "")).strip()
         password = str(payload.get("password", ""))
         email = str(payload.get("email", "")).strip()
@@ -3451,6 +3517,9 @@ class Handler(BaseHTTPRequestHandler):
             # navigation from the operating system, so it answers with a
             # redirect either way rather than a 401 nobody sees.
             self._receive_share()
+            return
+        if path == "/api/joining":
+            self._set_who_may_join()
             return
         if path == "/api/signup":
             self._sign_up()

@@ -33,7 +33,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from auteur.identity import IDENTITY  # noqa: E402
+from auteur.identity import COMPANY, IDENTITY  # noqa: E402
 from auteur.web import assets  # noqa: E402
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build" / "pages"
@@ -139,6 +139,17 @@ def main() -> int:
     # Jekyll would otherwise try to process this and drop anything it does not
     # recognise; the file is the documented way to tell Pages not to.
     (OUT / ".nojekyll").write_text("", encoding="utf-8")
+
+    # The custom domain, which Pages reads out of a file in the published
+    # output and nowhere else. Without it Pages answers only at
+    # <owner>.github.io/<repo>/ — and every URL in the App Store listing names
+    # auteurstudies.com, so the privacy policy Apple fetches during review
+    # would 404. That is the single most common metadata rejection there is.
+    #
+    # Written from `COMPANY.domain` rather than typed, for the same reason the
+    # bundle identifier is: one place to change, and no way for the site to
+    # claim one domain while the listing names another.
+    (OUT / "CNAME").write_text(COMPANY.domain + "\n", encoding="utf-8")
 
     for made in sorted(OUT.iterdir()):
         if made.is_file():

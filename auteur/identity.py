@@ -284,13 +284,21 @@ def pending(company: Company | None = None) -> list[Waiting]:
     """
     who = company or COMPANY
     return [
+        # Registering the domain is done — it resolves. What it resolves *to*
+        # is the thing that matters and is not done: the records point at the
+        # registrar's own hosting, not at GitHub Pages, so every URL in both
+        # store listings still answers with a parking page or a 404.
         Waiting(
-            what=f"register {who.domain}",
+            what=f"point {who.domain} at GitHub Pages",
             consequence=(
-                "the bundle identifier claims a domain the publisher does not "
-                "control, and all three store URLs 404 — a privacy policy URL "
+                "all three store URLs answer with the registrar's page "
+                "instead of the policy documents — and a privacy policy URL "
                 "that does not resolve is the most common metadata rejection "
-                "there is"
+                "there is. Four A records on the apex: 185.199.108.153, "
+                "185.199.109.153, 185.199.110.153, 185.199.111.153; a CNAME "
+                "on www to abucaria-afk.github.io. Then Settings -> Pages -> "
+                "Custom domain, and tick Enforce HTTPS once the certificate "
+                "has been issued"
             ),
             confirm="python3 tools/appstore/preflight.py --online",
         ),
@@ -312,11 +320,13 @@ def pending(company: Company | None = None) -> list[Waiting]:
             confirm="python3 tools/appstore/preflight.py --online",
         ),
         Waiting(
-            what="point the domain at the published site",
+            what="switch GitHub Pages on",
             consequence=(
-                "the policy documents are generated and deployed by "
-                ".github/workflows/pages.yml, and until the domain resolves "
-                "there they are published at an address no listing names"
+                "the documents are built and deployed by "
+                ".github/workflows/pages.yml and the CNAME file naming the "
+                "custom domain is written by tools/appstore/build_pages.py, "
+                "but nothing is served until Settings -> Pages -> Source is "
+                "set to GitHub Actions"
             ),
             confirm="python3 tools/appstore/preflight.py --online",
         ),

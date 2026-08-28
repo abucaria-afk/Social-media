@@ -196,6 +196,11 @@ class Accounts:
         #: is owed. In memory only — a sign-in interrupted by a restart should
         #: start again rather than resume.
         self._tickets: dict[str, tuple[str, float]] = {}
+        #: Whether anybody else may make an account here, and the code they
+        #: need. Instance-level rather than per-account, and in the same file
+        #: as the accounts because it is the same secret at the same risk —
+        #: one lock, one atomic write, one thing to keep at 0600.
+        self.invite: dict = {"open": False, "code": ""}
         #: mtime of the file as we last read or wrote it, for `refresh()`.
         self._stamp = 0.0
         self._load()
@@ -243,6 +248,12 @@ class Accounts:
         except (OSError, ValueError) as exc:
             log.error("could not read %s (%s); starting with no accounts", self.path, exc)
             return
+        stored = raw.get("invite")
+        if isinstance(stored, dict):
+            self.invite = {
+                "open": bool(stored.get("open")),
+                "code": str(stored.get("code") or ""),
+            }
         for record in raw.get("accounts", []):
             try:
                 account = Account(**record)
@@ -262,6 +273,7 @@ class Accounts:
         payload = {
             "accounts": [asdict(account) for account in self.accounts.values()],
             "sessions": {key: list(value) for key, value in self.sessions.items()},
+            "invite": dict(self.invite),
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(".tmp")
@@ -311,6 +323,69 @@ class Accounts:
             self.accounts[account.username.lower()] = account
             self._save()
         return account
+
+    # -- who may join ----------------------------------------------------
+
+    def joining(self) -> dict:
+        """Whether anybody else may make an account here, and how.
+
+        Sign-up closed itself permanently the moment the first account
+        existed, and the reason was sound: this app serves somebody's own
+        camera roll over their own wifi, so an open door is an open door to
+        the footage. What that reason did not survive is the app growing a
+        feed, an inbox and profiles at shareable addresses — every one of
+        which needs a second person, and the only way to get one was
+        `auteur account add` typed on the machine's terminal by somebody who
+        is not the person joining.
+
+        So it is a decision the owner makes rather than a fact of the build,
+        and it is off until they make it. A code by default because a public
+        deployment has a public address: "open" with no code is an open
+        registration endpoint on the internet, which is not what somebody
+        letting a friend in is agreeing to.
+        """
+        return {"open": bool(self.invite.get("open")), "needs_code": bool(self.invite.get("code"))}
+
+    def open_joining(self, *, with_code: bool = True) -> str:
+        """Let others join. Returns the code they need, or "" for none.
+
+        Rolls a fresh code every time it is called, so re-opening after
+        closing does not reinstate a code that has been passed around.
+        """
+        with self.lock:
+            self.invite = {
+                "open": True,
+                "code": secrets.token_urlsafe(9) if with_code else "",
+            }
+            self._save()
+            return self.invite["code"]
+
+    def close_joining(self) -> None:
+        with self.lock:
+            self.invite = {"open": False, "code": ""}
+            self._save()
+
+    def invite_code(self) -> str:
+        """The current code, for showing to whoever is allowed to see it."""
+        return str(self.invite.get("code") or "")
+
+    def may_join(self, code: str) -> bool:
+        """Whether this code opens the door right now.
+
+        Compared in constant time: a code short enough to be read down a
+        phone is short enough to be worth guessing, and an early return on
+        the first wrong character is a measurable difference.
+        """
+        if self.empty:
+            # The first account has always been allowed to claim an unclaimed
+            # copy, and that is unchanged.
+            return True
+        if not self.invite.get("open"):
+            return False
+        wanted = str(self.invite.get("code") or "")
+        if not wanted:
+            return True
+        return secrets.compare_digest(wanted, str(code or ""))
 
     def calendar_token(self, username: str, *, roll: bool = False) -> str:
         """This person's calendar secret, made on first ask.

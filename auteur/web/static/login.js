@@ -40,35 +40,25 @@
   // Duplicated from app.js rather than shared: this page must work before the
   // reader has an account, so it loads nothing the signed-in app needs.
 
-  function wireChoices(container, onPick) {
-    container.addEventListener("click", function (event) {
-      var button = event.target.closest(".choice");
-      if (!button) { return; }
-      Array.prototype.forEach.call(container.querySelectorAll(".choice"), function (other) {
-        other.classList.toggle("is-on", other === button);
-        other.setAttribute("aria-checked", other === button ? "true" : "false");
-      });
-      onPick(button.dataset.value);
-    });
-  }
+  /* The theme picker that used to live at the bottom of this page is gone,
+     and so is the code that drove it. Appearance is a setting and settings
+     belong in Settings — it is on the profile now, once, with the text size,
+     motion and contrast controls that have always been there and only there.
+     Repeating it at the foot of six screens made it the last thing on every
+     one of them, competing with whatever the screen was actually for.
 
-  function applyTheme(mode) {
-    if (mode === "light" || mode === "dark") {
-      document.documentElement.setAttribute("data-theme", mode);
-    } else {
-      document.documentElement.removeAttribute("data-theme");
-    }
-    try { localStorage.setItem("auteur-theme", mode); } catch (e) { /* private mode */ }
-  }
+     Nothing about the theme is lost here. `settings.js` runs before the
+     stylesheet on this page and applies whatever was chosen, so somebody who
+     picked Light in Settings still meets a light sign-in page; somebody who
+     has never chosen anything gets Automatic, which follows the phone. The
+     three accessibility settings were already Settings-only and this is the
+     same rule, finally applied to the fourth.
 
-  var savedTheme = "system";
-  try { savedTheme = localStorage.getItem("auteur-theme") || "system"; } catch (e) { /* */ }
-  wireChoices(document.querySelector(".appearance"), applyTheme);
-  Array.prototype.forEach.call(document.querySelectorAll(".appearance .choice"), function (button) {
-    var on = button.dataset.value === savedTheme;
-    button.classList.toggle("is-on", on);
-    button.setAttribute("aria-checked", on ? "true" : "false");
-  });
+     `wireChoices` went with it: it existed for this control and nothing else,
+     and it took a container it never checked for null — so deleting the
+     markup without deleting this would have thrown before the sign-in form
+     was wired, and the page would have looked fine and refused to sign
+     anybody in. */
 
   // -- show/hide a password -------------------------------------------------
 
@@ -156,11 +146,21 @@
    * step of the whole product needed a terminal — which is not a step most
    * people can take on the device the footage is on.
    */
+  /* What the sign-up screen says when it opens. Read once, on load; the
+     button is always there and this decides what it leads to. */
+  var joining = { can: false, first: false, needsCode: false, why: "" };
+
   fetch("/api/can-signup", { credentials: "same-origin" })
     .then(function (r) { return r.json(); })
     .then(function (said) {
-      if (said && said.can) {
-        $("to-signup").hidden = false;
+      if (!said) { return; }
+      joining = {
+        can: !!said.can,
+        first: !!said.first,
+        needsCode: !!said.needs_code,
+        why: said.why || ""
+      };
+      if (joining.first) {
         $("subtitle").textContent = "Nobody has claimed this yet.";
       }
     })
@@ -168,8 +168,33 @@
 
   $("to-signup").addEventListener("click", function () {
     say($("signup-error"), "");
+
+    /* Three shapes of the same screen, decided here rather than by hiding
+       the button that reaches it. Claiming an unclaimed copy is the original
+       one; joining a copy somebody else runs is the new one; and a copy that
+       is not taking accounts says so where the form would have been, because
+       "no" with a reason is a better answer than a control that is missing. */
+    $("signup-fields").hidden = !joining.can;
+    $("signup-go").hidden = !joining.can;
+    $("signup-closed").hidden = !!joining.can;
+    $("signup-closed").textContent = joining.why;
+    $("invite-row").hidden = !joining.needsCode;
+
+    if (joining.first) {
+      $("signup-title").textContent = "Claim this one";
+      $("signup-lede").textContent =
+        "It is yours and it stays on your machine.";
+    } else {
+      $("signup-title").textContent = "Join this one";
+      $("signup-lede").textContent =
+        "Your account lives on the machine running this copy, with the "
+        + "films and the messages. Whoever runs it can see that you are here.";
+    }
+
     show("signup");
-    $("new-username").focus();
+    if (joining.can) {
+      (joining.needsCode ? $("invite-code") : $("new-username")).focus();
+    }
   });
   $("signup-back").addEventListener("click", function () { show("signin"); });
 
@@ -227,6 +252,7 @@
     var mail = $("new-email").value.trim();
     var word = $("signup-password").value;
     var born = $("signup-born").value.trim();
+    var invite = $("invite-code").value.trim();
     say($("signup-error"), "");
     $("signup-go").disabled = true;
 
@@ -237,7 +263,12 @@
       /* The year goes as it was typed. The server decides whether it is old
          enough, because a check that only runs in the page is a check that
          does not run. */
-      body: JSON.stringify({ username: who, email: mail, password: word, born: born })
+      body: JSON.stringify({
+        username: who, email: mail, password: word, born: born,
+        /* Empty on the copy that has never been claimed, which is the one
+           case the server lets through without one. */
+        code: invite
+      })
     })
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (got) {

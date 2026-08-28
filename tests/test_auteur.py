@@ -2581,14 +2581,30 @@ def test_the_settings_are_applied_before_the_page_paints():
 
 
 def test_the_switch_offers_exactly_the_three_modes():
+    """Whichever page carries the switch has to carry all three.
+
+    This used to name index.html and login.html, because the switch was
+    repeated at the foot of six screens. It is in Settings now and only
+    there — `test_a_setting_lives_in_settings_and_nowhere_else` is what holds
+    it to that — so this looks for the page that has it rather than being told
+    which page that is, and the two tests cannot disagree.
+    """
     from auteur import theme
     from auteur.web import server
 
     assert theme.MODES == ("system", "light", "dark")
-    for page in ("index.html", "login.html"):
-        markup = (server.STATIC / page).read_text()
+
+    carrying = [
+        page
+        for page in sorted(server.STATIC.glob("*.html"))
+        if 'class="choices appearance"' in page.read_text(encoding="utf-8")
+    ]
+    assert carrying, "no page offers the appearance switch at all"
+
+    for page in carrying:
+        markup = page.read_text(encoding="utf-8")
         for mode in theme.MODES:
-            assert f'data-value="{mode}"' in markup, f"{page} is missing {mode}"
+            assert f'data-value="{mode}"' in markup, f"{page.name} is missing {mode}"
 
 
 # ---------------------------------------------------------------------------
@@ -11575,6 +11591,235 @@ def test_every_import_is_either_installed_or_guarded():
     )
 
 
+def test_a_second_person_can_only_join_when_the_owner_says_so(web_server):
+    """Sign-up used to close for good the moment the first account existed.
+
+    The reason was sound when this app was one person's edit room served over
+    their own wifi: an open door is an open door to the footage. It stopped
+    being sufficient when the app grew a feed, an inbox and profiles at
+    shareable addresses, every one of which needs a second person — and the
+    only way to get one was `auteur account add` typed on the machine's
+    terminal by the owner, not by the person joining.
+
+    So it is a decision now, off until made, and this walks the whole of it:
+    refused while closed, refused with a wrong code, allowed with the right
+    one, and refused again after it is closed.
+    """
+    import json as _json
+    import urllib.error
+    from urllib.request import Request, urlopen
+
+    base, _studio, cookie = web_server
+
+    def post(path, payload, *, signed_in=False):
+        headers = {"Content-Type": "application/json"}
+        if signed_in:
+            headers["Cookie"] = cookie
+        request = Request(base + path, data=_json.dumps(payload).encode(), headers=headers)
+        try:
+            with urlopen(request) as answer:
+                return answer.status, _json.loads(answer.read())
+        except urllib.error.HTTPError as exc:
+            return exc.code, _json.loads(exc.read())
+
+    def joiner(code):
+        return {
+            "username": "newcomer",
+            "email": "newcomer@example.com",
+            "password": "a-long-enough-one",
+            "born": 1994,
+            "code": code,
+        }
+
+    # Closed: the fixture already has two accounts.
+    status, said = post("/api/signup", joiner(""))
+    assert status == 403, said
+    refusal = said["error"]
+
+    status, opened = post("/api/joining", {"open": True}, signed_in=True)
+    assert status == 200 and opened["open"] and opened["code"], opened
+    code = opened["code"]
+
+    # A wrong code is refused, and refused *identically* — telling a stranger
+    # that a code exists and theirs is wrong is telling them one is worth
+    # guessing.
+    status, said = post("/api/signup", joiner("not-the-code"))
+    assert status == 403
+    assert said["error"] == refusal
+
+    status, said = post("/api/signup", joiner(code))
+    assert status == 200, said
+    assert said["user"] == "newcomer"
+
+    status, shut = post("/api/joining", {"open": False}, signed_in=True)
+    assert status == 200 and not shut["open"]
+
+    status, said = post("/api/signup", {**joiner(code), "username": "third"})
+    assert status == 403, said
+
+
+def test_only_somebody_signed_in_can_open_the_door_or_read_the_code(web_server):
+    """The invite code is a credential and the switch is an auth surface.
+
+    An unsigned caller must be able to learn neither the code nor whether one
+    exists, and must certainly not be able to open the door.
+    """
+    import json as _json
+    import urllib.error
+    from urllib.request import Request, urlopen
+
+    base, _studio, _cookie = web_server
+
+    for method, payload in (("GET", None), ("POST", {"open": True})):
+        request = Request(
+            base + "/api/joining",
+            data=_json.dumps(payload).encode() if payload else None,
+            headers={"Content-Type": "application/json"},
+            method=method,
+        )
+        try:
+            with urlopen(request) as answer:
+                body = answer.read().decode()
+            raise AssertionError(f"{method} /api/joining answered signed out: {body}")
+        except urllib.error.HTTPError as exc:
+            assert exc.code in (401, 403), exc.code
+
+    # And the door stayed shut.
+    request = Request(
+        base + "/api/signup",
+        data=_json.dumps(
+            {
+                "username": "sneaky",
+                "email": "s@example.com",
+                "password": "a-long-enough-one",
+                "born": 1994,
+            }
+        ).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urlopen(request) as answer:
+            raise AssertionError(f"signup succeeded: {answer.read()!r}")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 403
+
+
+def test_the_sign_in_page_always_offers_a_way_to_make_an_account():
+    """A hidden button reads as an app without sign-up.
+
+    `#to-signup` carried a `hidden` attribute and was revealed only when the
+    copy had no accounts at all — so on every copy that had ever been used,
+    the sign-in page offered exactly one thing to do and somebody arriving
+    without an account had nothing to press. The answer belongs on the screen
+    after the button, not in whether the button exists.
+
+    And forgetting a password is a link. It was a full-width bordered control
+    the same size as the one beside it, which gave the thing almost everybody
+    does once the same weight as the thing they came here to do.
+    """
+    import re
+
+    from auteur.web import server
+
+    html = (server.STATIC / "login.html").read_text(encoding="utf-8")
+
+    signup = re.search(r"<button[^>]*id=\"to-signup\"[^>]*>", html)
+    assert signup, "the sign-in page has no way to make an account"
+    assert "hidden" not in signup.group(0), "the sign-up button is hidden again: " + signup.group(0)
+
+    forgot = re.search(r"<button[^>]*id=\"to-forgot\"[^>]*>", html)
+    assert forgot, "the sign-in page has no way to recover a password"
+    assert "textlink" in forgot.group(
+        0
+    ), "forgetting a password is back to being a full-width button: " + forgot.group(0)
+
+    # The link still has to be a finger-sized target, which a line of 15px
+    # text is not — the row around it carries that.
+    css = (server.STATIC / "style.css").read_text(encoding="utf-8")
+    assert ".afterthought" in css and "min-height: 44px" in css
+
+
+def test_a_setting_lives_in_settings_and_nowhere_else():
+    """The theme picker was the last thing on six of the app's screens.
+
+    Appearance is a setting. It was repeated at the foot of the sign-in page,
+    the edit room, the templates screen, the studio, the ask screen and the
+    profile — so on every one of them the final element was a control that had
+    nothing to do with what the screen was for, and on the templates screen it
+    sat directly above "your choice is remembered for the next film", which
+    made that sentence read as being about the theme rather than about the
+    template it actually describes.
+
+    The three accessibility settings — text size, motion, contrast — have
+    always been on the profile and only there. This holds the fourth to the
+    same rule, and holds it for every settings group at once so the next one
+    cannot spread either.
+    """
+    import re
+
+    from auteur.web import server
+
+    homes: dict[str, list[str]] = {}
+    for page in sorted(server.STATIC.glob("*.html")):
+        html = page.read_text(encoding="utf-8")
+        # Only settings groups. A bare `class="choices"` is a content picker —
+        # which kind of film, which overlay — and those belong on the screen
+        # that makes the thing. A settings group names itself, either with
+        # `data-setting` or with the older `appearance` class that theme.js
+        # reads as `data-setting="theme"`.
+        if 'class="choices appearance"' in html:
+            homes.setdefault("appearance", []).append(page.name)
+        for setting in re.findall(r'data-setting="([^"]+)"', html):
+            homes.setdefault(setting, []).append(page.name)
+
+    assert "appearance" in homes, "the appearance control has gone entirely"
+
+    spread = {name: sorted(set(pages)) for name, pages in homes.items() if len(set(pages)) > 1}
+    assert not spread, (
+        "a settings control appears on more than one page — settings belong in "
+        "Settings: " + "; ".join(f"{n} on {', '.join(p)}" for n, p in sorted(spread.items()))
+    )
+
+    assert homes["appearance"] == [
+        "profile.html"
+    ], f"appearance lives on {homes['appearance']}, not the profile"
+
+
+def test_the_sign_in_page_still_wires_its_form_after_the_picker_left():
+    """Deleting markup can break the script that reached for it.
+
+    `login.js` called `wireChoices(document.querySelector(".appearance"), ...)`
+    and `wireChoices` never checked its container for null. Removing the theme
+    picker without removing that call throws on load, before the sign-in form
+    is wired — and a page that looks completely normal and refuses to sign
+    anybody in is a worse bug than the one being fixed.
+
+    So: nothing in the sign-in page's script may reach for a control the page
+    does not have.
+    """
+    import re
+
+    from auteur.web import server
+
+    script = (server.STATIC / "login.js").read_text(encoding="utf-8")
+    html = (server.STATIC / "login.html").read_text(encoding="utf-8")
+
+    # Strip comments before looking: this file explains the removal at length
+    # and the explanation names the selector it removed.
+    code = re.sub(r"/\*.*?\*/", "", script, flags=re.S)
+    code = re.sub(r"//[^\n]*", "", code)
+
+    for selector in re.findall(r'querySelector\(\s*"\.([a-zA-Z0-9_-]+)"', code):
+        assert (
+            f'class="{selector}"' in html or f"{selector}" in html
+        ), f"login.js reaches for .{selector}, which login.html does not have"
+
+    for element_id in re.findall(r'\$\(\s*"([a-zA-Z0-9_-]+)"\s*\)', code):
+        assert (
+            f'id="{element_id}"' in html
+        ), f"login.js reaches for #{element_id}, which login.html does not have"
+
+
 def test_a_sign_in_option_the_deployment_cannot_offer_is_not_offered():
     """`signed_secret` existed and nothing compared it to the install list.
 
@@ -11696,6 +11941,49 @@ def test_the_bundle_identifier_claims_a_domain_the_company_owns():
     # and hyphens. Apple's rule, not a preference.
     assert IDENTITY.bundle_id.count(".") >= 2
     assert re.fullmatch(r"[A-Za-z0-9.-]+", IDENTITY.bundle_id)
+
+
+def test_the_published_site_claims_the_domain_the_listings_name(tmp_path):
+    """GitHub Pages serves a custom domain only if a CNAME file says so.
+
+    Without one it answers at <owner>.github.io/<repo>/ and nothing else —
+    while both store listings name auteurstudies.com. So the privacy policy
+    Apple fetches during review would 404, which is the most common metadata
+    rejection there is, and nothing in the repository connected those two
+    facts.
+
+    The file is written from `COMPANY.domain` rather than typed, and this
+    builds the site for real and reads what came out.
+    """
+    import subprocess
+
+    from auteur.identity import COMPANY, IDENTITY
+
+    root = Path(__file__).resolve().parent.parent
+    out = tmp_path / "pages"
+    done = subprocess.run(
+        [sys.executable, str(root / "tools" / "appstore" / "build_pages.py"), str(out)],
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
+    assert "Traceback" not in done.stderr, done.stderr[-2000:]
+
+    cname = out / "CNAME"
+    assert cname.is_file(), (
+        "the published site has no CNAME, so Pages will not serve "
+        f"{COMPANY.domain} and every store URL 404s"
+    )
+    assert cname.read_text(encoding="utf-8").strip() == COMPANY.domain
+
+    # And every URL the listings name has to be a file this build produced.
+    for label, url in (
+        ("support", IDENTITY.support_url),
+        ("privacy policy", IDENTITY.privacy_url),
+        ("terms", IDENTITY.terms_url),
+    ):
+        page = url.rsplit("/", 1)[-1] or "index.html"
+        assert (out / page).is_file(), f"the {label} URL names {page}, which is not built"
 
 
 def test_every_store_url_names_a_page_the_site_actually_builds():
