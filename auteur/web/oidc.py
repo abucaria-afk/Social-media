@@ -237,10 +237,21 @@ def _import_signing() -> BaseException | None:
     """
     try:  # pragma: no cover - depends on what is installed
         from cryptography.hazmat.primitives import hashes  # noqa: F401
-    except (KeyboardInterrupt, SystemExit):
+    except BaseException as exc:  # noqa: BLE001 - narrowed on the next line
+        # An allowlist, not a catch-all, and written as one so the invariant
+        # is visible here rather than inferred: the only two things this
+        # swallows are an ordinary exception and PyO3's panic. Anything else
+        # that reaches a BaseException handler — KeyboardInterrupt, SystemExit,
+        # an exception group from some future import machinery — is somebody
+        # else's and goes straight back up.
+        #
+        # The panic is matched by class name because naming its type would
+        # mean importing `pyo3_runtime` to do it, which is the same fragility
+        # one level down: the module exists only once something has already
+        # loaded a Rust extension.
+        if isinstance(exc, Exception) or type(exc).__name__ == "PanicException":
+            return exc
         raise
-    except BaseException as exc:  # noqa: BLE001 - anything else means "no"
-        return exc
     return None
 
 

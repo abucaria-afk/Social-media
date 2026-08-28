@@ -11854,6 +11854,61 @@ def test_a_sign_in_option_the_deployment_cannot_offer_is_not_offered():
     )
 
 
+def test_loading_the_signing_library_swallows_two_things_and_no_others(monkeypatch):
+    """The BaseException handler is an allowlist, so prove it is one.
+
+    It has to reach past `Exception`, because a broken `cryptography` panics
+    out of its Rust extension and PyO3 raises that as `PanicException`, which
+    inherits from BaseException. What it must not become is a catch-all: a
+    KeyboardInterrupt swallowed here is a Ctrl-C the server ignores.
+
+    Driven through the real import rather than by patching the function, by
+    standing a module in `sys.modules` whose attribute access raises whatever
+    this test wants — which is what `from ... import hashes` actually does.
+    """
+    import types
+
+    from auteur.web import oidc
+
+    class Panic(BaseException):
+        """Stands in for pyo3_runtime.PanicException, matched by name."""
+
+    Panic.__name__ = "PanicException"
+
+    class Rogue(BaseException):
+        """Anything else that reaches a BaseException handler."""
+
+    def raising(what):
+        module = types.ModuleType("cryptography.hazmat.primitives")
+
+        def angry(name):
+            # Only the attribute the import actually asks for. A module that
+            # raises at *every* lookup poisons anything that later
+            # introspects it — pytest's own reporting included, which turned
+            # a clean failure into an INTERNALERROR the first time.
+            if name == "hashes":
+                raise what
+            raise AttributeError(name)
+
+        module.__getattr__ = angry
+        return module
+
+    for kind, swallowed in (
+        (ImportError("no such thing"), True),
+        (ValueError("installed, and broken"), True),
+        (Panic("the extension panicked"), True),
+        (Rogue("not ours"), False),
+        (KeyboardInterrupt(), False),
+    ):
+        monkeypatch.setitem(sys.modules, "cryptography.hazmat.primitives", raising(kind))
+        if swallowed:
+            got = oidc._import_signing()
+            assert got is kind, f"{type(kind).__name__} was not returned: {got!r}"
+        else:
+            with pytest.raises(type(kind)):
+                oidc._import_signing()
+
+
 def test_a_broken_signing_library_does_not_take_the_sign_in_page_with_it(monkeypatch):
     """`except Exception` is not enough, and the difference is a 500.
 

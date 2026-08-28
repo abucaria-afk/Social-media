@@ -209,25 +209,37 @@ def description() -> str:
     Typed twice it drifts twice. This is the same `FEATURES` the site renders,
     so a claim added to one appears in the other or in neither.
     """
+    # Every wrapped string in the list below is parenthesised. Inside a list
+    # literal, an intended concatenation and a forgotten comma look exactly
+    # the same — CodeQL flags the shape for that reason, and it is right to:
+    # the reader cannot tell either. The brackets say which one it is.
     lines = [POSITIONING, "", "WHAT IT DOES", ""]
     lines += [f"• {feature.headline} — {feature.body}" for feature in FEATURES]
     lines += [
         "",
         "PLAN BEFORE YOU SHOOT",
         "",
-        "The manager plans a post before the photograph exists: a shot list "
-        "grouped into setups you can shoot in one go, a caption, and a check on "
-        "the things that decide whether anybody sees it.",
+        (
+            "The manager plans a post before the photograph exists: a shot "
+            "list grouped into setups you can shoot in one go, a caption, and "
+            "a check on the things that decide whether anybody sees it."
+        ),
         "",
         CAVEAT,
         "",
         "FOR EVERYONE",
         "",
-        "Text size, reduced motion and increased contrast are settings in the "
-        "app, and the system's own accessibility settings are always honoured.",
+        (
+            "Text size, reduced motion and increased contrast are settings in "
+            "the app, and the system's own accessibility settings are always "
+            "honoured."
+        ),
         "",
-        "Auteur is for people 12 and over. An account for somebody under 18 "
-        "starts with sensitive films hidden, and that can be locked with a code.",
+        (
+            "Auteur is for people 12 and over. An account for somebody under "
+            "18 starts with sensitive films hidden, and that can be locked "
+            "with a code."
+        ),
     ]
     return "\n".join(lines)
 
