@@ -10379,6 +10379,94 @@ def test_the_container_runs_the_app_with_flags_that_exist():
         )
 
 
+def test_a_demo_clip_is_as_long_as_it_was_asked_for(tmp_path):
+    """Every clip in the App Store screenshot harness was 225s, not 3s.
+
+    `zoompan`'s `d` is how many output frames to produce *per input frame*,
+    and the input was `-loop 1 -t 3` — seventy-five of them. `d=75` therefore
+    asked for 75 x 75 frames, and the "three second" demo films rendered at
+    two hundred and twenty-five seconds each.
+
+    Nothing failed. The files rendered, the screenshots looked correct, the
+    harness was merely slow, and the defect surfaced only when the Schedule
+    board began printing a film's measured runtime and showed "225s". So the
+    lesson is the one this repository keeps relearning: a number nothing
+    compares against anything is a number nobody checks. This compares.
+    """
+    from auteur import ffmpeg as ff
+
+    import sys
+
+    root = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(root / "tools" / "appstore"))
+    import screenshots as harness
+
+    made = harness.a_film(tmp_path, "check", "harbour", seconds=3)
+    info = ff.probe(str(made))
+    got = float(info.get("format", {}).get("duration") or 0.0)
+    assert abs(got - 3.0) < 0.35, (
+        f"a clip asked for at 3s came out at {got:.2f}s — see the zoompan "
+        "`d` note in tools/appstore/screenshots.py"
+    )
+
+
+def test_a_finished_film_can_be_sent_to_the_schedule(web_server):
+    """`Plan.film` existed since the board was written and nothing could set it.
+
+    The field is read by the calendar and by the prediction, so it was not
+    dead — it was unreachable. The two halves of the app, the one that makes a
+    film and the one that decides when it goes out, had no door between them:
+    somebody finished a film and then started again from a blank plan, which
+    is the seam a person feels as "this is two programs".
+    """
+    from urllib.error import HTTPError
+
+    from auteur.web import server as web
+
+    base, _, cookie = web_server
+    handler = web.Handler
+
+    film = handler.films.add(
+        owner="tester",
+        prompt="the long way home",
+        video="/nowhere/does-not-exist.mp4",
+        facts=["11 shots"],
+        heard="the long way home",
+    )
+    other = handler.films.add(
+        owner="somebody-else",
+        prompt="not yours",
+        video="/nowhere/nor-this.mp4",
+        facts=[],
+        heard="not yours",
+    )
+
+    made = _api_post(base, "/api/schedule-film", cookie, {"film": film.id})
+    plan = made["plan"]
+    assert plan["film"] == film.id, "the plan does not carry the film"
+    assert (
+        plan["title"] == "the long way home"
+    ), f"the board would show {plan['title']!r} rather than what the film is"
+    assert plan["owner"] == "tester"
+    # No shot list: the shots exist already. Being told to go and photograph
+    # footage that is finished is how somebody stops trusting a tool.
+    assert plan["shots"] == [], f"a finished film was given a shot list: {plan['shots']}"
+
+    # And it is on the board, not just in the response.
+    board = _api_get(base, "/api/plans", cookie)
+    assert any(row["film"] == film.id for row in board["plans"]), "the plan is not on the board"
+
+    # Somebody else's film is not yours to schedule, and the page is not what
+    # decides that.
+    with pytest.raises(HTTPError) as refused:
+        _api_post(base, "/api/schedule-film", cookie, {"film": other.id})
+    assert refused.value.code == 403
+
+    with pytest.raises(HTTPError) as missing:
+        _api_post(base, "/api/schedule-film", cookie, {"film": "no-such-film"})
+    assert missing.value.code == 404
+
+
 def test_no_route_is_claimed_twice():
     """A second branch on the same path is dead code that looks alive.
 

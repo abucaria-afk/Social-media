@@ -3022,6 +3022,20 @@ class Handler(BaseHTTPRequestHandler):
             out["check"] = report.to_json()
         return out
 
+    def _runtime_of(self, video: str) -> float:
+        """How long a finished film actually runs, or 0.0 if it cannot be read.
+
+        Zero rather than a plausible default: a plan showing a runtime nobody
+        measured is a number somebody will plan around.
+        """
+        from .. import ffmpeg as ff
+
+        try:
+            info = ff.probe(str(video))
+            return round(float(info.get("format", {}).get("duration") or 0.0), 2)
+        except (ff.FFmpegError, ValueError, TypeError, OSError):
+            return 0.0
+
     def _film_file(self, film_id: str):
         if not film_id or self.films is None:
             return None
@@ -3060,6 +3074,62 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "no such plan"}, 404)
             return
         self._json({"plan": self._plan_json(plan, checked=True)})
+
+    def _schedule_a_film(self) -> None:
+        """Send a finished film to the Schedule.
+
+        `Plan.film` has existed since the board was written, is read by the
+        calendar and by the prediction, and nothing could ever set it. The two
+        halves of the app — the one that makes a film and the one that decides
+        when it goes out — had no door between them, so a person finished
+        something and then started again from a blank plan.
+
+        A film goes to a *new* plan rather than being offered a list of
+        existing ones. The plan carries the film's own prompt as its title, so
+        the row on the board says what the film is rather than "Untitled", and
+        the caption starts empty because a caption is a thing somebody writes.
+        """
+        who = self.current_user() or ""
+        if not who:
+            self._json({"error": "not signed in"}, 403)
+            return
+        payload = self._json_body()
+        film_id = str(payload.get("film") or "").strip()
+        film = self.films.get(film_id) if self.films else None
+        if film is None:
+            self._json({"error": "no such film"}, 404)
+            return
+        if film.owner != who:
+            # Somebody else's film is not yours to schedule, and the check is
+            # here rather than on the page because a page can be edited.
+            self._json({"error": "that is not your film"}, 403)
+            return
+
+        when = (
+            str(payload.get("when") or "").strip()
+            or (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+        )
+        plan = self.board.add(
+            owner=who,
+            title=(film.prompt or "A film")[:120],
+            platform=str(payload.get("platform") or "instagram-reel"),
+            when=when,
+            prompt=film.prompt or "",
+            # The film's real runtime, measured. `Film` has no `seconds`
+            # field, so the first draft of this read `getattr(film,
+            # "seconds", 20.0)` — which is a fabricated 20 every single time,
+            # dressed as a fallback. A plan is a thing somebody makes
+            # decisions from and a made-up runtime on it is worse than none.
+            seconds=self._runtime_of(film.video),
+            # No shot list. The shots exist already — they are in the film —
+            # and generating a list of things to go and photograph for footage
+            # that is finished is the kind of busywork that makes somebody stop
+            # trusting a tool.
+            shots=[],
+            captures=[],
+            film=film.id,
+        )
+        self._json({"plan": plan.public()})
 
     def _make_plan(self) -> None:
         """A new plan, with its shot list already worked out."""
@@ -3501,6 +3571,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/shared/clear":
             self._clear_shared(self.current_user() or "")
             self._json({"ok": True})
+            return
+        if path == "/api/schedule-film":
+            self._schedule_a_film()
             return
         if path == "/api/plans":
             self._make_plan()

@@ -133,6 +133,8 @@ def a_film(folder: Path, name: str, scene: str, seconds: int = 3) -> Path:
         [
             "-loop",
             "1",
+            "-framerate",
+            "25",
             "-t",
             str(seconds),
             "-i",
@@ -142,7 +144,21 @@ def a_film(folder: Path, name: str, scene: str, seconds: int = 3) -> Path:
             "-i",
             "anullsrc=r=48000:cl=stereo",
             "-filter_complex",
-            f"[0:v]scale=1080:1920,zoompan=z='1+0.09*on/{frames}':d={frames}"
+            # `d=1`, not `d=frames`.
+            #
+            # zoompan's `d` is how many output frames to make *per input
+            # frame*, and the input here is `-loop 1 -t 3`, which is 75 frames.
+            # `d=75` therefore asked for 75 x 75 = 5625 frames, and every demo
+            # clip in the App Store screenshot harness came out **225 seconds
+            # long instead of three**. Nothing failed: the files rendered, the
+            # screenshots looked right, and the only reason it surfaced is that
+            # the Schedule screen started printing a film's measured runtime on
+            # the board and showed "225s".
+            #
+            # With `d=1` each input frame yields one output frame and `on` is
+            # the output frame index, so the zoom still runs across the whole
+            # clip.
+            f"[0:v]scale=1080:1920,zoompan=z='1+0.09*on/{frames}':d=1"
             ":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=540x960:fps=25,"
             "noise=alls=5:allf=t,format=yuv420p[v]",
             "-map",

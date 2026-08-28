@@ -73,6 +73,14 @@
     'stroke-linejoin="round"><path d="M2.6 12S6.4 5.8 12 5.8 21.4 12 21.4 12 ' +
     '17.6 18.2 12 18.2 2.6 12 2.6 12z"/><circle cx="12" cy="12" r="3.1"/>' +
     '<path d="M4 20 20 4"/></svg>';
+  /* The same month-grid as the Schedule tab, so the control and the place it
+     sends you to are visibly the same thing. */
+  var CALENDAR =
+    '<svg viewBox="0 0 24 24" aria-hidden="true" width="24" height="24">' +
+    '<path d="M4 6a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1zM4 10h16' +
+    'M8 3v4M16 3v4" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+    'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
   var SEND = '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" ' +
     'stroke="currentColor" stroke-width="1.9" stroke-linejoin="round">' +
     '<path d="M21.5 2.5 11 13M21.5 2.5 15 21.5l-4-8.5-8.5-4z"/></svg>';
@@ -109,6 +117,15 @@
           '<span class="rail-count">' + film.likes + "</span></button>" +
         '<button type="button" class="rail-button" data-send="' + film.id + '">' +
           SEND + "<span>Send</span></button>" +
+        /* Your own film, and the other half of the app. `Plan.film` has been
+           on the board since it was written and nothing could ever set it, so
+           somebody finished a film and then started again from a blank plan.
+           Only on your own: scheduling somebody else's is not a thing. */
+        (film.mine
+          ? '<button type="button" class="rail-button" data-schedule="' + film.id +
+            '" aria-label="Add to the schedule">' + CALENDAR +
+            "<span>Schedule</span></button>"
+          : "") +
         (film.mine
           /* Your own film gets the other control: marking it sensitive, so it
              stays up and stays out of restricted accounts. Two different
@@ -294,6 +311,34 @@
     }
     var send = event.target.closest("[data-send]");
     if (send) { openSheet(send.dataset.send); return; }
+
+    var plan = event.target.closest("[data-schedule]");
+    if (plan) {
+      /* Disabled while it is in flight. A double tap here makes two plans for
+         one film, and the second is indistinguishable from the first on the
+         board — so the guard is on the control rather than on the server
+         refusing a duplicate it has no way to recognise. */
+      plan.disabled = true;
+      fetch("/api/schedule-film", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ film: plan.dataset.schedule })
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (data && data.plan) {
+            /* Straight to the plan. Somebody who taps Schedule wants to pick
+               a day, and a toast saying "added" leaves them to go and find
+               it. */
+            location.href = "/plan";
+          } else {
+            plan.disabled = false;
+          }
+        })
+        .catch(function () { plan.disabled = false; });
+      return;
+    }
     var more = event.target.closest("[data-more]");
     if (more && window.auteurSafety) {
       window.auteurSafety.open("film", more.dataset.more, more.dataset.owner,
