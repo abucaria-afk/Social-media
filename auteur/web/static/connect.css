@@ -43,7 +43,7 @@
   border-radius: 0.6rem;
   font-family: inherit;
   /* 16px, or iOS zooms the page the moment the field is focused. */
-  font-size: 16px;
+  font-size: var(--text-callout);
 }
 .link-row input:focus { outline: 2px solid var(--ember); outline-offset: 1px; }
 

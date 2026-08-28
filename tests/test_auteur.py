@@ -10379,6 +10379,67 @@ def test_the_container_runs_the_app_with_flags_that_exist():
         )
 
 
+def test_the_stylesheets_are_held_to_the_type_scale():
+    """A scale nothing is held to is a list of numbers in a comment.
+
+    `:root` defines eleven named sizes taken from what the two mobile
+    operating systems actually render their own text at. Measured in a browser
+    before this test existed, the make screen used **seven different type
+    sizes** and the profile seven, because twenty-five rules across the
+    stylesheets set a pixel value directly — 15px, 14px, 13px, 16px — beside
+    the thirty-five that used the scale. Two of those, 14px and 16px, are not
+    on the scale at all.
+
+    The same for corners. `--radius` and `--radius-sm` were named and nine
+    card-scale rules used something else — 8, 9, 10, 14, 16 and 18px across two
+    files. The fix was not to flatten them: a sheet rising from the bottom
+    edge and a message bubble both genuinely want a bigger corner than a card.
+    So that corner got a name, `--radius-lg`, and now the vocabulary is three
+    named radii and a pill rather than seven numbers.
+
+    The one exception is real and stays: `.size-a-1` through `.size-a-4` in
+    profile.css are the text-size setting itself, so they must be absolute —
+    they are what the scale is being *set to*, not a use of it.
+    """
+    import re
+
+    from auteur.web import server
+
+    #: The setting, not a use of the scale. Named so a future reader does not
+    #: quietly widen this to whatever they wanted to hard-code.
+    ALLOWED = {"size-a-1", "size-a-2", "size-a-3", "size-a-4"}
+    #: And one platform constraint. iOS zooms the page when a focused text
+    #: field is under 16px, and `1rem` is only 16px while the root is at its
+    #: default — the browser's own text-size control moves it. Writing a field
+    #: as `var(--text-callout)` therefore works on a normal setting and zooms
+    #: the whole app on a smaller one. `test_the_page_is_built_for_a_phone`
+    #: asserts the literal is present, and it caught this exact regression
+    #: when the scale work first swept it up.
+    IOS_ZOOM_FLOOR = "iOS zoom note"
+
+    strays: list[str] = []
+    for sheet in sorted(server.STATIC.glob("*.css")):
+        if sheet.name == "theme.css":
+            continue  # generated from the palette; it carries no type at all
+        for number, line in enumerate(sheet.read_text(encoding="utf-8").splitlines(), 1):
+            if re.search(r"font-size:\s*\d+(\.\d+)?px", line):
+                if not any(name in line for name in ALLOWED) and IOS_ZOOM_FLOOR not in line:
+                    strays.append(f"{sheet.name}:{number} {line.strip()[:70]}")
+            # Only the card-scale range, where a token exists. A 1px mark on
+            # a grip bar and a 999px pill are details rather than corners, and
+            # demanding a token for those would be tidiness rather than
+            # discipline.
+            corner = re.search(r"border-radius:\s*(\d+)px", line)
+            if corner and 8 <= int(corner.group(1)) <= 40:
+                strays.append(f"{sheet.name}:{number} {line.strip()[:70]}")
+
+    assert (
+        not strays
+    ), "type sizes and corners set in raw pixels rather than from the scale:\n  " + "\n  ".join(
+        strays
+    )
+
+
 def test_a_demo_clip_is_as_long_as_it_was_asked_for(tmp_path):
     """Every clip in the App Store screenshot harness was 225s, not 3s.
 

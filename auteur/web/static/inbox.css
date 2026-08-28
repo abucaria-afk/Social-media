@@ -63,7 +63,7 @@
 .bubble {
   max-width: 76%;
   padding: 8px 12px;
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   font-size: var(--step-0);
   line-height: 1.35;
   overflow-wrap: anywhere;
@@ -90,7 +90,7 @@
   padding: 0;
   overflow: hidden;
   background: #000;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
 }
 
 /* Capped, or a 9:16 film sent into a conversation is 830px tall on an 844px
