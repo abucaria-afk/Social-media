@@ -10823,6 +10823,222 @@ def test_no_join_is_offset_past_the_end_of_what_it_joins():
     ), "the measured offsets match the planned ones, so nothing is being measured"
 
 
+def test_no_flex_row_is_asked_to_hold_a_sentence():
+    """A flex container makes an item of every child *and every run of text*.
+
+    The Schedule tab's "This never posts for you." notice was one <p> with
+    `display: flex`, an icon <span>, a <strong>, an <em> and prose between
+    them. Flex does not care that it is a sentence: it laid the four runs out
+    as four narrow columns, and on a 390px phone the notice read
+
+        This      Connecting   read   — followers and how a
+        never     an account          post did. ...
+        posts     below asks
+        for       only to
+        you.
+
+    Nobody reading the markup would see that; it was found by taking a
+    screenshot. The rule is structural rather than cosmetic: a flex or grid
+    container's children *are* its layout, so prose inside one belongs in a
+    child of its own.
+
+    Deciding whether a given element is such a container needs a little of
+    the cascade — `.card` is a flex row and `.card.block` is not — so the
+    rules are collected with the classes they need and the last one whose
+    classes the element carries wins.
+    """
+    import re
+
+    from auteur.web import server
+
+    static = server.STATIC
+
+    # style.css first: it is the base sheet, and a page's own sheet is linked
+    # after it, so later here means later in the cascade.
+    sheets = [static / "style.css"] + [
+        sheet for sheet in sorted(static.glob("*.css")) if sheet.name != "style.css"
+    ]
+
+    display_rules: list[tuple[frozenset[str], str]] = []
+    for sheet in sheets:
+        # Comments first. `[^{}]+` before a brace swallows whatever stands
+        # between the previous rule and this one, and in this stylesheet that
+        # is usually a paragraph of comment — which then looks like a
+        # descendant selector to the filter below. The first draft of this
+        # test dropped 46 of 47 classes that way and passed against the very
+        # bug it was written for; the mutation run is what said so.
+        text = re.sub(r"/\*.*?\*/", "", sheet.read_text(encoding="utf-8"), flags=re.S)
+        for selector, declarations in re.findall(r"([^{}]+)\{([^{}]*)\}", text):
+            found = re.search(r"display:\s*([a-z-]+)", declarations)
+            if not found:
+                continue
+            for piece in selector.split(","):
+                piece = piece.strip()
+                # Only selectors that are classes on one element. A descendant
+                # or child selector describes something this test cannot
+                # resolve from markup alone.
+                if not piece or re.search(r"[>+~\s]", piece) or not piece.startswith("."):
+                    continue
+                if re.search(r"[^.\w-]", piece):  # pseudo-classes, attributes
+                    continue
+                display_rules.append((frozenset(piece.lstrip(".").split(".")), found.group(1)))
+
+    assert display_rules, "no display rules found — has the stylesheet changed shape?"
+
+    def lays_out_its_children(classes: frozenset[str]) -> bool:
+        winner = ""
+        for needed, value in display_rules:
+            if needed <= classes:
+                winner = value
+        return winner in ("flex", "inline-flex", "grid", "inline-grid")
+
+    # A real parser rather than a regex. The first draft matched
+    # `<tag class=...>(.*?)</tag>` with finditer, and matches do not overlap:
+    # `<main class="page">` matched first and swallowed every element inside
+    # it, so nothing nested was ever examined and the test passed against the
+    # bug. HTMLParser reports each element's own text, which is exactly the
+    # question being asked.
+    from html.parser import HTMLParser
+
+    VOID = {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+
+    class LooseProse(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__(convert_charrefs=True)
+            # tag, classes, its own text runs, how many element children
+            self.stack: list[list] = []
+            self.found: list[tuple[str, str, int, str]] = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag in VOID:
+                return
+            classes = ""
+            for name, value in attrs:
+                if name == "class":
+                    classes = value or ""
+            if self.stack:
+                self.stack[-1][3] += 1
+            self.stack.append([tag, frozenset(classes.split()), [], 0])
+
+        def handle_endtag(self, tag):
+            while self.stack:
+                name, classes, runs, children = self.stack.pop()
+                text = [run.strip() for run in runs if run.strip()]
+                words = sum(len(run.split()) for run in text)
+                # Prose *mixed with* element children is the defect: those
+                # are the separate items flex will column up. A label that is
+                # nothing but its own words — "Choose from camera roll" in an
+                # inline-flex button — is one item and wraps like any text.
+                if words >= 4 and children and lays_out_its_children(classes):
+                    self.found.append((name, " ".join(sorted(classes)), words, text[0]))
+                if name == tag:
+                    break
+
+        def handle_data(self, data):
+            if self.stack:
+                self.stack[-1][2].append(data)
+
+    offenders: list[str] = []
+    for page in sorted(static.glob("*.html")):
+        parser = LooseProse()
+        parser.feed(page.read_text(encoding="utf-8"))
+        for tag, classes, words, first in parser.found:
+            offenders.append(
+                f"{page.name}: <{tag} class={classes!r}> holds {words} loose "
+                f"words — {first[:50]!r}"
+            )
+
+    assert (
+        not offenders
+    ), "prose sitting directly inside a flex or grid container becomes " "columns: " + "; ".join(
+        sorted(set(offenders))
+    )
+
+
+def test_no_root_tab_offers_a_way_back_out_of_itself():
+    """A tab is the top of its own stack; there is nothing above it.
+
+    The Schedule screen used to hang off the studio, and it kept its back
+    arrow when it became the second slot in the tab bar. So one root tab in
+    five had a back arrow that pointed at /studio — not where you came from,
+    not this screen's parent any more, and reachable from any of the other
+    four, which means the arrow's destination had nothing to do with the
+    journey. Found by opening all five tabs in a phone-sized browser and
+    listing the visible controls, not by reading the markup.
+
+    The same class as every other bug this file guards: a value that exists
+    and is never compared to anything. `href="/studio"` was true once, the
+    tab bar changed underneath it, and nothing held the two together.
+    """
+    import re
+
+    from auteur.web import server
+
+    source = Path(server.__file__).read_text(encoding="utf-8")
+
+    # Which document each route serves, read off the router rather than
+    # assumed: `if path in (...): self._static(STATIC / "name.html", ...)`.
+    served: dict[str, str] = {}
+    for group, page in re.findall(
+        # `or path.startswith(...)` may trail the tuple — the profile route
+        # does exactly that — so anything up to the colon is allowed.
+        r"path in \(([^)]*)\)[^:\n]*:\s*\n(?:\s*#[^\n]*\n)*\s*self\._static\("
+        r'\s*STATIC / \(?"([^"]+\.html)"',
+        source,
+    ):
+        for piece in group.split(","):
+            piece = piece.strip().strip("\"'")
+            if piece:
+                served[piece] = page
+
+    chrome = (server.STATIC / "chrome.js").read_text(encoding="utf-8")
+    tabs = re.search(r"var TABS = \[(.*?)\n  \];", chrome, re.S)
+    assert tabs, "the tab bar no longer declares TABS"
+    hrefs = re.findall(r'href:\s*"([^"]+)"', tabs.group(1))
+    assert len(hrefs) == 5, f"expected five tab slots, found {len(hrefs)}"
+
+    offenders: list[str] = []
+    for href in hrefs:
+        page = served.get(href.split("#")[0])
+        assert page, f"the tab bar points at {href!r}, which serves no document"
+        markup = (server.STATIC / page).read_text(encoding="utf-8")
+        # A back control belonging to a sub-view is fine — the inbox reveals
+        # one inside a thread, the manager inside one plan, the profile on
+        # somebody else's. Every one of those starts hidden, either on the
+        # control or on the <main> that holds it, and the browser agrees:
+        # opening all five tabs showed exactly one visible back arrow. What
+        # may not exist is one that is on screen the moment the tab opens.
+        inside_hidden_screen = False
+        for tag in re.findall(r"<(?:main|a|button)\b[^>]*>", markup):
+            if tag.startswith("<main"):
+                inside_hidden_screen = " hidden" in tag
+                continue
+            if "topbar-back" not in tag and "sbar-back" not in tag:
+                continue
+            if inside_hidden_screen or "hidden" in tag:
+                continue
+            offenders.append(f"{page} ({href}): {tag}")
+
+    assert (
+        not offenders
+    ), "a root tab shows a back control, which has nowhere honest to go: " + "; ".join(offenders)
+
+
 def test_the_published_page_has_the_same_tabs_as_the_app():
     """The link showed a different product and nothing compared the two.
 

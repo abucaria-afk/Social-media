@@ -1,0 +1,370 @@
+# auteur — company brief
+
+**One file. Everything a collaborator outside this repository needs in order to
+help build the company around the product.**
+
+Last updated 2026-08-28. Product state verified against a 582-test suite and a
+real browser at a 390×844 phone viewport on the same day.
+
+---
+
+## 0. To the AI reading this
+
+You are being asked to help with **the company**, not the code. The software
+exists, works, and is being built by someone else. Your side of the line is
+everything that needs a human with a bank account, a legal name and a signature:
+entity, publisher identity, developer accounts, platform approvals, hosting,
+pricing, positioning, launch.
+
+Four rules, because the value of this file is that it is true:
+
+1. **Do not invent facts about the product.** Everything in sections 1–4 was
+   read out of the running code. If you need a product fact that is not here,
+   say so and ask — do not fill the gap with a plausible guess.
+2. **Say when something has changed under you.** Prices, store policies and API
+   gates move. Every external figure below is dated. Treat an undated claim of
+   yours as a claim you have to check.
+3. **Never ask for, and never repeat, a credential.** No passwords, tokens or
+   client secrets belong in a chat transcript, a document, or a repository. See
+   §7.
+4. **Distinguish a decision from a task.** A decision needs the founder's
+   judgement and should be put to them as a question with options and a
+   recommendation. A task is work you can draft. Label which is which.
+
+The most useful thing you can produce is in §9.
+
+---
+
+## 1. What the product is
+
+**auteur** — an autonomous cinematic video editor that behaves like a social
+app, not a timeline tool.
+
+> Say what you want in a sentence. It frames every shot, cuts to the cadence of
+> your words, grades it, and hands you the film.
+
+The distinguishing claim, and the one worth protecting in every piece of
+marketing: **it is not a template you drop clips into.** It reads the footage,
+decides what each shot is *for*, and cuts. A montage comes back at a third of a
+second a shot and a hypercut at a sixth, because those are the numbers the
+reference reels are cut at — measured, not chosen. It builds structure above the
+beat: an opening that holds, a phrase that lands, one shot that stays still
+while everything around it moves, and a rhyme back to the first image near the
+end.
+
+### The features, in the words the app itself uses
+
+| Headline | What it means |
+| --- | --- |
+| Say it in a sentence | Describe the film the way you would to a person. |
+| Cut to a rhythm | Montage ≈ 0.33s/shot, hypercut ≈ 0.17s/shot, from measured reference reels. |
+| Graded for a decade | Super 8, VHS, Kodak, Y2K flash, faded 2010s — the grade genuinely moves the picture. |
+| Type and stickers on the beat | Anything written "in quotes" lands on screen, on the cut. |
+| Every shape a platform wants | Vertical, square, portrait, wide — at each surface's recommended runtime. |
+| It runs on your device | No third-party analytics, no ad identifier, no third-party code. |
+| A feed that learns, on your own machine | An instance ranks by how long its films are actually watched. |
+| A feed, if you want one | Run a copy on your own computer and the app connects to it. |
+
+### The shape of the app
+
+Five tabs, modelled on the two apps everybody already knows how to use:
+
+- **Feed** — the films made on this instance (Everyone / Following / Yours).
+- **Schedule** — the social-media-manager half: plan a post before the footage
+  exists, connect TikTok and Instagram to read back how posts did, subscribe the
+  board to a real calendar.
+- **Create (+)** — does not navigate, it *opens*: Make a film / Cut to a
+  template / Type and stickers / Meet the crew.
+- **Messages** — person to person, on the instance.
+- **You** — profile, and the Studio (projects, crew, plan board) behind it.
+
+---
+
+## 2. What is actually built and verified
+
+Everything here has a test behind it, and anything visual has been checked in a
+real browser at a real phone size. This project's rule is that claims about
+behaviour are checked by running the thing.
+
+- **The editor.** Full pipeline: ingest → analysis → director → craft (grammar,
+  motion, colour, transitions, sound, titles, graphics) → render → self-review.
+  Two renderers — ffmpeg and an in-browser one — held to the same cutting
+  behaviour by a test that compares them.
+- **The app.** Sign-in with password reset and optional two-step, light and dark
+  themes, accessibility settings that are real app-wide, offline-capable PWA,
+  installable to an iPhone home screen.
+- **The social layer.** Feed with watch-time ranking, following, profiles at
+  shareable `/u/<name>` addresses, direct messages with unread badges, blocking,
+  reporting, and account deletion that actually takes everything with it.
+- **The Schedule tab.** Planning board, calendar subscription, TikTok and
+  Instagram connection flow with tokens stored `0600` in a file separate from the
+  connection list.
+- **Store readiness.** App Store submission pack, Google Play listing, generated
+  screenshots, a 12+ age gate with a lockable content restriction, published
+  privacy policy and terms.
+- **Engineering hygiene.** 582 tests green. CI runs pytest, ruff, black, CodeQL,
+  pip-audit and coverage on every push. MIT licensed.
+- **Deployment.** `Dockerfile`, `docker-compose.yml`, `render.yaml` and
+  `fly.toml` are all in the repository and all point at the same container.
+
+---
+
+## 3. What is *not* built
+
+Plan against this list, not against optimism.
+
+- **Nothing is deployed.** There is no live instance at a public address. The
+  hosting files exist; nobody has clicked the button. (§5.3)
+- **No native iOS or Android binary has been submitted.** The pack is written;
+  no build has been uploaded to either store.
+- **No real platform numbers.** TikTok and Instagram connection works, but until
+  approved developer applications exist, every insight figure is a simulation.
+  The app says so on screen rather than showing invented charts. (§5.4)
+- **No search.** You cannot find a person by typing their name — the instance
+  lists everybody, which is fine for tens of people and wrong for thousands.
+- **No push notifications** beyond an app badge on an installed PWA.
+- **No payment, subscription or billing of any kind.**
+- **No company.** No entity, no domain, no bank account, no publisher identity.
+- **Single-instance by design.** Every deployment is somebody's own server.
+  There is no multi-tenant hosted product, and whether there should be is the
+  biggest open strategic question in this document. (§8.1)
+
+---
+
+## 4. The privacy position — read before writing any marketing
+
+This is the product's spine and it is unusually strict. It is also a liability
+if a single piece of copy overstates it, because an inaccurate Google Play Data
+safety declaration is a policy strike, not a correction.
+
+What is true today, exactly:
+
+- **There is no "we".** Nobody operates a service. There is no company server
+  that receives anything.
+- **No third-party analytics, no advertising identifier, no third-party code.**
+- **The feed and messages need a server — and it is one the user runs**, on
+  their own machine, holding files in a folder they chose. So the honest
+  sentence is not "nothing leaves your phone", it is **"nothing goes anywhere
+  you did not put it."** Marketing must use the second sentence.
+- **One exception, deliberately:** the user may connect a TikTok or Instagram
+  account to read back how a post did. Consent happens on the platform's own
+  site. The scopes requested are **read-only** — publishing is a separate
+  permission on both platforms and this app does not request it, so it *cannot*
+  post as anybody even if something went wrong. Disconnecting deletes the token.
+- **The iOS app in aeroplane mode makes no network requests at all.** That is
+  the simplest way to verify the claim, and it is a good demo.
+
+**Rule for all copy:** if a sentence about privacy is not on this list, it does
+not ship until it has been checked against the code.
+
+---
+
+## 5. The company work — this is your side
+
+### 5.1 Publisher identity — three values, blocking everything else
+
+The app refuses to call itself submittable while these are placeholders, and the
+check runs in CI. Both stores reject the reserved `com.example` domain outright.
+
+| Value | Now | Needs to be |
+| --- | --- | --- |
+| `AUTEUR_BUNDLE_ID` | `com.example.auteur` | Reverse-DNS on a domain the publisher **owns**, e.g. `com.yourcompany.auteur` |
+| `AUTEUR_DEVELOPER` | `Example Developer` | The legal name that will appear on the store listing and in the copyright line |
+| `AUTEUR_SUPPORT_EMAIL` | `support@example.com` | A monitored address. Apple guideline 1.2 **requires** published contact information for an app carrying other people's content |
+
+These three imply an earlier decision: **a name and a domain**. Reverse-DNS on a
+domain you do not own is a rejection. So the order is: pick the trading name →
+check it is clear → register the domain → then these three values fall out.
+
+Already set and real, as long as GitHub Pages is switched on
+(Settings → Pages → Source: GitHub Actions):
+
+- Support URL — `https://abucaria-afk.github.io/Social-media/`
+- Privacy policy — `https://abucaria-afk.github.io/Social-media/privacy.html`
+- Terms — `https://abucaria-afk.github.io/Social-media/terms.html`
+
+These should move to the real domain once it exists. Treat that as a task.
+
+### 5.2 Accounts and registrations to open
+
+Ordered by how long they take to clear, not by cost.
+
+| What | Why it is needed | Note |
+| --- | --- | --- |
+| Legal entity | Owns the app, the domain, the developer accounts and any revenue | Decision: see §8.2 |
+| Domain | Required by the bundle identifier before anything else | Do this first |
+| Apple Developer Program | Any App Store submission | Annual fee; organisation enrolment needs a legal entity and can take weeks |
+| Google Play Console | Any Play submission | One-time fee; personal accounts now face identity verification and, for new personal developers, a closed-testing requirement before production |
+| TikTok for Developers | Reading back TikTok numbers | See §5.4 |
+| Meta / Instagram developer app | Reading back Instagram numbers | See §5.4 |
+| Business bank account | Store payouts, hosting bills | Follows the entity |
+
+*Every fee, timeline and policy in this table moves. Check each against the
+provider's current page before acting, and date what you find.*
+
+### 5.3 Hosting — the smallest real decision
+
+The repository already contains three ways to deploy the same container. This is
+one afternoon, and it unblocks having a link to show anyone.
+
+- **Render** — fewest steps. Dashboard → New → Blueprint → pick the repo. It
+  reads `render.yaml`, builds the Dockerfile, gives an HTTPS address. The 10 GB
+  disk mounted at `/data` matters: without it every deploy loses every film
+  anybody made.
+- **Fly** — `fly volumes create auteur_data --size 10`, then `fly deploy`. Same
+  container; the volume matters for the same reason.
+- **Any Docker host** — `docker-compose.yml` works as-is.
+
+Two environment variables are already set correctly in both config files and
+should not be removed: `AUTEUR_TRUST_PROXY=1` and `AUTEUR_PUBLIC_HTTPS=1`.
+Behind a proxy without them the sign-in cookie is not marked Secure, the browser
+drops it, and signing in fails in a way indistinguishable from a wrong password.
+
+The first account's username and password are set **in the host's dashboard**,
+never in the repository — both config files mark them `sync: false` for exactly
+that reason.
+
+### 5.4 Platform approvals — the long poles
+
+Both of these gate the Schedule tab's whole reason for existing, and both take
+outside review. Start them early.
+
+**TikTok** — requires a developer application and an **audit** before it may
+leave sandbox. In sandbox, only accounts explicitly added as testers can
+authorise it. Practical consequence: **it works for your own account
+immediately**, and for anybody else's only after the audit clears.
+Scopes requested: `user.info.basic`, `user.info.stats`, `video.list`.
+Credentials: `AUTEUR_TIKTOK_CLIENT_KEY`, `AUTEUR_TIKTOK_CLIENT_SECRET`.
+Source: <https://developers.tiktok.com/doc/login-kit-manage-user-access-tokens/>
+
+**Instagram** — requires a Meta app, and the connected account must be a
+**Business or Creator** account, not a personal one. Instagram returns no
+insights at all for a personal account, which is the single most common reason
+this looks broken when it is working. Reading anybody else's numbers needs App
+Review.
+Scopes requested: `instagram_business_basic`,
+`instagram_business_manage_insights`.
+Credentials: `AUTEUR_INSTAGRAM_CLIENT_ID`, `AUTEUR_INSTAGRAM_CLIENT_SECRET`.
+Source: <https://developers.facebook.com/documentation/instagram-platform/insights>
+
+Both were verified against the platforms' own documentation in **2026-08**.
+Re-check before relying on them.
+
+### 5.5 Store submission facts
+
+- **Age rating: 12+.** Accounts under 18 start with sensitive films hidden, and
+  that setting is lockable with a code. Do not let any listing copy imply a
+  younger audience.
+- **User-generated content obligations** (Apple guideline 1.2) are met and must
+  stay met: content filtering, a report mechanism, blocking, and published
+  contact information.
+- **Account deletion inside the app** is required by Apple 5.1.1(v) and is
+  built.
+- **Apple listing limits**, enforced in code so copy cannot be written past
+  them: name 30, subtitle 30, keywords 100, promotional text 170, description
+  4000 characters.
+- **Google Play Data safety** must match what the code can actually reach. It
+  currently declares the TikTok/Instagram connections. Any change to what the
+  app touches has to change this declaration **in the same release**.
+
+---
+
+## 6. Positioning — what to build the story on
+
+Not decided. This is where a collaborator earns their keep. The raw material:
+
+**The real differentiator** is that the cut is *authored*, not templated. Every
+competitor in the "AI video editor" category assembles clips to a beat. This
+reads the footage and builds a structure — an opening hold, a phrase that lands,
+one still shot, a rhyme back to the first image. The measurable version: shot
+lengths vary by a factor of 4.5–6× within one film, where a template-driven
+editor sits at 2×.
+
+**The second differentiator** is the privacy posture, which is architectural
+rather than promised.
+
+**The third** is that the Create half and the Schedule half are the same app.
+Make it, then plan where it goes and see whether the last one landed — without
+exporting to something else.
+
+**The tension to resolve:** those three arguments point at different buyers.
+"Authored cuts" is a creator's argument. "Runs on your own machine" is a
+privacy-conscious individual's argument. "Plan and measure across platforms" is
+a social-media-manager's argument. Picking one to lead with is a real decision
+and it is §8.3.
+
+---
+
+## 7. Hard constraints — do not violate these
+
+1. **No plaintext password and no credential hash may ever live in this
+   repository.** Passwords are set in the host's dashboard (`sync: false` in
+   `render.yaml`, `fly secrets` on Fly).
+2. **A password was committed to git history in an early commit (`b657dee`) and
+   must be treated as permanently compromised.** It must not be reused anywhere,
+   for anything, ever. Do not ask what it was.
+3. **Platform access tokens** are written with `0600` permissions to a file kept
+   separate from the list of connections. Keep that separation.
+4. **The app must never request publishing scopes** on TikTok or Instagram
+   unless that becomes a deliberate, announced product decision with its own
+   privacy-document change.
+5. **Every privacy claim in marketing must be checkable against the code.** See
+   §4.
+6. **Never put a credential in a chat, a document or a screenshot.**
+
+---
+
+## 8. Open decisions — put these to the founder
+
+These are the ones that change what gets built next. Each needs a
+recommendation, not a survey.
+
+**8.1 One product or two?** Today every deployment is somebody's own server. A
+hosted multi-tenant version would be a different company — different costs,
+different privacy story, different obligations. Options: stay self-hosted and
+sell the app; run a hosted instance as the default and keep self-hosting as an
+option; or both, deliberately. This decision shapes pricing, the privacy copy,
+and the store listings.
+
+**8.2 Entity, and where.** Depends on where the founder is resident and whether
+outside money is ever likely. Note the current copyright line reads
+`Copyright (c) 2026 abucaria-afk` — it should become the entity's legal name.
+
+**8.3 Who is it for, first?** Creator, privacy-conscious individual, or social
+media manager (§6). Pick one for the first launch; the other two stay in the
+product but out of the headline.
+
+**8.4 How does it make money?** Nothing is built. Plausible shapes: paid app,
+subscription for the hosted instance, free app with a paid Schedule tier. Each
+implies different store setup work, so this decision should come before the
+first submission, not after.
+
+**8.5 Launch order.** iOS first, Android first, or web instance first? The web
+instance is the only one that needs no store approval and could be live this
+week. That argues for it as the beachhead regardless of the answer to 8.1.
+
+**8.6 The name.** "auteur" is descriptive and memorable but needs a trademark
+and domain check before it goes on a legal document or a bundle identifier.
+
+---
+
+## 9. What to send back
+
+The most useful output is something the founder can act on without translation.
+Please return, in this order:
+
+1. **A dated list of anything in §5 that has changed** — fees, timelines,
+   policies — with the source you checked and when.
+2. **A recommendation on each open decision in §8**, one short paragraph each:
+   the call, the single strongest reason, and the one thing that would change
+   your mind.
+3. **A critical-path plan** to the first thing a stranger can use, with owners
+   and rough durations. Mark each step *decision* or *task*.
+4. **Draft copy** for whatever you can write without new product facts —
+   positioning line, store description within the §5.5 limits, a launch note.
+   Flag every claim that needs verifying against §4 before it ships.
+5. **A list of questions you could not answer from this file.** That list is
+   how this file gets better.
+
+Keep it in one document. It comes back to a working repository, and something
+that can be read in one pass is worth more than something exhaustive.

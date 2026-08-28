@@ -17,21 +17,28 @@
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/style.css">
 <link rel="stylesheet" href="/static/manager.css">
-<title>Auteur — the manager</title>
+<title>Auteur — schedule</title>
 </head>
 <body>
 
 <!-- The board -->
 <main class="page" id="board-screen">
+  <!-- No back arrow. This screen used to hang off the studio and kept the
+       arrow when it became the second slot in the tab bar, so the one root
+       tab in five that had one sent you to /studio: not where you came from,
+       and not this screen's parent any more. A root destination has nothing
+       above it, which is the whole point of a tab. -->
   <header class="topbar">
-    <a class="topbar-back" href="/studio" aria-label="Back to the studio">←</a>
-    <h1>Manager</h1>
+    <h1>Schedule</h1>
     <span class="topbar-right">
       <button type="button" class="chip-button" id="new-plan">Plan</button>
     </span>
   </header>
 
-  <h2 class="large-title">Manager</h2>
+  <!-- Named for the tab that reaches it. It said "Manager" on both lines
+       while the tab said "Schedule", so the word you tapped and the word you
+       landed on disagreed. -->
+  <h2 class="large-title">Schedule</h2>
   <p class="lede">
     Plan a post before the footage for it exists: pick the day and the surface,
     say what the film is, and it works out what you have to go and shoot.
@@ -42,14 +49,24 @@
        stopped being true the moment an account could be connected below, and
        a privacy claim that was true of the version you tested is the exact
        thing a Data safety declaration is a policy strike for. -->
-  <p class="never-posts">
-    <span aria-hidden="true">⃠</span>
-    <strong>This never posts for you.</strong> Connecting an account below
-    asks only to <em>read</em> — followers and how a post did. Publishing is a
-    separate permission on both platforms and this app does not ask for it.
-    When you have posted something yourself, mark it here and it leaves the
-    board. With nothing connected, no request leaves this machine at all.
-  </p>
+  <!-- Two elements, not one. `.never-posts` is a flex row, and a flex
+       container makes a flex item of every child *and every run of text
+       between children* — so as a single <p> this laid out as four narrow
+       columns ("This never posts for you." / "Connecting an account below
+       asks only to" / "read" / the rest) and read as nonsense on a phone.
+       The icon and the prose are the two items; the prose flows inside its
+       own <p> the way prose does. -->
+  <div class="never-posts">
+    <span class="never-posts-mark" aria-hidden="true">⃠</span>
+    <p>
+      <strong>This never posts for you.</strong> Connecting an account below
+      asks only to <em>read</em> — followers and how a post did. Publishing is
+      a separate permission on both platforms and this app does not ask for
+      it. When you have posted something yourself, mark it here and it leaves
+      the board. With nothing connected, no request leaves this machine at
+      all.
+    </p>
+  </div>
 
   <h3 class="section">Accounts</h3>
   <div class="inset-group" id="platforms"></div>
@@ -57,7 +74,18 @@
     Reading how a post did is the only reason to connect anything here, and it
     is the only thing asked for. Disconnecting deletes the token.
   </p>
-  <ul class="stack" id="platforms-missing" hidden></ul>
+  <!-- Folded away, not deleted.
+       These lines name environment variables — AUTEUR_TIKTOK_CLIENT_KEY and
+       four more — and unfolded they were the longest thing on the Schedule
+       tab, taller than the accounts they explain and running off under the
+       tab bar. They are the operator's work, not the work of somebody using
+       the app, and the row above already says "Needs setting up". So they
+       stay one tap away rather than being the tab's first impression: still
+       said, still exact, no longer the loudest thing on the screen. -->
+  <details class="why-missing" id="platforms-why" hidden>
+    <summary>What setting these up involves</summary>
+    <ul class="stack" id="platforms-missing"></ul>
+  </details>
 
   <h3 class="section">In your calendar</h3>
   <div class="inset-group">

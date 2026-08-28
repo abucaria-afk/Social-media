@@ -36,7 +36,11 @@
   line-height: 1.45;
 }
 
-.never-posts span { color: var(--rust); font-size: var(--text-callout); line-height: 1.2; }
+.never-posts > p { margin: 0; min-width: 0; }
+
+/* Scoped to the mark. `.never-posts span` also matched the <span>s inside
+   the prose, so any emphasis in the sentence turned rust-coloured. */
+.never-posts-mark { color: var(--rust); font-size: var(--text-callout); line-height: 1.2; }
 
 /* -- the board ------------------------------------------------------------ */
 
@@ -211,3 +215,52 @@
 }
 
 #new-form .go { margin-top: 18px; }
+
+/* Why a platform says "Needs setting up", folded away until asked. */
+.why-missing {
+  margin: 0 4px 22px;
+  color: var(--text-faint);
+  font-size: var(--text-footnote);
+}
+
+.why-missing > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--text-subhead);
+  cursor: pointer;
+  /* 44px of finger. A 13px line of text is not a control you can hit. */
+  min-height: 44px;
+  /* `display: flex` on a <summary> removes the disclosure triangle, so the
+     first draft of this row was grey text that happened to be tappable and
+     did not read as anything. The chevron below replaces it, pointing the
+     way every other row on this screen points. */
+  list-style: none;
+}
+
+.why-missing > summary::-webkit-details-marker { display: none; }
+
+.why-missing > summary::after {
+  content: "\203A";
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: var(--text-body);
+  transition: transform 0.15s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .why-missing > summary::after { transition: none; }
+}
+
+.why-missing[open] > summary::after { transform: rotate(90deg); }
+
+.why-missing > summary:active { background: var(--raised); }
+
+.why-missing[open] > summary { color: var(--text); }
+
+.why-missing .stack-empty { margin-bottom: 12px; }

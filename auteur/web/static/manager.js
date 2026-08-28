@@ -356,7 +356,9 @@
 
     var missing = data.missing || [];
     var list = $("platforms-missing");
-    list.hidden = missing.length === 0;
+    /* The <details> carries the hiding now, so that the summary goes with
+       the list rather than sitting above an empty disclosure. */
+    $("platforms-why").hidden = missing.length === 0;
     list.innerHTML = missing
       .map(function (line) { return '<li class="stack-empty">' + escaped(line) + "</li>"; })
       .join("");
