@@ -143,26 +143,73 @@ def _drop_server_links(markup: str) -> str:
 # the entire form. Present, and not reachable, which is the same thing as
 # missing for anybody who does not already know it is there.
 #
-# So: the real bar, fixed to the bottom, built from the sections that exist.
-# Same markup and same classes as chrome.js emits, so it is the app's bar
-# rather than a drawing of one.
+# So: the real bar, fixed to the bottom.
+#
+# **The same five names as the app, in the same order.** This used to be
+# Create / Templates / Animation / Studio / You — a hand-written list that had
+# never matched what `chrome.js` emits, so anybody following the published
+# link met a different product from the one in the screenshots and reasonably
+# concluded that was the app. A test now reads both and fails when they
+# diverge; there is no second list to forget any more.
+#
+# Three of the five need somewhere to keep things and a published page is one
+# file with no server, so tapping those says that in a line rather than doing
+# nothing. Naming them and explaining is honest; renaming the bar around the
+# limitation is what made the link look like another app.
 TABS = (
-    ("home", "＋", "Create"),
-    ("templates", "▚", "Templates"),
-    ("animation", "◎", "Animation"),
-    ("studio", "◱", "Studio"),
-    ("you", "◉", "You"),
+    ("feed", "⌂", "Feed", False),
+    ("schedule", "▤", "Schedule", False),
+    ("home", "＋", "Create", True),
+    ("messages", "▣", "Messages", False),
+    ("you", "◉", "You", True),
+)
+
+#: What the plus offers here. The same chooser the app has, minus the two
+#: entries that need an instance — a chooser listing things that cannot happen
+#: is worse than a shorter chooser.
+MAKE = (
+    ("home", "Make a film", "Pick photographs, say what you want, watch it cut."),
+    ("templates", "Cut to a template", "Use a reel's timing on your own pictures."),
+    ("animation", "Type and stickers", "Words and marks that land on the beat."),
+    ("studio", "Meet the crew", "Who decided what, and what they know."),
 )
 TAB_BAR = (
     '<nav class="tabbar" aria-label="Main">'
     + "".join(
         f'<a class="tab{" tab-big" if key == "home" else ""}" href="#" '
-        f'data-goto="{key}" data-tab="{key}">'
+        + (f'data-goto="{key}" ' if here else f'data-needs-instance="{name}" ')
+        + f'data-tab="{key}">'
         f'<span class="tab-icon">{mark}</span>'
         f'<span class="tab-label">{name}</span></a>'
-        for key, mark, name in TABS
+        for key, mark, name, here in TABS
     )
     + "</nav>"
+    + '<div class="sheet" id="create-sheet" hidden>'
+    '<div class="sheet-scrim" data-close-create></div>'
+    '<div class="sheet-body" role="dialog" aria-modal="true" aria-label="Make something">'
+    '<div class="sheet-grip" aria-hidden="true"></div>'
+    '<h2 class="sheet-title">Make something</h2>'
+    '<div class="make-list">'
+    + "".join(
+        f'<a class="make-row" href="#" data-goto="{key}" data-close-create>'
+        f'<span class="make-words"><span class="make-title">{title}</span>'
+        f'<span class="make-note">{note}</span></span></a>'
+        for key, title, note in MAKE
+    )
+    + "</div>"
+    '<button type="button" class="go quiet" data-close-create>Not now</button>'
+    "</div></div>"
+    '<div class="sheet" id="needs-instance" hidden>'
+    '<div class="sheet-scrim" data-close-needs></div>'
+    '<div class="sheet-body" role="dialog" aria-modal="true" aria-label="Needs an instance">'
+    '<div class="sheet-grip" aria-hidden="true"></div>'
+    '<h2 class="sheet-title" id="needs-title">Needs a copy you run</h2>'
+    '<p class="sheet-note">This page is one file with nothing behind it, so it '
+    "can make you a film and cannot keep one. The feed, the schedule and the "
+    "messages need somewhere to put things — run <code>auteur serve</code>, or "
+    "the container in the repository, and the app has all five.</p>"
+    '<button type="button" class="go quiet" data-close-needs>Back to making one</button>'
+    "</div></div>"
 )
 
 home = _drop_server_links(home)
@@ -354,10 +401,15 @@ DEMO = r"""
     document.getElementById("app").hidden = !!PAGES[to];
     /* Which tab you are on. Without this the bar is four links that never
        say where you are, which is a menu rather than a tab bar. */
+    /* Templates, the animation room and the studio are reached through the
+       plus, so the plus is what lights up while you are in one — the same
+       rule `chrome.js` applies in the app. A bar that highlights nothing
+       tells somebody they are lost. */
+    var lit = { templates: "home", animation: "home", studio: "home" }[to] || to;
     var tabs = document.querySelectorAll(".tabbar .tab");
     for (var i = 0; i < tabs.length; i++) {
-      tabs[i].classList.toggle("is-on", tabs[i].dataset.tab === to);
-      if (tabs[i].dataset.tab === to) {
+      tabs[i].classList.toggle("is-on", tabs[i].dataset.tab === lit);
+      if (tabs[i].dataset.tab === lit) {
         tabs[i].setAttribute("aria-current", "page");
       } else {
         tabs[i].removeAttribute("aria-current");
@@ -369,11 +421,50 @@ DEMO = r"""
     screens.forEach(function (s) { $(s).hidden = s !== id; });
     goto("home");
   }
+  /* The plus opens a chooser rather than going somewhere, the way it does in
+     the app. Three of the five tabs need an instance and say so instead of
+     doing nothing when tapped. */
+  function sheet(id, open) {
+    var node = document.getElementById(id);
+    if (!node) { return; }
+    node.hidden = !open;
+    document.body.classList.toggle("sheet-open", !!open);
+  }
+
   document.addEventListener("click", function (event) {
+    if (event.target.closest("[data-close-create]")) { sheet("create-sheet", false); }
+    if (event.target.closest("[data-close-needs]")) { sheet("needs-instance", false); }
+
+    var needs = event.target.closest("[data-needs-instance]");
+    if (needs) {
+      event.preventDefault();
+      var title = document.getElementById("needs-title");
+      if (title) {
+        title.textContent = needs.dataset.needsInstance + " needs a copy you run";
+      }
+      sheet("needs-instance", true);
+      return;
+    }
+
+    var plus = event.target.closest('.tab[data-tab="home"]');
+    if (plus) {
+      event.preventDefault();
+      sheet("create-sheet", document.getElementById("create-sheet").hidden);
+      return;
+    }
+
     var link = event.target.closest("[data-goto]");
     if (!link) { return; }
     event.preventDefault();
+    sheet("create-sheet", false);
     goto(link.dataset.goto);
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") {
+      sheet("create-sheet", false);
+      sheet("needs-instance", false);
+    }
   });
 
   /* -- step 1 ------------------------------------------------------- */

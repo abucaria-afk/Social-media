@@ -9861,14 +9861,22 @@ def test_the_published_page_has_the_tab_bar_and_it_is_not_hidden():
     same as missing for anybody who does not know it is there.
 
     Then it was the real bar, placed *inside* the templates section, which is
-    `hidden` — so it existed and was invisible on every screen."""
+    `hidden` — so it existed and was invisible on every screen.
+
+    The slots are the app's five now rather than a list of the sections this
+    page happens to have. Templates, the animation room and the studio are
+    reached through the plus here exactly as they are in the app, so they are
+    no longer tabs and are no longer looked for as tabs."""
     page = (
         Path(__file__).resolve().parent.parent / "ios" / "Auteur" / "Web" / "index.html"
     ).read_text()
 
     assert 'class="tabbar"' in page
-    for room in ("home", "templates", "animation", "studio"):
-        assert f'data-tab="{room}"' in page, f"no tab for {room}"
+    for slot in ("feed", "schedule", "home", "messages", "you"):
+        assert f'data-tab="{slot}"' in page, f"no tab for {slot}"
+    # And the rooms that are not tabs are still reachable, through the plus.
+    for room in ("templates", "animation", "studio"):
+        assert f'data-goto="{room}"' in page, f"{room} cannot be reached at all"
 
     # Outside every section, or a fixed bar inherits their hidden state.
     bar = page.index('class="tabbar"')
@@ -10813,6 +10821,48 @@ def test_no_join_is_offset_past_the_end_of_what_it_joins():
     assert float(first_measured.group(1)) < float(
         first_stale.group(1)
     ), "the measured offsets match the planned ones, so nothing is being measured"
+
+
+def test_the_published_page_has_the_same_tabs_as_the_app():
+    """The link showed a different product and nothing compared the two.
+
+    `chrome.js` emits the app's bar. The published page is one file with no
+    server, so that script is stripped and `build_artifact.py` wrote its own
+    — and its own said **Create, Templates, Animation, Studio, You** while the
+    app said Feed, Schedule, Create, Messages, You. Not one name in common
+    beyond two. Anybody following the link met a different app from the one in
+    the screenshots and was right to say so.
+
+    It survived because the comment above that list claims it is "the same one
+    the app has" and nothing checked. Two lists, one idea, in two files —
+    which is the shape of every other thing found in this repository this
+    week.
+
+    Three of the five need somewhere to keep things and a page with no server
+    cannot have them. They are still named, and tapping one says why. Renaming
+    the bar around the limitation is what made the link look like another app.
+    """
+    import re
+
+    from auteur.web import server
+
+    root = Path(__file__).resolve().parent.parent
+    chrome = (server.STATIC / "chrome.js").read_text(encoding="utf-8")
+    builder = (root / "tools" / "artifact" / "build_artifact.py").read_text(encoding="utf-8")
+
+    tabs = re.search(r"var TABS = \[(.*?)\n  \];", chrome, re.S)
+    assert tabs, "chrome.js no longer declares TABS"
+    app = re.findall(r'label:\s*"([^"]+)"', tabs.group(1))
+
+    published = re.search(r"TABS = \((.*?)\n\)", builder, re.S)
+    assert published, "build_artifact.py no longer declares TABS"
+    page = re.findall(r'"[a-z]+",\s*"[^"]+",\s*"([^"]+)"', published.group(1))
+
+    assert app == page, (
+        f"the app's bar is {app} and the published page's is {page} — "
+        "somebody following the link meets a different product"
+    )
+    assert len(app) == 5, f"the bar is five slots on both phones; this is {len(app)}"
 
 
 def test_both_renderers_shape_a_film_the_same_way():

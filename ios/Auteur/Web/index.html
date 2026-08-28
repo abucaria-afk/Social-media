@@ -3787,7 +3787,7 @@ body { background: var(--ground); }
 <input type="file" id="a-picture-file" accept="image/*" hidden>
 
 </div>
-<nav class="tabbar" aria-label="Main"><a class="tab tab-big" href="#" data-goto="home" data-tab="home"><span class="tab-icon">＋</span><span class="tab-label">Create</span></a><a class="tab" href="#" data-goto="templates" data-tab="templates"><span class="tab-icon">▚</span><span class="tab-label">Templates</span></a><a class="tab" href="#" data-goto="animation" data-tab="animation"><span class="tab-icon">◎</span><span class="tab-label">Animation</span></a><a class="tab" href="#" data-goto="studio" data-tab="studio"><span class="tab-icon">◱</span><span class="tab-label">Studio</span></a><a class="tab" href="#" data-goto="you" data-tab="you"><span class="tab-icon">◉</span><span class="tab-label">You</span></a></nav>
+<nav class="tabbar" aria-label="Main"><a class="tab" href="#" data-needs-instance="Feed" data-tab="feed"><span class="tab-icon">⌂</span><span class="tab-label">Feed</span></a><a class="tab" href="#" data-needs-instance="Schedule" data-tab="schedule"><span class="tab-icon">▤</span><span class="tab-label">Schedule</span></a><a class="tab tab-big" href="#" data-goto="home" data-tab="home"><span class="tab-icon">＋</span><span class="tab-label">Create</span></a><a class="tab" href="#" data-needs-instance="Messages" data-tab="messages"><span class="tab-icon">▣</span><span class="tab-label">Messages</span></a><a class="tab" href="#" data-goto="you" data-tab="you"><span class="tab-icon">◉</span><span class="tab-label">You</span></a></nav><div class="sheet" id="create-sheet" hidden><div class="sheet-scrim" data-close-create></div><div class="sheet-body" role="dialog" aria-modal="true" aria-label="Make something"><div class="sheet-grip" aria-hidden="true"></div><h2 class="sheet-title">Make something</h2><div class="make-list"><a class="make-row" href="#" data-goto="home" data-close-create><span class="make-words"><span class="make-title">Make a film</span><span class="make-note">Pick photographs, say what you want, watch it cut.</span></span></a><a class="make-row" href="#" data-goto="templates" data-close-create><span class="make-words"><span class="make-title">Cut to a template</span><span class="make-note">Use a reel's timing on your own pictures.</span></span></a><a class="make-row" href="#" data-goto="animation" data-close-create><span class="make-words"><span class="make-title">Type and stickers</span><span class="make-note">Words and marks that land on the beat.</span></span></a><a class="make-row" href="#" data-goto="studio" data-close-create><span class="make-words"><span class="make-title">Meet the crew</span><span class="make-note">Who decided what, and what they know.</span></span></a></div><button type="button" class="go quiet" data-close-create>Not now</button></div></div><div class="sheet" id="needs-instance" hidden><div class="sheet-scrim" data-close-needs></div><div class="sheet-body" role="dialog" aria-modal="true" aria-label="Needs an instance"><div class="sheet-grip" aria-hidden="true"></div><h2 class="sheet-title" id="needs-title">Needs a copy you run</h2><p class="sheet-note">This page is one file with nothing behind it, so it can make you a film and cannot keep one. The feed, the schedule and the messages need somewhere to put things — run <code>auteur serve</code>, or the container in the repository, and the app has all five.</p><button type="button" class="go quiet" data-close-needs>Back to making one</button></div></div>
 <script>
 /* The graphics vocabulary, drawn in a browser.
  *
@@ -13417,10 +13417,15 @@ window.auteurTemplates = [
     document.getElementById("app").hidden = !!PAGES[to];
     /* Which tab you are on. Without this the bar is four links that never
        say where you are, which is a menu rather than a tab bar. */
+    /* Templates, the animation room and the studio are reached through the
+       plus, so the plus is what lights up while you are in one — the same
+       rule `chrome.js` applies in the app. A bar that highlights nothing
+       tells somebody they are lost. */
+    var lit = { templates: "home", animation: "home", studio: "home" }[to] || to;
     var tabs = document.querySelectorAll(".tabbar .tab");
     for (var i = 0; i < tabs.length; i++) {
-      tabs[i].classList.toggle("is-on", tabs[i].dataset.tab === to);
-      if (tabs[i].dataset.tab === to) {
+      tabs[i].classList.toggle("is-on", tabs[i].dataset.tab === lit);
+      if (tabs[i].dataset.tab === lit) {
         tabs[i].setAttribute("aria-current", "page");
       } else {
         tabs[i].removeAttribute("aria-current");
@@ -13432,11 +13437,50 @@ window.auteurTemplates = [
     screens.forEach(function (s) { $(s).hidden = s !== id; });
     goto("home");
   }
+  /* The plus opens a chooser rather than going somewhere, the way it does in
+     the app. Three of the five tabs need an instance and say so instead of
+     doing nothing when tapped. */
+  function sheet(id, open) {
+    var node = document.getElementById(id);
+    if (!node) { return; }
+    node.hidden = !open;
+    document.body.classList.toggle("sheet-open", !!open);
+  }
+
   document.addEventListener("click", function (event) {
+    if (event.target.closest("[data-close-create]")) { sheet("create-sheet", false); }
+    if (event.target.closest("[data-close-needs]")) { sheet("needs-instance", false); }
+
+    var needs = event.target.closest("[data-needs-instance]");
+    if (needs) {
+      event.preventDefault();
+      var title = document.getElementById("needs-title");
+      if (title) {
+        title.textContent = needs.dataset.needsInstance + " needs a copy you run";
+      }
+      sheet("needs-instance", true);
+      return;
+    }
+
+    var plus = event.target.closest('.tab[data-tab="home"]');
+    if (plus) {
+      event.preventDefault();
+      sheet("create-sheet", document.getElementById("create-sheet").hidden);
+      return;
+    }
+
     var link = event.target.closest("[data-goto]");
     if (!link) { return; }
     event.preventDefault();
+    sheet("create-sheet", false);
     goto(link.dataset.goto);
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") {
+      sheet("create-sheet", false);
+      sheet("needs-instance", false);
+    }
   });
 
   /* -- step 1 ------------------------------------------------------- */
