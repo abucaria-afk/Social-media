@@ -14051,3 +14051,73 @@ def test_the_page_never_offers_a_trial_it_has_nowhere_to_start():
     assert (
         f"{pricing.TRIAL_DAYS} days free" in open_now
     ), "everything is open and the trial is not offered anywhere"
+
+
+def test_the_readme_tells_a_contributor_every_check_that_can_fail_them():
+    """The Development block, compared to the workflow it is describing.
+
+    It said `ruff check auteur tests` and did not mention black at all. CI runs
+    `ruff check .` and `black --check .`. So the documented route was: follow
+    the README, lint clean, push, and watch the lint job go red on a formatter
+    the README never named — over files (`tools/`) the README's narrower path
+    never looked at.
+
+    That strands exactly one person: whoever is contributing for the first
+    time, who has no reason to doubt the instructions. Everyone who already
+    knows never reads the block again, which is why it stayed wrong.
+    """
+    import re
+
+    root = Path(__file__).resolve().parent.parent
+    workflow = (root / ".github" / "workflows" / "lint-and-type.yml").read_text(encoding="utf-8")
+    readme = (root / "README.md").read_text(encoding="utf-8")
+
+    block = re.search(r"## Development\n+```bash\n(.*?)```", readme, re.S)
+    assert block, "the README has no Development block to check"
+    instructions = block.group(1)
+
+    # Every `run:` line in the lint job that invokes a checker has to appear.
+    ran = re.findall(r"run: (?:python -m )?((?:ruff|black)[^\n|(]*)", workflow)
+    assert ran, "the lint workflow runs no checkers, which cannot be right"
+
+    for command in ran:
+        command = command.strip()
+        assert command in instructions, (
+            f"CI runs {command!r} and the README's Development block does not "
+            f"say to. It says:\n{instructions}"
+        )
+
+
+def test_the_usage_line_names_every_command_the_cli_can_run():
+    """`auteur --help` has to list what `auteur` accepts.
+
+    It did not. The subcommand metavar was typed out by hand and listed
+    fourteen commands, while the parser had sixteen: `moderate` and `template`
+    both existed, both worked, and neither appeared in the line that tells you
+    what you can run. The help text underneath described them, so the same
+    screen contradicted itself.
+
+    Nothing could catch that, because the list was a string that named the
+    parsers and was never compared to them — the same shape as every other
+    defect this file guards. The metavar is now built from `sub.choices`, so
+    adding a command changes the usage line and the dispatch together or
+    neither. This checks that it stayed built rather than being typed back in.
+    """
+    from auteur.cli import _build_parser
+
+    parser = _build_parser()
+    actions = [a for a in parser._actions if hasattr(a, "choices") and a.choices]
+    subcommands = next((set(a.choices) for a in actions if a.dest == "command"), set())
+    assert len(subcommands) > 10, f"only {len(subcommands)} commands found; the lookup is wrong"
+
+    usage = parser.format_usage()
+    for command in sorted(subcommands):
+        assert command in usage, f"`auteur {command}` runs and `auteur --help` never mentions it"
+
+    # And the reverse: nothing listed that cannot be run. A usage line
+    # offering a command that does not exist is the same bug pointed the other
+    # way, and it is the one a person actually trips over.
+    listed = re.search(r"\{([a-z,]+)\}", usage)
+    assert listed, f"the usage line has no command list at all:\n{usage}"
+    for name in listed.group(1).split(","):
+        assert name in subcommands, f"`auteur --help` offers {name!r}, which does not exist"

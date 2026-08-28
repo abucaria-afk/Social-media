@@ -286,10 +286,19 @@ binding and go to you rather than being silently dropped as *no predicted gain*.
 ```bash
 pytest -q                    # the suite; synthesises its own footage
 python tests/fuzz.py         # ten thousand randomised property checks
-ruff check auteur tests      # lint
+ruff check .                 # the linter CI runs
+black --check .              # the formatter CI runs — a different tool
 
 pip install pre-commit && pre-commit install
 ```
+
+CI runs **both** `ruff check .` and `black --check .`, over the whole tree
+rather than over `auteur` and `tests` alone — `tools/` is linted too. They are
+not the same tool and they disagree: `ruff format` reformats files black then
+wants changed back, so run `black .` and never `ruff format`. A test compares
+this block to the workflow, because this is exactly the paragraph that goes
+stale and the person it strands is whoever is contributing for the first
+time.
 
 ### Layout
 
