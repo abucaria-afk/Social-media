@@ -59,21 +59,6 @@ TOP_TIER_OFF = 0.10
 #: sitting in a list of measured ones reads as measured.
 TRIAL_DAYS = 14
 
-#: The code a customer types to get the discount above.
-#:
-#: Derived from `TOP_TIER_OFF` rather than written, because the two are the
-#: same fact stated twice and the second one goes stale silently: a coupon
-#: changed to fifteen per cent leaves "ROOM10" printed on the site, and the
-#: page is then advertising a number that is no longer the number. Deriving it
-#: means the code cannot outlive the percentage it names.
-#:
-#: It has to be advertised, not merely to exist. A Stripe payment link takes
-#: `allow_promotion_codes` and nothing else — it will not carry a coupon of
-#: its own — so a discount nobody can type is a discount nobody can have. The
-#: first version of this created the coupon and stopped there, which is a 10%
-#: saving on the site and no way to claim it at the checkout.
-PROMO_CODE = f"ROOM{round(TOP_TIER_OFF * 100)}"
-
 
 @dataclass(frozen=True)
 class Rival:
@@ -219,9 +204,15 @@ FREE = Tier(
 #: One seat on a hosted instance.
 SOLO = Tier(
     key="solo",
-    name="A copy that is yours",
+    # The name on the invoice, the Stripe product and the checkout is the
+    # name the plan is called: Solo. "A copy that is yours" was the whole
+    # name for a while, and it is a good line — but a person comparing plans
+    # needs a handle before they need a sentence, and a card statement
+    # reading "A copy that is yours" is a chargeback waiting to happen. The
+    # line kept its job, one field down.
+    name="Solo",
     dollars=_charm(average(ENTRY_RIVALS) * (1 - UNDERCUT)),
-    blurb="An instance that is running when you are not.",
+    blurb="A copy that is yours — an instance that is running when you are not.",
     includes=(
         "Everything in the browser build",
         "A feed that learns from what you finish, on your instance",
@@ -236,11 +227,14 @@ SOLO = Tier(
 #: system that already exists in `auteur/web/auth.py`, priced.
 STUDIO = Tier(
     key="studio",
-    name="A copy for the room",
+    name="Studio",
     dollars=_charm(average(TOP_RIVALS) * (1 - UNDERCUT)),
-    blurb="One instance, everybody who is making the work on it.",
+    blurb="A copy for the room — one instance, everybody making the work on it.",
     includes=(
-        "Everything in a copy that is yours",
+        # Named by reading the other tier, not by retyping it. This line said
+        # "Everything in a copy that is yours" and would have gone on saying
+        # it after the tier stopped being called that.
+        f"Everything in {SOLO.name}",
         "Invite the rest of the room onto the same instance",
         "One planning board, one shot list, one calendar",
         "The feed ranks across everything the room has made",
@@ -279,6 +273,23 @@ def checkout_for(tier: Tier) -> str:
 #: The tier the ten per cent comes off. Named rather than indexed, because
 #: `TIERS[-1]` silently follows a new tier appended to the end.
 TOP_TIER = STUDIO
+
+#: The code a customer types to get the discount above.
+#:
+#: Derived from the tier and the percentage rather than written, because all
+#: three are the same fact stated three times and the copies go stale
+#: silently. A coupon changed to fifteen per cent leaves "STUDIO10" printed on
+#: the site advertising a number that is no longer the number; a tier renamed
+#: leaves the code naming a plan nobody sells. It was `ROOM10` — from "A copy
+#: for the room" — and it outlived that name by exactly one commit, which is
+#: how long a typed copy of a derived fact ever lasts.
+#:
+#: It has to be advertised, not merely to exist. A Stripe payment link takes
+#: `allow_promotion_codes` and nothing else — it will not carry a coupon of
+#: its own — so a discount nobody can type is a discount nobody can have. The
+#: first version of this created the coupon and stopped there, which is a 10%
+#: saving on the site and no way to claim it at the checkout.
+PROMO_CODE = f"{TOP_TIER.name.upper()}{round(TOP_TIER_OFF * 100)}"
 
 
 def discounted(tier: Tier = TOP_TIER) -> float:

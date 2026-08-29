@@ -1,16 +1,16 @@
-# 🎬 Auteur Atlas — a film from your camera roll
+# 🎬 Atlas — plan the week, read the reach
 
 ![Python CI](https://github.com/abucaria-afk/Social-media/actions/workflows/python-ci.yml/badge.svg?branch=main)
 ![CodeQL](https://github.com/abucaria-afk/Social-media/actions/workflows/codeql.yml/badge.svg?branch=main)
 ![License](https://img.shields.io/github/license/abucaria-afk/Social-media)
 
-Say what you want in a sentence. It frames every shot, cuts to the cadence of
-your words, grades it, and hands you the film.
+Plan the week's posts, shoot the shot list, and say the film you want in a
+sentence — it cuts and grades it. Afterwards, read back how it did.
 
-Not a template you drop clips into — it reads the footage, decides what each
-shot is for, and cuts. A montage comes back at a third of a second a shot and a
-hypercut at a sixth, because those are the numbers the reference reels are cut
-at, measured rather than chosen.
+The cut is not a template you drop clips into: it reads the footage, decides
+what each shot is for, and cuts. A montage comes back at a third of a second a
+shot and a hypercut at a sixth, because those are the numbers the reference
+reels are cut at, measured rather than chosen.
 
 **Try it without installing anything:**
 <https://claude.ai/code/artifact/11666d9b-4b2f-4c15-818b-185262d6cc2a>
@@ -80,12 +80,53 @@ the edit is planned, what the critic measures, and the limitations.
 
 ---
 
+## What is called what
+
+Three names, and they are three different things.
+
+**Atlas** is this. It plans the week and reads the reach: a shot list, a
+caption, a film cut from your own footage, and the numbers back afterwards.
+Paid, at **Solo $12.49/mo** and **Studio $41.99/mo** — every price derived in
+`auteur/pricing.py` from a named, dated comparison set and rounded *down*, so
+"fifteen per cent under the market" is arithmetic rather than a claim. There is
+a 14-day trial and `STUDIO10` takes ten per cent off the top tier. Nothing is
+open yet: `pricing.open_for_business()` returns `False` until a live Stripe
+link exists, and every page reads that rather than advertising a checkout that
+does not answer.
+
+**APX** is the other product — the planner that forgets. Free, no account, no
+server, nothing stored; a day's state travels in the link itself. It is not
+built from this repository, and nothing here is a mode or a tier of it.
+
+**Auteur Studies** publishes both. It is not a prefix on either: the app is
+**Atlas**, never the publisher's name welded to the front of it — which is what
+thirty-two files said until a guard in the suite started refusing it. That
+guard reads this file too, so the sentence you are reading cannot spell the
+compound out; `test_the_publisher_name_is_never_welded_to_the_front_of_the_product_name`
+is where it is written down. The entity itself is *not filed yet* —
+`COMPANY.entity_filed` is `False`, `COMPANY.publisher` is therefore the trading
+name, and a test refuses to let the "LLC" suffix appear on any shipped page,
+because a suffix on a privacy policy is a claim about a legal person who does
+not exist.
+
+---
+
+
 ## Shipping it
 
 One set of words describes this app. `auteur/brand.py` holds them, and the App
 Store listing, the Play listing and the website all generate from it — because
 when they were written separately they drifted, and the site spent months
 selling a green accent for an app whose accent was teal.
+
+One thing that discipline cannot do, learned the expensive way: it makes every
+surface agree, and agreement is not truth. The generated site, both listings
+and the app all described this product identically and all described it
+*wrongly*, because the sentence they shared was inferred from the code rather
+than known — and the live site, which was the only surface with the right
+answer, was "corrected" to match the others. A repository can check itself for
+consistency. It cannot check itself for accuracy, and a unanimous chorus is
+exactly as loud when it is wrong.
 
 ```bash
 python3 tools/site/build_site.py             # docs/index.html, palette from theme.py

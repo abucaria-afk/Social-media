@@ -8081,7 +8081,7 @@ def test_the_site_that_is_committed_is_the_site_the_builder_makes():
     """`docs/index.html` is generated, committed, and served to the public.
 
     Generated-and-committed is the arrangement that drifts, and this one had:
-    the product was renamed to Auteur Atlas, every other surface followed —
+    the product was renamed to Atlas, every other surface followed —
     the app, both store listings, the privacy policy, the terms, the iOS
     bundle — and the website went on saying "auteur" because nobody re-ran the
     builder. It is the page a stranger meets first.
@@ -12232,7 +12232,7 @@ def test_the_bundle_identifier_claims_a_domain_the_company_owns():
 def test_the_app_calls_itself_what_the_store_listing_calls_it():
     """One name, in the one place, and every screen reads it.
 
-    The product was renamed from Auteur to Auteur Atlas when Auteur Studies
+    The product was renamed from Auteur to Atlas when Auteur Studies
     became the umbrella above it — and the name was written out by hand in
     nineteen places: every page title, two home-screen names, the manifest,
     three scripts, the terms. `brand.NAME` said "auteur" while
@@ -12285,7 +12285,7 @@ def test_the_app_calls_itself_what_the_store_listing_calls_it():
 
     # The two places a person meets the name while actually using the thing:
     # the terminal masthead and the line `serve` prints when it comes up. Both
-    # said "auteur" long after every store surface said "Auteur Atlas", and
+    # said "auteur" long after every store surface said "Atlas", and
     # both were invisible to a check that only read the static files.
     import io
 
@@ -12305,6 +12305,212 @@ def test_the_app_calls_itself_what_the_store_listing_calls_it():
     # A home-screen name iOS will not truncate. Not a store rule — a phone
     # one, and the store's 30 is no guide to it.
     assert len(manifest["short_name"]) <= 15, manifest["short_name"]
+
+
+def test_the_readme_prints_the_prices_the_program_computes():
+    """A README is a surface. It drifts like every other one.
+
+    Every price in `auteur/pricing.py` is derived — from a dated comparison
+    set, rounded down, so "fifteen per cent under the market" is arithmetic
+    somebody can check rather than a sentence somebody wrote. Typing the
+    result into a README turns a derived fact back into a typed one, and the
+    typed copy is the one that goes stale: a rival's price rises, the average
+    moves, `_charm` returns a different number, and the README goes on
+    promising the old one to everybody who reads the repository.
+
+    That is the same defect as the site's hand-copied palette and the tier
+    cross-reference that said "Everything in a copy that is yours" after the
+    tier stopped being called that. This is the check that shape needs — and
+    it is written against the README because that is where the prices were
+    just typed. Nothing else here holds it.
+    """
+
+    from auteur import pricing
+
+    root = Path(__file__).resolve().parent.parent
+    readme = (root / "README.md").read_text(encoding="utf-8")
+
+    wrong: list[str] = []
+    for tier in pricing.TIERS:
+        if not tier.dollars:
+            continue
+        # The name and the price, together, the way the README states them.
+        stated = f"{tier.name} {tier.monthly}"
+        if stated not in readme:
+            wrong.append(f"README does not say {stated!r}")
+
+    if pricing.PROMO_CODE not in readme:
+        wrong.append(f"README does not name the promotion code {pricing.PROMO_CODE!r}")
+    if f"{pricing.TRIAL_DAYS}-day" not in readme:
+        wrong.append(f"README does not name the {pricing.TRIAL_DAYS}-day trial")
+
+    # And no *stale* price: a dollar figure the program does not compute.
+    priced = {tier.monthly for tier in pricing.TIERS if tier.dollars}
+    priced.add(f"${pricing.discounted():.2f}")
+    for found in set(re.findall(r"\$\d+\.\d\d", readme)):
+        if found not in priced:
+            wrong.append(f"README prints {found}, which the program does not charge")
+
+    assert not wrong, "; ".join(wrong)
+
+
+def test_the_app_never_asks_a_platform_for_permission_to_post():
+    """The privacy policy says there is no code path that publishes. The
+    consent screen was asking for one.
+
+    `ABOUT` requested `instagram_business_content_publish` and `video.upload`,
+    and nothing in the program has ever used either — there is no token
+    exchange, no token held for a platform, and no caller that posts. The
+    permission existed and nothing compared it to anything, which is the same
+    shape as a price nobody checks against a rival and a field named
+    "measured" that was generated.
+
+    What made it worth a guard rather than a quiet deletion is who reads it.
+    `PRIVACY.md` is served at a public URL and says, in as many words, that
+    nothing here posts. An OAuth dialog asking a person to let this app post
+    on their behalf contradicts that in the platform's own voice, at the exact
+    moment the person decides whether to trust it — and it is a permission
+    Meta and TikTok App Review would require a working demonstration of.
+
+    So the read scopes are what is asked for, because reading back how a post
+    did is what the product does. This holds it there.
+    """
+
+    from auteur.publish import connections
+
+    offending = connections.publishing_scopes()
+    assert not offending, "the app asks for permission to post: " + "; ".join(offending)
+
+    # And every platform still asks for *something*, or this passes by asking
+    # for nothing at all — which would be a connection that cannot read the
+    # numbers it exists to read.
+    for platform in connections.PLATFORMS:
+        assert connections.ABOUT[platform]["scopes"], f"{platform} requests no scope at all"
+
+    # The claim the policy makes, checked against the source rather than
+    # trusted. `PRIVACY.md` is generated into the page a reviewer opens.
+    root = Path(__file__).resolve().parent.parent
+    policy = (root / "PRIVACY.md").read_text(encoding="utf-8")
+    assert "no code path that publishes" in policy, (
+        "the privacy policy no longer makes the claim this test exists to "
+        "keep true — if the product now publishes, this guard is the thing to "
+        "delete, deliberately"
+    )
+
+
+def test_the_publisher_name_is_never_welded_to_the_front_of_the_product_name():
+    """Atlas is the product. Auteur Studies publishes it. Neither is the other.
+
+    For thirty-two files the app called itself "Auteur Atlas" — every page
+    title, both store listings, the manifest, the terms, the privacy policy,
+    the iOS bundle display name and the Stripe statement descriptor a
+    cardholder would have read on their bank statement. The name was assembled
+    out of a publisher and a product, which is a name that sells the umbrella
+    to somebody who came for the thing under it, and it is not what either
+    brand is called. APX, beside it, has the same right to stand alone.
+
+    `NAME_LIMIT` already stopped the name being *too long*. Nothing stopped it
+    being *two names*, because a compound name is exactly as valid a string as
+    a name. This is the check that shape needed: the product's name may not
+    contain the publisher's.
+    """
+
+    from auteur import brand
+    from auteur.identity import COMPANY
+    from auteur.web import server
+
+    assert COMPANY.trading_name not in brand.NAME, (
+        f"the product calls itself {brand.NAME!r}, which carries the "
+        f"publisher's name {COMPANY.trading_name!r} inside it"
+    )
+
+    # And nowhere a person reads. The constant being right is worth nothing if
+    # thirty-two files still spell the compound out by hand — which is how it
+    # got there in the first place.
+    #
+    # Every word of the publisher's name, not the whole name: the string that
+    # was actually shipped was "Auteur Atlas", and a check for
+    # "Auteur Studies Atlas" walks straight past it. The first draft of this
+    # test did exactly that and passed a mutation that restored the real
+    # defect — a guard shaped like a slightly different bug is a guard that
+    # holds nothing.
+    compounds = [f"{word} {brand.NAME}" for word in COMPANY.trading_name.split()]
+    root = Path(__file__).resolve().parent.parent
+    shipped = [
+        *sorted(server.STATIC.glob("*.html")),
+        *sorted(server.STATIC.glob("*.js")),
+        server.STATIC / "manifest.webmanifest",
+        root / "docs" / "index.html",
+        root / "README.md",
+        root / "TERMS.md",
+        root / "PRIVACY.md",
+        root / "LICENSE",
+        *sorted((root / "build").rglob("*.md")),
+    ]
+    said_it = [
+        f"{page.relative_to(root).as_posix()} says {compound!r}"
+        for page in shipped
+        if page.is_file()
+        for compound in compounds
+        if compound in page.read_text(encoding="utf-8")
+    ]
+    assert not said_it, "the product is named after its publisher in: " + "; ".join(said_it)
+
+
+def test_nothing_shipped_claims_a_company_that_has_not_been_filed():
+    """ "Auteur Studies LLC" on a policy page is a claim about a legal person.
+
+    And there is no such legal person. The name is decided and the paperwork
+    is researched; a state has not been asked. Until it has, the suffix on a
+    privacy policy tells a reader who they are contracting with, and tells a
+    store reviewer who the seller is, and both are wrong.
+
+    This is not the same failure as a stale tagline, which is why it gets its
+    own guard rather than a note in a document: a tagline going out of date
+    costs a paragraph, and this costs the truth of the one page a person reads
+    precisely because they want to know who they are dealing with.
+
+    `COMPANY.entity_filed` is the switch. While it is False, `publisher` is
+    the trading name and nothing shipped may carry the suffix. Flip it — after
+    the filing, not before — and this test starts requiring the opposite,
+    because at that point the suffix is the accurate answer and the store
+    seller field shows the enrolled entity name exactly.
+    """
+
+    from auteur.identity import COMPANY
+    from auteur.web import server
+
+    root = Path(__file__).resolve().parent.parent
+    shipped = [
+        *sorted(server.STATIC.glob("*.html")),
+        root / "docs" / "index.html",
+        root / "README.md",
+        root / "AUTEUR.md",
+        root / "TERMS.md",
+        root / "PRIVACY.md",
+        root / "LICENSE",
+        *sorted((root / "build").rglob("*.md")),
+    ]
+    shipped = [page for page in shipped if page.is_file()]
+    assert shipped, "found no shipped copy to check, which makes this test a no-op"
+
+    carrying = [
+        page.relative_to(root).as_posix()
+        for page in shipped
+        if COMPANY.legal_name in page.read_text(encoding="utf-8")
+    ]
+
+    if COMPANY.entity_filed:
+        assert COMPANY.publisher == COMPANY.legal_name
+        return
+
+    assert COMPANY.publisher == COMPANY.trading_name, (
+        "the entity is not filed and the publisher name is still " f"{COMPANY.publisher!r}"
+    )
+    assert not carrying, (
+        f"{COMPANY.legal_name!r} is an entity that does not exist yet, and it "
+        f"appears in: {', '.join(carrying)}"
+    )
 
 
 def test_the_published_site_claims_the_domain_the_listings_name(tmp_path):
@@ -14419,18 +14625,27 @@ def test_the_manual_does_not_describe_a_control_that_was_deliberately_removed():
 def test_one_sentence_describes_this_product_to_a_stranger():
     """Every public surface shows the same description, at a readable length.
 
-    There were nearly three. The generated site used `brand.PROMISE`. The live
-    company site carried a hand-written description saying Atlas "plans the
-    week and reads the reach" — which is two secondary features, not the
-    product — and selling a second product called APX, which is not a product
-    at all: it is the name of the craft-rules work in `auteur/craft/story.py`.
-    And writing this, I drafted a third for the Wix write before noticing it
-    was a second copy of the same fact.
+    There were nearly three. The generated site used `brand.PROMISE`, the live
+    company site carried a hand-written one, and writing this I drafted a third
+    for the Wix write before noticing it was a second copy of the same fact.
 
-    None of that was visible from inside the repository, because the wrong one
-    lived in a hosting dashboard. What a check *can* hold is the half that is
-    here: one constant, used by every surface this repository generates, at a
-    length a search result will actually show.
+    **This test's first version reached the wrong conclusion, and the
+    correction is worth keeping.** It read the live site's description — Atlas
+    "plans the week and reads the reach", beside a second product called APX —
+    decided both were wrong, and said so here: planning and reach looked like
+    two secondary features seen from inside a repository full of cutting code,
+    and the only APX in this tree is the craft-rules work cited throughout
+    `auteur/craft/story.py`. Both readings were wrong. Atlas is the thing that
+    plans the week and reads the reach; APX is a real free product beside it,
+    which happens to share a name with a body of craft rules that is a feature
+    of Atlas. The owner said so, and the owner is the source for that fact.
+
+    What survived is the mechanism, which was never the part in doubt: one
+    constant, read by every surface this repository generates, at a length a
+    search result will show. What did not survive is the inference — a
+    repository can check that all its surfaces agree, and cannot check that
+    what they agree on is true, because that fact does not live in it. Every
+    surface agreeing is exactly as loud when every surface is wrong.
     """
     import subprocess
 

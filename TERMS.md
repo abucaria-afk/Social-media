@@ -1,9 +1,9 @@
 # Terms of use
 
-These are the terms for using **Auteur Atlas**, and they are short because the app is
+These are the terms for using **Atlas**, and they are short because the app is
 small and nobody is trying to hide anything in them.
 
-Auteur Atlas runs on your own device and, if you choose to run one, on your own
+Atlas runs on your own device and, if you choose to run one, on your own
 computer. There is no service behind it. That shapes everything below: most of
 what a normal set of terms covers — accounts we hold, data we process, uptime
 we promise — does not exist here, and saying otherwise to look professional
@@ -11,7 +11,7 @@ would be the dishonest option.
 
 ## Who it is for
 
-**Auteur Atlas is for people 12 and over.** Signing up asks for the year you were
+**Atlas is for people 12 and over.** Signing up asks for the year you were
 born and refuses anybody younger — that is the App Store rating this app ships
 at, and a rating an app does not hold itself to is a claim rather than a fact.
 
@@ -41,7 +41,7 @@ yours. Nobody here acquires a licence to it, because nobody here receives it.
 You are responsible for having the right to use whatever you put in — including
 music, which is the one people get wrong.
 
-**The app does not post for you.** Auteur Atlas plans, cuts and checks. Every share
+**The app does not post for you.** Atlas plans, cuts and checks. Every share
 to another service is a deliberate action you take, on that service, under its
 own terms.
 

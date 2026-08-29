@@ -61,16 +61,54 @@ ABOUT = {
         "formats": ("reel", "square"),
         "handoff": "Saves the film and opens Instagram with your caption ready to paste.",
         "needs": ("INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"),
-        "scope": "instagram_business_content_publish",
+        "scopes": ("instagram_business_basic", "instagram_business_manage_insights"),
     },
     "tiktok": {
         "name": "TikTok",
         "formats": ("reel",),
         "handoff": "Saves the film and opens TikTok with your caption ready to paste.",
         "needs": ("TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"),
-        "scope": "video.upload",
+        "scopes": ("user.info.basic", "video.list"),
     },
 }
+
+
+#: Substrings that mark a scope as asking for permission to *post*.
+#:
+#: The app asked for `instagram_business_content_publish` and `video.upload`
+#: for as long as it has had a connections tab, and never once used either.
+#: Nothing in this program exchanges the code for a token, and nothing holds a
+#: token it could post with — `grep -rn "\.token" auteur/` outside this file
+#: finds one hit, in the OIDC login, unrelated. A permission asked for and
+#: never exercised is the same defect as a number computed and never compared:
+#: it exists, so it looks deliberate, and nothing can tell you it is not.
+#:
+#: It is worse than inert, though, which is why it is a check and not a
+#: cleanup. `PRIVACY.md` — served at a public URL, read by a store reviewer —
+#: says "there is no code path that publishes to a service". An OAuth consent
+#: screen that asks a person for permission to post on their behalf is the
+#: platform telling them the opposite, in the platform's own words, at the
+#: moment they are deciding whether to trust this. And it is a permission that
+#: has to survive App Review at Meta and TikTok, for a capability that would
+#: then have to be demonstrated and does not exist.
+#:
+#: Read scopes are what the product actually does: read back how a post did.
+PUBLISHING_MARKERS = ("publish", "upload", "post", "write", "create")
+
+
+def publishing_scopes() -> list[str]:
+    """Every scope requested that asks for permission to post. Should be none.
+
+    Returned rather than asserted so the preflight and the suite can both say
+    which one, and so this reads as a question with an answer rather than a
+    comment claiming a property.
+    """
+    return [
+        f"{platform}: {scope}"
+        for platform, about in ABOUT.items()
+        for scope in about["scopes"]
+        if any(marker in scope.lower() for marker in PUBLISHING_MARKERS)
+    ]
 
 
 @dataclass
@@ -237,19 +275,29 @@ def authorise_url(platform: str, *, redirect: str, state: str = "") -> tuple[str
         raise RuntimeError(why)
     state = state or secrets.token_urlsafe(24)
 
+    scope = ",".join(ABOUT[platform]["scopes"])
+
     if platform == "instagram":
         app = os.environ["INSTAGRAM_APP_ID"]
+        # Business Login for Instagram, not Facebook Login. The two are
+        # different products with different scope vocabularies, and this URL
+        # was sending an `instagram_business_*` scope to
+        # `facebook.com/v21.0/dialog/oauth`, which does not know that word —
+        # the dialog rejects the request rather than dropping the scope, so
+        # the whole flow was dead and nothing said so, because no test can
+        # reach a consent screen. Checked against Meta's Business Login
+        # documentation, 2026-08.
         return (
-            "https://www.facebook.com/v21.0/dialog/oauth"
+            "https://www.instagram.com/oauth/authorize"
             f"?client_id={app}&redirect_uri={redirect}"
-            f"&scope={ABOUT['instagram']['scope']}&response_type=code&state={state}"
+            f"&scope={scope}&response_type=code&state={state}"
         ), state
 
     key = os.environ["TIKTOK_CLIENT_KEY"]
     return (
         "https://www.tiktok.com/v2/auth/authorize/"
         f"?client_key={key}&redirect_uri={redirect}"
-        f"&scope={ABOUT['tiktok']['scope']}&response_type=code&state={state}"
+        f"&scope={scope}&response_type=code&state={state}"
     ), state
 
 

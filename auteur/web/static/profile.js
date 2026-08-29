@@ -46,7 +46,7 @@
     live = profile;
     var mine = !!profile.me;
 
-    document.title = "Auteur Atlas — " + profile.name;
+    document.title = "Atlas — " + profile.name;
     $("bar-name").textContent = profile.name;
     $("big-name").textContent = profile.name;
 

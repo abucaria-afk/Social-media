@@ -92,6 +92,22 @@ class Company:
     #: never on a form.
     trading_name: str = _env("AUTEUR_COMPANY_SHORT", "Auteur Studies")
 
+    #: Whether the entity on `legal_name` has actually been filed.
+    #:
+    #: It has not. The name is decided, the jurisdiction is researched, the
+    #: paperwork is ready — and none of that is a company. Until a state says
+    #: otherwise, "Auteur Studies LLC" on a policy page is a claim about a
+    #: legal person that does not exist, which is a different kind of wrong
+    #: from a stale tagline: a reader relies on it to know who they are
+    #: contracting with, and a store reviewer reads it as the seller.
+    #:
+    #: So it is a flag rather than a string edit. `publisher` below reads it,
+    #: every user-facing surface reads `publisher`, and the day the filing
+    #: comes back this is one `AUTEUR_ENTITY_FILED=1` — or one edit — and the
+    #: suffix appears everywhere at once. A guard in the suite holds the other
+    #: direction: while this is False, nothing shipped may say "LLC".
+    entity_filed: bool = _env("AUTEUR_ENTITY_FILED", "").lower() in {"1", "true", "yes"}
+
     #: The domain the company controls. Everything below is derived from it,
     #: so there is one place to change and no way for the bundle identifier
     #: to name one domain while the privacy policy is served from another.
@@ -112,8 +128,22 @@ class Company:
         return ".".join(reversed(self.domain.split(".")))
 
     @property
+    def publisher(self) -> str:
+        """The name to print anywhere a person will read it.
+
+        The trading name until the entity exists, the legal name after. Not
+        `legal_name` directly: that field is what goes on a *form* — the App
+        Store Connect enrolment, the bank — where the suffix is required and
+        the form is filled in by somebody who knows whether the filing has
+        happened. Prose is read by people who cannot know that.
+        """
+        return self.legal_name if self.entity_filed else self.trading_name
+
+    @property
     def copyright_line(self) -> str:
-        return f"Copyright (c) {FOUNDED} {self.legal_name}"
+        # `publisher`, not `legal_name`: a copyright line is prose on a LICENSE
+        # file, and asserting the suffix asserts the entity.
+        return f"Copyright (c) {FOUNDED} {self.publisher}"
 
     @property
     def support_url(self) -> str:
@@ -162,8 +192,12 @@ class Identity:
     bundle_id: str = _env("AUTEUR_BUNDLE_ID", f"{COMPANY.reverse_dns}.atlas")
 
     #: The seller name on both stores, and the name in the copyright line.
-    #: The company's, because that is whose name it is.
-    developer: str = _env("AUTEUR_DEVELOPER", COMPANY.legal_name)
+    #: The company's, because that is whose name it is — and the *publishable*
+    #: version of it, so the store listings and the two policy pages cannot
+    #: announce an entity that has not been filed. `COMPANY.legal_name` is
+    #: still the value for the enrolment form itself; this is the value for
+    #: everything a reader sees.
+    developer: str = _env("AUTEUR_DEVELOPER", COMPANY.publisher)
 
     #: Also the company's: one address for everything it publishes.
     support_email: str = _env("AUTEUR_SUPPORT_EMAIL", COMPANY.support_email)
@@ -194,10 +228,15 @@ class Identity:
     #: What the app is called on the home screen and in the store. Checked
     #: against Apple's 30-character limit, which is not advice.
     #:
-    #: `Auteur` alone was the app's name back when it was the only thing here
-    #: and the company had no name of its own. Auteur Studies is the umbrella
-    #: now and this is one product under it, so the name says both.
-    app_name: str = _env("AUTEUR_APP_NAME", "Auteur Atlas")
+    #: **Atlas, never "Auteur Atlas".** `Auteur` alone was the app's name back
+    #: when it was the only thing here and the company had no name of its own.
+    #: The middle version — Auteur Studies as a prefix on the product — lasted
+    #: through thirty-two files and was wrong the whole time: Auteur Studies
+    #: publishes Atlas the way a label publishes a record, and a prefixed name
+    #: sells the umbrella to somebody who came for the product. Atlas stands
+    #: on its own, as does APX beside it. `too_long` and the naming guard in
+    #: the suite hold every surface to this one value.
+    app_name: str = _env("AUTEUR_APP_NAME", "Atlas")
 
     #: The version people see, and the build number that has to go up on every
     #: upload. App Store Connect refuses a build number it has seen before,

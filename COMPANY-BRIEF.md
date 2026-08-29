@@ -1,4 +1,4 @@
-# Auteur Atlas — company brief
+# Atlas — company brief
 
 **One file. Everything a collaborator outside this repository needs in order to
 help build the company around the product.**
@@ -41,12 +41,35 @@ The most useful thing you can produce is in §9.
 
 ## 1. What the product is
 
-**Auteur Atlas** — an autonomous cinematic video editor that behaves like a
-social app, not a timeline tool. Auteur Studies LLC is the umbrella; Atlas is
-the app.
+**Atlas** — it plans the week and reads the reach. A shot list you can actually
+shoot, a caption to go with it, a film cut from your own footage, and
+afterwards the numbers back. It behaves like a social app, not a timeline tool.
 
-> Say what you want in a sentence. It frames every shot, cuts to the cadence of
-> your words, grades it, and hands you the film.
+> Plan the week's posts, shoot the shot list, and say the film you want in a
+> sentence — it cuts and grades it. Afterwards, read back how it did.
+
+**Corrected 2026-08-29, by the owner.** This document, the app, both store
+listings, the generated site and the README previously led with "a film from
+your camera roll" — the cutting, alone. Every surface agreed, and every surface
+was wrong in the same way: cutting is one of four steps and the most visible
+one, not the one somebody is buying. Worth recording as a method note, not just
+a copy change: this repository can prove its surfaces agree with each other and
+cannot prove the sentence they agree on is true, because that fact lives with
+the person who decided it. A unanimous chorus is exactly as loud when it is
+wrong.
+
+**APX** is the second product, and it is a real one — free, no account, no
+server, nothing stored, a day's state carried in the link itself. The planner
+that forgets. It is not built from this repository. It is also not a mode or a
+tier of Atlas, and the two are standalone brands: **Atlas**, never "Auteur
+Atlas". (The craft rules cited throughout `auteur/craft/story.py` share the APX
+name and are a *feature of Atlas*, which is exactly the collision that led an
+earlier pass here to conclude APX was not a product at all.)
+
+**Auteur Studies** publishes both. The entity is **not filed** —
+`COMPANY.entity_filed` is `False`, so `COMPANY.publisher` resolves to the
+trading name and a guard refuses to let the "LLC" suffix onto any shipped page
+until a state says otherwise.
 
 The distinguishing claim, and the one worth protecting in every piece of
 marketing: **it is not a template you drop clips into.** It reads the footage,
@@ -318,11 +341,17 @@ There are now prices, and they live in `auteur/pricing.py` rather than on a
 page somebody edits. The instruction was: fifteen per cent under the market
 average, a free trial, ten per cent off the highest tier.
 
-| | Entry — "A copy that is yours" | Top — "A copy for the room" |
+| | **Solo** | **Studio** |
 |---|---|---|
 | market average | $14.75 | $49.67 |
 | **monthly** | **$12.49** (15.3% under) | **$41.99** (15.5% under) |
-| after the advertised 10% | — | **$37.79**, with the code `ROOM10` |
+| after the advertised 10% | — | **$37.79**, with the code `STUDIO10` |
+
+The tiers were called "A copy that is yours" and "A copy for the room" — good
+lines, and the wrong things to put on an invoice or a card statement. They kept
+their job one field down, as each tier's blurb. `STUDIO10` is derived from the
+tier and the percentage together, so neither half can go stale on its own; it
+was `ROOM10`, and it outlived the name it came from by one commit.
 
 Free is the browser build, which already ships and needs no account.
 
@@ -353,7 +382,7 @@ Adobe Premiere is not an AI-first consumer editor.
 accepts `allow_promotion_codes` and refuses a `discounts` parameter outright —
 this was tried against the real API — so a coupon on its own is something only
 the merchant can apply. A 10% saving advertised with no code to type is a
-saving nobody can claim. `ROOM10` is derived from the percentage, so a discount
+saving nobody can claim. `STUDIO10` is derived from the tier and the percentage, so a discount
 changed to fifteen per cent cannot leave the old code redeemable beside it.
 
 **Nothing can be bought yet, and the page says so.** The live payment links do

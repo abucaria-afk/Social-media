@@ -1,7 +1,9 @@
-# 🎬 Auteur Atlas — a film from your camera roll
+# 🎬 Atlas — plan the week, read the reach
 
-Point it at a pile of unsorted clips, give it a sentence of direction, and it
-returns a finished, graded, beat-cut, sound-designed short film.
+Plan the week's posts, shoot the shot list, and read back how each one did.
+The cut is the middle of that: point it at a pile of unsorted clips, give it a
+sentence of direction, and it returns a finished, graded, beat-cut,
+sound-designed short film.
 
 ```bash
 python -m auteur edit ./rushes 'moody neon chase, 20 seconds, ends on "AFTER DARK"'

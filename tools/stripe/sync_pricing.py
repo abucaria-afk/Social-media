@@ -47,7 +47,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from auteur import pricing  # noqa: E402
+from auteur import brand, pricing  # noqa: E402
 
 API = "https://api.stripe.com/v1"
 
@@ -133,9 +133,9 @@ def _product_for(client: Stripe, tier: pricing.Tier) -> dict:
     return client.post(
         "/products",
         {
-            "name": f"Auteur Atlas — {tier.name}",
+            "name": f"{brand.NAME} — {tier.name}",
             "description": tier.blurb + " " + " ".join(f"{line}." for line in tier.includes),
-            "statement_descriptor": "AUTEUR ATLAS",
+            "statement_descriptor": brand.NAME.upper()[:22],
             "metadata": {
                 # Why the price is the price, carried on the object itself, so
                 # the dashboard answers the question without anybody having to
