@@ -256,6 +256,14 @@ improves, so an agent can be confidently wrong and lose nothing but a round.
 than assuming yes. Autonomy means an agent may restructure a cut without being
 asked; it never means it may post one.
 
+**And the gate is called by nothing** — worth saying, because the sentence above
+is true and reads as more than it says. `Gate.may_publish` is correct and
+covered in every mode, and it has no call sites. What stops an agent posting
+today is that no module in `agents/`, `publish/` or `workflows/` can reach a
+network at all. The property holds, for that reason rather than this one; the
+gate is a loaded safety not yet connected to a trigger, and a test now says so
+and will demand it be connected the moment anything in those packages can post.
+
 The scoring is deliberately suspicious of its own inputs: derived fields never
 claim to have been measured, exports whose columns track each other too neatly
 to be observations are down-weighted, disagreements between sources are surfaced

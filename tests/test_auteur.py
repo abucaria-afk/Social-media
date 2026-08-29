@@ -3924,6 +3924,193 @@ def test_publishing_always_needs_a_person_in_every_mode():
     assert answered[0].risk.name == "HIGH"
 
 
+def test_every_craft_rule_is_either_consulted_or_checked():
+    """A rule nothing asks is a paragraph, not a rule.
+
+    `craft/story.py` states the structure rules and cites where each number
+    came from. Two of them are asked by nobody and checked by nothing:
+
+        wants_stillness       heuristic.py:282        consulted
+        opening_is_too_long   —                       a test asserts it
+        interrupt_is_late     —                       nothing
+        wants_legibility      —                       nothing
+
+    `interrupt_is_late` is the pattern-interrupt rule and carries
+    `INTERRUPT_WINDOW = (1.8, 3.8)`, sourced in the module's own comments.
+    `wants_legibility` names the shots a viewer has to *read* rather than
+    merely see. Both are correct, both are documented, and no film has ever
+    been measured against either — which is the same shape as the publish gate
+    above and as a price nobody compares to a rival: it exists, so it looks
+    deliberate, and nothing can tell you it is inert.
+
+    This does not decide what to do about them. Wiring `interrupt_is_late` in
+    means defining what a "hard change" is against the EDL — a `Transition`
+    that is not a cut? a speed ramp? — and that is a craft decision with
+    consequences in the picture, so it needs a real render and a look at the
+    frames, not a guess in a test file. What this does is make the choice
+    deliberate: adding a rule to that module now forces either a caller, a
+    test, or an entry in the list below with a reason.
+    """
+
+    import ast
+
+    root = Path(__file__).resolve().parent.parent
+    module = root / "auteur" / "craft" / "story.py"
+    tree = ast.parse(module.read_text(encoding="utf-8"))
+
+    # Module-level predicates only: a rule is a question about a film with a
+    # yes/no answer. Dataclass methods and helpers are not what this is about.
+    rules = [
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and not node.name.startswith("_")
+        and node.returns is not None
+        and getattr(node.returns, "id", "") == "bool"
+    ]
+    assert rules, "found no rules in story.py, which would make this a no-op"
+
+    #: Rules known to fire nowhere, with the reason they are still here.
+    #: Emptying this list is the goal; adding to it should hurt.
+    ASKED_BY_NOBODY = {
+        "interrupt_is_late": (
+            "the pattern-interrupt rule. Wiring it needs a definition of "
+            '"hard change" against the EDL, which changes the picture and so '
+            "needs a render to settle, not a test"
+        ),
+        "wants_legibility": (
+            "names the shots that have to be read. Nothing in the director or "
+            "the critic asks it yet"
+        ),
+    }
+
+    # Calls, parsed — not mentions, grepped. The first version searched text
+    # and found the rule names in this test's own docstring and in the list
+    # below, so every silent rule looked consulted by the check written to
+    # find it. Naming a thing is not asking it.
+    called: set[str] = set()
+    searched = [
+        *sorted((root / "auteur").rglob("*.py")),
+        *sorted((root / "tools").rglob("*.py")),
+        Path(__file__),
+    ]
+    for path in searched:
+        if "__pycache__" in path.parts or path == module:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = getattr(func, "attr", None) or getattr(func, "id", None)
+            if name:
+                called.add(name)
+
+    silent = [rule for rule in rules if rule not in called]
+    unexpected = sorted(set(silent) - set(ASKED_BY_NOBODY))
+    assert not unexpected, (
+        f"{unexpected} are rules in craft/story.py that nothing consults and "
+        "nothing checks. Wire them in, delete them, or add them to "
+        "ASKED_BY_NOBODY with the reason they are still here"
+    )
+
+    # And the other direction, so the list cannot outlive the problem: a rule
+    # listed as silent that has since been wired is a stale excuse.
+    stale = sorted(set(ASKED_BY_NOBODY) - set(silent))
+    assert not stale, (
+        f"{stale} are listed as asked by nobody and something now asks them — "
+        "take them off the list"
+    )
+
+
+def test_the_publish_gate_is_either_in_the_path_or_has_no_path_to_be_in():
+    """`Gate.may_publish` is correct, tested in every mode, and called by nothing.
+
+    The test above proves the gate refuses in `AUTONOMOUS` and demands a person
+    everywhere else. It does not prove the gate is *in the path*, and it is
+    not: `grep -rn may_publish auteur/` finds the definition and one docstring
+    reference, and no call site anywhere.
+
+    That is not a hole today, and saying otherwise would be the easy, wrong
+    version of this finding. Nothing here posts, because no module in
+    `auteur/agents/`, `auteur/publish/` or `auteur/workflows/` can reach a
+    network at all — `workflows/schedule.py` holds no credential and hands the
+    queue to `export_csv`, and `publish/connections.py` has no token exchange.
+    The safety property holds. It just holds for a different reason than the
+    one the package docstring used to give, and a guard that is right about the
+    conclusion for the wrong reason is a guard that stops being right silently.
+
+    The failure this exists to catch is a future one with a name: somebody
+    wires up posting, finds a gate and a green suite, and reasonably concludes
+    the gate is already between them and the platform. So this test carries two
+    shapes. While no module in those packages can reach a network, it asserts
+    the gate has no callers — the honest statement of where things stand.
+    The moment one of them can, that branch stops applying and the other one
+    demands `may_publish` in that module. It cannot be satisfied by leaving
+    things as they are.
+    """
+
+    root = Path(__file__).resolve().parent.parent
+    packages = ["agents", "publish", "workflows"]
+
+    # The ways a module in this tree actually opens a socket. Not a general
+    # taint analysis — the point is to notice a *new* one appearing, and the
+    # two that exist elsewhere in the tree (`scholar/youtube.py`,
+    # `gallery/sources.py`, both reads) show what the pattern looks like.
+    reaches_network = re.compile(
+        r"\burllib\.request\b|\bhttp\.client\b|\brequests\.(get|post|put|patch|delete)\b"
+        r"|\bsocket\.(socket|create_connection)\b|\bhttpx\b|\baiohttp\b"
+    )
+
+    sources = [
+        path
+        for package in packages
+        for path in sorted((root / "auteur" / package).rglob("*.py"))
+        if "__pycache__" not in path.parts
+    ]
+    assert sources, "found no modules to check, which would make this a no-op"
+
+    networked = {
+        path.relative_to(root).as_posix(): path.read_text(encoding="utf-8")
+        for path in sources
+        if reaches_network.search(path.read_text(encoding="utf-8"))
+    }
+
+    if networked:
+        ungated = [name for name, text in networked.items() if "may_publish" not in text]
+        assert not ungated, (
+            "these modules can now reach a network and do not consult the "
+            f"publish gate: {ungated}. `Gate.may_publish` exists for exactly "
+            "this moment — put it in the path before anything ships"
+        )
+        return
+
+    # Nothing can post. Then the gate has no callers, and this states it out
+    # loud rather than letting the package docstring imply otherwise.
+    #
+    # Parsed, not grepped. The first version of this read lines, and the thing
+    # it found was the sentence in `agents/__init__.py` explaining that the
+    # gate has no callers — prose about the absence, counted as the presence.
+    # `ast` knows the difference between an attribute access and a docstring.
+    import ast
+
+    callers = []
+    for path in sorted((root / "auteur").rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "may_publish":
+                continue
+            if isinstance(node, ast.Attribute) and node.attr == "may_publish":
+                callers.append(f"{path.relative_to(root).as_posix()}:{node.lineno}")
+    assert not callers, (
+        "something calls the publish gate, which means something can publish — "
+        f"at {callers}. Good, but this test's other branch is the one that "
+        "should now apply: the module doing it has to be able to reach a "
+        "network, and the network check above did not see it"
+    )
+
+
 def test_the_agents_actually_close_a_loop_and_shorten_a_hook(model):
     from auteur.agents import Crew, Gate, Mode, default_crew
 

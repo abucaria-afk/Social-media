@@ -537,6 +537,19 @@ than assuming yes — a gate that approves when unattended is not a gate, it is 
 delay. Autonomy here means an agent may restructure a cut without being asked.
 It does not mean it may post one.
 
+**And nothing calls it.** Worth stating plainly, because the paragraph above is
+true and would be read as more than it says. The gate is correct and covered in
+every mode; it has no call sites. What actually stops an agent posting today is
+that no module in `auteur/agents/`, `auteur/publish/` or `auteur/workflows/` can
+reach a network at all — `schedule.py` holds no credential and hands the queue
+to `export_csv`, and `connections.py` has no token exchange. The property holds;
+it holds for that reason, not this one. `may_publish` is a loaded safety that is
+not yet connected to a trigger, and whoever wires posting up has to connect it.
+`test_the_publish_gate_is_either_in_the_path_or_has_no_path_to_be_in` says so
+out loud: while nothing can publish it asserts the gate has no callers, and the
+moment a module in those packages can reach a network it demands the gate be in
+that module.
+
 Safe areas still win: the agents move titles to win the first three seconds, and
 the platform's safe area gets the last word on where a title may actually sit.
 
