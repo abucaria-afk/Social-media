@@ -28,7 +28,7 @@ scholar = ["yt-dlp>=2026.7.4"]
 # itself. `requirements.txt` installs it unconditionally because a deployment
 # that cannot offer it has an App Store guideline 4.8 problem; here it is an
 # extra, because making a film locally never touches it.
-signin = ["cryptography>=43"]
+signin = ["cryptography>=50.0.1"]
 dev = ["pytest>=9.1.1"]
 
 [project.scripts]
