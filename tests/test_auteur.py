@@ -14269,3 +14269,64 @@ def test_the_critic_can_actually_fail_a_film(tmp_path):
         f"the film with faults scored {verdict.score:.2f} and the one without "
         f"scored {clean.score:.2f}"
     )
+
+
+def test_a_raw_colour_only_appears_where_the_ground_is_somebody_s_footage():
+    """The stylesheets say they use only palette tokens. Nothing checked it.
+
+    Five files repeat some version of "every colour is a variable from
+    theme.css, which is generated from auteur/theme.py" — and that claim was
+    prose. The palette exists because a second copy of a colour drifts: the
+    public site once shipped thirteen colours and a green that was teal in the
+    app, for months, because a file said "generated" and nothing generated it.
+
+    There is one legitimate exception and `theme.py` names it. `on_photo` is
+    "text and marks drawn on top of somebody's footage", white in *both*
+    schemes on purpose, because the ground under a feed mark is a frame of
+    somebody's film rather than the theme's surface. Around it sit blacks that
+    are the letterbox behind a video element, and scrims at alphas the palette
+    does not carry.
+
+    So the rule is not "no raw colours". It is: a raw colour is allowed only
+    in a file whose subject is footage, and it must not be white, because
+    white over footage is a role that already exists. Anything else is a
+    second copy of a palette value, and this fails on it by name.
+    """
+    from auteur.web import server
+
+    #: Files whose colours sit on somebody's film rather than on the theme.
+    OVER_FOOTAGE = {
+        "feed.css": "the feed is full-bleed video; every mark sits on a frame",
+        "inbox.css": "a film in a message bubble letterboxes against black",
+        "overlays.css": "the sticker preview stands in for footage, deliberately",
+        "animations.css": "a drop shadow, which is a darkening rather than a colour",
+    }
+
+    offenders: list[str] = []
+    for sheet in sorted(server.STATIC.glob("*.css")):
+        if sheet.name == "theme.css":
+            continue
+        body = re.sub(r"/\*.*?\*/", "", sheet.read_text(encoding="utf-8"), flags=re.S)
+        raw = re.findall(r"#[0-9a-fA-F]{3,8}\b|\brgba?\([^)]*\)", body)
+        if not raw:
+            continue
+        if sheet.name not in OVER_FOOTAGE:
+            offenders.append(f"{sheet.name} hardcodes {sorted(set(raw))} and is not over footage")
+            continue
+        for colour in raw:
+            bare = colour.lower().replace(" ", "")
+            if bare in ("#fff", "#ffffff", "rgb(255,255,255)"):
+                offenders.append(
+                    f"{sheet.name} hardcodes {colour} — white on footage is "
+                    "var(--on-photo), a role theme.py already defines"
+                )
+
+    assert not offenders, "; ".join(offenders)
+
+    # And the role really is theme-independent, or pointing the feed at it
+    # would have changed how the feed looks in daylight.
+    from auteur import theme
+
+    assert theme.hex_of("on_photo", "dark") == theme.hex_of(
+        "on_photo", "light"
+    ), "on_photo differs between schemes, so the feed's marks now change colour"
