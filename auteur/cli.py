@@ -2152,7 +2152,7 @@ def _run_insight(args: argparse.Namespace, say: Reporter) -> int:
         print("  your posts, most amplified first:")
         print()
         for signal in sorted(measured, key=lambda s: -s.amplification)[:8]:
-            source = "measured" if signal.has("three_second_watch_rate") else "derived "
+            source = "exported" if signal.has("three_second_watch_rate") else "derived "
             print(
                 f"      {signal.post_id:<8} {signal.form:<17} "
                 f"3s {signal.three_second_watch_rate:.2f} ({source})  "

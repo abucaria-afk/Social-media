@@ -14146,7 +14146,7 @@ def test_no_caveat_is_hidden_behind_a_tooltip_a_phone_cannot_summon():
 
     The studio header carried
 
-        fitted on 2000 simulated rows and no measured ones — this predicts
+        fitted on 2000 simulated rows and none of your own — this predicts
         the simulator, not any platform
 
     and at 390px it showed "fitted on 2000 simulated rows and no m…", directly
@@ -14473,3 +14473,120 @@ def test_one_sentence_describes_this_product_to_a_stranger():
             f"{brand.META_DESCRIPTION!r}"
         )
     assert len(set(shown)) == 1, "the meta and og descriptions disagree with each other"
+
+
+def test_every_control_in_the_markup_says_what_it_does():
+    """A control a screen reader announces as "button" is a control nobody
+    using one can operate.
+
+    Driven in a real browser across all ten screens, every interactive element
+    already had an accessible name, no heading level was skipped, and no
+    standalone target measured under Apple's 44x44. Three properties measured
+    and compared to nothing — which is the state this suite exists to end. The
+    browser is not in CI, so this is the static half: what the markup ships
+    with, before a line of JavaScript runs.
+
+    `hidden` elements are skipped on purpose rather than by exception. The one
+    control with no label in the markup is `<a id="link" hidden>` on the
+    profile, which `profile.js` fills in when there is a link to show — and a
+    hidden element is not announced, so it has nothing to say yet. Skipping
+    hidden is the correct rule, and it happens to leave no special cases.
+    """
+    from html.parser import HTMLParser
+
+    from auteur.web import server
+
+    class Controls(HTMLParser):
+        """Collects interactive elements and whatever text they contain."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.open: list = []
+            self.bare: list = []
+            self.said: dict = {}
+            self.headings: list = []
+            self.in_heading: int | None = None
+
+        def handle_starttag(self, tag, attrs):
+            got = dict(attrs)
+            if tag in ("h1", "h2", "h3", "h4", "h5", "h6") and "hidden" not in got:
+                self.in_heading = int(tag[1])
+            if tag in ("button", "a") or got.get("role") in ("button", "switch"):
+                self.open.append((tag, got, len(self.said)))
+                self.said[len(self.said)] = ""
+
+        def handle_data(self, data):
+            if self.open:
+                key = self.open[-1][2]
+                self.said[key] = self.said.get(key, "") + data
+            if self.in_heading is not None and data.strip():
+                self.headings.append(self.in_heading)
+                self.in_heading = None
+
+        def handle_endtag(self, tag):
+            if tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
+                self.in_heading = None
+            if self.open and self.open[-1][0] == tag:
+                name, got, key = self.open.pop()
+                if "hidden" in got:
+                    return
+                label = (self.said.get(key, "") or "").strip()
+                for attribute in ("aria-label", "title", "aria-labelledby"):
+                    label = label or (got.get(attribute) or "").strip()
+                if not label:
+                    self.bare.append(
+                        f"<{name}> id={got.get('id', '-')} " f"class={got.get('class', '')!r}"
+                    )
+
+    silent: list[str] = []
+    jumps: list[str] = []
+    for page in sorted(server.STATIC.glob("*.html")):
+        reader = Controls()
+        reader.feed(page.read_text(encoding="utf-8"))
+        silent += [f"{page.name}: {one}" for one in reader.bare]
+        for before, after in zip(reader.headings, reader.headings[1:], strict=False):
+            if after > before + 1:
+                jumps.append(f"{page.name}: h{before} straight to h{after}")
+
+    assert not silent, "controls a screen reader cannot name: " + "; ".join(silent)
+    assert not jumps, "headings skip a level, so the outline lies: " + "; ".join(jumps)
+
+
+def test_the_program_never_calls_a_number_measured_that_it_did_not_measure():
+    """ "Measured" is a claim about the world. This program cannot check it.
+
+    `measured_rows` counts rows that arrived in a file somebody pointed at,
+    and nothing more. Handed one of the generated datasets sitting in this
+    project — five rows of `v_001`, `v_002`, virality tier "Mega-Viral" — the
+    report said *"fitted on 5 measured rows"* and went on to name the winning
+    hook length. Nothing lied on purpose; the word was simply doing work it
+    had not earned.
+
+    The shape checks in `score.py` already do what can be done about invented
+    data — a median share rate several times anything a platform sees, or a
+    corpus with no drop-off in it — and both get named in `caveat`. What no
+    check can do is tell a careful fake from a real export. So the sentence
+    stops claiming to: it says where the rows came from.
+    """
+    from auteur.insight.score import FitReport
+
+    empty = FitReport(rows=2000, measured_rows=0, simulated_rows=2000)
+    mixed = FitReport(rows=2005, measured_rows=5, simulated_rows=2000)
+    yours = FitReport(rows=5, measured_rows=5, simulated_rows=0, forms=("short_form_video",))
+
+    for model in (empty, mixed, yours):
+        assert "measured" not in model.provenance, (
+            f"the report says {model.provenance!r} — the program cannot know a "
+            "file it was handed was measured from anything"
+        )
+
+    # It still has to say *which* is which, or the honesty costs the meaning.
+    assert "simulated" in empty.provenance and "not any platform" in empty.provenance
+    assert "your" in mixed.provenance and "simulated" in mixed.provenance
+    assert "your" in yours.provenance
+
+    # And the same word, one column wide, on the per-post table.
+    source = (Path(__file__).resolve().parent.parent / "auteur" / "cli.py").read_text()
+    assert (
+        'source = "measured"' not in source
+    ), "the per-post column still calls an exported number a measured one"

@@ -140,17 +140,31 @@ class FitReport:
 
     @property
     def provenance(self) -> str:
+        """Where the rows came from, in words the program can stand behind.
+
+        It used to say "measured". That is a claim about the world, and this
+        program cannot check it: `measured_rows` counts rows that arrived in a
+        file somebody pointed at, and nothing more. Handed a generated CSV —
+        five rows of `v_001`, `v_002`, tier "Mega-Viral" — it reported "fitted
+        on 5 measured rows" and went on to state which hook length wins.
+
+        The shape checks below already do what can be done about invented
+        data: a median share rate several times anything a platform sees, or a
+        corpus where the median post is watched to completion, both get named
+        in `caveat`. What no check can do is tell a careful fake from a real
+        export, so the sentence no longer pretends to. It says where the rows
+        came from and leaves the word "measured" to things this program
+        measured itself.
+        """
         if self.measured_rows == 0:
             return (
-                f"fitted on {self.rows} simulated rows and no measured ones — "
+                f"fitted on {self.rows} simulated rows and none of your own — "
                 "this predicts the simulator, not any platform"
             )
         if self.simulated_rows == 0:
-            return (
-                f"fitted on {self.measured_rows} measured rows across {len(self.forms)} export(s)"
-            )
+            return f"fitted on {self.measured_rows} rows from your " f"{len(self.forms)} export(s)"
         return (
-            f"fitted on {self.measured_rows} measured rows and "
+            f"fitted on {self.measured_rows} rows from your exports and "
             f"{self.simulated_rows} simulated ones — treat the numbers as a rehearsal"
         )
 
