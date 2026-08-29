@@ -22,14 +22,45 @@ renderer actually uses.
 from __future__ import annotations
 
 from ..edl import EditDecisionList, TextCue
+from ..workflows.platforms import PLATFORMS
 from ..insight import FitReport, Prediction
 from .base import Proposal, Risk
 
-# Platform safe-zone margins: fraction of frame width/height where UI chrome
-# (app buttons, status bar, swipe-up) will cover content.
-_SAFE_TOP = 0.08
-_SAFE_BOTTOM = 0.12
-_SAFE_SIDE = 0.05
+
+# ---------------------------------------------------------------------------
+# Safe-zone margins — derived, not typed
+# ---------------------------------------------------------------------------
+#
+# These were `0.08 / 0.12 / 0.05`, written here by hand, while
+# `workflows/platforms.py` held the real per-platform figures — dated, sourced,
+# and re-checked against what the platforms publish. Two copies of one fact
+# about somebody else's user interface, and the hand-written copy was the
+# looser one. Every platform had a band this gate passed and the app covers:
+#
+#     tiktok           a title anywhere in y 0.78-0.88 or x 0.84-0.95
+#     instagram-reel   y 0.80-0.88, y 0.08-0.10, x 0.86-0.95
+#     youtube-short    y 0.82-0.88, x 0.88-0.95
+#
+# The module docstring above promises this agent catches "a title sits where
+# the app's own buttons will cover it". It caught a looser version of that and
+# passed the rest, which is the failure mode a QC gate cannot have: the whole
+# value of the check is that a pass means something.
+#
+# An `EditDecisionList` carries `width` and `height` and no platform name, so
+# this cannot know where the film is going. A gate that does not know its
+# destination has to assume the worst one — so these are the strictest margin
+# of every platform in the table, taken from the table.
+def _strictest(edge: str) -> float:
+    """The largest margin any platform claims on that edge."""
+    return max(getattr(spec.safe, edge) for spec in PLATFORMS.values())
+
+
+_SAFE_TOP = _strictest("top")
+_SAFE_BOTTOM = _strictest("bottom")
+#: One figure for both sides, and it is the wider of the two: the right edge is
+#: where TikTok and Instagram stack their action buttons, so the asymmetry is
+#: real. Keeping one number means a title mirrored left-to-right is still safe.
+_SAFE_SIDE = max(_strictest("left"), _strictest("right"))
 
 
 def _texts_outside_safe(edl: EditDecisionList) -> list[tuple[int, TextCue]]:

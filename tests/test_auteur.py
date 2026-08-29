@@ -3924,6 +3924,80 @@ def test_publishing_always_needs_a_person_in_every_mode():
     assert answered[0].risk.name == "HIGH"
 
 
+def test_the_quality_gate_uses_the_safe_areas_the_platforms_actually_claim():
+    """A pass from the QC gate meant less than it said.
+
+    `finalcheck` is the check before export, and its docstring promises it
+    catches "a title sits where the app's own buttons will cover it". Its
+    margins were typed into the module — 0.08 top, 0.12 bottom, 0.05 side —
+    while `workflows/platforms.py` held the real per-platform figures, dated
+    and re-checked against what the platforms publish. Two copies of one fact
+    about somebody else's interface, and the hand-written copy was looser than
+    every single platform:
+
+        tiktok           passed a title anywhere in y 0.78-0.88 or x 0.84-0.95
+        instagram-reel   y 0.80-0.88, y 0.08-0.10, x 0.86-0.95
+        youtube-short    y 0.82-0.88, x 0.88-0.95
+
+    Six platforms, six bands the gate waved through and the app covers. That is
+    the one failure a QC gate cannot have, because the entire value of the
+    check is that a pass means something — and a title cleared here still lands
+    under TikTok's buttons.
+
+    An `EditDecisionList` carries `width` and `height` and no platform name, so
+    the gate cannot know where the film is going and has to assume the worst
+    destination. The margins are derived from the table now. This holds them
+    there: no platform may claim a margin the gate does not already enforce.
+    """
+
+    from auteur.agents import finalcheck
+    from auteur.workflows.platforms import PLATFORMS
+
+    assert PLATFORMS, "no platform specs to check against"
+
+    looser: list[str] = []
+    for name, spec in sorted(PLATFORMS.items()):
+        safe = spec.safe
+        if safe.top > finalcheck._SAFE_TOP:
+            looser.append(f"{name} top {safe.top} > gate {finalcheck._SAFE_TOP}")
+        if safe.bottom > finalcheck._SAFE_BOTTOM:
+            looser.append(f"{name} bottom {safe.bottom} > gate {finalcheck._SAFE_BOTTOM}")
+        if max(safe.left, safe.right) > finalcheck._SAFE_SIDE:
+            looser.append(
+                f"{name} side {max(safe.left, safe.right)} > gate {finalcheck._SAFE_SIDE}"
+            )
+    assert not looser, "the quality gate passes titles these platforms cover: " + "; ".join(looser)
+
+    # Derived, not merely equal by coincidence. A typed number that happens to
+    # match today goes stale the next time the specs are re-checked, which is
+    # exactly how this drifted the first time.
+    source = Path(finalcheck.__file__).read_text(encoding="utf-8")
+    assert (
+        "_strictest(" in source and "PLATFORMS" in source
+    ), "the margins are no longer read from the platform table"
+
+    # And it still catches the three placements it used to wave through, and
+    # still passes the two that are genuinely safe. Asserted on the function
+    # rather than on the constants, because the constants being right and the
+    # check using them are two different things.
+    from auteur.edl import EditDecisionList, TextCue
+
+    edl = EditDecisionList(title="t")
+    for anchor_point, covered in [
+        ((0.50, 0.85), True),  # TikTok's action buttons
+        ((0.90, 0.50), True),  # Instagram Reel's right-hand stack
+        ((0.50, 0.11), True),  # Instagram Story's header
+        ((0.50, 0.50), False),
+        ((0.20, 0.70), False),
+    ]:
+        edl.texts = [TextCue(text="X", start=0.0, duration=1.0, anchor=anchor_point)]
+        flagged = bool(finalcheck._texts_outside_safe(edl))
+        assert flagged is covered, (
+            f"a title at {anchor_point} is "
+            f"{'covered by an app and was passed' if covered else 'safe and was flagged'}"
+        )
+
+
 def test_the_agent_briefs_state_the_numbers_the_agents_actually_use():
     """`docs/agent-briefs.md` is the document somebody argues with the crew from.
 
