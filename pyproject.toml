@@ -23,7 +23,7 @@ llm = ["anthropic>=0.124.0"]
 # The Scholar's only way to reach YouTube. Metadata and captions only — it never
 # downloads video. Without it the Scholar says it cannot study rather than
 # quietly reporting that it studied nothing.
-scholar = ["yt-dlp>=2026.7.4"]
+scholar = ["yt-dlp>=2026.8.19"]
 # Signing in with Apple: their client secret is an ES256 JWT the server signs
 # itself. `requirements.txt` installs it unconditionally because a deployment
 # that cannot offer it has an App Store guideline 4.8 problem; here it is an
