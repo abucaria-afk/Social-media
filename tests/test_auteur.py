@@ -14146,7 +14146,7 @@ def test_no_caveat_is_hidden_behind_a_tooltip_a_phone_cannot_summon():
 
     The studio header carried
 
-        fitted on 2000 simulated rows and no measured ones — this predicts
+        fitted on 2000 simulated rows and none of your own — this predicts
         the simulator, not any platform
 
     and at 390px it showed "fitted on 2000 simulated rows and no m…", directly
@@ -14550,3 +14550,43 @@ def test_every_control_in_the_markup_says_what_it_does():
 
     assert not silent, "controls a screen reader cannot name: " + "; ".join(silent)
     assert not jumps, "headings skip a level, so the outline lies: " + "; ".join(jumps)
+
+
+def test_the_program_never_calls_a_number_measured_that_it_did_not_measure():
+    """ "Measured" is a claim about the world. This program cannot check it.
+
+    `measured_rows` counts rows that arrived in a file somebody pointed at,
+    and nothing more. Handed one of the generated datasets sitting in this
+    project — five rows of `v_001`, `v_002`, virality tier "Mega-Viral" — the
+    report said *"fitted on 5 measured rows"* and went on to name the winning
+    hook length. Nothing lied on purpose; the word was simply doing work it
+    had not earned.
+
+    The shape checks in `score.py` already do what can be done about invented
+    data — a median share rate several times anything a platform sees, or a
+    corpus with no drop-off in it — and both get named in `caveat`. What no
+    check can do is tell a careful fake from a real export. So the sentence
+    stops claiming to: it says where the rows came from.
+    """
+    from auteur.insight.score import FitReport
+
+    empty = FitReport(rows=2000, measured_rows=0, simulated_rows=2000)
+    mixed = FitReport(rows=2005, measured_rows=5, simulated_rows=2000)
+    yours = FitReport(rows=5, measured_rows=5, simulated_rows=0, forms=("short_form_video",))
+
+    for model in (empty, mixed, yours):
+        assert "measured" not in model.provenance, (
+            f"the report says {model.provenance!r} — the program cannot know a "
+            "file it was handed was measured from anything"
+        )
+
+    # It still has to say *which* is which, or the honesty costs the meaning.
+    assert "simulated" in empty.provenance and "not any platform" in empty.provenance
+    assert "your" in mixed.provenance and "simulated" in mixed.provenance
+    assert "your" in yours.provenance
+
+    # And the same word, one column wide, on the per-post table.
+    source = (Path(__file__).resolve().parent.parent / "auteur" / "cli.py").read_text()
+    assert (
+        'source = "measured"' not in source
+    ), "the per-post column still calls an exported number a measured one"
