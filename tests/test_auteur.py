@@ -14414,3 +14414,62 @@ def test_the_manual_does_not_describe_a_control_that_was_deliberately_removed():
     assert (
         "every screen has an **Appearance**" not in manual
     ), "the manual still says every screen carries the switch"
+
+
+def test_one_sentence_describes_this_product_to_a_stranger():
+    """Every public surface shows the same description, at a readable length.
+
+    There were nearly three. The generated site used `brand.PROMISE`. The live
+    company site carried a hand-written description saying Atlas "plans the
+    week and reads the reach" — which is two secondary features, not the
+    product — and selling a second product called APX, which is not a product
+    at all: it is the name of the craft-rules work in `auteur/craft/story.py`.
+    And writing this, I drafted a third for the Wix write before noticing it
+    was a second copy of the same fact.
+
+    None of that was visible from inside the repository, because the wrong one
+    lived in a hosting dashboard. What a check *can* hold is the half that is
+    here: one constant, used by every surface this repository generates, at a
+    length a search result will actually show.
+    """
+    import subprocess
+
+    from auteur import brand
+
+    root = Path(__file__).resolve().parent.parent
+
+    # Google truncates a snippet around 155 characters and an Open Graph card
+    # clips sooner. Under 70 and it is not a sentence, it is a fragment.
+    assert 70 <= len(brand.META_DESCRIPTION) <= 155, (
+        f"the description is {len(brand.META_DESCRIPTION)} characters; "
+        "search results will cut it or it says too little"
+    )
+    assert brand.NAME in brand.META_DESCRIPTION, (
+        "a snippet is read cold beside nine other results — it has to name the "
+        "product before it explains it"
+    )
+    assert brand.META_DESCRIPTION.rstrip().endswith("."), "a snippet is a sentence"
+
+    subprocess.run(
+        [sys.executable, str(root / "tools" / "site" / "build_site.py"), "-"],
+        check=True,
+        capture_output=True,
+        cwd=root,
+        env=os.environ.copy(),
+    )
+    page = (root / "-").read_text(encoding="utf-8")
+    (root / "-").unlink()
+
+    shown = re.findall(
+        r'<meta (?:name|property)="(?:description|og:description)" content="([^"]*)"', page
+    )
+    assert shown, "the built page carries no description at all"
+    for found in shown:
+        # The page escapes for HTML; compare on the same footing.
+        import html as html_module
+
+        assert html_module.unescape(found) == brand.META_DESCRIPTION, (
+            f"the page describes the product as {found!r} and brand.py says "
+            f"{brand.META_DESCRIPTION!r}"
+        )
+    assert len(set(shown)) == 1, "the meta and og descriptions disagree with each other"
