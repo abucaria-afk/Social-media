@@ -1,4 +1,4 @@
-# 🎬 Auteur Atlas — an autonomous cinematic editor
+# 🎬 Auteur Atlas — a film from your camera roll
 
 Point it at a pile of unsorted clips, give it a sentence of direction, and it
 returns a finished, graded, beat-cut, sound-designed short film.
@@ -80,6 +80,24 @@ python -m auteur edit ./my-clips "fast neon montage, 20 seconds"
 Point it at a folder, or at individual files, and say what you want in your own
 words. Put the music in the same folder and it will find it, work out the tempo,
 and cut to the beat. The prompt can be the last argument like that, or `-p`.
+
+### Cutting to a reel you point at
+
+`edit` invents a shape. `template` borrows one: it watches a reel you admire,
+writes down its timing — where the cuts land, how long each hold is, when the
+words appear — and then cuts *your* pictures to that shape.
+
+```bash
+auteur template watch ./reel.mp4 --name pulkitxx   # read its timing, keep it
+auteur template list                               # what it has watched
+auteur template cut pulkitxx ./photos/*.jpg        # your pictures, that timing
+```
+
+`--seconds` fills a different runtime than the original; `--words` puts your own
+text on screen, comma separated, at the points the reel put its own.
+
+It takes the *timing*, never the footage. Nothing of the reel ends up in your
+film, which is the only version of this idea that is yours to publish.
 
 ### On your phone
 
@@ -181,13 +199,35 @@ of more than a handful of distinct characters, and not built out of your own
 username or email. Four unrelated words in a row satisfies all four and is
 easier to type on a phone than anything clever.
 
+### When somebody reports something
+
+An instance with more than one person on it needs somebody who can act on a
+report, and on your own instance that is you. Reports arrive from the app and
+wait in the folder `serve` is using.
+
+```bash
+auteur moderate                       # what is waiting
+auteur moderate remove 4f2a1c9d       # take the film down
+auteur moderate hide 4f2a1c9d         # leave it up, out of restricted accounts
+auteur moderate keep 4f2a1c9d --note "checked, it is fine"
+auteur moderate close somebody        # close an account entirely
+```
+
+Every decision keeps its reason (`--note`) beside the report, and `--all` shows
+the ones already decided. This is not a queue at a company: it is a named human
+whose computer it is, which is what the terms say and what Apple's guideline
+1.2 requires an app carrying other people's work to have.
+
 ### Light, dark, or whatever the phone is doing
 
-The bottom of every screen has an **Appearance** switch: *Automatic*, *Light*,
-*Dark*. Automatic is the default and follows the phone's own setting; the other
-two override it and are remembered. The choice is applied by a small script in
-`<head>` before the stylesheet loads, so the page never flashes the wrong theme
-on the way in.
+**Appearance** lives in Settings — on the profile tab, with the accessibility
+switches — and nowhere else: *Automatic*, *Light*, *Dark*. Automatic is the
+default and follows the phone's own setting; the other two override it and are
+remembered. It used to sit at the bottom of every screen, which is a setting
+repeated nine times and a footer in the way of the content on all of them. A
+setting belongs in settings. The choice is still applied by a small script in
+`<head>` on every page before the stylesheet loads, so nothing flashes the
+wrong theme on the way in — that part is on each page, the control is not.
 
 Both palettes come from the same photographs — the dark one from the shadow, the
 light one from the torch-lit side — so switching changes the exposure rather than
@@ -490,6 +530,53 @@ It does not mean it may post one.
 
 Safe areas still win: the agents move titles to win the first three seconds, and
 the platform's safe area gets the last word on where a title may actually sit.
+
+### What the crew has earned
+
+Agents do not get to keep a change because it sounded good. Every proposal is
+scored across runs, and what survives is what measurably helped.
+
+```bash
+auteur agents            # what has earned its place
+auteur agents --json     # the same, machine-readable
+auteur agents forget     # throw it away and start over
+```
+
+## Studying, rehearsing, and what it is chasing
+
+Three commands, one loop: **watch** work better than yours, **rehearse** against
+it, and keep a **benchmark** to say whether you are closing the gap.
+
+```bash
+auteur scholar                          # what it has studied
+auteur scholar study "handheld cutting" # one session on a topic
+auteur scholar watch --every 30         # keep studying while you work
+auteur scholar critique ./mycut.mp4     # hold a cut against what it studied
+auteur scholar teach --agent gaze       # push what stuck into one agent
+```
+
+`serve` runs this in the background unless you pass `--no-scholar`. It reads
+metadata and public descriptions, not the pictures — the difference matters and
+is the reason it can study anything at all.
+
+```bash
+auteur benchmark add ./thegoal.mp4 --name pulkitxx   # a film to beat
+auteur benchmark                                     # hardest first
+auteur benchmark remove pulkitxx
+```
+
+Two scores and both have to be beaten: **structure**, the same hook/share/loop
+model that scores your own edits, and **craft**. Beating one is not beating a
+film.
+
+```bash
+auteur rehearse ./footage -n 30      # build 30 candidates, measure, keep the best
+auteur rehearse ./footage --forever  # the loop is the point, not any one film
+```
+
+`rehearse` builds candidates, measures each against the benchmark, and changes
+what it does next based on the answer. `--length` keeps each candidate short,
+because a shorter candidate is faster and still enough to measure.
 
 ## Studio
 

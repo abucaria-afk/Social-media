@@ -14330,3 +14330,87 @@ def test_a_raw_colour_only_appears_where_the_ground_is_somebody_s_footage():
     assert theme.hex_of("on_photo", "dark") == theme.hex_of(
         "on_photo", "light"
     ), "on_photo differs between schemes, so the feed's marks now change colour"
+
+
+def test_the_manual_documents_every_command_the_cli_can_run():
+    """README calls AUTEUR.md "the full documentation: every command".
+
+    It documented ten of sixteen. `benchmark`, `moderate`, `rehearse`,
+    `scholar` and `template` appeared zero times; `agents` was mentioned but
+    never as something you could type. Two of those — `moderate` and
+    `template` — are the same pair the CLI's own usage line was missing, which
+    is the tell: they were added and no surface that describes the program was
+    updated with them.
+
+    AUTEUR.md is also what `pyproject.toml` hands to PyPI as the package
+    description, so the gap is not internal. A promise of completeness that
+    nothing compares to the thing it covers is the same defect as the usage
+    line, one level up, and it is checked the same way.
+    """
+    from auteur.cli import _build_parser
+
+    root = Path(__file__).resolve().parent.parent
+    manual = (root / "AUTEUR.md").read_text(encoding="utf-8")
+    readme = (root / "README.md").read_text(encoding="utf-8")
+
+    assert "every command" in readme, "the README no longer promises this; drop the guard"
+
+    parser = _build_parser()
+    commands = next(
+        set(a.choices) for a in parser._actions if getattr(a, "dest", "") == "command" and a.choices
+    )
+    assert len(commands) > 10, f"only {len(commands)} commands found; the lookup is wrong"
+
+    undocumented = [name for name in sorted(commands) if not re.search(rf"auteur {name}\b", manual)]
+    assert not undocumented, (
+        "README promises AUTEUR.md documents every command; it never shows "
+        f"how to run: {undocumented}"
+    )
+
+
+def test_both_front_doors_lead_with_the_name_and_tagline_brand_py_holds():
+    """Two documents, one product, and the tagline lives in one place.
+
+    AUTEUR.md led with "an autonomous cinematic editor" while brand.py, the
+    site, both store listings and the README all said "a film from your camera
+    roll". Not false — it is an autonomous cinematic editor — but it is a
+    second positioning line for the same product, and AUTEUR.md is what PyPI
+    shows, so the package's public description led with words no other surface
+    used.
+    """
+    from auteur import brand
+
+    root = Path(__file__).resolve().parent.parent
+    wanted = f"{brand.NAME} — {brand.TAGLINE.lower()}"
+
+    for name in ("README.md", "AUTEUR.md"):
+        first = (root / name).read_text(encoding="utf-8").splitlines()[0]
+        assert first.startswith("#"), f"{name} does not open with a heading"
+        assert wanted in first, f"{name} leads with {first!r}, and the brand says {wanted!r}"
+
+
+def test_the_manual_does_not_describe_a_control_that_was_deliberately_removed():
+    """The appearance switch is in Settings, and the manual said "every screen".
+
+    It used to sit at the bottom of all nine tabs — a setting repeated nine
+    times, and a footer in the way of the content on every one of them. It was
+    moved into Settings on purpose. The manual went on describing the old
+    arrangement, which sends a reader looking for a control that is not there
+    and describes a design decision as its opposite.
+    """
+    from auteur.web import server
+
+    root = Path(__file__).resolve().parent.parent
+    manual = (root / "AUTEUR.md").read_text(encoding="utf-8")
+
+    carries = [
+        page.name
+        for page in sorted(server.STATIC.glob("*.html"))
+        if 'class="choices appearance"' in page.read_text(encoding="utf-8")
+    ]
+    assert carries == [
+        "profile.html"
+    ], f"the appearance switch is on {carries}; it belongs in Settings alone"
+    assert (
+        "every screen has an **Appearance**" not in manual
+    ), "the manual still says every screen carries the switch"
