@@ -413,6 +413,13 @@ and a share does).
 Fitting a model to performance data is easy to do dishonestly, so this reports
 the ways it could be wrong before it reports the answer:
 
+- **Nor does the corpus.** `measured_rows` counts rows that arrived in a file
+  somebody pointed at, and nothing more. Handed a generated CSV — five rows of
+  `v_001`, tier "Mega-Viral" — the report used to say *"fitted on 5 measured
+  rows"* and then name the winning hook length. The shape checks below catch
+  data that is impossible; nothing catches data that is merely invented. So the
+  sentence says where the rows came from and leaves "measured" for what this
+  program measured itself.
 - **Derived fields never claim to have been measured.** Most exports have no
   three-second column, so one is inferred — from completion, from swipe-through,
   from stop-scroll. `Signal.has()` says which numbers were observed, and

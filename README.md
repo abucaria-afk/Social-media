@@ -221,6 +221,13 @@ to be observations are down-weighted, disagreements between sources are surfaced
 rather than averaged away, and a corpus with no failures in it is told it has
 none. With no data at all it fits on simulated rows and says so every time.
 
+That suspicion runs to the file itself. A CSV somebody points at is not evidence
+it was measured from anything, and no check can tell a careful fake from a real
+export — so the report says **where the rows came from** rather than calling
+them measured: *"5 rows from your exports and 2000 simulated ones"*. It used to
+say "5 measured rows", which is a claim about the world this program has no way
+to check.
+
 `--reference ./refs/*.mp4` measures footage you point at and pulls the edit
 toward its cutting rate and exposure. A reference **outranks the corpus**: style
 proposals are binding, so they skip the "does this improve the prediction?" test
