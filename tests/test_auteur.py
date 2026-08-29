@@ -14473,3 +14473,80 @@ def test_one_sentence_describes_this_product_to_a_stranger():
             f"{brand.META_DESCRIPTION!r}"
         )
     assert len(set(shown)) == 1, "the meta and og descriptions disagree with each other"
+
+
+def test_every_control_in_the_markup_says_what_it_does():
+    """A control a screen reader announces as "button" is a control nobody
+    using one can operate.
+
+    Driven in a real browser across all ten screens, every interactive element
+    already had an accessible name, no heading level was skipped, and no
+    standalone target measured under Apple's 44x44. Three properties measured
+    and compared to nothing — which is the state this suite exists to end. The
+    browser is not in CI, so this is the static half: what the markup ships
+    with, before a line of JavaScript runs.
+
+    `hidden` elements are skipped on purpose rather than by exception. The one
+    control with no label in the markup is `<a id="link" hidden>` on the
+    profile, which `profile.js` fills in when there is a link to show — and a
+    hidden element is not announced, so it has nothing to say yet. Skipping
+    hidden is the correct rule, and it happens to leave no special cases.
+    """
+    from html.parser import HTMLParser
+
+    from auteur.web import server
+
+    class Controls(HTMLParser):
+        """Collects interactive elements and whatever text they contain."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.open: list = []
+            self.bare: list = []
+            self.said: dict = {}
+            self.headings: list = []
+            self.in_heading: int | None = None
+
+        def handle_starttag(self, tag, attrs):
+            got = dict(attrs)
+            if tag in ("h1", "h2", "h3", "h4", "h5", "h6") and "hidden" not in got:
+                self.in_heading = int(tag[1])
+            if tag in ("button", "a") or got.get("role") in ("button", "switch"):
+                self.open.append((tag, got, len(self.said)))
+                self.said[len(self.said)] = ""
+
+        def handle_data(self, data):
+            if self.open:
+                key = self.open[-1][2]
+                self.said[key] = self.said.get(key, "") + data
+            if self.in_heading is not None and data.strip():
+                self.headings.append(self.in_heading)
+                self.in_heading = None
+
+        def handle_endtag(self, tag):
+            if tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
+                self.in_heading = None
+            if self.open and self.open[-1][0] == tag:
+                name, got, key = self.open.pop()
+                if "hidden" in got:
+                    return
+                label = (self.said.get(key, "") or "").strip()
+                for attribute in ("aria-label", "title", "aria-labelledby"):
+                    label = label or (got.get(attribute) or "").strip()
+                if not label:
+                    self.bare.append(
+                        f"<{name}> id={got.get('id', '-')} " f"class={got.get('class', '')!r}"
+                    )
+
+    silent: list[str] = []
+    jumps: list[str] = []
+    for page in sorted(server.STATIC.glob("*.html")):
+        reader = Controls()
+        reader.feed(page.read_text(encoding="utf-8"))
+        silent += [f"{page.name}: {one}" for one in reader.bare]
+        for before, after in zip(reader.headings, reader.headings[1:], strict=False):
+            if after > before + 1:
+                jumps.append(f"{page.name}: h{before} straight to h{after}")
+
+    assert not silent, "controls a screen reader cannot name: " + "; ".join(silent)
+    assert not jumps, "headings skip a level, so the outline lies: " + "; ".join(jumps)
