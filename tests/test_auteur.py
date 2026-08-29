@@ -4009,6 +4009,131 @@ def test_the_agent_briefs_state_the_numbers_the_agents_actually_use():
     assert not wrong, "the briefs and the crew disagree: " + "; ".join(wrong)
 
 
+def test_the_reference_measurement_can_still_resolve_the_shot_it_reports():
+    """The Style brief carries a correction. This keeps it from being undone.
+
+    It used to say the reference reels cut 2.7-3.3 times per ten seconds and
+    called two of the three *meditative*. They cut 21-43 times, median shot
+    **0.167 s**. The error was not in the arithmetic — it was in the
+    instrument: `measure()` sampled at 8 frames a second with a 350 ms floor on
+    how close two cuts could be, which made any reading above three cuts a
+    second impossible to obtain. The brief then reported the ceiling as a
+    finding, and the Style agent's job was inverted: slow the film down, when
+    the references wanted it four times faster.
+
+    Nothing about that was visible from the number. A measurement capped by its
+    own sampling rate looks exactly like a measurement, which is why this is a
+    check on the *instrument* rather than on the result: the default sampling
+    rate and the minimum gap between two cuts both have to be fine enough to
+    resolve the shot length the brief reports. Drop `analysis_fps` back to 8
+    and this fails, where before it would simply have produced a different
+    number and no complaint.
+    """
+
+    import inspect
+
+    from auteur.insight import reference
+
+    root = Path(__file__).resolve().parent.parent
+    briefs = (root / "docs" / "agent-briefs.md").read_text(encoding="utf-8")
+
+    stated = re.search(r"median shot\s+\*\*([0-9.]+) s\*\*", briefs)
+    assert stated, "the Style brief no longer reports a median shot length"
+    median = float(stated.group(1))
+
+    fps = inspect.signature(reference.measure).parameters["analysis_fps"].default
+    assert fps is not inspect.Parameter.empty, "measure() lost its default sampling rate"
+
+    # One sample cannot resolve an event shorter than its own interval.
+    assert 1.0 / fps <= median, (
+        f"sampling at {fps} fps cannot see a {median}s shot — every reading "
+        "above that rate would be the instrument's ceiling reported as a finding"
+    )
+
+    # And the floor on how close two cuts may be, which is what actually
+    # capped the original reading. Two frames at the analysis rate.
+    source = Path(reference.__file__).read_text(encoding="utf-8")
+    assert "min_gap=2.0 / fps" in source, (
+        "the two-frame floor is gone; a fixed floor in milliseconds is what "
+        "reported three of these reels as meditative"
+    )
+    assert (2.0 / fps) <= median, (
+        f"the minimum gap between two cuts is {2.0 / fps:.3f}s and the brief "
+        f"reports a {median}s median shot, which that floor forbids"
+    )
+
+
+def test_an_overlay_is_never_applied_on_nobodys_authority():
+    """The model abstained and `AUTONOMOUS` skipped the human. Nobody decided.
+
+    `binding` was carrying two opposite meanings. For the style agent it means
+    *a person already decided* — they supplied reference footage, matching it
+    carries out that instruction, and no second approval is owed. For the
+    overlay agent it means the reverse, in that module's own words: no export
+    this project has been given records whether a post carried graphics, so
+    "the model abstains, so the decision goes to the person, which is what the
+    gate is for".
+
+    `Gate.needs_a_person` returned False for `AUTONOMOUS` before it looked at
+    the proposal at all. So an overlay in autonomous mode was applied with the
+    model having no opinion and no person asked — not auto-approved on the
+    model's say-so, because the model did not say anything. That is a weaker
+    claim than either gate makes on its own, and it is the one case where the
+    two meanings of `binding` came apart.
+
+    `needs_a_human` is the half that means "ask", honoured before the mode is
+    consulted. The style agent keeps the other half: its proposals still apply
+    unattended, because the instruction behind them is the person's.
+    """
+
+    from auteur.agents import Gate, Mode
+    from auteur.agents.base import Proposal, Risk
+    from auteur.agents.overlay import OverlayAgent
+
+    def proposal(**fields):
+        return Proposal(
+            agent="overlay",
+            title="Ring on the subject",
+            reason="",
+            change=lambda edl: None,
+            objective="overlay",
+            **fields,
+        )
+
+    # Every mode, including the one that skips everything else.
+    for mode in Mode:
+        assert Gate(mode).needs_a_person(
+            proposal(risk=Risk.LOW, binding=True, needs_a_human=True)
+        ), f"{mode.value} would apply an overlay without asking anybody"
+
+    # And the other half of `binding` is untouched: an instruction the person
+    # already gave still applies unattended.
+    assert not Gate(Mode.AUTONOMOUS).needs_a_person(
+        proposal(risk=Risk.HIGH, binding=True)
+    ), "a style match now demands a second approval for an instruction already given"
+
+    # Held, not silently applied, when there is nobody to ask.
+    gate = Gate(Mode.AUTONOMOUS)
+    held = proposal(risk=Risk.LOW, binding=True, needs_a_human=True)
+    assert gate.review(held) is False
+    assert held.decided_by == "held"
+    assert "no reviewer" in (held.decision_note or "")
+
+    # The agent has to actually set the flag, or the three assertions above
+    # describe a field nothing uses — which is the defect this whole file
+    # keeps finding.
+    source = Path(OverlayAgent.__module__.replace(".", "/") + ".py")
+    root = Path(__file__).resolve().parent.parent
+    text = (root / source).read_text(encoding="utf-8")
+    binding_sites = text.count("binding=True")
+    assert binding_sites, "the overlay agent no longer emits binding proposals"
+    assert text.count("needs_a_human=True") == binding_sites, (
+        f"{binding_sites} binding overlay proposals and "
+        f"{text.count('needs_a_human=True')} marked as needing a person — every "
+        "one of them needs a person, for the same reason"
+    )
+
+
 def test_the_preflight_brief_checks_exactly_what_it_says_it_can_check():
     """The brief's table has a "checkable" column. It is a claim, so check it.
 

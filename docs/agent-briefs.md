@@ -234,7 +234,17 @@ scoring model's prediction by exactly zero, every time.
 Run through the crew's usual "does this improve the score?" test, every overlay
 would therefore be dropped as *no predicted gain* — which reads as the model
 rejecting the idea when it has not looked at it. So these proposals are binding:
-the model abstains, and the decision goes to you. Fitting a coefficient for
+the model abstains, and the decision goes to you.
+
+**In every mode, including `autonomous`.** That sentence was true of the brief
+and not of the code. `binding` was carrying two opposite meanings — for the
+style agent it means *a person already decided*, by supplying reference
+footage, so no second approval is owed; here it means the reverse. And
+`Gate.needs_a_person` answered on the mode before it looked at the proposal, so
+in `autonomous` an overlay was applied with the model having no opinion and
+nobody asked. Not auto-approved on the model's say-so: the model had not said
+anything. `Proposal.needs_a_human` is the half of `binding` that means *ask*,
+and the gate honours it whatever the mode. Fitting a coefficient for
 overlays against a corpus that never measured them would not be data-driven, it
 would be making one up.
 
