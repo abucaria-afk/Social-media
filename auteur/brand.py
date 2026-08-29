@@ -58,6 +58,30 @@ PROMISE = (
 #: The same promise at Play's short-description length.
 PROMISE_SHORT = "Say it in a sentence. Get a cut, graded film back."
 
+#: The one sentence a search engine shows under the link, and the one a social
+#: card shows under the title.
+#:
+#: Its own constant rather than a reuse of `PROMISE`, because a search snippet
+#: has a job the promotional text does not: it is read cold, next to nine other
+#: results, by somebody who has not seen the name yet. So it leads with the
+#: product rather than with an instruction — `PROMISE` opens "Say what you
+#: want", which out of context reads like a command from a stranger.
+#:
+#: It exists at all because there was nearly a third copy. The generated site
+#: used `PROMISE`; the live company site had a hand-written description that
+#: said Atlas "plans the week and reads the reach" and sold a second product
+#: called APX that does not exist — APX is the name of the craft-rules work in
+#: `auteur/craft/story.py`. Two public descriptions of one product, neither
+#: matching the other or the app. One constant, read by every surface.
+#:
+#: The length is not decoration: Google truncates around 155 characters and
+#: Open Graph cards clip sooner, so a description that runs long is a sentence
+#: whose end nobody reads. A test holds it inside that.
+META_DESCRIPTION = (
+    f"{NAME} turns what is already on your phone into a finished film. "
+    "Say it in a sentence — it reads the footage, cuts to the beat, and grades it."
+)
+
 #: Search terms. Apple takes a comma-separated 100 characters; Play has no
 #: keyword field and reads the description instead, which is why the
 #: description below says these words in prose rather than listing them.
