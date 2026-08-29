@@ -3924,6 +3924,199 @@ def test_publishing_always_needs_a_person_in_every_mode():
     assert answered[0].risk.name == "HIGH"
 
 
+def test_the_agent_briefs_state_the_numbers_the_agents_actually_use():
+    """`docs/agent-briefs.md` is the document somebody argues with the crew from.
+
+    Every threshold in it was also a literal in `agents/editors.py`, and two
+    copies of a threshold is one threshold and one stale number with no way to
+    tell from either side which is which. That is the defect this repository
+    keeps finding: the site's hand-copied palette, the tier cross-reference
+    naming a tier that had been renamed, the README's typed prices.
+
+    The briefs are worse than most, because they read as evidence. "Target
+    0.80. Failure boundary 0.69" next to a correlation and a row count is a
+    claim that the code steers by those numbers. If it steers by others, the
+    document is not merely out of date — it is citing a measurement in support
+    of behaviour that measurement did not produce.
+
+    So the constants are named in `editors.py`, the briefs state them, and this
+    reads both. It found one disagreement on the way in, and not in a
+    threshold: the "tighten the middle" proposal removed 22% while its own
+    title — the sentence a person reads before approving it — said "by a
+    fifth", as did the brief. Neither number had a source. It is a fifth now,
+    in one place, measured at 20.0% on a real timeline.
+    """
+
+    from auteur.agents import editors
+
+    root = Path(__file__).resolve().parent.parent
+    briefs = (root / "docs" / "agent-briefs.md").read_text(encoding="utf-8")
+
+    #: What the brief's bolded label means, per agent section, and the constant
+    #: it has to equal.
+    STATED = {
+        "Hook agent": {
+            "Target": editors.HOOK_TARGET,
+            "Failure boundary": editors.HOOK_FAILURE_BOUNDARY,
+        },
+        "Share agent": {
+            "Target": editors.SHARE_TARGET,
+            "Completion boundary": editors.SHARE_COMPLETION_BOUNDARY,
+        },
+        "Loop agent": {
+            "Target": editors.LOOP_TARGET,
+            "Failure boundary": editors.LOOP_FAILURE_BOUNDARY,
+        },
+    }
+
+    sections = {}
+    current = None
+    for line in briefs.splitlines():
+        if line.startswith("## "):
+            current = line[3:].strip()
+            sections[current] = []
+        elif current:
+            sections[current].append(line)
+
+    wrong: list[str] = []
+    for heading, labels in STATED.items():
+        assert heading in sections, f"the briefs no longer have a {heading!r} section"
+        body = "\n".join(sections[heading])
+        for label, constant in labels.items():
+            # `[0-9.]+` swallowed the sentence's full stop and gave "0.80.".
+            # Digits, then optionally a point and more digits — never a
+            # trailing one.
+            found = re.search(rf"\*\*{re.escape(label)}\*\*\s+([0-9]+(?:\.[0-9]+)?)", body)
+            if not found:
+                wrong.append(f"{heading} states no {label}")
+                continue
+            if abs(float(found.group(1)) - constant) > 1e-9:
+                wrong.append(
+                    f"{heading} says {label} {found.group(1)} and the code uses {constant}"
+                )
+
+    # The two numbers stated in prose rather than as a labelled field.
+    if f"**{editors.HOOK_FIRST_CUT_SECONDS}s**" not in briefs:
+        wrong.append(
+            f"the Hook brief no longer says the first cut lands at "
+            f"{editors.HOOK_FIRST_CUT_SECONDS}s"
+        )
+    if f"toward {editors.SHARE_RUNTIME_TARGET:.0f}s" not in briefs:
+        wrong.append(
+            f"the Share brief no longer shortens toward {editors.SHARE_RUNTIME_TARGET:.0f}s"
+        )
+
+    assert not wrong, "the briefs and the crew disagree: " + "; ".join(wrong)
+
+
+def test_the_preflight_brief_checks_exactly_what_it_says_it_can_check():
+    """The brief's table has a "checkable" column. It is a claim, so check it.
+
+    Seven failure modes from the labelled corpus, each with a recommended
+    action code and a yes/no on whether preflight can actually see it before
+    the fact. Two are marked **no** and the reasons are good ones: Low Organic
+    Traction is an outcome rather than a cause, and Shadowban Boundary is
+    invisible from here. Saying so is the most useful thing in the table —
+    it is the part that stops somebody trusting a green preflight to mean more
+    than it does.
+
+    Which makes the column worth holding in both directions. A mode marked
+    checkable whose action code is nowhere in `agents/preflight.py` is a check
+    that does not exist; a mode marked **no** whose code *is* there is a check
+    that quietly started running, which sounds harmless and means the table now
+    understates what the crew does — and the table is what somebody reads to
+    decide how much a pass is worth.
+    """
+
+    root = Path(__file__).resolve().parent.parent
+    briefs = (root / "docs" / "agent-briefs.md").read_text(encoding="utf-8")
+    source = (root / "auteur" / "agents" / "preflight.py").read_text(encoding="utf-8")
+
+    rows = re.findall(
+        r"^\| ([A-Z][A-Za-z ]+?) \| ([\d,]+) \| `([A-Z_0-9]+)` \| (.+?) \|$",
+        briefs,
+        re.M,
+    )
+    assert len(rows) == 7, f"the brief lists {len(rows)} failure modes; it describes seven"
+
+    wrong: list[str] = []
+    for mode, count, action, checkable in rows:
+        claims_checkable = not checkable.strip().startswith("**no**")
+        present = f'"{action}"' in source
+        if claims_checkable and not present:
+            wrong.append(f"{mode} is marked checkable and {action} is not in preflight.py")
+        if not claims_checkable and present:
+            wrong.append(
+                f"{mode} is marked **no** and {action} is in preflight.py — the "
+                "table understates what preflight does"
+            )
+        assert int(count.replace(",", "")) > 0, f"{mode} has no recorded count"
+
+    assert not wrong, "; ".join(wrong)
+
+    # Five checkable, two not. If that ratio ever becomes seven-to-zero this
+    # test still passes and should not: a table with nothing marked **no** is a
+    # table that has stopped admitting anything.
+    admitted = [mode for mode, _c, _a, checkable in rows if checkable.strip().startswith("**no**")]
+    assert admitted, (
+        "no failure mode is marked unseeable any more. Either preflight learned "
+        "to detect an outcome and a shadowban, or the honest half of this table "
+        "was deleted"
+    )
+
+
+def test_tightening_the_middle_removes_what_it_says_it_removes():
+    """The proposal a person approves has to do what its title says.
+
+    `ShareAgent` offered "Tighten the middle by a fifth" and multiplied each
+    middle shot by 0.78 — a 22% trim. Two points is not much; the shape is the
+    point. A proposal title is the only description of a change most people
+    will read, an approval is given on the strength of it, and nothing in the
+    suite compared the sentence to the arithmetic.
+
+    Measured on a real timeline rather than asserted from the constant, because
+    the constant being right and the change being right are two things: the
+    trim runs through `source_duration` and a `max(..., 0.35)` floor, either of
+    which could make the applied result differ from the multiplier.
+
+    The brief's other promise is checked here too — the hook and the ending are
+    load-bearing for the other two agents, so tightening must not touch them.
+    """
+
+    import copy
+
+    from auteur.agents.editors import MIDDLE_TIGHTEN, ShareAgent
+    from auteur.edl import EditDecisionList, Shot
+
+    edl = EditDecisionList(title="Slow one")
+    for index in range(8):
+        edl.shots.append(Shot(clip_id=f"c{index}", source=f"c{index}.mp4", start=0.0, end=2.5))
+
+    proposals = [p for p in ShareAgent().inspect(edl, None, None) if "Tighten" in p.title]
+    assert proposals, "a 0.4 cuts/second timeline drew no tighten proposal"
+    proposal = proposals[0]
+
+    before = [shot.duration for shot in edl.shots]
+    after_edl = copy.deepcopy(edl)
+    proposal.change(after_edl)
+    after = [shot.duration for shot in after_edl.shots]
+
+    removed = 1.0 - (after[1] / before[1])
+    assert abs(removed - MIDDLE_TIGHTEN) < 0.005, (
+        f"the proposal is titled {proposal.title!r} and removed "
+        f"{removed * 100:.1f}% of a middle shot"
+    )
+    # "a fifth" in the title, and a fifth is what MIDDLE_TIGHTEN is.
+    assert "fifth" in proposal.title.lower()
+    assert abs(MIDDLE_TIGHTEN - 0.20) < 1e-9, (
+        f"the title says a fifth and MIDDLE_TIGHTEN is {MIDDLE_TIGHTEN} — "
+        "change the title with the number or they part company again"
+    )
+
+    assert after[0] == before[0], "the hook was tightened; the hook agent owns it"
+    assert after[-1] == before[-1], "the ending was tightened; the loop agent owns it"
+
+
 def test_every_source_file_the_prose_points_at_actually_exists():
     """A docstring that cites a file is making a checkable claim. Check it.
 
