@@ -167,7 +167,7 @@ def _with_contact(markdown: str) -> str:
 def policy_page(source: Path, static: Path, name: str, title: str) -> Path | None:
     # The app's name, not a literal. These pages said "Auteur — privacy" for
     # as long as that was the name, and would have gone on saying it after the
-    # product became Auteur Atlas — a policy document titled after a product
+    # product became Atlas — a policy document titled after a product
     # that no longer exists is not a small thing to hand a store reviewer.
     from ..identity import IDENTITY  # noqa: F401 - read inside the f-string
 

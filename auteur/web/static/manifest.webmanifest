@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "Auteur Atlas \u2014 the edit room",
-  "short_name": "Auteur Atlas",
+  "name": "Atlas \u2014 the edit room",
+  "short_name": "Atlas",
   "description": "Turn clips from your camera roll into a finished film.",
   "start_url": "/",
   "scope": "/",

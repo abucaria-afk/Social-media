@@ -1,7 +1,9 @@
-# 🎬 Auteur Atlas — a film from your camera roll
+# 🎬 Atlas — plan the week, read the reach
 
-Point it at a pile of unsorted clips, give it a sentence of direction, and it
-returns a finished, graded, beat-cut, sound-designed short film.
+Plan the week's posts, shoot the shot list, and read back how each one did.
+The cut is the middle of that: point it at a pile of unsorted clips, give it a
+sentence of direction, and it returns a finished, graded, beat-cut,
+sound-designed short film.
 
 ```bash
 python -m auteur edit ./rushes 'moody neon chase, 20 seconds, ends on "AFTER DARK"'
@@ -413,6 +415,13 @@ and a share does).
 Fitting a model to performance data is easy to do dishonestly, so this reports
 the ways it could be wrong before it reports the answer:
 
+- **Nor does the corpus.** `measured_rows` counts rows that arrived in a file
+  somebody pointed at, and nothing more. Handed a generated CSV — five rows of
+  `v_001`, tier "Mega-Viral" — the report used to say *"fitted on 5 measured
+  rows"* and then name the winning hook length. The shape checks below catch
+  data that is impossible; nothing catches data that is merely invented. So the
+  sentence says where the rows came from and leaves "measured" for what this
+  program measured itself.
 - **Derived fields never claim to have been measured.** Most exports have no
   three-second column, so one is inferred — from completion, from swipe-through,
   from stop-scroll. `Signal.has()` says which numbers were observed, and
@@ -527,6 +536,19 @@ mode including `autonomous`, and a gate with nobody to ask returns no rather
 than assuming yes — a gate that approves when unattended is not a gate, it is a
 delay. Autonomy here means an agent may restructure a cut without being asked.
 It does not mean it may post one.
+
+**And nothing calls it.** Worth stating plainly, because the paragraph above is
+true and would be read as more than it says. The gate is correct and covered in
+every mode; it has no call sites. What actually stops an agent posting today is
+that no module in `auteur/agents/`, `auteur/publish/` or `auteur/workflows/` can
+reach a network at all — `schedule.py` holds no credential and hands the queue
+to `export_csv`, and `connections.py` has no token exchange. The property holds;
+it holds for that reason, not this one. `may_publish` is a loaded safety that is
+not yet connected to a trigger, and whoever wires posting up has to connect it.
+`test_the_publish_gate_is_either_in_the_path_or_has_no_path_to_be_in` says so
+out loud: while nothing can publish it asserts the gate has no callers, and the
+moment a module in those packages can reach a network it demands the gate be in
+that module.
 
 Safe areas still win: the agents move titles to win the first three seconds, and
 the platform's safe area gets the last word on where a title may actually sit.
@@ -780,6 +802,28 @@ static path that resolved one folder up.
 - **Speech is detected, not transcribed.** There is a speech-likelihood measure
   used for ducking and music selection, but no ASR, so there are no automatic
   subtitles and no cutting to what was said.
+- **The Scholar does not talk, and its speech module is unreachable.**
+  `auteur/scholar/speech.py` is 660 lines describing a multilingual voice
+  system. Nothing calls it — no CLI command, no route, no caller — and running
+  it is what established the rest of this entry. There is no speech
+  synthesiser: `_synthesise_speech` returns nothing, logs a warning once, and
+  `has_voice` correctly reports False. Language detection reads the *writing
+  system*, so it distinguishes nine scripts and six of the sixty advertised
+  languages; everything in Latin script comes back "en". It used to report
+  confidence `1.0` on every answer including the wrong ones — that number is
+  now one over however many advertised languages share the script it saw, so a
+  Latin guess is worth 0.04 and Korean is worth 1.0. Text replies are real when
+  `ANTHROPIC_API_KEY` is set, because they are the model's.
+- **The Scholar's ears segment audio; they do not understand it.**
+  `auteur/scholar/auditory.py` genuinely classifies each stretch as dialogue,
+  music, ambient or FX from its spectrum, measures a true RMS energy, and
+  splits on real silences. It does not transcribe, diarise, detect language,
+  measure tempo or pitch, or read sentiment — those fields exist and stay
+  empty. It used to fill one of them: `speaker_id` was set to `"speaker_0"` on
+  the first segment of any audio, and because `listen` counts distinct
+  non-empty ids, **every recording reported exactly one speaker** — a pure
+  sine wave included. It reports zero now. (Real tempo and beat analysis do
+  exist in this project, in `auteur/analysis/audio.py`; they are not wired to here.)
 - **Rendering is CPU-bound.** A 15-second reel is roughly two minutes at draft
   quality; `master` with optical flow is considerably slower. No hardware encoder
   is used.

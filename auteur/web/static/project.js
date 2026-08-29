@@ -644,7 +644,7 @@
         if (!data) { return; }
         project = data.project;
         kinds = project.kinds || {};
-        document.title = "Auteur Atlas — " + project.name;
+        document.title = "Atlas — " + project.name;
         $("bar-name").textContent = project.name;
         $("big-name").textContent = project.name;
         var when = [project.dated, project.place].filter(Boolean).join(" · ");

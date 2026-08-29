@@ -3924,6 +3924,464 @@ def test_publishing_always_needs_a_person_in_every_mode():
     assert answered[0].risk.name == "HIGH"
 
 
+def test_every_source_file_the_prose_points_at_actually_exists():
+    """A docstring that cites a file is making a checkable claim. Check it.
+
+    Writing the two entries above I wrote "real tempo and beat analysis do
+    exist in this project, in auteur/audio.py" into a module docstring and
+    into the manual. There is no such file. The claim was true —
+    `auteur/analysis/audio.py` has `tempo`, `tempo_confidence`, `beats` and
+    `downbeats` — and the path was invented, in the same commit whose whole
+    subject is documentation asserting things nobody ran.
+
+    A wrong path is not a typo. This repository's docstrings are navigational:
+    they say where the number came from and where the real implementation
+    lives, and a reader who follows one to nothing concludes the subsystem does
+    not exist. Every other kind of claim here is checked by running the thing;
+    this is the check for the claims that are pointers.
+
+    Backticked paths only, and only ones that look like source files, because
+    prose is full of things that resemble paths and are not.
+    """
+
+    root = Path(__file__).resolve().parent.parent
+
+    #: Suffixes worth checking. A `.py` or a stylesheet named in prose is
+    #: either there or the sentence is wrong; a bare directory is not.
+    SUFFIXES = (".py", ".md", ".css", ".js", ".html", ".json", ".webmanifest", ".yml", ".toml")
+
+    #: Paths that legitimately do not exist in a checkout: generated,
+    #: gitignored, or named as an example of something absent.
+    ALLOWED_MISSING = {
+        "tools/artifact/auteur-app.html",  # generated, gitignored
+        "auteur/web/static/theme.css",  # generated at startup from theme.py
+        "auteur-library.json",
+        "auteur-schedule.json",
+        "accounts.json",
+    }
+
+    quoted = re.compile(r"`([A-Za-z0-9_./-]+\.[A-Za-z0-9]+)`")
+    searched = [
+        *sorted((root / "auteur").rglob("*.py")),
+        *sorted((root / "tools").rglob("*.py")),
+        root / "README.md",
+        root / "AUTEUR.md",
+        Path(__file__),
+    ]
+
+    missing: list[str] = []
+    for path in searched:
+        if "__pycache__" in path.parts or not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for cited in set(quoted.findall(text)):
+            if not cited.endswith(SUFFIXES) or "/" not in cited:
+                continue
+            # A leading slash is a URL path — `/privacy.html`, `/static/style.css`
+            # are routes this server answers, not files on disk.
+            if cited.startswith("/"):
+                continue
+            if cited in ALLOWED_MISSING:
+                continue
+            # Resolved three ways, because all three are used and all three are
+            # legible: from the repository root (`auteur/craft/story.py`), from
+            # inside the package (`workflows/schedule.py`, written from another
+            # module in `auteur/`), and beside the citing file. The first draft
+            # only tried the root and reported thirteen correct citations as
+            # broken — a check that cries wolf gets deleted, which costs more
+            # than the bug it was written for.
+            candidates = [
+                root / cited,
+                root / "auteur" / cited,
+                root / "tools" / cited,
+                path.parent / cited,
+            ]
+            if any(candidate.exists() for candidate in candidates):
+                continue
+            missing.append(f"{path.relative_to(root).as_posix()} cites {cited!r}")
+
+    assert not missing, "prose points at files that are not there: " + "; ".join(sorted(missing))
+
+
+def test_the_auditory_system_never_reports_a_speaker_it_did_not_hear():
+    """It reported one speaker on a sine wave.
+
+    `_transcribe` built each segment with
+    `speaker_id=f"speaker_{index}" if index < 1 else ""` — the first segment of
+    any audio got the label "speaker_0" and every later one got nothing. That
+    is not diarisation, it is a constant on the first chunk; but `listen`
+    counts distinct non-empty ids into `ListeningSession.speakers_identified`,
+    so **every recording came back as having exactly one speaker**. Run on six
+    seconds of a 220 Hz tone with a silence in the middle — no voice anywhere
+    in it — the system said one.
+
+    A fabricated identifier is worse than a missing one. A caller can branch on
+    "" and cannot tell this "speaker_0" from a real one, which is the same
+    failure as `[transcription pending — model integration point]` sitting in
+    the `transcript` field where a caller reads what was said. That one was
+    already found and fixed in this module; this was the same mistake two
+    fields over, and it survived because nothing ran `listen` and looked.
+
+    The fields this system genuinely fills are the channel, the energy and the
+    segment boundaries. The ones it does not — transcript, language, speaker,
+    tempo, pitch, confidence — stay empty, and this holds them there.
+    """
+
+    import numpy as np
+
+    from auteur.scholar.auditory import AudioSentiment, AuditorySystem
+
+    rate = 44100
+    seconds = 6.0
+    timeline = np.linspace(0, seconds, int(rate * seconds), endpoint=False)
+    tone = (0.3 * np.sin(2 * np.pi * 220 * timeline) * 32767).astype(np.int16)
+    tone[int(rate * 2) : int(rate * 3)] = 0  # a real silence, so it must split
+    session = AuditorySystem().listen(tone.tobytes(), sample_rate=rate)
+
+    assert session.segments, "nothing was segmented, so this proves nothing"
+    assert session.speakers_identified == 0, (
+        f"there is no voice in a sine wave and no diarisation in this module, "
+        f"and it reported {session.speakers_identified} speaker(s)"
+    )
+    assert (
+        session.languages_detected == []
+    ), f"nothing detects language here; it reported {session.languages_detected}"
+
+    for segment in session.segments:
+        assert segment.speaker_id == "", f"invented a speaker: {segment.speaker_id!r}"
+        assert segment.transcript == "", f"invented a transcript: {segment.transcript!r}"
+        assert segment.language == "", f"invented a language: {segment.language!r}"
+        assert segment.confidence == 0.0, "confident about a transcript that does not exist"
+        assert segment.tempo_bpm == 0.0, "nothing here measures tempo"
+        assert segment.pitch_hz == 0.0, "nothing here measures pitch"
+        assert segment.sentiment is AudioSentiment.NEUTRAL
+
+    # And the half that is real, so this cannot be satisfied by returning
+    # nothing at all: the energy is a true RMS of a signal that has some.
+    assert any(segment.energy > 0.1 for segment in session.segments), (
+        "no segment carries energy, so the measurement stopped working and "
+        "the emptiness above is the emptiness of a broken run"
+    )
+
+
+def test_the_speech_system_never_claims_more_certainty_than_it_earned():
+    """It returned confidence 1.0 on eight answers that were wrong.
+
+    `SpeechSystem.understand` said `confidence = 1.0  # Savant-level
+    comprehension` — a literal, for every input, next to a docstring promising
+    savant-level comprehension of any human language. Run against fourteen real
+    sentences it labelled six correctly and reported total certainty about all
+    fourteen. Spanish, German, French, Italian, Portuguese, Turkish, Vietnamese
+    and Polish all came back "English", because `_detect_language` reads the
+    *script* and everything in Latin script falls through to the default.
+
+    That is worse than an unknown confidence. A caller can route around a
+    number that is missing; it cannot route around one that is wrong, and 1.0
+    is the value that most invites a caller to stop checking.
+
+    The confidence is derived now: one over however many advertised languages
+    are written in the script the detector saw. Korean is alone in Hangul, so
+    1.0 is the true answer there. Arabic script carries Arabic, Urdu and
+    Persian, so 0.33. Latin carries most of the sixty, so an "en" guess on a
+    Latin sentence is 0.04 — small because the guess is bad.
+
+    This holds three things: that a wrong answer is never confident, that a
+    confident answer is one the script actually pins down, and that the
+    confidence moves when the language table does. Adding a Cyrillic language
+    has to lower every Cyrillic guess, or the number is decorative again.
+    """
+
+    from auteur.scholar.speech import (
+        LANGUAGE_SCRIPT,
+        CommunicationMode,
+        SpeechSystem,
+    )
+
+    speech = SpeechSystem()
+
+    # Real sentences, not lorem. Each is the same question in its language, so
+    # the only thing varying is the script.
+    samples = [
+        ("ko", "몽타주 속도는?"),
+        ("ja", "モンタージュのペースは？"),
+        ("el", "Πώς κόβω πιο γρήγορα;"),
+        ("ar", "كيف أقطع أسرع؟"),
+        ("ru", "Как резать быстрее?"),
+        ("hi", "कैसे तेज़ काटूं?"),
+        ("es", "¿Cómo mejoro el ritmo?"),
+        ("de", "Wie schneide ich schneller?"),
+        ("en", "How do I pace a montage?"),
+    ]
+
+    wrong_but_certain = []
+    for want, text in samples:
+        got, _intent, confidence = speech.understand(text)
+        assert 0.0 <= confidence <= 1.0, f"{want}: confidence {confidence} is not a probability"
+        if got != want and confidence > 0.5:
+            wrong_but_certain.append(f"{text!r} is {want}, called {got} at {confidence}")
+
+    assert (
+        not wrong_but_certain
+    ), "the speech system is confident about answers that are wrong: " + "; ".join(
+        wrong_but_certain
+    )
+
+    # A confidence of exactly 1.0 is a claim that the script pins the language
+    # down. That is only true where nothing else on the list shares the script.
+    for _want, text in samples:
+        got, _intent, confidence = speech.understand(text)
+        if confidence == 1.0:
+            script = LANGUAGE_SCRIPT.get(got)
+            sharing = [
+                code
+                for code in (profile.code for profile in speech.supported_languages)
+                if LANGUAGE_SCRIPT.get(code) == script
+            ]
+            assert sharing == [got], (
+                f"{got} is reported with total certainty, but {sharing} share "
+                f"the {script} script — the guess cannot be worth 1.0"
+            )
+
+    # And it is not a constant. Distinct scripts have to give distinct numbers,
+    # or the derivation collapsed back into a literal and nothing would say so.
+    spread = {speech.understand(text)[2] for _want, text in samples}
+    assert len(spread) >= 3, f"every guess is worth the same: {spread}"
+
+    # `LanguageProfile.detectable` is the one field on that dataclass computed
+    # rather than asserted — the other four are 1.0/True for all sixty and are
+    # labelled `aspirational` in `to_json` for exactly that reason. Six of the
+    # sixty are detectable. Anything claiming to be detectable has to survive
+    # being asked.
+    profiles = speech.supported_languages
+    detectable = [profile.code for profile in profiles if profile.detectable]
+    assert 0 < len(detectable) < len(profiles), (
+        f"{len(detectable)} of {len(profiles)} languages detectable — either "
+        "everything is, which the measurements above contradict, or nothing "
+        "is, which would make the field useless"
+    )
+    for code, text in samples:
+        if code in detectable:
+            got, _intent, confidence = speech.understand(text)
+            assert (
+                got == code and confidence == 1.0
+            ), f"{code} says it is detectable and came back {got} at {confidence}"
+
+    # The aspirational fields stay declared as such wherever they travel.
+    shipped = profiles[0].to_json()
+    assert set(shipped["aspirational"]) == {
+        "comprehension_level",
+        "fluency_level",
+        "idiomatic",
+        "register_aware",
+    }, "a profile field stopped declaring itself unmeasured"
+
+    # No audio, and it does not pretend otherwise. The dishonest fix for a
+    # missing synthesiser is a WAV header with nothing in it, which would make
+    # `has_voice` true and a silent clip play.
+    #
+    # In VOICEBOT mode, which is the only mode that reaches the synthesiser at
+    # all. The first version of this called `respond` on the default CHATBOT
+    # mode, where `_synthesise_speech` never runs — so it passed a mutation
+    # that made the synthesiser return a WAV header, because it was never
+    # asking the synthesiser anything. A check that cannot reach the code it
+    # describes passes for the same reason a broken one does.
+    speech.mode = CommunicationMode.VOICEBOT
+    reply = speech.respond("How do I pace a montage?", conversation_id="honesty")
+    assert reply.text, "voicebot mode returned no words either"
+    assert reply.voice_audio == b"", (
+        "the synthesiser returned bytes; there is no TTS in this project, so "
+        "whatever those are, they are not speech"
+    )
+    assert not reply.has_voice, "the system reports voice audio it does not have"
+
+
+def test_every_craft_rule_is_either_consulted_or_checked():
+    """A rule nothing asks is a paragraph, not a rule.
+
+    `craft/story.py` states the structure rules and cites where each number
+    came from. Two of them are asked by nobody and checked by nothing:
+
+        wants_stillness       heuristic.py:282        consulted
+        opening_is_too_long   —                       a test asserts it
+        interrupt_is_late     —                       nothing
+        wants_legibility      —                       nothing
+
+    `interrupt_is_late` is the pattern-interrupt rule and carries
+    `INTERRUPT_WINDOW = (1.8, 3.8)`, sourced in the module's own comments.
+    `wants_legibility` names the shots a viewer has to *read* rather than
+    merely see. Both are correct, both are documented, and no film has ever
+    been measured against either — which is the same shape as the publish gate
+    above and as a price nobody compares to a rival: it exists, so it looks
+    deliberate, and nothing can tell you it is inert.
+
+    This does not decide what to do about them. Wiring `interrupt_is_late` in
+    means defining what a "hard change" is against the EDL — a `Transition`
+    that is not a cut? a speed ramp? — and that is a craft decision with
+    consequences in the picture, so it needs a real render and a look at the
+    frames, not a guess in a test file. What this does is make the choice
+    deliberate: adding a rule to that module now forces either a caller, a
+    test, or an entry in the list below with a reason.
+    """
+
+    import ast
+
+    root = Path(__file__).resolve().parent.parent
+    module = root / "auteur" / "craft" / "story.py"
+    tree = ast.parse(module.read_text(encoding="utf-8"))
+
+    # Module-level predicates only: a rule is a question about a film with a
+    # yes/no answer. Dataclass methods and helpers are not what this is about.
+    rules = [
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and not node.name.startswith("_")
+        and node.returns is not None
+        and getattr(node.returns, "id", "") == "bool"
+    ]
+    assert rules, "found no rules in story.py, which would make this a no-op"
+
+    #: Rules known to fire nowhere, with the reason they are still here.
+    #: Emptying this list is the goal; adding to it should hurt.
+    ASKED_BY_NOBODY = {
+        "interrupt_is_late": (
+            "the pattern-interrupt rule. Wiring it needs a definition of "
+            '"hard change" against the EDL, which changes the picture and so '
+            "needs a render to settle, not a test"
+        ),
+        "wants_legibility": (
+            "names the shots that have to be read. Nothing in the director or "
+            "the critic asks it yet"
+        ),
+    }
+
+    # Calls, parsed — not mentions, grepped. The first version searched text
+    # and found the rule names in this test's own docstring and in the list
+    # below, so every silent rule looked consulted by the check written to
+    # find it. Naming a thing is not asking it.
+    called: set[str] = set()
+    searched = [
+        *sorted((root / "auteur").rglob("*.py")),
+        *sorted((root / "tools").rglob("*.py")),
+        Path(__file__),
+    ]
+    for path in searched:
+        if "__pycache__" in path.parts or path == module:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = getattr(func, "attr", None) or getattr(func, "id", None)
+            if name:
+                called.add(name)
+
+    silent = [rule for rule in rules if rule not in called]
+    unexpected = sorted(set(silent) - set(ASKED_BY_NOBODY))
+    assert not unexpected, (
+        f"{unexpected} are rules in craft/story.py that nothing consults and "
+        "nothing checks. Wire them in, delete them, or add them to "
+        "ASKED_BY_NOBODY with the reason they are still here"
+    )
+
+    # And the other direction, so the list cannot outlive the problem: a rule
+    # listed as silent that has since been wired is a stale excuse.
+    stale = sorted(set(ASKED_BY_NOBODY) - set(silent))
+    assert not stale, (
+        f"{stale} are listed as asked by nobody and something now asks them — "
+        "take them off the list"
+    )
+
+
+def test_the_publish_gate_is_either_in_the_path_or_has_no_path_to_be_in():
+    """`Gate.may_publish` is correct, tested in every mode, and called by nothing.
+
+    The test above proves the gate refuses in `AUTONOMOUS` and demands a person
+    everywhere else. It does not prove the gate is *in the path*, and it is
+    not: `grep -rn may_publish auteur/` finds the definition and one docstring
+    reference, and no call site anywhere.
+
+    That is not a hole today, and saying otherwise would be the easy, wrong
+    version of this finding. Nothing here posts, because no module in
+    `auteur/agents/`, `auteur/publish/` or `auteur/workflows/` can reach a
+    network at all — `workflows/schedule.py` holds no credential and hands the
+    queue to `export_csv`, and `publish/connections.py` has no token exchange.
+    The safety property holds. It just holds for a different reason than the
+    one the package docstring used to give, and a guard that is right about the
+    conclusion for the wrong reason is a guard that stops being right silently.
+
+    The failure this exists to catch is a future one with a name: somebody
+    wires up posting, finds a gate and a green suite, and reasonably concludes
+    the gate is already between them and the platform. So this test carries two
+    shapes. While no module in those packages can reach a network, it asserts
+    the gate has no callers — the honest statement of where things stand.
+    The moment one of them can, that branch stops applying and the other one
+    demands `may_publish` in that module. It cannot be satisfied by leaving
+    things as they are.
+    """
+
+    root = Path(__file__).resolve().parent.parent
+    packages = ["agents", "publish", "workflows"]
+
+    # The ways a module in this tree actually opens a socket. Not a general
+    # taint analysis — the point is to notice a *new* one appearing, and the
+    # two that exist elsewhere in the tree (`scholar/youtube.py`,
+    # `gallery/sources.py`, both reads) show what the pattern looks like.
+    reaches_network = re.compile(
+        r"\burllib\.request\b|\bhttp\.client\b|\brequests\.(get|post|put|patch|delete)\b"
+        r"|\bsocket\.(socket|create_connection)\b|\bhttpx\b|\baiohttp\b"
+    )
+
+    sources = [
+        path
+        for package in packages
+        for path in sorted((root / "auteur" / package).rglob("*.py"))
+        if "__pycache__" not in path.parts
+    ]
+    assert sources, "found no modules to check, which would make this a no-op"
+
+    networked = {
+        path.relative_to(root).as_posix(): path.read_text(encoding="utf-8")
+        for path in sources
+        if reaches_network.search(path.read_text(encoding="utf-8"))
+    }
+
+    if networked:
+        ungated = [name for name, text in networked.items() if "may_publish" not in text]
+        assert not ungated, (
+            "these modules can now reach a network and do not consult the "
+            f"publish gate: {ungated}. `Gate.may_publish` exists for exactly "
+            "this moment — put it in the path before anything ships"
+        )
+        return
+
+    # Nothing can post. Then the gate has no callers, and this states it out
+    # loud rather than letting the package docstring imply otherwise.
+    #
+    # Parsed, not grepped. The first version of this read lines, and the thing
+    # it found was the sentence in `agents/__init__.py` explaining that the
+    # gate has no callers — prose about the absence, counted as the presence.
+    # `ast` knows the difference between an attribute access and a docstring.
+    import ast
+
+    callers = []
+    for path in sorted((root / "auteur").rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "may_publish":
+                continue
+            if isinstance(node, ast.Attribute) and node.attr == "may_publish":
+                callers.append(f"{path.relative_to(root).as_posix()}:{node.lineno}")
+    assert not callers, (
+        "something calls the publish gate, which means something can publish — "
+        f"at {callers}. Good, but this test's other branch is the one that "
+        "should now apply: the module doing it has to be able to reach a "
+        "network, and the network check above did not see it"
+    )
+
+
 def test_the_agents_actually_close_a_loop_and_shorten_a_hook(model):
     from auteur.agents import Crew, Gate, Mode, default_crew
 
@@ -8081,7 +8539,7 @@ def test_the_site_that_is_committed_is_the_site_the_builder_makes():
     """`docs/index.html` is generated, committed, and served to the public.
 
     Generated-and-committed is the arrangement that drifts, and this one had:
-    the product was renamed to Auteur Atlas, every other surface followed —
+    the product was renamed to Atlas, every other surface followed —
     the app, both store listings, the privacy policy, the terms, the iOS
     bundle — and the website went on saying "auteur" because nobody re-ran the
     builder. It is the page a stranger meets first.
@@ -12232,7 +12690,7 @@ def test_the_bundle_identifier_claims_a_domain_the_company_owns():
 def test_the_app_calls_itself_what_the_store_listing_calls_it():
     """One name, in the one place, and every screen reads it.
 
-    The product was renamed from Auteur to Auteur Atlas when Auteur Studies
+    The product was renamed from Auteur to Atlas when Auteur Studies
     became the umbrella above it — and the name was written out by hand in
     nineteen places: every page title, two home-screen names, the manifest,
     three scripts, the terms. `brand.NAME` said "auteur" while
@@ -12285,7 +12743,7 @@ def test_the_app_calls_itself_what_the_store_listing_calls_it():
 
     # The two places a person meets the name while actually using the thing:
     # the terminal masthead and the line `serve` prints when it comes up. Both
-    # said "auteur" long after every store surface said "Auteur Atlas", and
+    # said "auteur" long after every store surface said "Atlas", and
     # both were invisible to a check that only read the static files.
     import io
 
@@ -12305,6 +12763,212 @@ def test_the_app_calls_itself_what_the_store_listing_calls_it():
     # A home-screen name iOS will not truncate. Not a store rule — a phone
     # one, and the store's 30 is no guide to it.
     assert len(manifest["short_name"]) <= 15, manifest["short_name"]
+
+
+def test_the_readme_prints_the_prices_the_program_computes():
+    """A README is a surface. It drifts like every other one.
+
+    Every price in `auteur/pricing.py` is derived — from a dated comparison
+    set, rounded down, so "fifteen per cent under the market" is arithmetic
+    somebody can check rather than a sentence somebody wrote. Typing the
+    result into a README turns a derived fact back into a typed one, and the
+    typed copy is the one that goes stale: a rival's price rises, the average
+    moves, `_charm` returns a different number, and the README goes on
+    promising the old one to everybody who reads the repository.
+
+    That is the same defect as the site's hand-copied palette and the tier
+    cross-reference that said "Everything in a copy that is yours" after the
+    tier stopped being called that. This is the check that shape needs — and
+    it is written against the README because that is where the prices were
+    just typed. Nothing else here holds it.
+    """
+
+    from auteur import pricing
+
+    root = Path(__file__).resolve().parent.parent
+    readme = (root / "README.md").read_text(encoding="utf-8")
+
+    wrong: list[str] = []
+    for tier in pricing.TIERS:
+        if not tier.dollars:
+            continue
+        # The name and the price, together, the way the README states them.
+        stated = f"{tier.name} {tier.monthly}"
+        if stated not in readme:
+            wrong.append(f"README does not say {stated!r}")
+
+    if pricing.PROMO_CODE not in readme:
+        wrong.append(f"README does not name the promotion code {pricing.PROMO_CODE!r}")
+    if f"{pricing.TRIAL_DAYS}-day" not in readme:
+        wrong.append(f"README does not name the {pricing.TRIAL_DAYS}-day trial")
+
+    # And no *stale* price: a dollar figure the program does not compute.
+    priced = {tier.monthly for tier in pricing.TIERS if tier.dollars}
+    priced.add(f"${pricing.discounted():.2f}")
+    for found in set(re.findall(r"\$\d+\.\d\d", readme)):
+        if found not in priced:
+            wrong.append(f"README prints {found}, which the program does not charge")
+
+    assert not wrong, "; ".join(wrong)
+
+
+def test_the_app_never_asks_a_platform_for_permission_to_post():
+    """The privacy policy says there is no code path that publishes. The
+    consent screen was asking for one.
+
+    `ABOUT` requested `instagram_business_content_publish` and `video.upload`,
+    and nothing in the program has ever used either — there is no token
+    exchange, no token held for a platform, and no caller that posts. The
+    permission existed and nothing compared it to anything, which is the same
+    shape as a price nobody checks against a rival and a field named
+    "measured" that was generated.
+
+    What made it worth a guard rather than a quiet deletion is who reads it.
+    `PRIVACY.md` is served at a public URL and says, in as many words, that
+    nothing here posts. An OAuth dialog asking a person to let this app post
+    on their behalf contradicts that in the platform's own voice, at the exact
+    moment the person decides whether to trust it — and it is a permission
+    Meta and TikTok App Review would require a working demonstration of.
+
+    So the read scopes are what is asked for, because reading back how a post
+    did is what the product does. This holds it there.
+    """
+
+    from auteur.publish import connections
+
+    offending = connections.publishing_scopes()
+    assert not offending, "the app asks for permission to post: " + "; ".join(offending)
+
+    # And every platform still asks for *something*, or this passes by asking
+    # for nothing at all — which would be a connection that cannot read the
+    # numbers it exists to read.
+    for platform in connections.PLATFORMS:
+        assert connections.ABOUT[platform]["scopes"], f"{platform} requests no scope at all"
+
+    # The claim the policy makes, checked against the source rather than
+    # trusted. `PRIVACY.md` is generated into the page a reviewer opens.
+    root = Path(__file__).resolve().parent.parent
+    policy = (root / "PRIVACY.md").read_text(encoding="utf-8")
+    assert "no code path that publishes" in policy, (
+        "the privacy policy no longer makes the claim this test exists to "
+        "keep true — if the product now publishes, this guard is the thing to "
+        "delete, deliberately"
+    )
+
+
+def test_the_publisher_name_is_never_welded_to_the_front_of_the_product_name():
+    """Atlas is the product. Auteur Studies publishes it. Neither is the other.
+
+    For thirty-two files the app called itself "Auteur Atlas" — every page
+    title, both store listings, the manifest, the terms, the privacy policy,
+    the iOS bundle display name and the Stripe statement descriptor a
+    cardholder would have read on their bank statement. The name was assembled
+    out of a publisher and a product, which is a name that sells the umbrella
+    to somebody who came for the thing under it, and it is not what either
+    brand is called. APX, beside it, has the same right to stand alone.
+
+    `NAME_LIMIT` already stopped the name being *too long*. Nothing stopped it
+    being *two names*, because a compound name is exactly as valid a string as
+    a name. This is the check that shape needed: the product's name may not
+    contain the publisher's.
+    """
+
+    from auteur import brand
+    from auteur.identity import COMPANY
+    from auteur.web import server
+
+    assert COMPANY.trading_name not in brand.NAME, (
+        f"the product calls itself {brand.NAME!r}, which carries the "
+        f"publisher's name {COMPANY.trading_name!r} inside it"
+    )
+
+    # And nowhere a person reads. The constant being right is worth nothing if
+    # thirty-two files still spell the compound out by hand — which is how it
+    # got there in the first place.
+    #
+    # Every word of the publisher's name, not the whole name: the string that
+    # was actually shipped was "Auteur Atlas", and a check for
+    # "Auteur Studies Atlas" walks straight past it. The first draft of this
+    # test did exactly that and passed a mutation that restored the real
+    # defect — a guard shaped like a slightly different bug is a guard that
+    # holds nothing.
+    compounds = [f"{word} {brand.NAME}" for word in COMPANY.trading_name.split()]
+    root = Path(__file__).resolve().parent.parent
+    shipped = [
+        *sorted(server.STATIC.glob("*.html")),
+        *sorted(server.STATIC.glob("*.js")),
+        server.STATIC / "manifest.webmanifest",
+        root / "docs" / "index.html",
+        root / "README.md",
+        root / "TERMS.md",
+        root / "PRIVACY.md",
+        root / "LICENSE",
+        *sorted((root / "build").rglob("*.md")),
+    ]
+    said_it = [
+        f"{page.relative_to(root).as_posix()} says {compound!r}"
+        for page in shipped
+        if page.is_file()
+        for compound in compounds
+        if compound in page.read_text(encoding="utf-8")
+    ]
+    assert not said_it, "the product is named after its publisher in: " + "; ".join(said_it)
+
+
+def test_nothing_shipped_claims_a_company_that_has_not_been_filed():
+    """ "Auteur Studies LLC" on a policy page is a claim about a legal person.
+
+    And there is no such legal person. The name is decided and the paperwork
+    is researched; a state has not been asked. Until it has, the suffix on a
+    privacy policy tells a reader who they are contracting with, and tells a
+    store reviewer who the seller is, and both are wrong.
+
+    This is not the same failure as a stale tagline, which is why it gets its
+    own guard rather than a note in a document: a tagline going out of date
+    costs a paragraph, and this costs the truth of the one page a person reads
+    precisely because they want to know who they are dealing with.
+
+    `COMPANY.entity_filed` is the switch. While it is False, `publisher` is
+    the trading name and nothing shipped may carry the suffix. Flip it — after
+    the filing, not before — and this test starts requiring the opposite,
+    because at that point the suffix is the accurate answer and the store
+    seller field shows the enrolled entity name exactly.
+    """
+
+    from auteur.identity import COMPANY
+    from auteur.web import server
+
+    root = Path(__file__).resolve().parent.parent
+    shipped = [
+        *sorted(server.STATIC.glob("*.html")),
+        root / "docs" / "index.html",
+        root / "README.md",
+        root / "AUTEUR.md",
+        root / "TERMS.md",
+        root / "PRIVACY.md",
+        root / "LICENSE",
+        *sorted((root / "build").rglob("*.md")),
+    ]
+    shipped = [page for page in shipped if page.is_file()]
+    assert shipped, "found no shipped copy to check, which makes this test a no-op"
+
+    carrying = [
+        page.relative_to(root).as_posix()
+        for page in shipped
+        if COMPANY.legal_name in page.read_text(encoding="utf-8")
+    ]
+
+    if COMPANY.entity_filed:
+        assert COMPANY.publisher == COMPANY.legal_name
+        return
+
+    assert COMPANY.publisher == COMPANY.trading_name, (
+        "the entity is not filed and the publisher name is still " f"{COMPANY.publisher!r}"
+    )
+    assert not carrying, (
+        f"{COMPANY.legal_name!r} is an entity that does not exist yet, and it "
+        f"appears in: {', '.join(carrying)}"
+    )
 
 
 def test_the_published_site_claims_the_domain_the_listings_name(tmp_path):
@@ -14419,18 +15083,27 @@ def test_the_manual_does_not_describe_a_control_that_was_deliberately_removed():
 def test_one_sentence_describes_this_product_to_a_stranger():
     """Every public surface shows the same description, at a readable length.
 
-    There were nearly three. The generated site used `brand.PROMISE`. The live
-    company site carried a hand-written description saying Atlas "plans the
-    week and reads the reach" — which is two secondary features, not the
-    product — and selling a second product called APX, which is not a product
-    at all: it is the name of the craft-rules work in `auteur/craft/story.py`.
-    And writing this, I drafted a third for the Wix write before noticing it
-    was a second copy of the same fact.
+    There were nearly three. The generated site used `brand.PROMISE`, the live
+    company site carried a hand-written one, and writing this I drafted a third
+    for the Wix write before noticing it was a second copy of the same fact.
 
-    None of that was visible from inside the repository, because the wrong one
-    lived in a hosting dashboard. What a check *can* hold is the half that is
-    here: one constant, used by every surface this repository generates, at a
-    length a search result will actually show.
+    **This test's first version reached the wrong conclusion, and the
+    correction is worth keeping.** It read the live site's description — Atlas
+    "plans the week and reads the reach", beside a second product called APX —
+    decided both were wrong, and said so here: planning and reach looked like
+    two secondary features seen from inside a repository full of cutting code,
+    and the only APX in this tree is the craft-rules work cited throughout
+    `auteur/craft/story.py`. Both readings were wrong. Atlas is the thing that
+    plans the week and reads the reach; APX is a real free product beside it,
+    which happens to share a name with a body of craft rules that is a feature
+    of Atlas. The owner said so, and the owner is the source for that fact.
+
+    What survived is the mechanism, which was never the part in doubt: one
+    constant, read by every surface this repository generates, at a length a
+    search result will show. What did not survive is the inference — a
+    repository can check that all its surfaces agree, and cannot check that
+    what they agree on is true, because that fact does not live in it. Every
+    surface agreeing is exactly as loud when every surface is wrong.
     """
     import subprocess
 

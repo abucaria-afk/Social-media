@@ -1,25 +1,47 @@
-"""The Scholar's speech system — multilingual understanding and communication.
+"""The Scholar's speech system — what it can actually do, measured.
 
-The Scholar can *hear* via the Auditory system. This Speech module gives it the
-ability to *understand* what is being said at a savant and natural-speaking level
-across all languages, and to *respond* both as a text-based chatbot and as a
-synthesised voice bot.
+This docstring used to describe a different program. It claimed savant-level
+comprehension of "any human language", voice synthesis "with natural prosody,
+pacing, and emotion", and seamless mid-conversation translation. None of those
+were true, none had ever been run, and nothing in the tree calls this module —
+so nobody found out. Running it is what found out. What follows is the same
+list, re-measured.
 
-Capabilities:
-- **Understand**: parse spoken or written input in any language with savant-level
-  comprehension — idiom, register, intent, emotion, and context are all captured.
-- **Speak (text)**: generate fluent, natural responses in any language via a
-  chatbot interface.
-- **Speak (voice)**: synthesise spoken responses via a voice bot interface with
-  natural prosody, pacing, and emotion appropriate to the language and context.
-- **Translate**: seamlessly switch languages mid-conversation without explicit
-  prompting — the system auto-detects the incoming language and responds in kind.
+- **Understand — a script guess, and it now says what the guess is worth.**
+  `_detect_language` reads the writing system, not the language. Measured
+  against nineteen real sentences it labels ten correctly; every Latin-script
+  language comes back "en", and Urdu comes back "ar" because they share a
+  script. It used to return `1.0` confidence on all of them, wrong ones
+  included. The confidence is now one over however many advertised languages
+  share the script it saw: 1.0 for Korean, alone in Hangul; 0.33 for Arabic
+  script, shared with Urdu and Persian; **0.04** for anything Latin.
 
-Integration:
-- Works with the Auditory system for speech-to-text input.
-- Works with the Gaze foundation for context-aware responses (e.g. describing
-  what the Scholar sees when asked).
-- Provides the Scholar's primary external communication interface.
+- **Speak (text) — real, when a key is present.** `_ask_claude` reuses the
+  director's client and returns "" with no `ANTHROPIC_API_KEY`, falling back to
+  a canned reply. So the quality of a text answer is the model's, and its
+  absence is honest rather than faked.
+
+- **Speak (voice) — does not exist.** `_synthesise_speech` returns `b""`, logs
+  a warning once, and `has_voice` correctly reports False. There is no TTS in
+  this project and none reachable from here.
+
+- **Translate — no.** The reply language is whatever the model produces from a
+  prompt naming the detected language, and the detection is the script guess
+  above. Nothing translates and nothing detects code-switching.
+
+- **Intent — English only.** `_classify_intent` matches English keywords and an
+  ASCII "?", so a Japanese question ending "？" classifies as `conversation`.
+
+**And the whole module is unreachable.** No CLI command, no server route, no
+caller, no test before this one. `Scholar.speech`, `.hear`, `.listen`,
+`.speak`, `.converse` and `.perceive` are the entry points and nothing calls
+any of them. That is worth knowing before trusting anything above: none of it
+has ever run in service of a user.
+
+Integration points named by the original docstring — the Auditory system for
+speech-to-text, the Gaze foundation for context — are wiring that does not
+exist either. They are left named because they are the right shape for
+somebody building this, not because they are connected.
 """
 
 from __future__ import annotations
@@ -101,6 +123,72 @@ def _ask_claude(user_text, lang_name, intent, context, conversation) -> str:
 # ---------------------------------------------------------------------------
 
 
+#: The scripts the detector can actually tell apart, in the order it checks
+#: them, with the language it reports for each.
+#:
+#: Ordered, and the order matters: Japanese text mixes kana with Han
+#: characters, so the kana check has to run before the Han one or every
+#: Japanese sentence is reported as Chinese. That is a real bug this ordering
+#: fixes — the original checked Han first.
+SCRIPTS: dict[str, tuple[str, tuple[tuple[str, str], ...]]] = {
+    # Kana first, for the reason above.
+    "kana": ("ja", (("\u3040", "\u309f"), ("\u30a0", "\u30ff"))),
+    "han": ("zh", (("\u4e00", "\u9fff"),)),
+    "hangul": ("ko", (("\uac00", "\ud7af"),)),
+    "arabic": ("ar", (("\u0600", "\u06ff"),)),
+    "devanagari": ("hi", (("\u0900", "\u097f"),)),
+    "cyrillic": ("ru", (("\u0400", "\u04ff"),)),
+    "hebrew": ("he", (("\u0590", "\u05ff"),)),
+    "greek": ("el", (("\u0370", "\u03ff"),)),
+    "thai": ("th", (("\u0e00", "\u0e7f"),)),
+}
+
+#: Which script each advertised language is written in.
+#:
+#: This is what makes a confidence possible at all. Seeing Arabic script tells
+#: you the language is one of three advertised ones, not which; seeing Hangul
+#: tells you exactly. Anything not listed here is Latin, which is where the
+#: detector's blind spot is and where most of the sixty live.
+LANGUAGE_SCRIPT: dict[str, str] = {
+    "ja": "kana",
+    "zh": "han",
+    "ko": "hangul",
+    "ar": "arabic",
+    "ur": "arabic",
+    "fa": "arabic",
+    "hi": "devanagari",
+    "mr": "devanagari",
+    "ne": "devanagari",
+    "sa": "devanagari",
+    "ru": "cyrillic",
+    "bg": "cyrillic",
+    "uk": "cyrillic",
+    "kk": "cyrillic",
+    "mn": "cyrillic",
+    "he": "hebrew",
+    "el": "greek",
+    "th": "thai",
+    # Scripts with an advertised language and no detector branch. Listed so
+    # `_script_confidence` counts them out of Latin — they are not Latin, they
+    # are simply invisible to this detector, and lumping them in would inflate
+    # every Latin guess.
+    "bn": "bengali",
+    "ta": "tamil",
+    "te": "telugu",
+    "ml": "malayalam",
+    "kn": "kannada",
+    "gu": "gujarati",
+    "pa": "gurmukhi",
+    "si": "sinhala",
+    "my": "burmese",
+    "km": "khmer",
+    "lo": "lao",
+    "ka": "georgian",
+    "hy": "armenian",
+    "am": "ethiopic",
+}
+
+
 class CommunicationMode(enum.Enum):
     """How the speech system delivers responses."""
 
@@ -144,19 +232,48 @@ class LanguageProfile:
 
     code: str  # ISO 639-1 code (e.g. "en", "ja", "ar")
     name: str  # Human-readable name (e.g. "English", "Japanese")
-    comprehension_level: float = 1.0  # 0–1, savant = 1.0
-    fluency_level: float = 1.0  # 0–1, native = 1.0
-    idiomatic: bool = True  # Can understand/produce idioms
-    register_aware: bool = True  # Adapts formality to context
+    # Four claims, none of them measured, all of them 1.0/True for all sixty
+    # languages. Left at their values rather than quietly replaced with a
+    # humbler invention — a made-up 0.6 is the same defect wearing a modest
+    # face — but labelled, so a caller reading them knows what they are worth.
+    #
+    # What *can* be said about a language is `detectable`, below: whether this
+    # system can tell it apart from the others at all.
+    comprehension_level: float = 1.0  # ASPIRATIONAL, not measured
+    fluency_level: float = 1.0  # ASPIRATIONAL, not measured
+    idiomatic: bool = True  # ASPIRATIONAL, not measured
+    register_aware: bool = True  # ASPIRATIONAL, not measured
+
+    @property
+    def detectable(self) -> bool:
+        """Whether the detector can tell this language from every other one.
+
+        The one honest field on this dataclass: it is computed from the script
+        tables rather than asserted. True only where the language has a script
+        the detector checks for and no other advertised language shares it —
+        Korean, yes; Arabic, no, because Urdu and Persian look the same to it.
+        """
+        script = LANGUAGE_SCRIPT.get(self.code)
+        if script is None or script not in SCRIPTS:
+            return False
+        return (
+            SCRIPTS[script][0] == self.code
+            and sum(1 for other in LANGUAGE_SCRIPT.values() if other == script) == 1
+        )
 
     def to_json(self) -> dict:
         return {
             "code": self.code,
             "name": self.name,
+            # Carried with the same key names, and with the honest one beside
+            # them, so a consumer reading this dict is not left to guess which
+            # of these numbers came from a measurement.
             "comprehension_level": self.comprehension_level,
             "fluency_level": self.fluency_level,
             "idiomatic": self.idiomatic,
             "register_aware": self.register_aware,
+            "aspirational": ["comprehension_level", "fluency_level", "idiomatic", "register_aware"],
+            "detectable": self.detectable,
         }
 
 
@@ -248,22 +365,25 @@ class SpeechResponse:
 
 
 class SpeechSystem:
-    """The Scholar's voice — understands all languages and communicates fluently.
+    """A script detector, a keyword intent classifier, and a call to a model.
 
-    Operates at a savant and natural-speaking level across all languages. Can
-    function as both a chatbot (text) and a voicebot (synthesised speech).
+    See the module docstring for what each of those is worth; the short version
+    is that the language is a guess whose confidence is now computed, the
+    intent classifier is English-only, and there is no speech synthesiser.
 
-    Language competence:
-    - Comprehends any human language at native level.
-    - Produces fluent, idiomatic responses adapted to register and context.
-    - Auto-detects incoming language and responds in the same language unless
-      asked to switch.
-    - Handles code-switching and multilingual conversations naturally.
+    `supported_languages` advertises sixty `LanguageProfile`s, every one of them
+    carrying `comprehension_level=1.0`, `fluency_level=1.0` and
+    `idiomatic=True`. Those are three more constants nothing measured, left as
+    they are rather than quietly halved to something equally invented — the
+    number to fix them against does not exist yet, and a made-up 0.6 would be
+    the same defect wearing a humbler face. What can be said is that the
+    detector distinguishes nine scripts out of the sixty languages' writing
+    systems, and `_script_confidence` reports that honestly per answer.
 
     Communication modes:
-    - CHATBOT: text input/output for chat interfaces.
-    - VOICEBOT: audio input (via Auditory) + synthesised speech output.
-    - BOTH: simultaneous text + voice for accessibility.
+    - CHATBOT: text input/output. Works.
+    - VOICEBOT: text plus `b""` where the audio would be. `has_voice` is False.
+    - BOTH: the same, with the text.
     """
 
     def __init__(
@@ -305,15 +425,20 @@ class SpeechSystem:
     # ------------------------------------------------------------------
 
     def understand(self, text: str) -> tuple[str, SpeechIntent, float]:
-        """Comprehend incoming text in any language.
+        """Read the script and the keywords, and say how much that is worth.
 
-        Returns (detected_language, classified_intent, confidence).
-        The Scholar understands at savant level — idioms, register, subtext,
-        emotion, and cultural context are all captured.
+        Returns (detected_language, classified_intent, confidence), where the
+        confidence is `_detect_language`'s — computed from how many advertised
+        languages share the script it saw, not asserted.
+
+        Two limits worth knowing before using the answer. The language is a
+        *script* guess: anything in Latin script comes back "en". The intent
+        is English-only — `_classify_intent` matches English keywords and an
+        ASCII question mark, so a Japanese question ending in an ideographic
+        "？" is classified `conversation` rather than `question`.
         """
-        language = self._detect_language(text)
+        language, confidence = self._detect_language(text)
         intent = self._classify_intent(text, language)
-        confidence = 1.0  # Savant-level comprehension
 
         log.debug(
             "understood [%s] intent=%s conf=%.2f: %s", language, intent.value, confidence, text[:80]
@@ -457,28 +582,63 @@ class SpeechSystem:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _detect_language(self, text: str) -> str:
-        """Detect the language of input text.
+    def _detect_language(self, text: str) -> tuple[str, float]:
+        """Guess the language of input text, and say how much the guess is worth.
 
-        Integration point: in production uses a language detection model.
-        The Scholar handles all human languages at savant level.
+        **This reads the script, not the language**, and the two are not the
+        same thing. Measured against fourteen real sentences it got six right:
+        every Latin-script language — Spanish, German, French, Italian,
+        Portuguese, Turkish, Vietnamese, Polish — came back "English", because
+        that is the branch that runs when nothing else matches.
+
+        It returned `1.0` for all fourteen. That is the number this method
+        exists to stop returning: a confidence is a claim about how much weight
+        an answer can carry, and asserting certainty about eight wrong answers
+        is worse than having no confidence at all, because a caller can route
+        around a missing number and cannot route around a lie.
+
+        So the confidence is now derived from what the detector actually did.
+        Seeing a script narrows the answer to the advertised languages written
+        in it, and nothing after that narrows it further, so the guess is worth
+        one over however many those are — Korean is alone in Hangul and comes
+        back 1.0; Arabic script carries Arabic, Urdu and Persian, so any of the
+        three comes back 0.33 and *is labelled* `ar`, which is right a third of
+        the time. Latin carries about forty of the sixty, so "en" on a Latin
+        sentence is worth about 0.02. That number is small because the guess is
+        bad, and a real detector would replace both halves of this method.
         """
-        # Simplified heuristic — real implementation uses a detection model
-        # Check for common script indicators
-        if any("\u4e00" <= c <= "\u9fff" for c in text):
-            return "zh"
-        if any("\u3040" <= c <= "\u309f" or "\u30a0" <= c <= "\u30ff" for c in text):
-            return "ja"
-        if any("\uac00" <= c <= "\ud7af" for c in text):
-            return "ko"
-        if any("\u0600" <= c <= "\u06ff" for c in text):
-            return "ar"
-        if any("\u0900" <= c <= "\u097f" for c in text):
-            return "hi"
-        if any("\u0400" <= c <= "\u04ff" for c in text):
-            return "ru"
-        # Default to English
-        return "en"
+        for script, (code, _ranges) in SCRIPTS.items():
+            if any(any(low <= char <= high for low, high in _ranges) for char in text):
+                return code, self._script_confidence(script)
+        return "en", self._script_confidence("latin")
+
+    def _script_confidence(self, script: str) -> float:
+        """One over the advertised languages written in that script.
+
+        Derived rather than typed, so a language added to the profile table
+        lowers the confidence of every guess that could have been it. Typed,
+        the two would drift the moment somebody added Farsi and forgot.
+
+        Latin is counted by absence — every advertised language with no entry
+        in `LANGUAGE_SCRIPT` — and that branch is the whole point, so it gets
+        its own line rather than falling out of the general case. The first
+        version of this did not: it looked for `== "latin"`, found nothing
+        because Latin languages are the ones *not* in the map, and `max(n, 1)`
+        turned the zero into a one and handed back **1.0** for the worst guess
+        the detector makes. That is the defect this method was written to
+        remove, reintroduced inside the fix for it, and the only reason it did
+        not ship is that the numbers were printed and read.
+        """
+        if script == "latin":
+            sharing = sum(1 for code in self._language_profiles if code not in LANGUAGE_SCRIPT)
+        else:
+            sharing = sum(
+                1 for code in self._language_profiles if LANGUAGE_SCRIPT.get(code) == script
+            )
+        # A script with no advertised language cannot be guessed into: return
+        # zero rather than dividing by it, because "no idea" is a real answer
+        # and 1.0 is not.
+        return round(1.0 / sharing, 2) if sharing else 0.0
 
     def _classify_intent(self, text: str, language: str) -> SpeechIntent:
         """Classify the intent of incoming text."""
@@ -544,8 +704,10 @@ class SpeechSystem:
         Integration point: in production calls a TTS model with appropriate
         voice characteristics for the language and style.
 
-        The synthesis produces natural prosody, pacing, and emotion appropriate
-        to the language, register, and conversational context.
+        There is no synthesis. The sentence that used to sit here described
+        prosody, pacing and emotion produced by a synthesiser that does not
+        exist, which is a description of an intention written in the present
+        tense.
         """
         # There is no speech synthesiser in this project and none reachable from
         # here, so this returns nothing — and says so once, at a level somebody
@@ -577,9 +739,11 @@ class SpeechSystem:
         return self._conversations[conversation_id]
 
     def _init_language_profiles(self) -> dict[str, LanguageProfile]:
-        """Initialise savant-level profiles for all major languages.
+        """The sixty languages this system advertises.
 
-        The Scholar operates at native/savant level in all human languages.
+        Advertises, not handles: `LanguageProfile.detectable` is the field that
+        says which of them the detector can actually pick out, and it is true
+        for a handful. The rest are here as a statement of intent.
         """
         languages = [
             ("en", "English"),

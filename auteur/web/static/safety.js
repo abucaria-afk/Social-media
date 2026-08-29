@@ -60,7 +60,7 @@
         '<label class="check"><input type="checkbox" id="safety-block" checked>' +
           '<span id="safety-block-label">Block them as well</span></label>' +
         '<p class="sheet-note" id="safety-where">' +
-          "This goes to whoever runs this copy of Auteur Atlas — the person whose " +
+          "This goes to whoever runs this copy of Atlas — the person whose " +
           "computer it is. Blocking happens straight away and needs nobody." +
         "</p>" +
         '<p class="error" id="safety-error" role="alert" hidden></p>' +

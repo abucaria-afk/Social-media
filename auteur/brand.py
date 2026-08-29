@@ -40,23 +40,36 @@ AS_OF = "2026-08"
 #:
 #: It also stopped being lower case, and for a reason rather than a whim: the
 #: app is one product under Auteur Studies now, so the name has to say which
-#: product it is.
+#: product it is. It says the product and nothing else — **Atlas, never
+#: "Auteur Atlas"**. Auteur Studies is the publisher, and a publisher's name
+#: welded to the front of a product's is a name that sells the wrong thing.
 NAME = IDENTITY.app_name
 
 #: One line, under thirty characters, because that is the tightest box either
 #: store gives you — App Store subtitle and Play title are both 30.
-TAGLINE = "A film from your camera roll"
+#:
+#: It said "A film from your camera roll" for months, on every surface, and
+#: that line is *true* — the app cuts a film from your camera roll and there
+#: are frames in the repository proving it. It was still the wrong line,
+#: because it named the most visible step rather than the thing somebody is
+#: buying. What Atlas is for is the week: the shot list, the caption, the cut,
+#: and the numbers back. Cutting is one of the four.
+#:
+#: Nothing in the repository could have found that. Every surface agreed with
+#: every other, and they agreed on the wrong sentence, which is why this file
+#: is the fix for drift and not the fix for being wrong.
+TAGLINE = "Plan the week, read the reach"
 
 #: The sentence that does the selling. Apple allows 170 for a promotional
 #: text; Play's short description allows 80, so there are two lengths of the
 #: same claim rather than two different claims.
 PROMISE = (
-    "Say what you want in a sentence. It frames every shot, cuts to the "
-    "cadence of your words, grades it, and hands you the film."
+    "Plan the week's posts, shoot the shot list, and say the film you want in "
+    "a sentence — it cuts and grades it. Afterwards, read back how it did."
 )
 
 #: The same promise at Play's short-description length.
-PROMISE_SHORT = "Say it in a sentence. Get a cut, graded film back."
+PROMISE_SHORT = "Plan the week, cut the film, read the reach."
 
 #: The one sentence a search engine shows under the link, and the one a social
 #: card shows under the title.
@@ -67,20 +80,48 @@ PROMISE_SHORT = "Say it in a sentence. Get a cut, graded film back."
 #: product rather than with an instruction — `PROMISE` opens "Say what you
 #: want", which out of context reads like a command from a stranger.
 #:
-#: It exists at all because there was nearly a third copy. The generated site
-#: used `PROMISE`; the live company site had a hand-written description that
-#: said Atlas "plans the week and reads the reach" and sold a second product
-#: called APX that does not exist — APX is the name of the craft-rules work in
-#: `auteur/craft/story.py`. Two public descriptions of one product, neither
-#: matching the other or the app. One constant, read by every surface.
+#: It exists at all because there were nearly three. The generated site used
+#: `PROMISE`; the live company site had a hand-written one; and writing this I
+#: drafted a third before noticing. One constant, read by every surface.
+#:
+#: **What it says was corrected by the owner, and the correction is the
+#: interesting part.** Reading only this repository, the live site's
+#: description looked wrong twice over — it led with planning and reach, which
+#: from in here read as two secondary features, and it sold a second product
+#: called APX, and the only APX in this tree is the craft-rules work cited
+#: throughout `auteur/craft/story.py`. So the site was "fixed" to match the
+#: app, and the fix was the error: Atlas *is* the thing that plans the week
+#: and reads the reach, APX *is* a real free product beside it, and the
+#: craft rules are a feature of Atlas that happens to share a name with it.
+#:
+#: The general failure is worth more than the specific one. A repository can
+#: check that every surface it generates agrees with every other; it cannot
+#: check that the agreed sentence is true, because the fact lives with the
+#: person who decided it. Consistency read as correctness, and a unanimous
+#: chorus of surfaces is exactly as loud when they are all wrong.
 #:
 #: The length is not decoration: Google truncates around 155 characters and
 #: Open Graph cards clip sooner, so a description that runs long is a sentence
 #: whose end nobody reads. A test holds it inside that.
 META_DESCRIPTION = (
-    f"{NAME} turns what is already on your phone into a finished film. "
-    "Say it in a sentence — it reads the footage, cuts to the beat, and grades it."
+    f"{NAME} plans the week and reads the reach — a shot list, a caption, "
+    "a cut film, and the numbers back. It runs on your device."
 )
+
+#: The other product, named here so nothing in this tree can call it a
+#: mistake again.
+#:
+#: APX is free, has no account and no server, stores nothing, and carries a
+#: day's state in the link itself — the planner that forgets. It is not built
+#: from this repository and nothing here should imply it is a mode of Atlas or
+#: a tier of it. Two standalone brands under one publisher, the same way Atlas
+#: is not "Auteur Atlas".
+#:
+#: It is a constant rather than a paragraph in a document because a document
+#: is not read by `too_long`, by the site builder, or by anything else that
+#: could catch a surface getting it wrong.
+SIBLING = "APX"
+SIBLING_LINE = "APX — the planner that forgets. Free, no account, nothing stored."
 
 #: Search terms. Apple takes a comma-separated 100 characters; Play has no
 #: keyword field and reads the description instead, which is why the
@@ -105,6 +146,12 @@ class Feature:
 
 #: What it does, ordered by what somebody meets first.
 FEATURES: list[Feature] = [
+    Feature(
+        "Plan the week before you shoot",
+        "A shot list grouped into setups you can shoot in one go, a caption "
+        "written with it, and a check on the things that decide whether "
+        "anybody sees it — all before the photograph exists.",
+    ),
     Feature(
         "Say it in a sentence",
         "Write the film you want the way you would describe it to a person — "
@@ -140,6 +187,12 @@ FEATURES: list[Feature] = [
         "yourself, to read back how a post did.",
     ),
     Feature(
+        "Read back how it did",
+        "Connect a TikTok or Instagram account and the numbers come back into "
+        "the planning board — watched, finished, shared — fitted against your "
+        "own exports rather than a rule somebody wrote down.",
+    ),
+    Feature(
         "A feed that learns, on your own machine",
         "An instance measures how long its films are watched and what you "
         "finish, and ranks with it. That is how a feed stops being a shuffle. "
@@ -156,9 +209,10 @@ FEATURES: list[Feature] = [
 
 #: What a person is buying, in one paragraph, for the top of a page.
 POSITIONING = (
-    f"{NAME} turns what is already on your phone into a finished film. Not a "
-    "template you drop clips into — it reads the footage, decides what each "
-    "shot is for, and cuts."
+    f"{NAME} plans the week and reads the reach. A shot list you can actually "
+    "shoot, a caption to go with it, a film cut from your own footage — not a "
+    "template you drop clips into, it reads the footage and decides what each "
+    "shot is for — and afterwards the numbers back."
 )
 
 #: The honest sentence about what it is not, which belongs on a landing page

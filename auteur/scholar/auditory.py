@@ -8,16 +8,37 @@ multimedia content *holistically* rather than through vision alone.
 
 Cooperation model with Gaze:
 - Gaze provides per-frame visual state (palette, exposure, motion, composition).
-- Auditory provides per-segment audio state (energy, pitch, sentiment, language).
+- Auditory provides per-segment audio state. Of the four this line used to
+  name — energy, pitch, sentiment, language — only energy is measured; the
+  other three are never assigned. See the capability list below.
 - Both feed into the Scholar's learning loop so it can detect mismatches
   (e.g. upbeat music over somber visuals) and learn from tutorials that cover
   audio-visual relationships.
 
-Listening capabilities:
-- Dialogue transcription and speaker diarisation.
-- Music analysis: tempo, key, energy curve.
-- Ambient sound classification.
-- Audio-visual sync detection (lip sync, sound effects alignment).
+Listening capabilities, re-measured by running it on six seconds of a 220 Hz
+tone with a silence in the middle, because the list that used to sit here
+described a program nothing had ever executed:
+
+- **Ambient sound classification — real.** `_classify_channel` reads the
+  spectrum and returns dialogue/music/ambient/FX. The tone came back `music`.
+- **Energy — real.** A true RMS, normalised.
+- **Silence boundaries — real.** Segments break where the audio goes quiet.
+- **Dialogue transcription — does not exist.** No speech-to-text model is in
+  this project or reachable from it. `transcript` stays "" and `confidence`
+  stays 0.0, which `_transcribe` already says in its own docstring.
+- **Speaker diarisation — does not exist, and used to invent one.**
+  `speaker_id` was `f"speaker_{index}" if index < 1 else ""`, which labelled
+  the first segment of any audio "speaker_0". `listen` counts distinct
+  non-empty ids into `speakers_identified`, so **every recording reported
+  exactly one speaker** — a pure sine wave included. It reports zero now.
+- **Music analysis: tempo, key — do not exist.** `tempo_bpm` and `pitch_hz`
+  are never assigned and stay 0.0. (Real tempo and beat analysis do exist in
+  this project, in `auteur/analysis/audio.py`; they are simply not wired to here.)
+- **Language detection — does not exist here.** `language` stays "" and
+  `languages_detected` is therefore always empty.
+- **Sentiment — does not exist.** Always `NEUTRAL`, the enum's zero.
+- **Audio-visual sync — arithmetic, not lip sync.** `_compute_av_sync`
+  compares an audio energy figure with a visual one. It cannot see a mouth.
 """
 
 from __future__ import annotations
@@ -183,9 +204,13 @@ class AuditorySystem:
 
     Capabilities:
     - Hear: detect and classify audio channels (dialogue, music, ambient, FX).
-    - Listen: full transcription with speaker diarisation and language detection.
-    - Cooperate with Gaze: fuse visual state with audio state to detect
-      audio-visual alignment and mismatches.
+      Real — the spectrum is read.
+    - Listen: segment by silence, classify each stretch, measure its energy.
+      Not transcription, not diarisation, not language detection; those three
+      are named in the module docstring as the things this does not do, and
+      the fields for them stay empty rather than being filled with something
+      that looks like an answer.
+    - Cooperate with Gaze: compare an audio energy figure against a visual one.
     """
 
     def __init__(self) -> None:
@@ -466,7 +491,7 @@ class AuditorySystem:
         # by one verdict covering a scene change, a song and a silence.
         span = 5.0
         stride = int(span * sample_rate * 2)
-        for index, offset in enumerate(range(0, len(audio_data), max(stride, 2))):
+        for offset in range(0, len(audio_data), max(stride, 2)):
             chunk = audio_data[offset : offset + stride]
             if len(chunk) < 4:
                 continue
@@ -478,7 +503,20 @@ class AuditorySystem:
                     channel=self._classify_channel(chunk, sample_rate),
                     transcript="",
                     language="",
-                    speaker_id=f"speaker_{index}" if index < 1 else "",
+                    # No speaker. There is no diarisation here, and this line
+                    # used to read `f"speaker_{index}" if index < 1 else ""` —
+                    # which labelled the first segment of *any* audio
+                    # "speaker_0" and nothing else. `listen` counts distinct
+                    # non-empty ids into `speakers_identified`, so every
+                    # recording came back as having exactly one speaker,
+                    # including a pure sine wave with no voice in it at all.
+                    # A fabricated identifier is worse than a missing one:
+                    # a caller can handle "" and cannot tell a real
+                    # "speaker_0" from this one.
+                    speaker_id="",
+                    # Every segment, always. Nothing measures sentiment, so
+                    # this is the enum's zero rather than a finding — see the
+                    # module docstring.
                     sentiment=AudioSentiment.NEUTRAL,
                     energy=self._measure_energy(chunk, sample_rate),
                     # Nothing was transcribed, so there is nothing to be
