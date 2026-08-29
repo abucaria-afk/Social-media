@@ -3924,6 +3924,277 @@ def test_publishing_always_needs_a_person_in_every_mode():
     assert answered[0].risk.name == "HIGH"
 
 
+def test_every_source_file_the_prose_points_at_actually_exists():
+    """A docstring that cites a file is making a checkable claim. Check it.
+
+    Writing the two entries above I wrote "real tempo and beat analysis do
+    exist in this project, in auteur/audio.py" into a module docstring and
+    into the manual. There is no such file. The claim was true —
+    `auteur/analysis/audio.py` has `tempo`, `tempo_confidence`, `beats` and
+    `downbeats` — and the path was invented, in the same commit whose whole
+    subject is documentation asserting things nobody ran.
+
+    A wrong path is not a typo. This repository's docstrings are navigational:
+    they say where the number came from and where the real implementation
+    lives, and a reader who follows one to nothing concludes the subsystem does
+    not exist. Every other kind of claim here is checked by running the thing;
+    this is the check for the claims that are pointers.
+
+    Backticked paths only, and only ones that look like source files, because
+    prose is full of things that resemble paths and are not.
+    """
+
+    root = Path(__file__).resolve().parent.parent
+
+    #: Suffixes worth checking. A `.py` or a stylesheet named in prose is
+    #: either there or the sentence is wrong; a bare directory is not.
+    SUFFIXES = (".py", ".md", ".css", ".js", ".html", ".json", ".webmanifest", ".yml", ".toml")
+
+    #: Paths that legitimately do not exist in a checkout: generated,
+    #: gitignored, or named as an example of something absent.
+    ALLOWED_MISSING = {
+        "tools/artifact/auteur-app.html",  # generated, gitignored
+        "auteur/web/static/theme.css",  # generated at startup from theme.py
+        "auteur-library.json",
+        "auteur-schedule.json",
+        "accounts.json",
+    }
+
+    quoted = re.compile(r"`([A-Za-z0-9_./-]+\.[A-Za-z0-9]+)`")
+    searched = [
+        *sorted((root / "auteur").rglob("*.py")),
+        *sorted((root / "tools").rglob("*.py")),
+        root / "README.md",
+        root / "AUTEUR.md",
+        Path(__file__),
+    ]
+
+    missing: list[str] = []
+    for path in searched:
+        if "__pycache__" in path.parts or not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for cited in set(quoted.findall(text)):
+            if not cited.endswith(SUFFIXES) or "/" not in cited:
+                continue
+            # A leading slash is a URL path — `/privacy.html`, `/static/style.css`
+            # are routes this server answers, not files on disk.
+            if cited.startswith("/"):
+                continue
+            if cited in ALLOWED_MISSING:
+                continue
+            # Resolved three ways, because all three are used and all three are
+            # legible: from the repository root (`auteur/craft/story.py`), from
+            # inside the package (`workflows/schedule.py`, written from another
+            # module in `auteur/`), and beside the citing file. The first draft
+            # only tried the root and reported thirteen correct citations as
+            # broken — a check that cries wolf gets deleted, which costs more
+            # than the bug it was written for.
+            candidates = [
+                root / cited,
+                root / "auteur" / cited,
+                root / "tools" / cited,
+                path.parent / cited,
+            ]
+            if any(candidate.exists() for candidate in candidates):
+                continue
+            missing.append(f"{path.relative_to(root).as_posix()} cites {cited!r}")
+
+    assert not missing, "prose points at files that are not there: " + "; ".join(sorted(missing))
+
+
+def test_the_auditory_system_never_reports_a_speaker_it_did_not_hear():
+    """It reported one speaker on a sine wave.
+
+    `_transcribe` built each segment with
+    `speaker_id=f"speaker_{index}" if index < 1 else ""` — the first segment of
+    any audio got the label "speaker_0" and every later one got nothing. That
+    is not diarisation, it is a constant on the first chunk; but `listen`
+    counts distinct non-empty ids into `ListeningSession.speakers_identified`,
+    so **every recording came back as having exactly one speaker**. Run on six
+    seconds of a 220 Hz tone with a silence in the middle — no voice anywhere
+    in it — the system said one.
+
+    A fabricated identifier is worse than a missing one. A caller can branch on
+    "" and cannot tell this "speaker_0" from a real one, which is the same
+    failure as `[transcription pending — model integration point]` sitting in
+    the `transcript` field where a caller reads what was said. That one was
+    already found and fixed in this module; this was the same mistake two
+    fields over, and it survived because nothing ran `listen` and looked.
+
+    The fields this system genuinely fills are the channel, the energy and the
+    segment boundaries. The ones it does not — transcript, language, speaker,
+    tempo, pitch, confidence — stay empty, and this holds them there.
+    """
+
+    import numpy as np
+
+    from auteur.scholar.auditory import AudioSentiment, AuditorySystem
+
+    rate = 44100
+    seconds = 6.0
+    timeline = np.linspace(0, seconds, int(rate * seconds), endpoint=False)
+    tone = (0.3 * np.sin(2 * np.pi * 220 * timeline) * 32767).astype(np.int16)
+    tone[int(rate * 2) : int(rate * 3)] = 0  # a real silence, so it must split
+    session = AuditorySystem().listen(tone.tobytes(), sample_rate=rate)
+
+    assert session.segments, "nothing was segmented, so this proves nothing"
+    assert session.speakers_identified == 0, (
+        f"there is no voice in a sine wave and no diarisation in this module, "
+        f"and it reported {session.speakers_identified} speaker(s)"
+    )
+    assert (
+        session.languages_detected == []
+    ), f"nothing detects language here; it reported {session.languages_detected}"
+
+    for segment in session.segments:
+        assert segment.speaker_id == "", f"invented a speaker: {segment.speaker_id!r}"
+        assert segment.transcript == "", f"invented a transcript: {segment.transcript!r}"
+        assert segment.language == "", f"invented a language: {segment.language!r}"
+        assert segment.confidence == 0.0, "confident about a transcript that does not exist"
+        assert segment.tempo_bpm == 0.0, "nothing here measures tempo"
+        assert segment.pitch_hz == 0.0, "nothing here measures pitch"
+        assert segment.sentiment is AudioSentiment.NEUTRAL
+
+    # And the half that is real, so this cannot be satisfied by returning
+    # nothing at all: the energy is a true RMS of a signal that has some.
+    assert any(segment.energy > 0.1 for segment in session.segments), (
+        "no segment carries energy, so the measurement stopped working and "
+        "the emptiness above is the emptiness of a broken run"
+    )
+
+
+def test_the_speech_system_never_claims_more_certainty_than_it_earned():
+    """It returned confidence 1.0 on eight answers that were wrong.
+
+    `SpeechSystem.understand` said `confidence = 1.0  # Savant-level
+    comprehension` — a literal, for every input, next to a docstring promising
+    savant-level comprehension of any human language. Run against fourteen real
+    sentences it labelled six correctly and reported total certainty about all
+    fourteen. Spanish, German, French, Italian, Portuguese, Turkish, Vietnamese
+    and Polish all came back "English", because `_detect_language` reads the
+    *script* and everything in Latin script falls through to the default.
+
+    That is worse than an unknown confidence. A caller can route around a
+    number that is missing; it cannot route around one that is wrong, and 1.0
+    is the value that most invites a caller to stop checking.
+
+    The confidence is derived now: one over however many advertised languages
+    are written in the script the detector saw. Korean is alone in Hangul, so
+    1.0 is the true answer there. Arabic script carries Arabic, Urdu and
+    Persian, so 0.33. Latin carries most of the sixty, so an "en" guess on a
+    Latin sentence is 0.04 — small because the guess is bad.
+
+    This holds three things: that a wrong answer is never confident, that a
+    confident answer is one the script actually pins down, and that the
+    confidence moves when the language table does. Adding a Cyrillic language
+    has to lower every Cyrillic guess, or the number is decorative again.
+    """
+
+    from auteur.scholar.speech import (
+        LANGUAGE_SCRIPT,
+        CommunicationMode,
+        SpeechSystem,
+    )
+
+    speech = SpeechSystem()
+
+    # Real sentences, not lorem. Each is the same question in its language, so
+    # the only thing varying is the script.
+    samples = [
+        ("ko", "몽타주 속도는?"),
+        ("ja", "モンタージュのペースは？"),
+        ("el", "Πώς κόβω πιο γρήγορα;"),
+        ("ar", "كيف أقطع أسرع؟"),
+        ("ru", "Как резать быстрее?"),
+        ("hi", "कैसे तेज़ काटूं?"),
+        ("es", "¿Cómo mejoro el ritmo?"),
+        ("de", "Wie schneide ich schneller?"),
+        ("en", "How do I pace a montage?"),
+    ]
+
+    wrong_but_certain = []
+    for want, text in samples:
+        got, _intent, confidence = speech.understand(text)
+        assert 0.0 <= confidence <= 1.0, f"{want}: confidence {confidence} is not a probability"
+        if got != want and confidence > 0.5:
+            wrong_but_certain.append(f"{text!r} is {want}, called {got} at {confidence}")
+
+    assert (
+        not wrong_but_certain
+    ), "the speech system is confident about answers that are wrong: " + "; ".join(
+        wrong_but_certain
+    )
+
+    # A confidence of exactly 1.0 is a claim that the script pins the language
+    # down. That is only true where nothing else on the list shares the script.
+    for _want, text in samples:
+        got, _intent, confidence = speech.understand(text)
+        if confidence == 1.0:
+            script = LANGUAGE_SCRIPT.get(got)
+            sharing = [
+                code
+                for code in (profile.code for profile in speech.supported_languages)
+                if LANGUAGE_SCRIPT.get(code) == script
+            ]
+            assert sharing == [got], (
+                f"{got} is reported with total certainty, but {sharing} share "
+                f"the {script} script — the guess cannot be worth 1.0"
+            )
+
+    # And it is not a constant. Distinct scripts have to give distinct numbers,
+    # or the derivation collapsed back into a literal and nothing would say so.
+    spread = {speech.understand(text)[2] for _want, text in samples}
+    assert len(spread) >= 3, f"every guess is worth the same: {spread}"
+
+    # `LanguageProfile.detectable` is the one field on that dataclass computed
+    # rather than asserted — the other four are 1.0/True for all sixty and are
+    # labelled `aspirational` in `to_json` for exactly that reason. Six of the
+    # sixty are detectable. Anything claiming to be detectable has to survive
+    # being asked.
+    profiles = speech.supported_languages
+    detectable = [profile.code for profile in profiles if profile.detectable]
+    assert 0 < len(detectable) < len(profiles), (
+        f"{len(detectable)} of {len(profiles)} languages detectable — either "
+        "everything is, which the measurements above contradict, or nothing "
+        "is, which would make the field useless"
+    )
+    for code, text in samples:
+        if code in detectable:
+            got, _intent, confidence = speech.understand(text)
+            assert (
+                got == code and confidence == 1.0
+            ), f"{code} says it is detectable and came back {got} at {confidence}"
+
+    # The aspirational fields stay declared as such wherever they travel.
+    shipped = profiles[0].to_json()
+    assert set(shipped["aspirational"]) == {
+        "comprehension_level",
+        "fluency_level",
+        "idiomatic",
+        "register_aware",
+    }, "a profile field stopped declaring itself unmeasured"
+
+    # No audio, and it does not pretend otherwise. The dishonest fix for a
+    # missing synthesiser is a WAV header with nothing in it, which would make
+    # `has_voice` true and a silent clip play.
+    #
+    # In VOICEBOT mode, which is the only mode that reaches the synthesiser at
+    # all. The first version of this called `respond` on the default CHATBOT
+    # mode, where `_synthesise_speech` never runs — so it passed a mutation
+    # that made the synthesiser return a WAV header, because it was never
+    # asking the synthesiser anything. A check that cannot reach the code it
+    # describes passes for the same reason a broken one does.
+    speech.mode = CommunicationMode.VOICEBOT
+    reply = speech.respond("How do I pace a montage?", conversation_id="honesty")
+    assert reply.text, "voicebot mode returned no words either"
+    assert reply.voice_audio == b"", (
+        "the synthesiser returned bytes; there is no TTS in this project, so "
+        "whatever those are, they are not speech"
+    )
+    assert not reply.has_voice, "the system reports voice audio it does not have"
+
+
 def test_every_craft_rule_is_either_consulted_or_checked():
     """A rule nothing asks is a paragraph, not a rule.
 

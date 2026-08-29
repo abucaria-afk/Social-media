@@ -802,6 +802,28 @@ static path that resolved one folder up.
 - **Speech is detected, not transcribed.** There is a speech-likelihood measure
   used for ducking and music selection, but no ASR, so there are no automatic
   subtitles and no cutting to what was said.
+- **The Scholar does not talk, and its speech module is unreachable.**
+  `auteur/scholar/speech.py` is 660 lines describing a multilingual voice
+  system. Nothing calls it — no CLI command, no route, no caller — and running
+  it is what established the rest of this entry. There is no speech
+  synthesiser: `_synthesise_speech` returns nothing, logs a warning once, and
+  `has_voice` correctly reports False. Language detection reads the *writing
+  system*, so it distinguishes nine scripts and six of the sixty advertised
+  languages; everything in Latin script comes back "en". It used to report
+  confidence `1.0` on every answer including the wrong ones — that number is
+  now one over however many advertised languages share the script it saw, so a
+  Latin guess is worth 0.04 and Korean is worth 1.0. Text replies are real when
+  `ANTHROPIC_API_KEY` is set, because they are the model's.
+- **The Scholar's ears segment audio; they do not understand it.**
+  `auteur/scholar/auditory.py` genuinely classifies each stretch as dialogue,
+  music, ambient or FX from its spectrum, measures a true RMS energy, and
+  splits on real silences. It does not transcribe, diarise, detect language,
+  measure tempo or pitch, or read sentiment — those fields exist and stay
+  empty. It used to fill one of them: `speaker_id` was set to `"speaker_0"` on
+  the first segment of any audio, and because `listen` counts distinct
+  non-empty ids, **every recording reported exactly one speaker** — a pure
+  sine wave included. It reports zero now. (Real tempo and beat analysis do
+  exist in this project, in `auteur/analysis/audio.py`; they are not wired to here.)
 - **Rendering is CPU-bound.** A 15-second reel is roughly two minutes at draft
   quality; `master` with optical flow is considerably slower. No hardware encoder
   is used.
