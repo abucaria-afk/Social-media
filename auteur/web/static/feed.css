@@ -12,10 +12,21 @@
  *   · only the film on screen plays, driven by IntersectionObserver — eight
  *     autoplaying videos is eight decoders, and a phone drops the lot
  */
+/* White here is `on_photo` from auteur/theme.py, not a literal. The role is
+   documented as "text and marks drawn on top of somebody's footage" and is
+   white in *both* schemes deliberately — the ground under a feed mark is a
+   frame of somebody's film, not the theme's surface, so a mark that went dark
+   in daylight would be a dark mark on whatever the footage happens to be.
+   Reading the role rather than repeating its value is what stops this file
+   drifting away from the palette the way docs/index.html once did, thirteen
+   colours deep. The blacks below are different: they are the letterbox ground
+   behind a video element and the scrims over it, at alphas the palette does
+   not carry. */
+
 
 .feed-body {
   background: #000;
-  color: #fff;
+  color: var(--on-photo);
   overflow: hidden;
 }
 
@@ -175,7 +186,7 @@
   padding: 0;
   border: 0;
   background: none;
-  color: #fff;
+  color: var(--on-photo);
   font: 600 var(--step--2)/1 var(--font-display);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -229,7 +240,7 @@
 /* The live scope is white *and* underlined. Colour alone at 70% against white
    over a moving photograph is a distinction that survives in a screenshot and
    not on a phone in daylight. */
-.feed-scope.is-on { color: #fff; }
+.feed-scope.is-on { color: var(--on-photo); }
 
 .feed-scope.is-on::after {
   content: "";
@@ -237,7 +248,7 @@
   height: 2px;
   margin: 5px auto -7px;
   border-radius: 1px;
-  background: #fff;
+  background: var(--on-photo);
 }
 
 .feed-switch {
@@ -253,7 +264,7 @@
   background: rgba(0,0,0,0.28);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
-  color: #fff;
+  color: var(--on-photo);
   font: 600 var(--step--1)/1 var(--font-display);
   cursor: pointer;
 }

@@ -14206,3 +14206,127 @@ def test_no_caveat_is_hidden_behind_a_tooltip_a_phone_cannot_summon():
                     )
 
     assert not offenders, "; ".join(offenders)
+
+
+def test_the_critic_can_actually_fail_a_film(tmp_path):
+    """A score that is always high is not a review, it is a decoration.
+
+    `auteur demo` finishes by telling a person "it rates its own work 100%".
+    Every rule in `critic.review` had a test; the *score* had none, so nothing
+    established that the number could ever come out low, or that a worse film
+    scored worse than a better one. A verdict nothing can ever fail is exactly
+    the shape of defect this file exists to catch — a value that is produced
+    and never compared to anything.
+
+    So this renders the worst film the program can describe — a frozen grey
+    rectangle at twice its target runtime — and requires the critic to notice.
+    Not a particular number: the curve is a product decision and is documented
+    on `PENALTY_PER_SEVERITY` rather than pinned here. What is pinned is that
+    the critic discriminates, and that it says *why* in words a person can act
+    on rather than only in a number.
+    """
+    from auteur import ffmpeg
+    from auteur.critic import review
+    from auteur.edl import EditDecisionList, Shot
+
+    frozen = tmp_path / "frozen.mp4"
+    ffmpeg.run(
+        [
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=0x303030:s=256x456:d=12:r=24",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(frozen),
+        ]
+    )
+    assert frozen.is_file(), "the fixture did not render"
+
+    shots = [
+        Shot(clip_id=f"c{i}", source=frozen, start=i * 2.0, end=i * 2.0 + 2.0) for i in range(6)
+    ]
+    verdict = review(EditDecisionList(title="frozen", shots=shots), frozen, target_duration=6.0)
+
+    assert verdict.score < 0.9, (
+        f"a frozen rectangle at twice its runtime scored {verdict.score:.2f} — "
+        "the critic cannot fail anything"
+    )
+    rules = {note.rule for note in verdict.notes}
+    assert "dead-air" in rules, f"nothing moves for twelve seconds and the critic said {rules}"
+    assert "runtime" in rules, f"twice the target runtime went unremarked; said {rules}"
+
+    # Every note has to be a sentence somebody can act on, not just a weight.
+    for note in verdict.notes:
+        assert note.message.strip(), f"{note.rule} has a severity and nothing to read"
+        assert 0.0 < note.severity <= 1.0, note
+
+    # And a clean film has to come out above it, or "worse" means nothing.
+    clean = review(EditDecisionList(title="none", shots=[]), frozen, target_duration=12.0)
+    assert clean.score > verdict.score, (
+        f"the film with faults scored {verdict.score:.2f} and the one without "
+        f"scored {clean.score:.2f}"
+    )
+
+
+def test_a_raw_colour_only_appears_where_the_ground_is_somebody_s_footage():
+    """The stylesheets say they use only palette tokens. Nothing checked it.
+
+    Five files repeat some version of "every colour is a variable from
+    theme.css, which is generated from auteur/theme.py" — and that claim was
+    prose. The palette exists because a second copy of a colour drifts: the
+    public site once shipped thirteen colours and a green that was teal in the
+    app, for months, because a file said "generated" and nothing generated it.
+
+    There is one legitimate exception and `theme.py` names it. `on_photo` is
+    "text and marks drawn on top of somebody's footage", white in *both*
+    schemes on purpose, because the ground under a feed mark is a frame of
+    somebody's film rather than the theme's surface. Around it sit blacks that
+    are the letterbox behind a video element, and scrims at alphas the palette
+    does not carry.
+
+    So the rule is not "no raw colours". It is: a raw colour is allowed only
+    in a file whose subject is footage, and it must not be white, because
+    white over footage is a role that already exists. Anything else is a
+    second copy of a palette value, and this fails on it by name.
+    """
+    from auteur.web import server
+
+    #: Files whose colours sit on somebody's film rather than on the theme.
+    OVER_FOOTAGE = {
+        "feed.css": "the feed is full-bleed video; every mark sits on a frame",
+        "inbox.css": "a film in a message bubble letterboxes against black",
+        "overlays.css": "the sticker preview stands in for footage, deliberately",
+        "animations.css": "a drop shadow, which is a darkening rather than a colour",
+    }
+
+    offenders: list[str] = []
+    for sheet in sorted(server.STATIC.glob("*.css")):
+        if sheet.name == "theme.css":
+            continue
+        body = re.sub(r"/\*.*?\*/", "", sheet.read_text(encoding="utf-8"), flags=re.S)
+        raw = re.findall(r"#[0-9a-fA-F]{3,8}\b|\brgba?\([^)]*\)", body)
+        if not raw:
+            continue
+        if sheet.name not in OVER_FOOTAGE:
+            offenders.append(f"{sheet.name} hardcodes {sorted(set(raw))} and is not over footage")
+            continue
+        for colour in raw:
+            bare = colour.lower().replace(" ", "")
+            if bare in ("#fff", "#ffffff", "rgb(255,255,255)"):
+                offenders.append(
+                    f"{sheet.name} hardcodes {colour} — white on footage is "
+                    "var(--on-photo), a role theme.py already defines"
+                )
+
+    assert not offenders, "; ".join(offenders)
+
+    # And the role really is theme-independent, or pointing the feed at it
+    # would have changed how the feed looks in daylight.
+    from auteur import theme
+
+    assert theme.hex_of("on_photo", "dark") == theme.hex_of(
+        "on_photo", "light"
+    ), "on_photo differs between schemes, so the feed's marks now change colour"

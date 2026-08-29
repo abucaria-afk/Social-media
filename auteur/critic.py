@@ -33,6 +33,29 @@ DEAD_AIR_SECONDS = 1.6
 #: Luma jump across a cut that reads as a mistake rather than a choice.
 EXPOSURE_JUMP = 0.30
 
+#: What one unit of severity costs the score.
+#:
+#: Named rather than left inline because the number a person actually reads is
+#: derived from it — `auteur demo` prints "it rates its own work 100%" — and an
+#: unnamed multiplier in the middle of a formula is a scale nobody can reason
+#: about. Two consequences worth knowing before changing it:
+#:
+#: * Severities run 0.45 to 0.75 for the ordinary faults, so it takes roughly
+#:   six of them stacked to reach zero. A film with three real faults scores
+#:   about 0.66.
+#: * A frozen grey rectangle at twice its target runtime — the worst film this
+#:   program can produce — measures **0.66**, not something near zero. That is
+#:   a compressed scale, and whether it should be is a product decision rather
+#:   than a bug: the loop in `revise` reads the notes, not the number, so
+#:   rescaling would change what a person is told without changing what the
+#:   program does. `test_the_critic_can_actually_fail_a_film` pins the
+#:   discrimination that matters — bad scores materially below good — without
+#:   pinning the curve.
+#:
+#: The one score not computed from this is zero, set directly when the render
+#: has no decodable video, because that is not a fault to weigh against others.
+PENALTY_PER_SEVERITY = 0.18
+
 
 @dataclass
 class Note:
@@ -249,7 +272,7 @@ def review(
         )
 
     penalty = sum(note.severity for note in critique.notes)
-    critique.score = float(np.clip(1.0 - penalty * 0.18, 0.0, 1.0))
+    critique.score = float(np.clip(1.0 - penalty * PENALTY_PER_SEVERITY, 0.0, 1.0))
     return critique
 
 
