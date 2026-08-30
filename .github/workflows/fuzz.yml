@@ -1,0 +1,57 @@
+# The randomised campaign over the pure-logic surface.
+#
+# `tests/fuzz.py` is deliberately outside the pytest suite — it is slow, and
+# its job is to find the *next* property worth a named test rather than to
+# guard the ones already found. That reasoning is sound and this workflow does
+# not change it: the per-push suite stays as it is.
+#
+# What it changes is that the harness was referenced by no workflow, no hook
+# and no config, so 10,000 assertions over EDL repair, ramps, grammar and auth
+# tickets ran only when somebody remembered. A property test nobody runs is a
+# property nobody checks.
+name: Fuzz
+
+on:
+  # Nightly. A randomised run finds a different case each night, which is the
+  # whole point of it — a fixed seed would only re-check last night's answer.
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: 'How many cases to run'
+        default: '10000'
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  campaign:
+    name: Ten thousand cases
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      # No `|| true`. The coverage workflow already carried that mistake once
+      # and its own comment records why it was removed: a green tick that
+      # cannot go red is a claim nobody checked.
+      - name: Run the campaign
+        run: python3 tests/fuzz.py ${{ github.event.inputs.cases || '10000' }}
