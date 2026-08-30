@@ -2614,7 +2614,8 @@ class Handler(BaseHTTPRequestHandler):
             # nothing to do about it here.
             self._json(
                 {
-                    "error": f"Auteur is for people {auth.MINIMUM_AGE} and over. "
+                    "error": f"{brand.NAME} is for people "
+                    f"{auth.MINIMUM_AGE} and over. "
                     "If that year is wrong, put it right and try again."
                 },
                 403,

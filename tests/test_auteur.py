@@ -13248,6 +13248,88 @@ def test_the_app_never_asks_a_platform_for_permission_to_post():
     )
 
 
+def test_nothing_calls_the_product_by_the_name_it_used_to_have():
+    """The rename left "Auteur" behind in two sentences a person actually reads.
+
+    The compound "Auteur Atlas" was swept out of thirty-two files and a guard
+    was written to keep it out. That guard checked for the string it had just
+    seen. It did not check for the *other* way the rename could be incomplete —
+    the bare old product name, still standing where the product is named:
+
+        auteur/web/server.py   the age-gate error, shown to somebody in the
+                               middle of signing up
+        auteur/brand.py        inside `description()`, which generates both
+                               store listings and the terms page
+
+    Both said "Auteur is for people 12 and over". Both were found by running
+    the sign-up flow rather than by reading, and both are now `{brand.NAME}`.
+    A guard shaped like the exact bug it was written for is the recurring
+    mistake in this file; this is the class.
+
+    The publisher is always "Auteur Studies", so "Auteur" followed by anything
+    else in prose is the product wearing its old name. That distinction is what
+    makes this checkable without flagging every legitimate mention of the
+    company or of the `auteur` package and command.
+    """
+
+    import re as _re
+
+    from auteur import brand
+    from auteur.identity import COMPANY
+    from auteur.web import server
+
+    root = Path(__file__).resolve().parent.parent
+    surfaces = [
+        *sorted(server.STATIC.glob("*.html")),
+        root / "auteur" / "brand.py",
+        root / "auteur" / "web" / "server.py",
+        root / "README.md",
+        root / "TERMS.md",
+        root / "PRIVACY.md",
+        root / "docs" / "index.html",
+    ]
+    surfaces = [path for path in surfaces if path.is_file()]
+    assert surfaces, "found no surfaces to check"
+
+    # "Auteur" as a product name: followed by a word that is not the rest of
+    # the company's name. `Auteur Studies` is the publisher and always fine.
+    trailing = COMPANY.trading_name.split()[-1]  # "Studies"
+    stale = _re.compile(rf"\bAuteur (?!{_re.escape(trailing)}\b)([a-zA-Z]+)")
+
+    # Python is read as a syntax tree and only its *string literals* are
+    # checked, not its comments. `brand.py` and `identity.py` carry comments
+    # that state this very rule — `Atlas, never "Auteur Atlas"` — and a
+    # line-based scan flagged the rule as a breach of itself. A comment is not
+    # a surface; nobody signing up reads one.
+    import ast as _ast
+
+    found: list[str] = []
+    for path in surfaces:
+        text = path.read_text(encoding="utf-8")
+        if path.suffix == ".py":
+            pieces = [
+                node.value
+                for node in _ast.walk(_ast.parse(text))
+                if isinstance(node, _ast.Constant) and isinstance(node.value, str)
+            ]
+            # Module and function docstrings are documentation too, and the
+            # rule is explained in several of them.
+            pieces = [
+                piece
+                for piece in pieces
+                if "never" not in piece.lower() and "used to" not in piece.lower()
+            ]
+        else:
+            pieces = text.splitlines()
+        for piece in pieces:
+            for match in stale.finditer(piece):
+                found.append(f"{path.relative_to(root).as_posix()} says 'Auteur {match.group(1)}'")
+
+    assert (
+        not found
+    ), f"the product is called {brand.NAME}; these still call it Auteur: " + "; ".join(found)
+
+
 def test_the_publisher_name_is_never_welded_to_the_front_of_the_product_name():
     """Atlas is the product. Auteur Studies publishes it. Neither is the other.
 
