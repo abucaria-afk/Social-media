@@ -1527,7 +1527,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"profile": self._mine(who)})
 
     def _may_see(self, film, who: str) -> bool:
-        """Whether this account's content restriction lets it have this film.
+        """Whether this account may have this film at all — block, then restriction.
 
         The same rule as `_held_back`, asked about one film instead of all of
         them, because this runs on every request for a video file and that one
@@ -1551,6 +1551,19 @@ class Handler(BaseHTTPRequestHandler):
             # A restriction is about what you are shown, not about hiding your
             # own work from you. The same carve-out `_held_back` makes.
             return True
+
+        # A block, in both directions. `Profiles.apart` puts everybody on
+        # either side of one into a single set precisely so this cannot be got
+        # half right, and its docstring says what half-right looks like:
+        # "leaves somebody able to watch the films of the person who blocked
+        # them ... which is not a block, it is a mute."
+        #
+        # It was applied in the feed and nowhere else, so that is exactly what
+        # a block was. Blocked, the feed hid the film and this served it — 200
+        # and three kilobytes, measured. The wall had two sides and a door.
+        if film.owner in self.profiles.apart(who):
+            return False
+
         self.accounts.refresh()
         account = self.accounts.get(who)
         if account is None or not account.restricted:

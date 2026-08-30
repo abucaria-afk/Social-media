@@ -13272,15 +13272,17 @@ def test_a_restricted_account_cannot_fetch_a_film_the_feed_hides_from_it():
 
     from auteur.web import server as web
     from auteur.web.auth import Accounts
+    from auteur.web.profiles import Profiles
     from auteur.web.safety import Reports
     from auteur.web.social import Films
 
     class Stub:
         """Only the parts `_may_see` reads."""
 
-        def __init__(self, accounts, reports):
+        def __init__(self, accounts, reports, profiles):
             self.accounts = accounts
             self.reports = reports
+            self.profiles = profiles
 
         _may_see = web.Handler._may_see
 
@@ -13305,7 +13307,8 @@ def test_a_restricted_account_cannot_fetch_a_film_the_feed_hides_from_it():
             owner="teenager", prompt="their own", video=str(video), sensitive=True
         )
 
-        handler = Stub(accounts, Reports(Reports.default_path(work)))
+        profiles = Profiles(Profiles.default_path(work))
+        handler = Stub(accounts, Reports(Reports.default_path(work)), profiles)
 
         teen = handler._may_see
         assert not teen(theirs_sensitive, "teenager"), (
@@ -13322,6 +13325,30 @@ def test_a_restricted_account_cannot_fetch_a_film_the_feed_hides_from_it():
         )
         # And an account with no restriction is untouched.
         assert teen(theirs_sensitive, "grownup")
+
+        # A block, both ways. `Profiles.apart` returns everybody on either
+        # side of one in a single set, and its own docstring says why:
+        # filtering on "people I blocked" alone "leaves somebody able to watch
+        # the films of the person who blocked them ... which is not a block,
+        # it is a mute." That set was consulted in the feed and nowhere else,
+        # so a blocked account's feed hid the film and the endpoint served it
+        # — 200 and three kilobytes, measured against a real server.
+        accounts.add("mallory", "m@e.st", TEST_PASSWORD, born=year - 30)
+        profiles.block("grownup", "mallory")
+        mallorys = films.add(
+            owner="mallory", prompt="mallory's own", video=str(video), sensitive=False
+        )
+
+        assert not handler._may_see(
+            theirs_ordinary, "mallory"
+        ), "somebody who has been blocked can still fetch that person's films by id"
+        assert not handler._may_see(
+            mallorys, "grownup"
+        ), "a block only stops one direction, which makes it a mute"
+        assert handler._may_see(mallorys, "mallory"), "blocked from their own work"
+        assert handler._may_see(
+            theirs_ordinary, "teenager"
+        ), "an unrelated account is caught by somebody else's block"
 
         # The other half of the rule, and the half with no `sensitive` flag to
         # make it obvious: a film nobody marked, but with an open report
