@@ -15655,3 +15655,221 @@ def test_the_program_never_calls_a_number_measured_that_it_did_not_measure():
     assert (
         'source = "measured"' not in source
     ), "the per-post column still calls an exported number a measured one"
+
+
+# ---------------------------------------------------------------------------
+# The commands themselves, with something in them to print
+#
+# Every `_run_*` handler in `auteur/cli.py` sat between 0% and 5% covered while
+# the parser above it was covered well: the suite checked that flags parse and
+# then never called what they dispatch to. That is the same blind spot CodeQL
+# found six TypeErrors in — a success message nothing runs — and the empty-state
+# paths are not the risky half. These drive each command through `main()` with
+# real records in the store, and read what it printed.
+# ---------------------------------------------------------------------------
+
+
+def _served(tmp_path):
+    """A serve folder with two accounts, as `auteur serve` would leave it."""
+    from auteur.web.auth import Accounts
+
+    root = tmp_path / "auteur-web"
+    root.mkdir(parents=True, exist_ok=True)
+    accounts = Accounts(Accounts.default_path(root))
+    accounts.add("ada", "ada@example.invalid", TEST_PASSWORD)
+    accounts.add("bob", "bob@example.invalid", TEST_PASSWORD)
+    return root, accounts
+
+
+def test_the_account_list_prints_the_people_who_can_sign_in(tmp_path, capsys):
+    """`account show` with accounts in it, which is the branch that formats."""
+    from auteur.cli import main
+
+    root, _ = _served(tmp_path)
+    assert main(["account", "show", "-o", str(root)]) == 0
+
+    out = capsys.readouterr().out
+    assert "ada" in out and "bob" in out
+    assert "ada@example.invalid" in out
+    assert str(root) in out, "it has to say which file it read"
+
+
+def test_a_report_about_a_person_is_not_described_as_one_they_made(tmp_path, capsys):
+    """ "a film by bob" reads correctly; "a person by bob" does not.
+
+    The line is one f-string over `report.kind`, so the three kinds share a
+    sentence that only fits two of them. Reachable from the app — `safety.js`
+    builds a "Report this person" sheet — and invisible to a suite that never
+    ran the command with a report in it.
+    """
+    from auteur.cli import main
+    from auteur.web.safety import Reports
+
+    root, _ = _served(tmp_path)
+    reports = Reports(Reports.default_path(root))
+    film = reports.file(by="ada", kind="film", about="film-1", about_who="bob", reason="hate")
+    person = reports.file(
+        by="ada", kind="person", about="bob", about_who="bob", reason="harassment"
+    )
+
+    assert main(["moderate", "show", "-o", str(root)]) == 0
+    lines = [line.strip() for line in capsys.readouterr().out.splitlines()]
+
+    def line_under(report):
+        """The description printed directly beneath a report's own heading."""
+        return lines[next(i for i, line in enumerate(lines) if report.id in line) + 1]
+
+    # Anchored to each report's own row: "bob, reported by ada" is a substring
+    # of the film's line too, so a loose `in out` would pass without the fix.
+    assert line_under(film).startswith("a film by bob, reported by ada")
+    assert line_under(person).startswith("bob, reported by ada")
+    assert "a person by" not in "\n".join(lines)
+
+
+def test_the_moderation_queue_shows_every_state_a_report_can_be_in(tmp_path, capsys):
+    """Open, urgent and already-decided each take a different branch."""
+    from auteur.cli import main
+    from auteur.web.safety import Reports
+
+    root, _ = _served(tmp_path)
+    reports = Reports(Reports.default_path(root))
+    plain = reports.file(
+        by="ada", kind="film", about="film-1", about_who="bob", reason="spam", note="again"
+    )
+    decided = reports.file(by="ada", kind="message", about="m-1", about_who="bob", reason="other")
+    reports.decide(decided.id, "kept", "looked fine")
+
+    # Without --all a decided report is not in the list; with it, it is.
+    assert main(["moderate", "show", "-o", str(root)]) == 0
+    open_only = capsys.readouterr().out
+    assert plain.id in open_only
+    assert decided.id not in open_only
+
+    assert main(["moderate", "show", "--all", "-o", str(root)]) == 0
+    everything = capsys.readouterr().out
+    assert decided.id in everything
+    assert "kept, looked fine" in everything, "a decision has to say what it was"
+    assert "“again”" in everything, "the reporter's note is the whole point of the queue"
+
+
+def test_closing_an_account_says_what_it_took_with_it(tmp_path, capsys):
+    """The one destructive command here, and its success message."""
+    from auteur.cli import main
+    from auteur.web.auth import Accounts
+
+    root, _ = _served(tmp_path)
+    assert main(["moderate", "close", "bob", "-o", str(root)]) == 0
+
+    out = capsys.readouterr().out
+    assert "closed bob" in out
+
+    reopened = Accounts(Accounts.default_path(root))
+    assert reopened.get("bob") is None, "the command said it closed an account it kept"
+    assert reopened.get("ada") is not None, "it closed more than the one it was asked to"
+
+
+def test_closing_an_account_that_is_not_there_says_so(tmp_path, capsys):
+    from auteur.cli import main
+
+    root, _ = _served(tmp_path)
+    assert main(["moderate", "close", "nobody-by-that-name", "-o", str(root)]) == 1
+    assert "nobody-by-that-name" in capsys.readouterr().out
+
+
+def test_the_queue_prints_the_posts_it_is_holding(tmp_path, capsys):
+    """`schedule list` formats every queued post; the empty branch does not."""
+    from auteur.cli import main
+    from auteur.workflows.schedule import Schedule
+
+    root = tmp_path / "auteur-posts"
+    root.mkdir()
+    queue = Schedule(Schedule.default_path(root), gap_hours=0.0, per_day=10)
+    first, _ = queue.add(_deliverable("tiktok", tmp_path, "one.mp4"), force=True)
+    second, _ = queue.add(_deliverable("youtube-short", tmp_path, "two.mp4"), force=True)
+    queue.save()
+
+    assert main(["schedule", "list", "-o", str(root)]) == 0
+    out = capsys.readouterr().out
+    assert first.id in out and second.id in out
+    assert "nothing queued" not in out
+
+
+def test_marking_a_post_done_reports_the_change_and_keeps_it(tmp_path, capsys):
+    from auteur.cli import main
+    from auteur.workflows.schedule import Schedule
+
+    root = tmp_path / "auteur-posts"
+    root.mkdir()
+    queue = Schedule(Schedule.default_path(root), gap_hours=0.0, per_day=10)
+    post, _ = queue.add(_deliverable("tiktok", tmp_path, "one.mp4"), force=True)
+    queue.save()
+
+    assert main(["schedule", "done", post.id, "-o", str(root)]) == 0
+    assert f"{post.id} marked done" in capsys.readouterr().out
+
+    assert Schedule(Schedule.default_path(root)).get(post.id).status == "posted"
+
+    # And an id that is not in the queue is a failure, not a silent success.
+    assert main(["schedule", "done", "0badid00", "-o", str(root)]) == 1
+
+
+def test_the_queue_exports_a_row_for_every_post(tmp_path, capsys):
+    from auteur.cli import main
+    from auteur.workflows.schedule import Schedule
+
+    root = tmp_path / "auteur-posts"
+    root.mkdir()
+    queue = Schedule(Schedule.default_path(root), gap_hours=0.0, per_day=10)
+    post, _ = queue.add(_deliverable("tiktok", tmp_path, "one.mp4"), force=True)
+    queue.save()
+
+    assert main(["schedule", "export", "-o", str(root)]) == 0
+    rows = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert len(rows) == 2, "a header and the one post"
+    assert rows[0].startswith("when_utc,platform,service,video")
+    assert post.platform in rows[1] and post.video in rows[1]
+    assert "queued" in rows[1]
+
+
+def test_the_workflow_list_names_every_place_a_post_can_go(capsys):
+    """`workflow list` is the command the failure messages point people at."""
+    from auteur.cli import main
+    from auteur.workflows import WORKFLOWS
+
+    assert main(["workflow", "list"]) == 0
+    out = capsys.readouterr().out
+    for name in WORKFLOWS:
+        assert name in out, f"{name} is missing from the list"
+
+
+@pytest.mark.slow
+def test_the_media_index_lists_what_it_scanned(rushes, tmp_path, capsys):
+    """scan, then list, then tag — the three that print an indexed file."""
+    from auteur.cli import main
+
+    index = tmp_path / "index.json"
+    assert main(["media", "scan", str(rushes), "--index", str(index)]) == 0
+    assert "Indexed" in capsys.readouterr().out
+
+    assert main(["media", "list", "--index", str(index)]) == 0
+    listed = capsys.readouterr().out
+    assert "a_wide.mp4" in listed and "b_tall.mp4" in listed
+
+    assert (
+        main(
+            [
+                "media",
+                "tag",
+                str(rushes / "a_wide.mp4"),
+                "--label",
+                "keepers",
+                "--index",
+                str(index),
+            ]
+        )
+        == 0
+    )
+    assert "keepers" in capsys.readouterr().out
+
+    assert main(["media", "list", "--index", str(index)]) == 0
+    assert "keepers" in capsys.readouterr().out, "a tag has to survive into the listing"
