@@ -228,6 +228,7 @@ class OverlayAgent:
                     change=add_bar,
                     objective=self.objective,
                     binding=True,
+                    needs_a_human=True,
                     risk=Risk.LOW,
                 )
             )
@@ -267,6 +268,7 @@ class OverlayAgent:
                         change=bracket,
                         objective=self.objective,
                         binding=True,
+                        needs_a_human=True,
                         risk=Risk.LOW,
                     )
                 )
@@ -312,6 +314,7 @@ class OverlayAgent:
                         change=circle,
                         objective=self.objective,
                         binding=True,
+                        needs_a_human=True,
                         risk=Risk.LOW,
                     )
                 )
@@ -353,6 +356,7 @@ class OverlayAgent:
                         change=point,
                         objective=self.objective,
                         binding=True,
+                        needs_a_human=True,
                         risk=Risk.MEDIUM,
                     )
                 )
@@ -394,6 +398,7 @@ class OverlayAgent:
             change=lambda edl: None,
             objective=self.objective,
             binding=True,
+            needs_a_human=True,
             risk=Risk.LOW,
         )
 
@@ -529,6 +534,7 @@ class OverlayAgent:
                 change=place,
                 objective=self.objective,
                 binding=True,
+                needs_a_human=True,
                 risk=Risk.LOW,
             )
         ]

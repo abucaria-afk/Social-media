@@ -20,6 +20,59 @@ from ..insight import FitReport, Prediction
 from .base import Proposal, Risk
 
 # ---------------------------------------------------------------------------
+# What each agent steers toward
+# ---------------------------------------------------------------------------
+#
+# Every number below is also written in prose in `docs/agent-briefs.md`, which
+# is the document somebody reads to argue with the crew. Two copies of a
+# threshold is one threshold and one stale number, and which is which is
+# invisible from either side — so these are named here, the briefs state them,
+# and `test_the_agent_briefs_state_the_numbers_the_agents_actually_use` holds
+# the two together.
+#
+# Where a number came from is marked, because they did not all come from the
+# same place and treating them alike is how a preference gets cited as
+# evidence.
+
+#: MEASURED. The three-second watch rate the winning rows clear, and the
+#: midpoint between the two medians below which a film reads as a failure.
+HOOK_TARGET = 0.80
+HOOK_FAILURE_BOUNDARY = 0.69
+
+#: MEASURED. Where the winners' first cut lands. The opening-length/watch
+#: correlation behind it is r = -0.83, the strongest observed finding in the
+#: corpus.
+HOOK_FIRST_CUT_SECONDS = 1.2
+
+#: MEASURED. Share-to-view among winners, and the completion boundary that
+#: separates the two populations.
+SHARE_TARGET = 0.05
+SHARE_COMPLETION_BOUNDARY = 0.56
+
+#: CHOSEN, not measured — said plainly for the same reason `pricing.TRIAL_DAYS`
+#: says it. The corpus has nothing about absolute runtime; these are a form
+#: convention. An edit longer than the trigger gets shortened toward the
+#: target, from the tail.
+SHARE_RUNTIME_TRIGGER = 22.0
+SHARE_RUNTIME_TARGET = 18.0
+
+#: CHOSEN. How much of each middle shot the "tighten the middle" proposal
+#: removes.
+#:
+#: It was `0.78` inline — a 22% trim — while the proposal's own title, the one
+#: a person reads before approving it, said "Tighten the middle by a fifth",
+#: and so did the brief. Neither 0.78 nor a fifth has a source in the corpus;
+#: the difference is not that one was measured and the other guessed, it is
+#: that the number and the sentence describing it had drifted apart by two
+#: points and nothing compared them. A fifth, once, in the place the words say.
+MIDDLE_TIGHTEN = 0.20
+
+#: MEASURED. Rewatches among winners, and the failure boundary.
+LOOP_TARGET = 1.5
+LOOP_FAILURE_BOUNDARY = 1.72
+
+
+# ---------------------------------------------------------------------------
 # 1. Hook — survive the first three seconds
 # ---------------------------------------------------------------------------
 
@@ -27,7 +80,8 @@ from .base import Proposal, Risk
 class HookAgent:
     """Owns `three_second_watch_rate`.
 
-    Trained on the rows that clear 0.80. What they have in common is not a
+    Trained on the rows that clear `HOOK_TARGET`. What they have in common
+    is not a
     style so much as a *shape*: the first cut arrives early, something moves
     or is said before it, and the strongest frame is not being saved for later.
     """
@@ -87,7 +141,7 @@ class HookAgent:
                     # inventing a second one; two titles in three seconds is
                     # worse than a late one.
                     movable.start = 0.0
-                    movable.duration = max(1.2, min(movable.duration, 2.0))
+                    movable.duration = max(HOOK_FIRST_CUT_SECONDS, min(movable.duration, 2.0))
                 else:
                     target.texts.insert(
                         0,
@@ -172,10 +226,10 @@ class ShareAgent:
         proposals: list[Proposal] = []
         runtime = edl.duration
 
-        if runtime > 22.0:
+        if runtime > SHARE_RUNTIME_TRIGGER:
             # Drop from the tail: the end of an over-long edit is where
             # attention has already gone, so it is the cheapest thing to lose.
-            surplus = runtime - 18.0
+            surplus = runtime - SHARE_RUNTIME_TARGET
 
             def shorten(target: EditDecisionList, surplus: float = surplus) -> None:
                 removed = 0.0
@@ -207,7 +261,7 @@ class ShareAgent:
                 # Tighten the middle, leave the hook and the ending alone: both
                 # are load-bearing for the other two objectives.
                 for shot in target.shots[1:-1]:
-                    keep = shot.source_duration * 0.78
+                    keep = shot.source_duration * (1.0 - MIDDLE_TIGHTEN)
                     shot.end = shot.start + max(keep, 0.35)
 
             proposals.append(

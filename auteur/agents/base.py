@@ -76,6 +76,25 @@ class Proposal:
     #: They still go to the gate — binding means the *model* does not get a
     #: veto, not that the person does not.
     binding: bool = False
+
+    #: A person decides this one, in every mode including `AUTONOMOUS`.
+    #:
+    #: `binding` was carrying two different meanings and they came apart in
+    #: exactly one place. For the style agent it means *a person already
+    #: decided* — they supplied reference footage, and matching it is carrying
+    #: out an instruction, so no second approval is owed. For the overlay agent
+    #: it means the opposite: no export this project has ever been given
+    #: records whether a post carried graphics, so the model has nothing to say
+    #: and, in that module's own words, "the decision goes to the person, which
+    #: is what the gate is for".
+    #:
+    #: In `AUTONOMOUS`, `needs_a_person` returned False unconditionally. So the
+    #: model abstained, the human was skipped, and the overlay was applied on
+    #: nobody's authority at all — which is strictly worse than either gate
+    #: deciding, and is not what the brief or the module docstring says
+    #: happens. This flag is the half of `binding` that means "ask", and
+    #: `Gate.needs_a_person` honours it whatever the mode.
+    needs_a_human: bool = False
     #: Filled in by the crew once the change has been tried against the model.
     predicted_gain: float = 0.0
     #: How much better or worse the picture got, when the crew could see it.
@@ -95,6 +114,7 @@ class Proposal:
             "objective": self.objective,
             "risk": self.risk.name.lower(),
             "binding": self.binding,
+            "needs_a_human": self.needs_a_human,
             "predicted_gain": round(self.predicted_gain, 4),
             "craft_gain": round(self.craft_gain, 4),
             "comparison": self.comparison.to_json() if self.comparison is not None else None,
@@ -155,6 +175,11 @@ class Gate:
         self.log: list[tuple[str, str, str]] = []
 
     def needs_a_person(self, proposal: Proposal) -> bool:
+        # Before the mode is consulted at all. A proposal the scoring model has
+        # no evidence about cannot be auto-approved on the model's say-so,
+        # because the model did not say anything — see `Proposal.needs_a_human`.
+        if proposal.needs_a_human:
+            return True
         if self.mode is Mode.MANUAL:
             return True
         if self.mode is Mode.AUTONOMOUS:

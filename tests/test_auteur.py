@@ -3924,6 +3924,398 @@ def test_publishing_always_needs_a_person_in_every_mode():
     assert answered[0].risk.name == "HIGH"
 
 
+def test_the_quality_gate_uses_the_safe_areas_the_platforms_actually_claim():
+    """A pass from the QC gate meant less than it said.
+
+    `finalcheck` is the check before export, and its docstring promises it
+    catches "a title sits where the app's own buttons will cover it". Its
+    margins were typed into the module — 0.08 top, 0.12 bottom, 0.05 side —
+    while `workflows/platforms.py` held the real per-platform figures, dated
+    and re-checked against what the platforms publish. Two copies of one fact
+    about somebody else's interface, and the hand-written copy was looser than
+    every single platform:
+
+        tiktok           passed a title anywhere in y 0.78-0.88 or x 0.84-0.95
+        instagram-reel   y 0.80-0.88, y 0.08-0.10, x 0.86-0.95
+        youtube-short    y 0.82-0.88, x 0.88-0.95
+
+    Six platforms, six bands the gate waved through and the app covers. That is
+    the one failure a QC gate cannot have, because the entire value of the
+    check is that a pass means something — and a title cleared here still lands
+    under TikTok's buttons.
+
+    An `EditDecisionList` carries `width` and `height` and no platform name, so
+    the gate cannot know where the film is going and has to assume the worst
+    destination. The margins are derived from the table now. This holds them
+    there: no platform may claim a margin the gate does not already enforce.
+    """
+
+    from auteur.agents import finalcheck
+    from auteur.workflows.platforms import PLATFORMS
+
+    assert PLATFORMS, "no platform specs to check against"
+
+    looser: list[str] = []
+    for name, spec in sorted(PLATFORMS.items()):
+        safe = spec.safe
+        if safe.top > finalcheck._SAFE_TOP:
+            looser.append(f"{name} top {safe.top} > gate {finalcheck._SAFE_TOP}")
+        if safe.bottom > finalcheck._SAFE_BOTTOM:
+            looser.append(f"{name} bottom {safe.bottom} > gate {finalcheck._SAFE_BOTTOM}")
+        if max(safe.left, safe.right) > finalcheck._SAFE_SIDE:
+            looser.append(
+                f"{name} side {max(safe.left, safe.right)} > gate {finalcheck._SAFE_SIDE}"
+            )
+    assert not looser, "the quality gate passes titles these platforms cover: " + "; ".join(looser)
+
+    # Derived, not merely equal by coincidence. A typed number that happens to
+    # match today goes stale the next time the specs are re-checked, which is
+    # exactly how this drifted the first time.
+    source = Path(finalcheck.__file__).read_text(encoding="utf-8")
+    assert (
+        "_strictest(" in source and "PLATFORMS" in source
+    ), "the margins are no longer read from the platform table"
+
+    # And it still catches the three placements it used to wave through, and
+    # still passes the two that are genuinely safe. Asserted on the function
+    # rather than on the constants, because the constants being right and the
+    # check using them are two different things.
+    from auteur.edl import EditDecisionList, TextCue
+
+    edl = EditDecisionList(title="t")
+    for anchor_point, covered in [
+        ((0.50, 0.85), True),  # TikTok's action buttons
+        ((0.90, 0.50), True),  # Instagram Reel's right-hand stack
+        ((0.50, 0.11), True),  # Instagram Story's header
+        ((0.50, 0.50), False),
+        ((0.20, 0.70), False),
+    ]:
+        edl.texts = [TextCue(text="X", start=0.0, duration=1.0, anchor=anchor_point)]
+        flagged = bool(finalcheck._texts_outside_safe(edl))
+        assert flagged is covered, (
+            f"a title at {anchor_point} is "
+            f"{'covered by an app and was passed' if covered else 'safe and was flagged'}"
+        )
+
+
+def test_the_agent_briefs_state_the_numbers_the_agents_actually_use():
+    """`docs/agent-briefs.md` is the document somebody argues with the crew from.
+
+    Every threshold in it was also a literal in `agents/editors.py`, and two
+    copies of a threshold is one threshold and one stale number with no way to
+    tell from either side which is which. That is the defect this repository
+    keeps finding: the site's hand-copied palette, the tier cross-reference
+    naming a tier that had been renamed, the README's typed prices.
+
+    The briefs are worse than most, because they read as evidence. "Target
+    0.80. Failure boundary 0.69" next to a correlation and a row count is a
+    claim that the code steers by those numbers. If it steers by others, the
+    document is not merely out of date — it is citing a measurement in support
+    of behaviour that measurement did not produce.
+
+    So the constants are named in `editors.py`, the briefs state them, and this
+    reads both. It found one disagreement on the way in, and not in a
+    threshold: the "tighten the middle" proposal removed 22% while its own
+    title — the sentence a person reads before approving it — said "by a
+    fifth", as did the brief. Neither number had a source. It is a fifth now,
+    in one place, measured at 20.0% on a real timeline.
+    """
+
+    from auteur.agents import editors
+
+    root = Path(__file__).resolve().parent.parent
+    briefs = (root / "docs" / "agent-briefs.md").read_text(encoding="utf-8")
+
+    #: What the brief's bolded label means, per agent section, and the constant
+    #: it has to equal.
+    STATED = {
+        "Hook agent": {
+            "Target": editors.HOOK_TARGET,
+            "Failure boundary": editors.HOOK_FAILURE_BOUNDARY,
+        },
+        "Share agent": {
+            "Target": editors.SHARE_TARGET,
+            "Completion boundary": editors.SHARE_COMPLETION_BOUNDARY,
+        },
+        "Loop agent": {
+            "Target": editors.LOOP_TARGET,
+            "Failure boundary": editors.LOOP_FAILURE_BOUNDARY,
+        },
+    }
+
+    sections = {}
+    current = None
+    for line in briefs.splitlines():
+        if line.startswith("## "):
+            current = line[3:].strip()
+            sections[current] = []
+        elif current:
+            sections[current].append(line)
+
+    wrong: list[str] = []
+    for heading, labels in STATED.items():
+        assert heading in sections, f"the briefs no longer have a {heading!r} section"
+        body = "\n".join(sections[heading])
+        for label, constant in labels.items():
+            # `[0-9.]+` swallowed the sentence's full stop and gave "0.80.".
+            # Digits, then optionally a point and more digits — never a
+            # trailing one.
+            found = re.search(rf"\*\*{re.escape(label)}\*\*\s+([0-9]+(?:\.[0-9]+)?)", body)
+            if not found:
+                wrong.append(f"{heading} states no {label}")
+                continue
+            if abs(float(found.group(1)) - constant) > 1e-9:
+                wrong.append(
+                    f"{heading} says {label} {found.group(1)} and the code uses {constant}"
+                )
+
+    # The two numbers stated in prose rather than as a labelled field.
+    if f"**{editors.HOOK_FIRST_CUT_SECONDS}s**" not in briefs:
+        wrong.append(
+            f"the Hook brief no longer says the first cut lands at "
+            f"{editors.HOOK_FIRST_CUT_SECONDS}s"
+        )
+    if f"toward {editors.SHARE_RUNTIME_TARGET:.0f}s" not in briefs:
+        wrong.append(
+            f"the Share brief no longer shortens toward {editors.SHARE_RUNTIME_TARGET:.0f}s"
+        )
+
+    assert not wrong, "the briefs and the crew disagree: " + "; ".join(wrong)
+
+
+def test_the_reference_measurement_can_still_resolve_the_shot_it_reports():
+    """The Style brief carries a correction. This keeps it from being undone.
+
+    It used to say the reference reels cut 2.7-3.3 times per ten seconds and
+    called two of the three *meditative*. They cut 21-43 times, median shot
+    **0.167 s**. The error was not in the arithmetic — it was in the
+    instrument: `measure()` sampled at 8 frames a second with a 350 ms floor on
+    how close two cuts could be, which made any reading above three cuts a
+    second impossible to obtain. The brief then reported the ceiling as a
+    finding, and the Style agent's job was inverted: slow the film down, when
+    the references wanted it four times faster.
+
+    Nothing about that was visible from the number. A measurement capped by its
+    own sampling rate looks exactly like a measurement, which is why this is a
+    check on the *instrument* rather than on the result: the default sampling
+    rate and the minimum gap between two cuts both have to be fine enough to
+    resolve the shot length the brief reports. Drop `analysis_fps` back to 8
+    and this fails, where before it would simply have produced a different
+    number and no complaint.
+    """
+
+    import inspect
+
+    from auteur.insight import reference
+
+    root = Path(__file__).resolve().parent.parent
+    briefs = (root / "docs" / "agent-briefs.md").read_text(encoding="utf-8")
+
+    stated = re.search(r"median shot\s+\*\*([0-9.]+) s\*\*", briefs)
+    assert stated, "the Style brief no longer reports a median shot length"
+    median = float(stated.group(1))
+
+    fps = inspect.signature(reference.measure).parameters["analysis_fps"].default
+    assert fps is not inspect.Parameter.empty, "measure() lost its default sampling rate"
+
+    # One sample cannot resolve an event shorter than its own interval.
+    assert 1.0 / fps <= median, (
+        f"sampling at {fps} fps cannot see a {median}s shot — every reading "
+        "above that rate would be the instrument's ceiling reported as a finding"
+    )
+
+    # And the floor on how close two cuts may be, which is what actually
+    # capped the original reading. Two frames at the analysis rate.
+    source = Path(reference.__file__).read_text(encoding="utf-8")
+    assert "min_gap=2.0 / fps" in source, (
+        "the two-frame floor is gone; a fixed floor in milliseconds is what "
+        "reported three of these reels as meditative"
+    )
+    assert (2.0 / fps) <= median, (
+        f"the minimum gap between two cuts is {2.0 / fps:.3f}s and the brief "
+        f"reports a {median}s median shot, which that floor forbids"
+    )
+
+
+def test_an_overlay_is_never_applied_on_nobodys_authority():
+    """The model abstained and `AUTONOMOUS` skipped the human. Nobody decided.
+
+    `binding` was carrying two opposite meanings. For the style agent it means
+    *a person already decided* — they supplied reference footage, matching it
+    carries out that instruction, and no second approval is owed. For the
+    overlay agent it means the reverse, in that module's own words: no export
+    this project has been given records whether a post carried graphics, so
+    "the model abstains, so the decision goes to the person, which is what the
+    gate is for".
+
+    `Gate.needs_a_person` returned False for `AUTONOMOUS` before it looked at
+    the proposal at all. So an overlay in autonomous mode was applied with the
+    model having no opinion and no person asked — not auto-approved on the
+    model's say-so, because the model did not say anything. That is a weaker
+    claim than either gate makes on its own, and it is the one case where the
+    two meanings of `binding` came apart.
+
+    `needs_a_human` is the half that means "ask", honoured before the mode is
+    consulted. The style agent keeps the other half: its proposals still apply
+    unattended, because the instruction behind them is the person's.
+    """
+
+    from auteur.agents import Gate, Mode
+    from auteur.agents.base import Proposal, Risk
+    from auteur.agents.overlay import OverlayAgent
+
+    def proposal(**fields):
+        return Proposal(
+            agent="overlay",
+            title="Ring on the subject",
+            reason="",
+            change=lambda edl: None,
+            objective="overlay",
+            **fields,
+        )
+
+    # Every mode, including the one that skips everything else.
+    for mode in Mode:
+        assert Gate(mode).needs_a_person(
+            proposal(risk=Risk.LOW, binding=True, needs_a_human=True)
+        ), f"{mode.value} would apply an overlay without asking anybody"
+
+    # And the other half of `binding` is untouched: an instruction the person
+    # already gave still applies unattended.
+    assert not Gate(Mode.AUTONOMOUS).needs_a_person(
+        proposal(risk=Risk.HIGH, binding=True)
+    ), "a style match now demands a second approval for an instruction already given"
+
+    # Held, not silently applied, when there is nobody to ask.
+    gate = Gate(Mode.AUTONOMOUS)
+    held = proposal(risk=Risk.LOW, binding=True, needs_a_human=True)
+    assert gate.review(held) is False
+    assert held.decided_by == "held"
+    assert "no reviewer" in (held.decision_note or "")
+
+    # The agent has to actually set the flag, or the three assertions above
+    # describe a field nothing uses — which is the defect this whole file
+    # keeps finding.
+    source = Path(OverlayAgent.__module__.replace(".", "/") + ".py")
+    root = Path(__file__).resolve().parent.parent
+    text = (root / source).read_text(encoding="utf-8")
+    binding_sites = text.count("binding=True")
+    assert binding_sites, "the overlay agent no longer emits binding proposals"
+    assert text.count("needs_a_human=True") == binding_sites, (
+        f"{binding_sites} binding overlay proposals and "
+        f"{text.count('needs_a_human=True')} marked as needing a person — every "
+        "one of them needs a person, for the same reason"
+    )
+
+
+def test_the_preflight_brief_checks_exactly_what_it_says_it_can_check():
+    """The brief's table has a "checkable" column. It is a claim, so check it.
+
+    Seven failure modes from the labelled corpus, each with a recommended
+    action code and a yes/no on whether preflight can actually see it before
+    the fact. Two are marked **no** and the reasons are good ones: Low Organic
+    Traction is an outcome rather than a cause, and Shadowban Boundary is
+    invisible from here. Saying so is the most useful thing in the table —
+    it is the part that stops somebody trusting a green preflight to mean more
+    than it does.
+
+    Which makes the column worth holding in both directions. A mode marked
+    checkable whose action code is nowhere in `agents/preflight.py` is a check
+    that does not exist; a mode marked **no** whose code *is* there is a check
+    that quietly started running, which sounds harmless and means the table now
+    understates what the crew does — and the table is what somebody reads to
+    decide how much a pass is worth.
+    """
+
+    root = Path(__file__).resolve().parent.parent
+    briefs = (root / "docs" / "agent-briefs.md").read_text(encoding="utf-8")
+    source = (root / "auteur" / "agents" / "preflight.py").read_text(encoding="utf-8")
+
+    rows = re.findall(
+        r"^\| ([A-Z][A-Za-z ]+?) \| ([\d,]+) \| `([A-Z_0-9]+)` \| (.+?) \|$",
+        briefs,
+        re.M,
+    )
+    assert len(rows) == 7, f"the brief lists {len(rows)} failure modes; it describes seven"
+
+    wrong: list[str] = []
+    for mode, count, action, checkable in rows:
+        claims_checkable = not checkable.strip().startswith("**no**")
+        present = f'"{action}"' in source
+        if claims_checkable and not present:
+            wrong.append(f"{mode} is marked checkable and {action} is not in preflight.py")
+        if not claims_checkable and present:
+            wrong.append(
+                f"{mode} is marked **no** and {action} is in preflight.py — the "
+                "table understates what preflight does"
+            )
+        assert int(count.replace(",", "")) > 0, f"{mode} has no recorded count"
+
+    assert not wrong, "; ".join(wrong)
+
+    # Five checkable, two not. If that ratio ever becomes seven-to-zero this
+    # test still passes and should not: a table with nothing marked **no** is a
+    # table that has stopped admitting anything.
+    admitted = [mode for mode, _c, _a, checkable in rows if checkable.strip().startswith("**no**")]
+    assert admitted, (
+        "no failure mode is marked unseeable any more. Either preflight learned "
+        "to detect an outcome and a shadowban, or the honest half of this table "
+        "was deleted"
+    )
+
+
+def test_tightening_the_middle_removes_what_it_says_it_removes():
+    """The proposal a person approves has to do what its title says.
+
+    `ShareAgent` offered "Tighten the middle by a fifth" and multiplied each
+    middle shot by 0.78 — a 22% trim. Two points is not much; the shape is the
+    point. A proposal title is the only description of a change most people
+    will read, an approval is given on the strength of it, and nothing in the
+    suite compared the sentence to the arithmetic.
+
+    Measured on a real timeline rather than asserted from the constant, because
+    the constant being right and the change being right are two things: the
+    trim runs through `source_duration` and a `max(..., 0.35)` floor, either of
+    which could make the applied result differ from the multiplier.
+
+    The brief's other promise is checked here too — the hook and the ending are
+    load-bearing for the other two agents, so tightening must not touch them.
+    """
+
+    import copy
+
+    from auteur.agents.editors import MIDDLE_TIGHTEN, ShareAgent
+    from auteur.edl import EditDecisionList, Shot
+
+    edl = EditDecisionList(title="Slow one")
+    for index in range(8):
+        edl.shots.append(Shot(clip_id=f"c{index}", source=f"c{index}.mp4", start=0.0, end=2.5))
+
+    proposals = [p for p in ShareAgent().inspect(edl, None, None) if "Tighten" in p.title]
+    assert proposals, "a 0.4 cuts/second timeline drew no tighten proposal"
+    proposal = proposals[0]
+
+    before = [shot.duration for shot in edl.shots]
+    after_edl = copy.deepcopy(edl)
+    proposal.change(after_edl)
+    after = [shot.duration for shot in after_edl.shots]
+
+    removed = 1.0 - (after[1] / before[1])
+    assert abs(removed - MIDDLE_TIGHTEN) < 0.005, (
+        f"the proposal is titled {proposal.title!r} and removed "
+        f"{removed * 100:.1f}% of a middle shot"
+    )
+    # "a fifth" in the title, and a fifth is what MIDDLE_TIGHTEN is.
+    assert "fifth" in proposal.title.lower()
+    assert abs(MIDDLE_TIGHTEN - 0.20) < 1e-9, (
+        f"the title says a fifth and MIDDLE_TIGHTEN is {MIDDLE_TIGHTEN} — "
+        "change the title with the number or they part company again"
+    )
+
+    assert after[0] == before[0], "the hook was tightened; the hook agent owns it"
+    assert after[-1] == before[-1], "the ending was tightened; the loop agent owns it"
+
+
 def test_every_source_file_the_prose_points_at_actually_exists():
     """A docstring that cites a file is making a checkable claim. Check it.
 

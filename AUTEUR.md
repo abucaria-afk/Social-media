@@ -550,6 +550,23 @@ out loud: while nothing can publish it asserts the gate has no callers, and the
 moment a module in those packages can reach a network it demands the gate be in
 that module.
 
+**One other thing always needs a person: an overlay.** Not for the publishing
+reason — for the opposite one. No performance export this project has been
+given records whether a post carried on-screen graphics, so the scoring model
+cannot have an opinion about a ring or a bar and does not have one. Overlay
+proposals are therefore `binding`, meaning the model's "no predicted gain" is
+silence rather than a judgement and does not get to veto them.
+
+`binding` was carrying a second, opposite meaning at the same time. For the
+style agent it means *a person already decided* — they supplied reference
+footage, matching it carries out that instruction, and no second approval is
+owed. `Gate.needs_a_person` answered on the mode before it looked at the
+proposal, so in `autonomous` an overlay was applied with the model having no
+opinion and nobody asked: weaker than either gate deciding, because neither
+did. `Proposal.needs_a_human` is now the half of `binding` that means *ask*,
+checked before the mode is; the style agent keeps the other half and still
+applies unattended.
+
 Safe areas still win: the agents move titles to win the first three seconds, and
 the platform's safe area gets the last word on where a title may actually sit.
 
