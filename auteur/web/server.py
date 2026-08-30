@@ -2594,8 +2594,29 @@ class Handler(BaseHTTPRequestHandler):
         if len(username) < 3:
             self._json({"error": "Pick a name of at least three characters."}, 400)
             return
-        if len(password) < 10:
-            self._json({"error": "Ten characters or more, please."}, 400)
+
+        # The same policy every other path uses, rather than a second, looser
+        # one written here.
+        #
+        # This said `len(password) < 10` and nothing else, while
+        # `auth.password_problem` — twelve characters, no leading or trailing
+        # space, nothing off a guessing list, at least five distinct
+        # characters, and not built from the account's own name — was what
+        # `auteur account add`, the first-run seeder and the password *reset*
+        # all enforced. So the one path a person who is not a programmer
+        # actually takes was the weakest, and these all sailed through it:
+        #
+        #     0123456789   two characters short of the floor
+        #     password12   on every guessing list
+        #     aaaaaaaaaa   four distinct characters
+        #     tester1234   the account's own username with digits after it
+        #
+        # And the person who chose one would then be told "use at least 12
+        # characters" the first time they tried to reset it. Two rules for one
+        # thing, with the weaker one on the front door.
+        problem = auth.password_problem(password, username=username, email=email)
+        if problem:
+            self._json({"error": problem}, 400)
             return
 
         # The age gate. This app is submitted to the App Store at 12+, and a

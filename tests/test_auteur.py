@@ -13248,6 +13248,107 @@ def test_the_app_never_asks_a_platform_for_permission_to_post():
     )
 
 
+def test_every_way_to_set_a_password_enforces_the_same_policy():
+    """The front door had its own, weaker rule.
+
+    `auth.password_problem` is the policy: twelve characters, no leading or
+    trailing space, nothing off a guessing list, at least five distinct
+    characters, and not built out of the account's own name. `auteur account
+    add` calls it. The first-run seeder calls it. The password *reset* calls
+    it. Web sign-up did not — it had `len(password) < 10` written inline and
+    nothing else.
+
+    So the one path a person who is not a programmer actually takes was the
+    weakest of the four. Run against a real server, every one of these was
+    accepted at sign-up and rejected everywhere else:
+
+        0123456789   two short of the floor
+        password12   on every guessing list
+        aaaaaaaaaa   four distinct characters
+        tester1234   the account's own username with digits after it
+
+    And the person who chose one would meet "use at least 12 characters" the
+    first time they tried to reset it — the app enforcing a rule at reset that
+    it had declined to enforce when it mattered.
+
+    Two rules for one thing with nothing comparing them is the defect this
+    repository keeps finding. What makes this one worth a guard rather than a
+    fix is that a fourth path is cheap to add and would be written the same
+    way: this asserts that nothing sets a password without asking the policy.
+    """
+
+    import ast
+
+    from auteur.web import auth
+
+    root = Path(__file__).resolve().parent.parent
+
+    # Every module that can set or accept a password has to consult the one
+    # policy function. Named rather than discovered, because a path that
+    # forgets to import it is exactly what this is looking for and would
+    # therefore not be discovered.
+    SETTERS = {
+        "auteur/web/server.py": "sign-up and password reset",
+        "auteur/cli.py": "`auteur account add` and `account password`",
+        "auteur/web/seed.py": "the first-run account",
+    }
+    for name, what in SETTERS.items():
+        source = (root / name).read_text(encoding="utf-8")
+        assert (
+            "password_problem" in source
+        ), f"{name} sets a password ({what}) without asking the policy"
+
+    # And no path may carry a second, private floor. A bare length comparison
+    # against a password is the shape the old rule had.
+    private_floor: list[str] = []
+    for name in SETTERS:
+        path = root / name
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Compare):
+                continue
+            left = node.left
+            if (
+                isinstance(left, ast.Call)
+                and getattr(left.func, "id", "") == "len"
+                and left.args
+                and getattr(left.args[0], "id", "") == "password"
+            ):
+                private_floor.append(f"{name}:{node.lineno}")
+    assert not private_floor, (
+        "a length check on a password outside `password_problem`, which is how "
+        f"the two rules parted company the first time: {private_floor}"
+    )
+
+    # The floor itself, pinned by a password that fails for *no other reason*.
+    # "xk7Qzmw" is seven characters, seven distinct, on no list, and unrelated
+    # to the account — so it is refused if and only if the length rule is
+    # doing its job. The first draft of this test asserted the five cases
+    # below and nothing more, and `MIN_PASSWORD = 4` passed it: every one of
+    # them also breaks a different rule, so none of them was testing the
+    # floor. A case that fails for two reasons proves neither.
+    short_and_otherwise_fine = "xk7Qzmw"
+    assert len(short_and_otherwise_fine) < auth.MIN_PASSWORD
+    assert "at least" in auth.password_problem(short_and_otherwise_fine, username="tester"), (
+        f"{short_and_otherwise_fine!r} is under the {auth.MIN_PASSWORD}-character "
+        "floor and was not refused for that"
+    )
+
+    # And the other rules, each of which stands on its own.
+    for password, why in [
+        ("0123456789", "on a guessing list"),
+        ("password12", "on a guessing list"),
+        ("aaaaaaaaaa", "too few distinct characters"),
+        ("tester1234", "built from the username"),
+        (" correct horse battery ", "leading and trailing space"),
+    ]:
+        assert auth.password_problem(
+            password, username="tester1234", email="t@e.st"
+        ), f"the policy accepts {password!r} ({why})"
+    assert not auth.password_problem(
+        "correct horse battery staple", username="tester", email="t@e.st"
+    ), "the policy refuses a good passphrase, which would send people to Password1!"
+
+
 def test_nothing_calls_the_product_by_the_name_it_used_to_have():
     """The rename left "Auteur" behind in two sentences a person actually reads.
 
