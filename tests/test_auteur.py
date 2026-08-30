@@ -13248,6 +13248,134 @@ def test_the_app_never_asks_a_platform_for_permission_to_post():
     )
 
 
+def test_a_restricted_account_cannot_fetch_a_film_the_feed_hides_from_it():
+    """Hidden from the feed and served from the address bar is not hidden.
+
+    The content restriction was enforced in the list and not in the item.
+    `_held_back` had exactly one caller — the feed — so a restricted account
+    got a feed with the sensitive films correctly missing, and
+    `GET /api/films/<id>` handed over the video to anybody signed in.
+
+    Run against a real server, a restricted fourteen-year-old asking for
+    somebody else's film marked sensitive got **200 and 4,108 bytes of it**.
+    An id is not a secret: it travels in a share, a message, a link somebody
+    sends. Both store listings say an account for somebody under 18 starts
+    with sensitive films hidden, and the 12+ rating rests on that sentence.
+
+    `_may_see` is the same rule asked about one film rather than all of them,
+    and this holds all three of its edges — because the easy over-correction
+    is to refuse everything, which would break the feed for every restricted
+    account and hide people's own work from them.
+    """
+
+    import time
+
+    from auteur.web import server as web
+    from auteur.web.auth import Accounts
+    from auteur.web.safety import Reports
+    from auteur.web.social import Films
+
+    class Stub:
+        """Only the parts `_may_see` reads."""
+
+        def __init__(self, accounts, reports):
+            self.accounts = accounts
+            self.reports = reports
+
+        _may_see = web.Handler._may_see
+
+    with tempfile.TemporaryDirectory() as folder:
+        work = Path(folder)
+        year = time.gmtime().tm_year
+        accounts = Accounts(Accounts.default_path(work))
+        accounts.add("teenager", "t@e.st", TEST_PASSWORD, born=year - 14)
+        accounts.set_restriction("teenager", True)
+        accounts.add("grownup", "g@e.st", TEST_PASSWORD, born=year - 30)
+
+        films = Films(Films.default_path(work))
+        video = work / "f.mp4"
+        video.write_bytes(b"\x00" * 64)
+        theirs_sensitive = films.add(
+            owner="grownup", prompt="adults only", video=str(video), sensitive=True
+        )
+        theirs_ordinary = films.add(
+            owner="grownup", prompt="ordinary", video=str(video), sensitive=False
+        )
+        own_sensitive = films.add(
+            owner="teenager", prompt="their own", video=str(video), sensitive=True
+        )
+
+        handler = Stub(accounts, Reports(Reports.default_path(work)))
+
+        teen = handler._may_see
+        assert not teen(theirs_sensitive, "teenager"), (
+            "a restricted account can fetch somebody else's sensitive film by id — "
+            "the feed hides it and the file is served anyway"
+        )
+        # The two things an over-correction would break.
+        assert teen(theirs_ordinary, "teenager"), (
+            "an ordinary film is now refused to a restricted account, which "
+            "empties the feed for everybody it applies to"
+        )
+        assert teen(own_sensitive, "teenager"), (
+            "a restriction is about what you are shown, not about hiding your " "own work from you"
+        )
+        # And an account with no restriction is untouched.
+        assert teen(theirs_sensitive, "grownup")
+
+        # The other half of the rule, and the half with no `sensitive` flag to
+        # make it obvious: a film nobody marked, but with an open report
+        # against it, is held while the operator decides. Filed for real rather
+        # than asserted about — an earlier draft of this block checked that the
+        # reports store still had an `open_ones` method, which is a fact about
+        # the module and not about the behaviour.
+        assert handler._may_see(theirs_ordinary, "teenager"), "precondition"
+        handler.reports.file(
+            by="somebody",
+            kind="film",
+            about=theirs_ordinary.id,
+            about_who="grownup",
+            # From the fixed vocabulary — `file()` returns None for anything
+            # else, which is how the first draft of this block filed nothing
+            # and then "proved" the film was still visible.
+            reason="other",
+        )
+        assert not handler._may_see(theirs_ordinary, "teenager"), (
+            "a film under an open report is served to a restricted account "
+            "while the operator is still deciding"
+        )
+        # And the moment it is decided, it comes back.
+        open_now = handler.reports.open_ones()
+        assert open_now, "the report was not filed, so the check above proved nothing"
+        assert open_now[0].about == theirs_ordinary.id
+        handler.reports.decide(open_now[0].id, "kept", "looked at it")
+        assert handler._may_see(
+            theirs_ordinary, "teenager"
+        ), "a decided report still holds the film back"
+
+    # The rule being right and the rule being *in the path* are two different
+    # things, and this test proved only the first: commenting the call out of
+    # `_film_media` left it passing. That is the same defect as a publish gate
+    # nobody calls, reproduced while fixing a neighbouring one. The endpoint
+    # that serves the file has to ask.
+    import ast
+
+    source = Path(web.__file__).read_text(encoding="utf-8")
+    served_by = {
+        node.name: node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.FunctionDef)
+    }
+    assert "_film_media" in served_by, "the endpoint that serves a film by id is gone"
+    asks = [
+        inner
+        for inner in ast.walk(served_by["_film_media"])
+        if isinstance(inner, ast.Call) and getattr(inner.func, "attr", "") == "_may_see"
+    ]
+    assert asks, (
+        "`_film_media` serves a film's video and poster and never calls "
+        "`_may_see`, so the restriction is enforced in the feed and nowhere else"
+    )
+
+
 def test_every_way_to_set_a_password_enforces_the_same_policy():
     """The front door had its own, weaker rule.
 

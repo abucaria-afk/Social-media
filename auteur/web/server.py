@@ -1526,6 +1526,41 @@ class Handler(BaseHTTPRequestHandler):
         self.profiles.forget_picture(who)
         self._json({"profile": self._mine(who)})
 
+    def _may_see(self, film, who: str) -> bool:
+        """Whether this account's content restriction lets it have this film.
+
+        The same rule as `_held_back`, asked about one film instead of all of
+        them, because this runs on every request for a video file and that one
+        walks the whole feed.
+
+        It exists because the restriction was enforced in the list and not in
+        the item. `_held_back` had exactly one caller — the feed — so a
+        restricted account was correctly shown a feed with the sensitive films
+        missing, and `GET /api/films/<id>` handed over the video to anybody
+        signed in. Run against a real server, a restricted fourteen-year-old
+        got 200 and four kilobytes of it. An id is not a secret: it travels in
+        a share, a message, a link somebody sends.
+
+        Both store listings say an account for somebody under 18 starts with
+        sensitive films hidden, and the 12+ rating rests on it. Hidden from the
+        feed and served from the address bar is not hidden.
+        """
+        if film is None:
+            return False
+        if film.owner == who:
+            # A restriction is about what you are shown, not about hiding your
+            # own work from you. The same carve-out `_held_back` makes.
+            return True
+        self.accounts.refresh()
+        account = self.accounts.get(who)
+        if account is None or not account.restricted:
+            return True
+        if film.sensitive:
+            return False
+        # "This might be bad, we do not know yet" — held while the operator
+        # decides, exactly as it is in the feed.
+        return not any(r.kind == "film" and r.about == film.id for r in self.reports.open_ones())
+
     def _held_back(self, who: str) -> set[str]:
         """Film ids this account's content restriction keeps off the screen.
 
@@ -2013,12 +2048,23 @@ class Handler(BaseHTTPRequestHandler):
         """The video or the poster for one film, by film id.
 
         Unlike a job, a film is public to everybody signed in — that is what a
-        feed is. The check that matters is that the id names a film this
+        feed is, and the check that matters is that the id names a film this
         instance published, so a path cannot be walked in from the address bar.
+
+        *Except* where a content restriction says otherwise. That sentence used
+        to end at "signed in", and the restriction was enforced only in the
+        feed, so the list hid a sensitive film and this handed over the file.
+        `_may_see` is the same rule asked about one film.
         """
         parts = path.strip("/").split("/")
         film = self.films.get(parts[2]) if len(parts) > 2 else None
         if film is None:
+            self._json({"error": "no such film"}, 404)
+            return
+        if not self._may_see(film, self.current_user() or ""):
+            # The same 404 as "no such film", deliberately. A 403 would confirm
+            # that the id names a real film and that it is the restricted kind,
+            # which is the one thing worth learning from the outside.
             self._json({"error": "no such film"}, 404)
             return
         want = parts[3] if len(parts) > 3 else "video"
