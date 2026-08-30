@@ -6017,17 +6017,6 @@ def test_the_crew_result_carries_every_field_back_to_the_renderer(tmp_path):
         ), f"{field.name} did not survive the crew"
 
 
-def test_the_studio_and_the_cli_build_the_same_crew(tmp_path):
-    """A studio showing fewer proposals than the CLI would act on is the wrong list."""
-    import inspect as _inspect
-
-    from auteur.web import server
-
-    source = _inspect.getsource(server.Handler._agents_plan)
-    assert "build_crew(" in source
-    assert "default_crew()" not in source
-
-
 # ----------------------------------------------------------------------- scholar
 
 
@@ -10189,18 +10178,22 @@ def test_every_provider_is_listed_even_when_it_is_not_set_up():
         assert row["note"], f"{row['key']} does not say what it needs"
 
 
-def test_signing_in_with_a_provider_never_creates_an_account(tmp_path):
-    """Sign-up closes after the first account because this serves somebody's
-    own footage over their own wifi. An identity provider proves who you are;
-    it is not a second door."""
+def test_the_module_that_talks_to_a_provider_cannot_reach_the_accounts(tmp_path):
+    """`oidc` answers "who is this person" and must not be able to enrol one.
+
+    A constraint on the whole module rather than on one branch, which is why it
+    is still read as text: there is no single call to drive. What the *handler*
+    does with an unrecognised address is asserted against the account store
+    instead, by `test_an_unknown_address_is_told_so_and_not_enrolled` — the
+    two assertions that used to live here read `_oidc_return`'s source for
+    "accounts.add" and "nomatch", and both of those still pass while the
+    branch that refuses a stranger is unreachable.
+    """
     import inspect
 
-    from auteur.web import oidc, server
+    from auteur.web import oidc
 
     assert "add(" not in inspect.getsource(oidc), "the oidc module can create accounts"
-    handler = inspect.getsource(server.Handler._oidc_return)
-    assert "accounts.add" not in handler
-    assert "nomatch" in handler, "an unknown address must be told, not enrolled"
 
 
 def test_opening_a_session_is_not_the_same_as_authenticating(tmp_path):
@@ -15873,3 +15866,471 @@ def test_the_media_index_lists_what_it_scanned(rushes, tmp_path, capsys):
 
     assert main(["media", "list", "--index", str(index)]) == 0
     assert "keepers" in capsys.readouterr().out, "a tag has to survive into the listing"
+
+
+# ---------------------------------------------------------------------------
+# Sign-in, driven rather than read
+#
+# These invariants were guarded by `inspect.getsource` and a substring: the
+# tests asserted that `_oidc_return` *contains* the text "nomatch" and does not
+# contain "accounts.add". That passes whether or not the handler works, and
+# `_oidc_return` sat at 2% covered — its six rejection branches and its one
+# success branch were never executed. A rename, a helper, or a reordering
+# breaks the property and not the test.
+#
+# `Handler` is a BaseHTTPRequestHandler, so a bare instance is built without
+# `__init__` — which would try to serve a request — and the three response
+# methods are recorded instead of written to a socket.
+# ---------------------------------------------------------------------------
+
+
+def _signin_handler(accounts, settings, attempts=None):
+    """A `Handler` that records its response instead of writing one."""
+    from auteur.web import oidc, server
+
+    class Caught(server.Handler):
+        def __init__(self):  # noqa: D107 - deliberately not the parent's
+            self.status = None
+            self.sent_headers = []
+
+        def send_response(self, code, *args):
+            self.status = code
+
+        def send_header(self, key, value):
+            self.sent_headers.append((key, value))
+
+        def end_headers(self):
+            pass
+
+    handler = Caught()
+    handler.accounts = accounts
+    handler.attempts = attempts if attempts is not None else oidc.Attempts()
+    handler.sign_in_with = settings
+    return handler
+
+
+def _went_to(handler):
+    return dict(handler.sent_headers).get("Location")
+
+
+@pytest.fixture
+def signin(tmp_path):
+    """An account, a usable provider, and a live attempts store."""
+    from auteur.web import oidc
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("ada", "ada@example.invalid", TEST_PASSWORD)
+    settings = {"google": oidc.Settings(client_id="cid", redirect_uri="https://example/cb")}
+    return accounts, settings, oidc.Attempts()
+
+
+def test_every_way_a_provider_sign_in_can_fail_says_which_one(signin, monkeypatch):
+    """Six rejections, none of which was ever executed by the suite.
+
+    Each one has to reach the login page saying *which* thing went wrong; a
+    handler that fell through to the same message for all six would still have
+    satisfied the substring test this replaces.
+    """
+    from auteur.web import oidc
+
+    accounts, settings, attempts = signin
+
+    def fresh():
+        return {"state": attempts.begin("google").state, "code": "an-auth-code"}
+
+    def go(fields, *, provider_settings=None, finish=None):
+        if finish is not None:
+            monkeypatch.setattr(oidc, "finish", finish)
+        handler = _signin_handler(accounts, provider_settings or settings, attempts)
+        handler._oidc_return("google", fields)
+        return _went_to(handler)
+
+    # The provider said no.
+    assert go({"error": "access_denied"}) == "/login?trouble=refused"
+
+    # A state this server never issued.
+    assert go({"state": "never-issued-by-us", "code": "c"}) == "/login?trouble=stale"
+
+    # Nothing configured for the provider, and a claimed state with no code.
+    assert go(fresh(), provider_settings={"google": oidc.Settings()}) == (
+        "/login?trouble=unconfigured"
+    )
+    assert go({"state": attempts.begin("google").state}) == "/login?trouble=unconfigured"
+
+    # The token exchange itself failed.
+    def boom(*args, **kwargs):
+        raise RuntimeError("the exchange was refused")
+
+    assert go(fresh(), finish=boom) == "/login?trouble=failed"
+
+    # It came back without a usable email.
+    assert go(fresh(), finish=lambda *a, **k: {"sub": "1234"}) == "/login?trouble=unverified"
+
+    # A real, verified address that has no account here.
+    stranger = {"email": "nobody@example.invalid", "email_verified": True}
+    assert go(fresh(), finish=lambda *a, **k: stranger) == "/login?trouble=nomatch"
+
+
+def test_a_sign_in_state_cannot_be_used_twice(signin):
+    """`state` is the CSRF defence, and single use is the whole of it.
+
+    Nothing checked that a replayed one is refused — the property lived in
+    `Attempts.claim`'s docstring and in no test that ran the handler.
+    """
+    accounts, settings, attempts = signin
+    attempt = attempts.begin("google")
+    fields = {"state": attempt.state, "code": "an-auth-code"}
+
+    first = _signin_handler(accounts, settings, attempts)
+    first._oidc_return("google", fields)
+    # It gets as far as the exchange, which is past the state check.
+    assert _went_to(first) != "/login?trouble=stale"
+
+    replay = _signin_handler(accounts, settings, attempts)
+    replay._oidc_return("google", dict(fields))
+    assert _went_to(replay) == "/login?trouble=stale", "a replayed state was accepted"
+
+
+def test_a_state_issued_for_one_provider_is_not_good_at_another(signin):
+    """Otherwise a sign-in begun at Google could be finished by Apple."""
+    from auteur.web import oidc
+
+    accounts, _, attempts = signin
+    both = {
+        "google": oidc.Settings(client_id="g", redirect_uri="https://example/cb"),
+        "apple": oidc.Settings(client_id="a", redirect_uri="https://example/cb"),
+    }
+    attempt = attempts.begin("google")
+
+    handler = _signin_handler(accounts, both, attempts)
+    handler._oidc_return("apple", {"state": attempt.state, "code": "c"})
+    assert _went_to(handler) == "/login?trouble=stale"
+
+
+def test_a_provider_sign_in_signs_in_an_account_that_already_exists(signin, monkeypatch):
+    """The success branch: a session, and the account it belongs to."""
+    from auteur.web import oidc
+
+    accounts, settings, attempts = signin
+    monkeypatch.setattr(
+        oidc, "finish", lambda *a, **k: {"email": "ada@example.invalid", "email_verified": True}
+    )
+
+    handler = _signin_handler(accounts, settings, attempts)
+    handler._oidc_return("google", {"state": attempts.begin("google").state, "code": "c"})
+
+    assert handler.status == 303
+    assert _went_to(handler) == "/"
+    cookie = dict(handler.sent_headers).get("Set-Cookie")
+    assert cookie, "a successful sign-in has to actually open a session"
+    token = cookie.split("=", 1)[1].split(";", 1)[0]
+    assert accounts.session_user(token) == "ada"
+
+
+def test_an_unknown_address_is_told_so_and_not_enrolled(signin, monkeypatch):
+    """Sign-up closes after the first account. A provider proves who somebody
+    is; it is not a second door in.
+
+    Asserted here against the account store rather than against the handler's
+    source text, so moving the check or renaming the call cannot pass it.
+    """
+    from auteur.web import oidc
+
+    accounts, settings, attempts = signin
+    before = sorted(accounts.accounts)
+
+    monkeypatch.setattr(
+        oidc,
+        "finish",
+        lambda *a, **k: {"email": "a-stranger@example.invalid", "email_verified": True},
+    )
+    handler = _signin_handler(accounts, settings, attempts)
+    handler._oidc_return("google", {"state": attempts.begin("google").state, "code": "c"})
+
+    assert _went_to(handler) == "/login?trouble=nomatch"
+    assert not any(key == "Set-Cookie" for key, _ in handler.sent_headers)
+    accounts.refresh()
+    assert sorted(accounts.accounts) == before, "an unknown address was enrolled"
+
+
+# ---------------------------------------------------------------------------
+# One crew, however you got here
+# ---------------------------------------------------------------------------
+
+
+def test_the_studio_and_the_cli_put_the_same_agents_in_the_room(model):
+    """`assemble.build_crew` exists because the two entry points disagreed:
+    the CLI assembled four agents, the studio called `default_crew()` and got
+    five, and a studio showing fewer proposals than the CLI will act on is the
+    wrong list.
+
+    The test that guarded this read `_agents_plan`'s source and checked it
+    contained the text "build_crew(". That passes if the two call it with
+    different arguments, which is the bug — so this builds both and compares
+    who is actually in the room.
+    """
+    from auteur.agents import Gate, Mode
+    from auteur.agents.assemble import build_crew
+    from auteur.workflows import resolve
+
+    spec = resolve("tiktok")
+    readings = _readings_for((0.5, 0.5), (0.4, 0.6))
+
+    # The studio's call, from `Handler._agents_plan`.
+    studio = build_crew(
+        model,
+        gate=Gate(Mode.SUPERVISED, on_ask=lambda proposal: ("reject", "waiting for you")),
+        readings=readings,
+        spec=spec,
+        stickers=[],
+    )
+    # The CLI's, from `_run_workflow` — more keyword arguments, same room.
+    terminal = build_crew(
+        model,
+        gate=Gate(Mode.AUTONOMOUS),
+        readings=readings,
+        spec=spec,
+        style=None,
+        stickers=[],
+        previewer=None,
+        sources=["/x/one.mp4"],
+    )
+
+    assert [agent.name for agent in studio.agents] == [agent.name for agent in terminal.agents]
+
+
+def test_measured_footage_puts_more_in_the_room_than_the_bare_five(model):
+    """The bug was a crew of five where the other path had more.
+
+    Readings are what buy the extra agents — the finisher and the overlay agent
+    cannot work without somewhere to put things — so a crew built *with* them
+    that is no bigger than `default_crew()` is the failure, restated.
+    """
+    from auteur.agents import Gate, Mode, default_crew
+    from auteur.agents.assemble import build_crew
+    from auteur.workflows import resolve
+
+    bare = [agent.name for agent in default_crew()]
+    crew = build_crew(
+        model,
+        gate=Gate(Mode.AUTONOMOUS),
+        readings=_readings_for((0.5, 0.5)),
+        spec=resolve("tiktok"),
+        stickers=[],
+    )
+    names = [agent.name for agent in crew.agents]
+
+    assert len(names) > len(bare), "readings bought no extra agents"
+    assert set(bare) <= set(names), "the crew lost one of the five it starts from"
+    assert "finishing" in names or "overlay" in names
+
+
+def test_the_studio_asks_for_a_crew_rather_than_assembling_its_own(tmp_path, monkeypatch):
+    """The other half of the parity claim, and the half a grep cannot make.
+
+    `build_crew` agreeing with itself proves nothing if the studio stopped
+    calling it. This drives the real `_agents_plan` and watches which factory
+    it reaches for — the substring test it replaces would have passed on a
+    handler that called `default_crew()` through a helper.
+    """
+    import numpy as np
+    from PIL import Image
+
+    from auteur.agents import assemble
+    from auteur.agents.base import CrewResult
+    from auteur.edl import EditDecisionList, Shot
+    from auteur.insight import corpus, fit, predict
+    from auteur.web import server
+
+    still = tmp_path / "a_frame.jpg"
+    Image.fromarray(np.full((240, 135, 3), 90, dtype=np.uint8)).save(still)
+    edl = EditDecisionList(
+        title="t",
+        shots=[Shot(clip_id="C00", source=still, start=0.0, end=2.5, is_still=True)],
+    )
+    fitted = fit(corpus([], simulate_rows=200))
+
+    asked: list[dict] = []
+
+    def spy(model, **kwargs):
+        asked.append(kwargs)
+
+        class Unused:
+            agents: list = []
+
+            def run(self, timeline):
+                scored = predict(timeline, fitted)
+                return CrewResult(edl=timeline, baseline=scored, final=scored, rounds=[])
+
+        return Unused()
+
+    monkeypatch.setattr(assemble, "build_crew", spy)
+
+    class Caught(server.Handler):
+        _pending = None
+
+        def __init__(self):
+            self.replied = None
+
+        def _json_body(self):
+            return {"platform": "tiktok", "mode": "supervised"}
+
+        def _json(self, payload, code=200):
+            self.replied = (payload, code)
+
+        def current_user(self):
+            return "ada"
+
+        def _fitted(self):
+            return fitted
+
+        studio = type("_Studio", (), {"last_edl": lambda self, who: edl, "sticker_dir": None})()
+
+    handler = Caught()
+    handler._agents_plan()
+
+    assert len(asked) == 1, "the studio built its own crew instead of asking for one"
+    assert asked[0]["readings"], "it asked for a crew that cannot see the footage"
+    assert handler.replied is not None and handler.replied[1] == 200
+
+
+# ---------------------------------------------------------------------------
+# Tokens that can post as somebody
+#
+# `auteur/social/accounts.py` sat at 40%. It is a small module, but it is the
+# one holding tokens: `oidc.py` answers "who is this person", and this answers
+# "which TikTok account may this instance post to". Its own docstring draws the
+# line — "a leaked list of handles is embarrassing; a leaked access token posts
+# to somebody's TikTok" — and that separation had no test.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def connected(tmp_path):
+    from auteur.social.accounts import Connections
+
+    store = Connections(Connections.default_path(tmp_path))
+    store.connect(
+        "ada",
+        "tiktok",
+        handle="@ada",
+        token="tok-live-must-not-leak",
+        refresh="ref-live-must-not-leak",
+    )
+    return store, tmp_path
+
+
+def test_a_token_is_never_written_into_the_file_that_draws_the_screen(connected):
+    """The list of connections is read to render a page; the token is not.
+
+    Two files with different blast radii, which is only true while nothing puts
+    the second one's contents in the first.
+    """
+    store, _ = connected
+    listing = store.path.read_text(encoding="utf-8")
+
+    assert "@ada" in listing, "the handle belongs in the list"
+    assert "tok-live-must-not-leak" not in listing
+    assert "ref-live-must-not-leak" not in listing
+    assert store.token("ada", "tiktok") == "tok-live-must-not-leak"
+
+
+def test_the_token_file_is_readable_only_by_the_person_whose_workspace_it_is(connected):
+    """It sits beside somebody's films, and a new file is usually world-readable."""
+    store, _ = connected
+    secrets = store._secrets
+
+    assert secrets.is_file()
+    assert secrets.stat().st_mode & 0o077 == 0, "the token file is readable by other users"
+
+
+def test_disconnecting_takes_the_token_and_not_only_the_row(connected):
+    """A row removed from the screen while the token still posts is the worst
+    shape this can fail in: it looks disconnected and is not."""
+    store, _ = connected
+
+    assert store.disconnect("ada", "tiktok") is True
+    assert store.of("ada") == []
+    assert store.token("ada", "tiktok") == ""
+
+    raw = store._secrets.read_text(encoding="utf-8")
+    assert "tok-live-must-not-leak" not in raw
+    assert "ref-live-must-not-leak" not in raw
+
+
+def test_closing_an_account_leaves_no_token_that_can_still_post_as_them(connected):
+    """Guideline 5.1.1(v) is about the account being erasable from inside the
+    app, and a token that outlives the account that authorised it is the
+    remnant that matters."""
+    store, _ = connected
+    store.connect("ada", "instagram", handle="@ada", token="tok-instagram")
+    store.connect("bob", "tiktok", handle="@bob", token="tok-bob-keeps-this")
+
+    assert store.forget_everything_about("ada") == 2
+    assert store.of("ada") == []
+    assert store.token("ada", "tiktok") == ""
+    assert store.token("ada", "instagram") == ""
+
+    raw = store._secrets.read_text(encoding="utf-8")
+    assert "tok-instagram" not in raw
+
+    # And it took only hers.
+    assert store.token("bob", "tiktok") == "tok-bob-keeps-this"
+
+
+def test_reconnecting_replaces_the_old_token_rather_than_keeping_both(connected):
+    """`connect` disconnects first, so a stale token cannot be left behind
+    under the same key."""
+    store, _ = connected
+    store.connect("ada", "tiktok", handle="@ada", token="tok-the-new-one")
+
+    assert len(store.of("ada")) == 1, "reconnecting left two rows for one platform"
+    assert store.token("ada", "tiktok") == "tok-the-new-one"
+    assert "tok-live-must-not-leak" not in store._secrets.read_text(encoding="utf-8")
+
+
+def test_asking_for_a_token_that_is_not_there_answers_rather_than_raising(tmp_path):
+    """The docstring's reason: a caller cannot leak a token into a traceback by
+    forgetting a connection is gone. A corrupt store is the same answer."""
+    from auteur.social.accounts import Connections
+
+    store = Connections(Connections.default_path(tmp_path))
+    assert store.token("nobody", "tiktok") == ""
+
+    store.connect("ada", "tiktok", handle="@ada", token="tok")
+    store._secrets.write_text("{not json at all", encoding="utf-8")
+    assert store.token("ada", "tiktok") == ""
+
+
+def test_a_publishing_token_never_lands_in_the_store_people_sign_in_with(tmp_path):
+    """Same protocol, different consent. A token that can publish on somebody's
+    behalf is not a token that should live beside a sign-in."""
+    from auteur.social.accounts import Connections
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(Accounts.default_path(tmp_path))
+    accounts.add("ada", "ada@example.invalid", TEST_PASSWORD)
+
+    publishing = Connections(Connections.default_path(tmp_path))
+    publishing.connect("ada", "tiktok", handle="@ada", token="tok-publishes-as-ada")
+
+    assert publishing._secrets != accounts.path
+    assert "tok-publishes-as-ada" not in accounts.path.read_text(encoding="utf-8")
+
+    # And the sign-in store's own secrets are not in the publishing files.
+    for path in (publishing.path, publishing._secrets):
+        assert TEST_PASSWORD not in path.read_text(encoding="utf-8")
+
+
+def test_a_platform_the_program_does_not_know_is_refused_not_stored(tmp_path):
+    """An unknown platform silently accepted would be a row nothing can post
+    to, and a token filed under a key nothing will ever clear."""
+    from auteur.social.accounts import Connections
+
+    store = Connections(Connections.default_path(tmp_path))
+    with pytest.raises(ValueError):
+        store.connect("ada", "myspace", handle="@ada", token="tok")
+
+    assert store.of("ada") == []
+    assert not store._secrets.is_file(), "a refused platform still wrote a token"
