@@ -38,6 +38,7 @@ free on the device would be charging for nothing.
 from __future__ import annotations
 
 import os
+import urllib.parse
 from dataclasses import dataclass
 
 #: When the rival prices below were read off the rivals' own pages. Same
@@ -142,7 +143,14 @@ def undercut_of(price: float, rivals: list[Rival]) -> float:
 #: had a pair of them in hand while writing this file. A test link on the
 #: public site takes a card number that is not a card number and tells the
 #: customer it worked. `_checkout_problem` refuses them by shape.
-CHECKOUT: dict[str, str] = {}
+CHECKOUT: dict[str, str] = {
+    # Read off the live site on 2026-08-31, where they had been hand-typed
+    # into `docs/index.html` — a generated file, so the next `build_site.py`
+    # run would have deleted both buttons and nobody could have bought
+    # anything. Here they survive a rebuild and reach the app as well.
+    "solo": "https://buy.stripe.com/8x2bJ16fV8K5eRieHR1B602",
+    "studio": "https://buy.stripe.com/3cIaEX9s72lHdNearB1B601",
+}
 
 
 def _checkout_problem(url: str) -> str:
@@ -262,12 +270,42 @@ def checkout_for(tier: Tier) -> str:
     Both paths go through the same refusal, so the environment is not a way
     around it — a test link is rejected however it arrives.
     """
-    url = (os.environ.get(f"AUTEUR_CHECKOUT_{tier.key.upper()}", "") or "").strip()
-    url = url or CHECKOUT.get(tier.key, "").strip()
+    raw = os.environ.get(f"AUTEUR_CHECKOUT_{tier.key.upper()}")
+    if raw is not None:
+        # Set-but-empty means **closed**, and that is the useful half. Before
+        # there were real links in `CHECKOUT` the environment only ever added
+        # one, so there was no way to take a plan off sale without editing
+        # this file — no staging build without a checkout, and no switching
+        # the shop off in a hurry. A variable that is present speaks for the
+        # tier whatever it says, including saying nothing.
+        url = raw.strip()
+    else:
+        url = CHECKOUT.get(tier.key, "").strip()
     problem = _checkout_problem(url)
     if problem:
         raise ValueError(f"{tier.key}: {problem} ({url})")
     return url
+
+
+def checkout_for_person(tier: Tier, username: str) -> str:
+    """The tier's checkout with the buyer's name attached, or "" if not open.
+
+    Stripe hands `client_reference_id` back on `checkout.session.completed`,
+    and it is the *only* thing in that event that names a person: every later
+    subscription event knows the Stripe customer and nothing else. So a
+    checkout opened without it is a card charged and an account nobody can
+    find — the money arrives and the door stays shut, which is the defect the
+    whole billing path exists to prevent.
+
+    A blank username returns "" rather than a bare link. Offering a checkout
+    to somebody the app cannot name is offering to take their money and lose
+    it, and a button that is absent is better than one that does that.
+    """
+    url = checkout_for(tier)
+    if not url or not username.strip():
+        return ""
+    joiner = "&" if "?" in url else "?"
+    return f"{url}{joiner}client_reference_id={urllib.parse.quote(username.strip())}"
 
 
 #: The tier the ten per cent comes off. Named rather than indexed, because

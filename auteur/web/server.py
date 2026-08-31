@@ -2663,7 +2663,11 @@ class Handler(BaseHTTPRequestHandler):
         # that keeps a fake card form off a real page.
         checkout = ""
         try:
-            checkout = pricing.checkout_for(pricing.TOP_TIER)
+            # With the buyer's name on it. Stripe hands `client_reference_id`
+            # back on the completed session and it is the only thing there
+            # that names a person, so a link without it is a charge this copy
+            # can never match to an account.
+            checkout = pricing.checkout_for_person(pricing.TOP_TIER, account.username)
         except ValueError:
             checkout = ""
         self._json(

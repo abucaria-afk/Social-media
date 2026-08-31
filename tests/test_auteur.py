@@ -15295,7 +15295,13 @@ def test_the_discount_the_site_advertises_can_actually_be_claimed():
         f"and the coupon gives {percent}%"
     )
 
-    not_yet = build()
+    # Every paid tier explicitly closed. These three tests used to get the
+    # shut state for free, because `pricing.CHECKOUT` was empty and there was
+    # nothing to sell. There are real links in it now, so the closed half of
+    # each of these has to be *built* rather than inherited — which is better,
+    # since it means both branches are now exercised on purpose.
+    shut_env = {f"AUTEUR_CHECKOUT_{t.key.upper()}": "" for t in pricing.TIERS if t.dollars}
+    not_yet = build(**shut_env)
     assert (
         pricing.PROMO_CODE not in not_yet
     ), "the page tells somebody to type a code at a checkout that does not exist"
@@ -15368,11 +15374,20 @@ def test_a_plan_with_nowhere_to_pay_says_so_instead_of_offering_a_button():
 
     paid = [tier for tier in pricing.TIERS if tier.dollars]
 
-    page = build()
+    # Every paid tier explicitly closed. These three tests used to get the
+    # shut state for free, because `pricing.CHECKOUT` was empty and there was
+    # nothing to sell. There are real links in it now, so the closed half of
+    # each of these has to be *built* rather than inherited — which is better,
+    # since it means both branches are now exercised on purpose.
+    shut_env = {f"AUTEUR_CHECKOUT_{t.key.upper()}": "" for t in pricing.TIERS if t.dollars}
+    page = build(**shut_env)
     assert page.count("Not open yet") == len(paid), "a paid plan with no checkout is not saying so"
     assert "Start the" not in page, "a plan offers a trial it has nowhere to start"
 
-    page = build(AUTEUR_CHECKOUT_SOLO="https://buy.stripe.com/9AQ00realone")
+    # One tier open and the rest shut, so the count below means what it says.
+    # Overriding only Solo used to be enough; now the others would fall
+    # through to the real table and nothing would be reported as closed.
+    page = build(**{**shut_env, "AUTEUR_CHECKOUT_SOLO": "https://buy.stripe.com/9AQ00realone"})
     assert 'href="https://buy.stripe.com/9AQ00realone">Start the' in page
     assert (
         page.count("Not open yet") == len(paid) - 1
@@ -15442,7 +15457,13 @@ def test_the_page_never_offers_a_trial_it_has_nowhere_to_start():
         (root / "-").unlink()
         return page
 
-    shut = build()
+    # Every paid tier explicitly closed. These three tests used to get the
+    # shut state for free, because `pricing.CHECKOUT` was empty and there was
+    # nothing to sell. There are real links in it now, so the closed half of
+    # each of these has to be *built* rather than inherited — which is better,
+    # since it means both branches are now exercised on purpose.
+    shut_env = {f"AUTEUR_CHECKOUT_{t.key.upper()}": "" for t in pricing.TIERS if t.dollars}
+    shut = build(**shut_env)
     assert "Not open yet" in shut, "no plan is shut, so there is nothing to be wrong about"
     for promise in (f"{pricing.TRIAL_DAYS} days free", "days free and no card"):
         assert promise not in shut, f"the page promises {promise!r} and has nowhere to start it"
@@ -16337,7 +16358,12 @@ def test_the_plan_screen_never_offers_a_checkout_that_does_not_exist():
 
     import os as _os
 
-    assert pricing.CHECKOUT == {}, "a checkout URL landed in the table"
+    # This asserted `CHECKOUT == {}` while nothing was for sale. Real links
+    # live there now, so what matters is no longer that the table is empty —
+    # it is that nothing in it is a test link and that a tier with no link
+    # yields "" rather than something a page would render as a button.
+    assert all(not pricing._checkout_problem(u) for u in pricing.CHECKOUT.values())
+    assert pricing.checkout_for(pricing.FREE) == "", "the free tier has a checkout"
     assert pricing._checkout_problem("https://buy.stripe.com/test_abc")
     assert pricing._checkout_problem("http://buy.stripe.com/live"), "http was allowed"
     assert pricing._checkout_problem("https://buy.stripe.com/live_ok") == ""
@@ -17104,3 +17130,64 @@ def test_a_platform_the_program_does_not_know_is_refused_not_stored(tmp_path):
 
     assert store.of("ada") == []
     assert not store._secrets.is_file(), "a refused platform still wrote a token"
+
+
+def test_a_checkout_carries_the_name_of_whoever_is_buying():
+    """Without it, a payment is a charge nobody can match to an account.
+
+    `client_reference_id` is the only thing on `checkout.session.completed`
+    that names a person — every later subscription event knows the Stripe
+    customer id and nothing else. So a checkout opened without it produces
+    exactly the failure this whole path was built to stop: the card is
+    charged, `grant_from` cannot find anybody, and the door stays shut.
+    """
+    from auteur import pricing
+    from auteur.web import billing
+
+    link = pricing.checkout_for_person(pricing.TOP_TIER, "Avbucaria")
+    assert link, "the top tier has no checkout at all"
+    assert "client_reference_id=Avbucaria" in link
+
+    # Nobody to name means no offer. A button that takes money the app cannot
+    # attribute is worse than no button.
+    assert pricing.checkout_for_person(pricing.TOP_TIER, "") == ""
+    assert pricing.checkout_for_person(pricing.TOP_TIER, "   ") == ""
+
+    # And a name with URL punctuation in it survives the round trip.
+    odd = pricing.checkout_for_person(pricing.TOP_TIER, "a b?c")
+    assert "client_reference_id=a%20b%3Fc" in odd
+
+    # The whole point, end to end: what Stripe sends back after that link is
+    # paid is an event this copy can act on.
+    grant = billing.grant_from(
+        {
+            "type": "checkout.session.completed",
+            "data": {
+                "object": {
+                    "payment_status": "paid",
+                    "client_reference_id": "Avbucaria",
+                    "customer": "cus_x",
+                    "expires_at": time.time() + 86400,
+                    "items": {"data": [{"price": {"lookup_key": pricing.TOP_TIER.lookup_key}}]},
+                }
+            },
+        }
+    )
+    assert grant is not None, "the event from our own link matched nobody"
+    assert grant.username == "Avbucaria"
+    assert grant.plan == pricing.TOP_TIER.key
+
+
+def test_no_checkout_link_this_project_ships_is_a_stripe_test_link():
+    """A test link takes a card number that is not a card number and says it
+    worked. Every path to a checkout goes through the same refusal, including
+    the table now that it has real links in it.
+    """
+    from auteur import pricing
+
+    for key, url in pricing.CHECKOUT.items():
+        assert not pricing._checkout_problem(url), f"{key}: {url}"
+        assert "/test_" not in url, f"{key} is a test link: {url}"
+    for tier in pricing.TIERS:
+        if tier.dollars:
+            assert pricing.checkout_for(tier), f"{tier.key} is priced but unbuyable"
