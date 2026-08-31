@@ -610,6 +610,54 @@
     $("joining-code").textContent = (data && data.code) || "";
   }
 
+  /* What this person is paying for, if anything.
+   *
+   * `Account.plan` was written by the Stripe webhook and read by nothing —
+   * the app had no way to ask and no way to show it. Everything below comes
+   * from /api/plan, which derives it all from `auteur/pricing.py`, so this
+   * screen cannot advertise a price the checkout does not charge.
+   */
+  var planState = null;
+
+  function drawPlan(plan) {
+    planState = plan;
+    /* On somebody's own machine the whole section stays away. The tiers are
+       about an instance that runs when you are not, and this one does not. */
+    $("plan-section").hidden = !plan || !plan.hosted;
+    if (!plan || !plan.hosted) { return; }
+
+    $("plan-name").textContent = plan.paying
+      ? plan.name + " · " + plan.monthly
+      : plan.name;
+
+    var top = plan.top || {};
+    /* Offered only when there is somewhere real to send them. A button that
+       goes nowhere is worse than no button, and `checkout_for` refuses a
+       Stripe test link by shape, so "" here means "not open yet" rather
+       than "misconfigured". */
+    var canBuy = !plan.paying && !!top.checkout;
+    $("plan-upgrade").hidden = !canBuy;
+    if (canBuy) {
+      $("plan-upgrade").href = top.checkout;
+      $("plan-upgrade-label").textContent = "Get " + top.name;
+      $("plan-upgrade-price").textContent = top.monthly + "/mo";
+    }
+    $("plan-note").textContent = plan.paying
+      ? "Billed monthly. Cancel any time — it stays on until the period ends."
+      : (top.checkout
+          ? top.name + " adds: " + (top.includes || []).join(" · ")
+            + (top.trial_days ? ". " + top.trial_days + "-day free trial." : "")
+          : "Paid plans are not open yet on this copy.");
+  }
+
+  function loadPlan() {
+    fetch("/api/plan", { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(drawPlan)
+      .catch(function () { /* signed out, or offline */ });
+  }
+  loadPlan();
+
   function loadJoining() {
     fetch("/api/joining", { credentials: "same-origin", cache: "no-store" })
       .then(function (r) { return r.ok ? r.json() : null; })
@@ -623,14 +671,30 @@
        going without a second request first. */
     var turningOn = $("joining-row").dataset.on !== "1";
     $("joining-state").textContent = "…";
+    $("joining-error").hidden = true;
     fetch("/api/joining", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ open: turningOn })
     })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) { drawJoining(data || { open: false }); })
+      .then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+      })
+      .then(function (got) {
+        /* A refusal used to land here as `!r.ok`, and the switch flipped
+           silently back to Off. Somebody on the free tier tapped it, nothing
+           happened, and nothing said why — which reads as a broken switch
+           rather than as a plan they are not on. Say it. */
+        if (!got.ok) {
+          $("joining-error").textContent =
+            (got.d && got.d.error) || "That did not work.";
+          $("joining-error").hidden = false;
+          drawJoining({ open: false });
+          return;
+        }
+        drawJoining(got.d);
+      })
       .catch(function () { loadJoining(); });
   });
 

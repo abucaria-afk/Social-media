@@ -33,6 +33,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import time
 
 from .. import pricing
@@ -214,3 +215,47 @@ def read_event(body: bytes) -> dict | None:
     except (ValueError, UnicodeDecodeError):
         return None
     return event if isinstance(event, dict) else None
+
+
+def hosted() -> bool:
+    """Whether this copy is one Auteur Studies runs and charges for.
+
+    Read from the environment on every call rather than captured at import,
+    so a test can set it and so an operator can change it without a rebuild.
+
+    **This is the difference between a price and a padlock.** Somebody running
+    `auteur serve` on their own laptop is using their own computer, their own
+    disk and their own electricity; charging them to let a friend sign in
+    would be renting them something they already own. The paid tiers describe
+    *a copy that is running when you are not* — an instance on somebody else's
+    machine — so the entitlement only means anything on one of those.
+
+    Default False. An instance that has not been told it is hosted behaves
+    exactly as it did before any of this existed.
+    """
+    return os.environ.get("AUTEUR_HOSTED", "").strip().lower() in {"1", "true", "yes"}
+
+
+def may_open_instance(account) -> str:
+    """Why this person cannot open this copy to other people, or "" if they can.
+
+    `auteur/pricing.py` says of the top tier, in as many words: *"The same
+    instance with more than one person on it. This is the invite system that
+    already exists in `auteur/web/auth.py`, priced."* The invite system was
+    built and the price was set and the two were never introduced, so the one
+    thing the top tier is sold as was free to everybody.
+
+    The tier is looked up by identity — `pricing.TOP_TIER` — rather than by
+    the string "studio", so renaming the tier does not leave this gate naming
+    a plan nobody sells.
+    """
+    if not hosted():
+        return ""
+    if account is None:
+        return "sign in first"
+    if account.plan == pricing.TOP_TIER.key and account.paying:
+        return ""
+    return (
+        f"Inviting people onto this copy is part of {pricing.TOP_TIER.name}"
+        f" ({pricing.TOP_TIER.monthly} a month)."
+    )

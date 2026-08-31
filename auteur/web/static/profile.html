@@ -167,6 +167,25 @@
          appear on. Until now the only way to add somebody was
          `auteur account add` typed on the machine's terminal — by the owner,
          not by the person joining. -->
+    <!-- What this person is on.
+         Hidden entirely on somebody's own machine: the entitlement means
+         nothing there, and an upgrade offer on a copy running on your own
+         laptop is an advertisement, not a setting. -->
+    <div id="plan-section" hidden>
+      <h3 class="settings-label">Plan</h3>
+      <div class="inset-group">
+        <div class="inset-row">
+          <span class="inset-label">You are on</span>
+          <span class="inset-value" id="plan-name">…</span>
+        </div>
+        <a class="inset-row" id="plan-upgrade" href="#" hidden>
+          <span class="inset-label" id="plan-upgrade-label">Upgrade</span>
+          <span class="inset-value" id="plan-upgrade-price"></span>
+        </a>
+      </div>
+      <p class="group-caption" id="plan-note"></p>
+    </div>
+
     <h3 class="settings-label">People</h3>
     <div class="inset-group">
       <button type="button" class="inset-row" id="joining-row">
@@ -178,6 +197,7 @@
         <span class="inset-value mono" id="joining-code"></span>
       </div>
     </div>
+    <p class="group-caption error" id="joining-error" hidden></p>
     <p class="group-caption" id="joining-note">
       Off unless you turn it on. While it is on, anybody with the code can
       make an account on this copy — <strong>treat the code as a

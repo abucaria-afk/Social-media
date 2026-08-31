@@ -16225,3 +16225,170 @@ def test_an_event_about_a_customer_this_copy_never_sold_to_changes_nobody(tmp_pa
     nonsense = billing.Grant(customer="cus_ours", plan="enterprise", until=time.time() + 99)
     assert accounts.apply_grant(nonsense) == ""
     assert accounts.get("tester").plan == "free"
+
+
+# --------------------------------------------------------------------------
+# Being paid, part two: the entitlement has to reach something
+#
+# The first pass built `Account.plan`, `paying` and `tier`, and wired them to
+# nothing: `paying` was read once — inside `tier` — and `tier` only by tests.
+# That is the same defect this project found in `Gate.may_publish` (correct,
+# tested in every mode, called by nothing), reproduced one commit later in the
+# fix for it. These guards exist so the gate stays connected.
+# --------------------------------------------------------------------------
+
+
+def test_the_thing_the_top_tier_is_sold_as_is_the_thing_it_gates():
+    """`pricing.py` says of the top tier, in as many words: "The same instance
+    with more than one person on it. This is the invite system that already
+    exists in `auteur/web/auth.py`, priced." So that is what the gate guards,
+    and it looks the tier up by identity rather than by the string "studio".
+    """
+    import os as _os
+
+    from auteur import pricing
+    from auteur.web import billing
+    from auteur.web.auth import Account
+
+    account = Account("x", "x@example.com", "00", "h")
+    before = _os.environ.get("AUTEUR_HOSTED")
+    try:
+        _os.environ["AUTEUR_HOSTED"] = "1"
+        assert billing.may_open_instance(account), "the free tier could open it"
+
+        account.plan, account.plan_until = pricing.TOP_TIER.key, time.time() + 3600
+        assert billing.may_open_instance(account) == "", "the top tier could not"
+
+        # Paying is two questions, and the gate has to ask both.
+        account.plan_until = time.time() - 1
+        assert billing.may_open_instance(account), "a lapsed top tier still opened it"
+
+        # A lower paid tier is not the top tier.
+        lower = [t for t in pricing.TIERS if t.dollars and t is not pricing.TOP_TIER]
+        for tier in lower:
+            account.plan, account.plan_until = tier.key, time.time() + 3600
+            assert billing.may_open_instance(account), f"{tier.key} opened it"
+    finally:
+        if before is None:
+            _os.environ.pop("AUTEUR_HOSTED", None)
+        else:
+            _os.environ["AUTEUR_HOSTED"] = before
+
+
+def test_a_copy_running_on_your_own_machine_is_not_gated_by_a_plan():
+    """The tiers describe an instance that runs when you are not.
+
+    Charging somebody to let a friend sign in to software on their own laptop
+    would be renting them something they already own, so the entitlement only
+    means anything where Auteur Studies is doing the hosting. Default off: an
+    instance never told it is hosted behaves as it did before billing existed.
+    """
+    import os as _os
+
+    from auteur.web import billing
+    from auteur.web.auth import Account
+
+    before = _os.environ.get("AUTEUR_HOSTED")
+    try:
+        _os.environ.pop("AUTEUR_HOSTED", None)
+        assert not billing.hosted(), "unset should not mean hosted"
+        assert billing.may_open_instance(Account("x", "x@e.com", "00", "h")) == ""
+        assert billing.may_open_instance(None) == "", "not even a session is needed"
+    finally:
+        if before is not None:
+            _os.environ["AUTEUR_HOSTED"] = before
+
+
+def test_closing_a_copy_to_new_people_is_never_gated_on_a_plan():
+    """A leaked invite code has to be revocable whatever the billing says.
+
+    Closing is what somebody does *because* a code got further than they
+    meant. A copy that cannot be shut because a card expired has turned its
+    billing state into a security problem. Read from the source: the gate is
+    called inside the branch that opens, and nowhere else in the handler.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parent.parent
+    tree = ast.parse((root / "auteur" / "web" / "server.py").read_text())
+    handler = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_set_who_may_join"
+    )
+
+    def calls_gate(node) -> bool:
+        return any(
+            isinstance(item, ast.Call)
+            and isinstance(item.func, ast.Attribute)
+            and item.func.attr == "may_open_instance"
+            for item in ast.walk(node)
+        )
+
+    opening = [n for n in handler.body if isinstance(n, ast.If) and calls_gate(n)]
+    assert len(opening) == 1, "the gate is not inside exactly one branch"
+    # Everything after that branch is the closing path, and none of it asks.
+    tail = handler.body[handler.body.index(opening[0]) + 1 :]
+    assert tail, "nothing follows the opening branch — where did closing go?"
+    assert not any(calls_gate(n) for n in tail), "closing is gated on a plan"
+
+
+def test_the_plan_screen_never_offers_a_checkout_that_does_not_exist():
+    """A button that goes nowhere is worse than no button.
+
+    `pricing.checkout_for` raises rather than returning a Stripe *test* link,
+    which is the behaviour that keeps a form taking fake cards off a real
+    page. The screen has to treat that as "not open yet", not as an error.
+    """
+    from auteur import pricing
+
+    import os as _os
+
+    assert pricing.CHECKOUT == {}, "a checkout URL landed in the table"
+    assert pricing._checkout_problem("https://buy.stripe.com/test_abc")
+    assert pricing._checkout_problem("http://buy.stripe.com/live"), "http was allowed"
+    assert pricing._checkout_problem("https://buy.stripe.com/live_ok") == ""
+
+    # The environment is not a way around the refusal. Somebody staging the
+    # site can point a tier at a test checkout for an afternoon; what they
+    # cannot do is ship one, and both paths go through the same check.
+    key = f"AUTEUR_CHECKOUT_{pricing.TOP_TIER.key.upper()}"
+    before = _os.environ.get(key)
+    try:
+        _os.environ[key] = "https://buy.stripe.com/test_abc"
+        with pytest.raises(ValueError):
+            pricing.checkout_for(pricing.TOP_TIER)
+    finally:
+        if before is None:
+            _os.environ.pop(key, None)
+        else:
+            _os.environ[key] = before
+
+
+def test_a_refusal_is_not_painted_the_same_colour_as_the_help_text():
+    """`.error` and `.group-caption` are both one class, and the later wins.
+
+    `.group-caption` is defined later, so every inline refusal rendered in the
+    same muted grey as the help text beside it — invisible in the source and
+    obvious the moment the colour was measured in a browser. The first fix was
+    then written *inside* `@media (prefers-contrast: more)` and only applied to
+    people who had high contrast turned on, which is why this test checks the
+    nesting depth rather than merely that the rule exists.
+    """
+    root = Path(__file__).resolve().parent.parent
+    css = (root / "auteur" / "web" / "static" / "style.css").read_text()
+
+    at = css.find(".group-caption.error")
+    assert at != -1, "the rule that makes a refusal look like a refusal is gone"
+    # Nesting depth at that point: any unclosed brace means it sits inside a
+    # media query or another block, and applies only under that condition.
+    before = css[:at]
+    assert before.count("{") == before.count(
+        "}"
+    ), ".group-caption.error is nested inside a block, so it does not always apply"
+    # And it has to outweigh the contrast-mode rule, which is more specific
+    # than a bare pair of classes and would otherwise win the colour back.
+    rule = css[at : css.index("}", at)]
+    assert (
+        '[data-contrast="more"] .group-caption.error' in rule
+    ), "high-contrast mode repaints the refusal as help text again"

@@ -34,7 +34,7 @@ from urllib.parse import parse_qs, unquote
 
 from ..config import FORMATS, QUALITIES, Settings
 from ..ui import Reporter, describe_count, describe_duration, describe_shape
-from .. import brand, projects
+from .. import brand, pricing, projects
 from . import auth, billing, profiles, safety
 from .social import PAGE
 
@@ -2310,6 +2310,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/joining":
             self._who_may_join()
             return
+        if path == "/api/plan":
+            self._plan_state()
+            return
         if path == "/api/can-signup":
             self.accounts.refresh()
             joining = self.accounts.joining()
@@ -2625,11 +2628,66 @@ class Handler(BaseHTTPRequestHandler):
         payload = self._json_body()
         self.accounts.refresh()
         if payload.get("open"):
+            # Opening is the part the top tier is sold as. Closing, below, is
+            # not gated on anything and must never be: closing is what
+            # somebody does *because* a code got further than they meant, and
+            # a copy that cannot be shut because a card expired is a copy
+            # whose billing state has become a security problem.
+            problem = billing.may_open_instance(self.accounts.get(self.current_user() or ""))
+            if problem:
+                self._json({"error": problem, "needs": pricing.TOP_TIER.key}, 402)
+                return
             code = self.accounts.open_joining(with_code=bool(payload.get("code", True)))
             self._json({"open": True, "code": code})
             return
         self.accounts.close_joining()
         self._json({"open": False, "code": ""})
+
+    def _plan_state(self) -> None:
+        """What this person is on, and what it would take to be on more.
+
+        The app had no way to ask. `Account.plan` was written by the webhook
+        and read by nothing, which is the same shape of defect as a gate that
+        is never called: a fact the program holds and never acts on.
+
+        Everything here is derived from `auteur/pricing.py` so the screen and
+        the checkout cannot advertise two different numbers.
+        """
+        account = self.accounts.get(self.current_user() or "")
+        if account is None:
+            self._json({"error": "sign in first"}, 403)
+            return
+        tier = account.tier
+        # A checkout that is not usable is not offered. `checkout_for` raises
+        # on a test link rather than returning one, which is the behaviour
+        # that keeps a fake card form off a real page.
+        checkout = ""
+        try:
+            checkout = pricing.checkout_for(pricing.TOP_TIER)
+        except ValueError:
+            checkout = ""
+        self._json(
+            {
+                "plan": account.plan,
+                "name": tier.name,
+                "monthly": tier.monthly,
+                "paying": account.paying,
+                "until": account.plan_until,
+                # Whether the entitlement means anything here at all. On
+                # somebody's own machine it does not, and the screen should
+                # say so rather than dangling an upgrade at them.
+                "hosted": billing.hosted(),
+                "top": {
+                    "key": pricing.TOP_TIER.key,
+                    "name": pricing.TOP_TIER.name,
+                    "monthly": pricing.TOP_TIER.monthly,
+                    "includes": list(pricing.TOP_TIER.includes),
+                    "checkout": checkout,
+                    "promo": pricing.PROMO_CODE if checkout else "",
+                    "trial_days": pricing.TRIAL_DAYS,
+                },
+            }
+        )
 
     def _sign_up(self) -> None:
         """Make the first account, and only the first.
