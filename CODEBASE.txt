@@ -7,10 +7,10 @@
  the source file and regenerate, or the two disagree and this one is wrong.
 
    repository   abucaria-afk/Social-media
-   commit       6b4b0b28fd1eca4e20474747fa28d30c362f0197
-   generated    2026-08-30 19:42 UTC
+   commit       ffa3da9d107adff3963d1914827cdaecd9fadb24
+   generated    2026-08-31 11:40 UTC
    files        237
-   lines        109,316
+   lines        109,495
 
  REGENERATE
 
@@ -18,6 +18,7 @@
    currently tracking:
 
      git ls-files \
+       | grep -v '^CODEBASE\.txt$' \
        | grep -viE '\.(png|jpg|jpeg|gif|ico|webp|woff2?|[to]tf|mp4|mov|mp3|wav|m4a|pdf|zip|gz)$' \
        | while read -r f; do \
            printf '\n==============================================================================\n FILE: %s\n==============================================================================\n\n' "$f"; \
@@ -27,7 +28,9 @@
 
    The `tail -c1` guard adds the newline a file may not end with, so the next
    delimiter starts on its own line. One file here needs it:
-   tools/artifact/templates.json.
+   tools/artifact/templates.json. The first grep drops this file from its own
+   contents — it is tracked, so without that each run folds in the previous
+   copy and the file doubles.
 
    That produces the file bodies below without this header. The header is
    provenance — regenerating without it loses which commit the bundle is of.
@@ -182,10 +185,10 @@
    auteur/web/profiles.py                                                 587 lines
    auteur/web/safety.py                                                   258 lines
    auteur/web/seed.py                                                     101 lines
-   auteur/web/server.py                                                 4,203 lines
+   auteur/web/server.py                                                 4,227 lines
    auteur/web/social.py                                                   439 lines
    auteur/web/static/animations.css                                       193 lines
-   auteur/web/static/app.js                                               553 lines
+   auteur/web/static/app.js                                               609 lines
    auteur/web/static/ask.css                                              136 lines
    auteur/web/static/ask.html                                              67 lines
    auteur/web/static/ask.js                                               114 lines
@@ -272,7 +275,7 @@
    render.yaml                                                             48 lines
    requirements.txt                                                        22 lines
    tests/fuzz.py                                                          651 lines
-   tests/test_auteur.py                                                16,336 lines
+   tests/test_auteur.py                                                16,435 lines
    tools/appstore/build_pages.py                                          164 lines
    tools/appstore/listing.py                                              316 lines
    tools/appstore/preflight.py                                            631 lines
@@ -39432,6 +39435,24 @@ def _sweep_connecting() -> None:
         _CONNECTING.pop(state, None)
 
 
+def _shape_of(fmt) -> str:
+    """The edit room's name for a delivery format.
+
+    The room offers three — tall, square, wide — and the platform table has
+    five, so `portrait` (1080x1350) has no chip of its own and is carried as
+    the tall one it is nearest to. Returning "" for anything unrecognised
+    leaves the room on its own default rather than guessing.
+    """
+    width, height = getattr(fmt, "width", 0), getattr(fmt, "height", 0)
+    if not width or not height:
+        return ""
+    if height > width:
+        return "reel"
+    if width > height:
+        return "wide"
+    return "square"
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "auteur"
     #: HTTP/1.1 so connections are kept alive. The page polls every second or
@@ -41898,9 +41919,15 @@ class Handler(BaseHTTPRequestHandler):
             spec = resolve(plan.platform)
             out["platform_name"] = spec.title
             out["platform_spec"] = spec.describe()
+            # Which of the edit room's shapes this surface is, resolved here
+            # because the geometry is here. "Make this film now" carries it
+            # over so the plan's surface is not chosen twice, once in the
+            # planner and again in a control that opened on its default.
+            out["shape"] = _shape_of(spec.format)
         except Exception:  # noqa: BLE001 - an unknown surface is the check's problem
             out["platform_name"] = plan.platform
             out["platform_spec"] = ""
+            out["shape"] = ""
         if checked:
             hold, opening = self._hold_and_open()
             report = manager.check(
@@ -43628,6 +43655,62 @@ html {
   wireChoices($("seconds"), function (value) { state.seconds = value; });
   wireChoices($("era"), function (value) { state.era = value; });
   wireChoices($("project"), function (value) { state.project = value; });
+
+  /* -- arriving from a plan -------------------------------------------------
+   *
+   * The manager's "Make this film now" links here as `/?plan=<id>`. Nothing
+   * read that parameter, so the button carried a plan's prompt, surface and
+   * length across and dropped all three: you landed in an empty room and
+   * retyped what you had already decided.
+   *
+   * The length is filled in too, which is the one thing to be careful about —
+   * a preselected length silently beating the words somebody types is a bug
+   * this room already had once. The difference is that this length is not a
+   * default nobody touched: it was chosen in the planner, it is visible as a
+   * lit chip, and the line below says where it came from. */
+  function pick(container, value) {
+    var found = null;
+    Array.prototype.forEach.call(container.querySelectorAll(".choice"), function (choice) {
+      var hit = choice.dataset.value === String(value);
+      if (hit) { found = choice; }
+      choice.classList.toggle("is-on", hit);
+      choice.setAttribute("aria-checked", hit ? "true" : "false");
+    });
+    return found;
+  }
+
+  function fromPlan() {
+    var match = /[?&]plan=([^&]+)/.exec(location.search);
+    if (!match) { return; }
+    var id = decodeURIComponent(match[1]);
+    fetch("/api/plans/" + encodeURIComponent(id), {
+      credentials: "same-origin", cache: "no-store"
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (said) {
+        var plan = said && said.plan;
+        if (!plan) { return; }
+
+        if (plan.prompt) { $("prompt").value = plan.prompt; }
+        if (plan.shape && pick($("shape"), plan.shape)) { state.shape = plan.shape; }
+        if (plan.seconds && pick($("seconds"), String(plan.seconds))) {
+          state.seconds = String(plan.seconds);
+        }
+
+        /* Said out loud, because fields that fill themselves and explain
+           nothing are how the last version of this went wrong. */
+        var hint = document.createElement("span");
+        hint.className = "card-hint";
+        hint.id = "from-plan";
+        hint.textContent = "From your plan “" + (plan.title || "untitled") + "” — " +
+          (plan.platform_name || plan.platform) + ". Change anything you like.";
+        var card = $("prompt").parentNode;
+        if (!document.getElementById("from-plan")) { card.appendChild(hint); }
+      })
+      .catch(function () { /* no plan, or signed out: the room opens as normal */ });
+  }
+
+  fromPlan();
 
   /* The projects somebody has, offered as a place to file the film. Fetched
      rather than hard-coded, and the card stays hidden when there are none —
@@ -93333,6 +93416,105 @@ def test_a_platform_the_program_does_not_know_is_refused_not_stored(tmp_path):
 
     assert store.of("ada") == []
     assert not store._secrets.is_file(), "a refused platform still wrote a token"
+
+
+# ---------------------------------------------------------------------------
+# "Make this film now" — the planner handing a plan to the edit room
+#
+# The manager's plan page links to `/?plan=<id>`, and nothing read that
+# parameter: `feed.js` reads `?film=`, `inbox.js` reads `?who=`, `login.js`
+# reads `?token=`, and `?plan=` was consumed nowhere. So the button carried a
+# plan's prompt, surface and length across and dropped all three — you arrived
+# in an empty room and retyped what the planner had already asked you.
+# ---------------------------------------------------------------------------
+
+
+def test_a_delivery_format_becomes_the_shape_the_room_names_it_by():
+    """Taller than wide is a reel, wider than tall is wide, equal is square."""
+    from auteur.config import FORMATS
+    from auteur.web.server import _shape_of
+
+    assert _shape_of(FORMATS["reel"]) == "reel"
+    assert _shape_of(FORMATS["portrait"]) == "reel", "1080x1350 is tall, whatever it is called"
+    assert _shape_of(FORMATS["square"]) == "square"
+    assert _shape_of(FORMATS["wide"]) == "wide"
+    assert _shape_of(FORMATS["cinema"]) == "wide"
+
+
+def test_a_format_the_program_cannot_measure_picks_nothing_rather_than_guessing():
+    """An empty shape leaves the room on its own default.
+
+    A guess here would land somebody on a surface they did not choose and say
+    nothing about it, which is worse than the room simply opening as normal.
+    """
+    from auteur.web.server import _shape_of
+
+    class Unmeasured:
+        width = 0
+        height = 0
+
+    assert _shape_of(Unmeasured()) == ""
+    assert _shape_of(object()) == ""
+
+
+def test_every_surface_a_plan_can_target_arrives_as_a_shape_the_room_offers():
+    """The prefill is only as good as the two ends agreeing.
+
+    The edit room has three shape chips. If a platform resolved to a fourth
+    name — `portrait` is the one that nearly does — the chip would not be
+    found, the shape would silently stay on the room's default, and the plan's
+    surface would be lost exactly as it was before this was fixed. So the
+    server's answer is held against the chips the page actually has.
+    """
+    import re
+
+    from auteur.web import server
+    from auteur.workflows.platforms import PLATFORMS, resolve
+
+    page = (Path(server.__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
+    shapes = re.search(r'id="shape".*?</div>', page, re.S)
+    assert shapes, "the edit room has no #shape control any more"
+    offered = set(re.findall(r'data-value="([^"]*)"', shapes.group(0)))
+    assert offered, "the #shape control offers nothing"
+
+    for key in PLATFORMS:
+        shape = server._shape_of(resolve(key).format)
+        assert shape, f"{key} resolves to no shape at all"
+        assert shape in offered, (
+            f"a plan for {key} would arrive as {shape!r}, which the edit room "
+            f"has no chip for — it offers {sorted(offered)}"
+        )
+
+
+def test_the_plan_the_room_is_handed_carries_what_it_needs_to_prefill():
+    """Prompt, length and shape: the three things the planner already asked for.
+
+    Asserted against the JSON the page actually fetches rather than against the
+    handler's source, because what matters is that the fields are in the reply.
+    """
+    from auteur.web import server
+    from auteur.workflows.platforms import resolve
+
+    class OnePlan:
+        platform = "instagram-post"
+        owner = "ada"
+        film = ""
+
+        def public(self):
+            return {
+                "id": "abc123",
+                "title": "Harbour at dawn",
+                "prompt": "a slow cinematic drift along the harbour wall",
+                "seconds": 30.0,
+                "platform": self.platform,
+            }
+
+    out = server.Handler._plan_json(object.__new__(server.Handler), OnePlan())
+
+    assert out["prompt"] == "a slow cinematic drift along the harbour wall"
+    assert out["seconds"] == 30.0
+    assert out["shape"] == "reel"
+    assert out["platform_name"] == resolve("instagram-post").title, "the page shows a readable name"
 
 ==============================================================================
  FILE: tools/appstore/build_pages.py
