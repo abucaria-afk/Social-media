@@ -709,6 +709,24 @@ def _sweep_connecting() -> None:
         _CONNECTING.pop(state, None)
 
 
+def _shape_of(fmt) -> str:
+    """The edit room's name for a delivery format.
+
+    The room offers three — tall, square, wide — and the platform table has
+    five, so `portrait` (1080x1350) has no chip of its own and is carried as
+    the tall one it is nearest to. Returning "" for anything unrecognised
+    leaves the room on its own default rather than guessing.
+    """
+    width, height = getattr(fmt, "width", 0), getattr(fmt, "height", 0)
+    if not width or not height:
+        return ""
+    if height > width:
+        return "reel"
+    if width > height:
+        return "wide"
+    return "square"
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "auteur"
     #: HTTP/1.1 so connections are kept alive. The page polls every second or
@@ -3364,9 +3382,15 @@ class Handler(BaseHTTPRequestHandler):
             spec = resolve(plan.platform)
             out["platform_name"] = spec.title
             out["platform_spec"] = spec.describe()
+            # Which of the edit room's shapes this surface is, resolved here
+            # because the geometry is here. "Make this film now" carries it
+            # over so the plan's surface is not chosen twice, once in the
+            # planner and again in a control that opened on its default.
+            out["shape"] = _shape_of(spec.format)
         except Exception:  # noqa: BLE001 - an unknown surface is the check's problem
             out["platform_name"] = plan.platform
             out["platform_spec"] = ""
+            out["shape"] = ""
         if checked:
             hold, opening = self._hold_and_open()
             report = manager.check(

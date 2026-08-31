@@ -17130,6 +17130,105 @@ def test_a_platform_the_program_does_not_know_is_refused_not_stored(tmp_path):
     assert not store._secrets.is_file(), "a refused platform still wrote a token"
 
 
+# ---------------------------------------------------------------------------
+# "Make this film now" — the planner handing a plan to the edit room
+#
+# The manager's plan page links to `/?plan=<id>`, and nothing read that
+# parameter: `feed.js` reads `?film=`, `inbox.js` reads `?who=`, `login.js`
+# reads `?token=`, and `?plan=` was consumed nowhere. So the button carried a
+# plan's prompt, surface and length across and dropped all three — you arrived
+# in an empty room and retyped what the planner had already asked you.
+# ---------------------------------------------------------------------------
+
+
+def test_a_delivery_format_becomes_the_shape_the_room_names_it_by():
+    """Taller than wide is a reel, wider than tall is wide, equal is square."""
+    from auteur.config import FORMATS
+    from auteur.web.server import _shape_of
+
+    assert _shape_of(FORMATS["reel"]) == "reel"
+    assert _shape_of(FORMATS["portrait"]) == "reel", "1080x1350 is tall, whatever it is called"
+    assert _shape_of(FORMATS["square"]) == "square"
+    assert _shape_of(FORMATS["wide"]) == "wide"
+    assert _shape_of(FORMATS["cinema"]) == "wide"
+
+
+def test_a_format_the_program_cannot_measure_picks_nothing_rather_than_guessing():
+    """An empty shape leaves the room on its own default.
+
+    A guess here would land somebody on a surface they did not choose and say
+    nothing about it, which is worse than the room simply opening as normal.
+    """
+    from auteur.web.server import _shape_of
+
+    class Unmeasured:
+        width = 0
+        height = 0
+
+    assert _shape_of(Unmeasured()) == ""
+    assert _shape_of(object()) == ""
+
+
+def test_every_surface_a_plan_can_target_arrives_as_a_shape_the_room_offers():
+    """The prefill is only as good as the two ends agreeing.
+
+    The edit room has three shape chips. If a platform resolved to a fourth
+    name — `portrait` is the one that nearly does — the chip would not be
+    found, the shape would silently stay on the room's default, and the plan's
+    surface would be lost exactly as it was before this was fixed. So the
+    server's answer is held against the chips the page actually has.
+    """
+    import re
+
+    from auteur.web import server
+    from auteur.workflows.platforms import PLATFORMS, resolve
+
+    page = (Path(server.__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
+    shapes = re.search(r'id="shape".*?</div>', page, re.S)
+    assert shapes, "the edit room has no #shape control any more"
+    offered = set(re.findall(r'data-value="([^"]*)"', shapes.group(0)))
+    assert offered, "the #shape control offers nothing"
+
+    for key in PLATFORMS:
+        shape = server._shape_of(resolve(key).format)
+        assert shape, f"{key} resolves to no shape at all"
+        assert shape in offered, (
+            f"a plan for {key} would arrive as {shape!r}, which the edit room "
+            f"has no chip for — it offers {sorted(offered)}"
+        )
+
+
+def test_the_plan_the_room_is_handed_carries_what_it_needs_to_prefill():
+    """Prompt, length and shape: the three things the planner already asked for.
+
+    Asserted against the JSON the page actually fetches rather than against the
+    handler's source, because what matters is that the fields are in the reply.
+    """
+    from auteur.web import server
+    from auteur.workflows.platforms import resolve
+
+    class OnePlan:
+        platform = "instagram-post"
+        owner = "ada"
+        film = ""
+
+        def public(self):
+            return {
+                "id": "abc123",
+                "title": "Harbour at dawn",
+                "prompt": "a slow cinematic drift along the harbour wall",
+                "seconds": 30.0,
+                "platform": self.platform,
+            }
+
+    out = server.Handler._plan_json(object.__new__(server.Handler), OnePlan())
+
+    assert out["prompt"] == "a slow cinematic drift along the harbour wall"
+    assert out["seconds"] == 30.0
+    assert out["shape"] == "reel"
+    assert out["platform_name"] == resolve("instagram-post").title, "the page shows a readable name"
+
+
 def test_a_checkout_carries_the_name_of_whoever_is_buying():
     """Without it, a payment is a charge nobody can match to an account.
 

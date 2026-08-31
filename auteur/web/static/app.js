@@ -47,6 +47,62 @@
   wireChoices($("era"), function (value) { state.era = value; });
   wireChoices($("project"), function (value) { state.project = value; });
 
+  /* -- arriving from a plan -------------------------------------------------
+   *
+   * The manager's "Make this film now" links here as `/?plan=<id>`. Nothing
+   * read that parameter, so the button carried a plan's prompt, surface and
+   * length across and dropped all three: you landed in an empty room and
+   * retyped what you had already decided.
+   *
+   * The length is filled in too, which is the one thing to be careful about —
+   * a preselected length silently beating the words somebody types is a bug
+   * this room already had once. The difference is that this length is not a
+   * default nobody touched: it was chosen in the planner, it is visible as a
+   * lit chip, and the line below says where it came from. */
+  function pick(container, value) {
+    var found = null;
+    Array.prototype.forEach.call(container.querySelectorAll(".choice"), function (choice) {
+      var hit = choice.dataset.value === String(value);
+      if (hit) { found = choice; }
+      choice.classList.toggle("is-on", hit);
+      choice.setAttribute("aria-checked", hit ? "true" : "false");
+    });
+    return found;
+  }
+
+  function fromPlan() {
+    var match = /[?&]plan=([^&]+)/.exec(location.search);
+    if (!match) { return; }
+    var id = decodeURIComponent(match[1]);
+    fetch("/api/plans/" + encodeURIComponent(id), {
+      credentials: "same-origin", cache: "no-store"
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (said) {
+        var plan = said && said.plan;
+        if (!plan) { return; }
+
+        if (plan.prompt) { $("prompt").value = plan.prompt; }
+        if (plan.shape && pick($("shape"), plan.shape)) { state.shape = plan.shape; }
+        if (plan.seconds && pick($("seconds"), String(plan.seconds))) {
+          state.seconds = String(plan.seconds);
+        }
+
+        /* Said out loud, because fields that fill themselves and explain
+           nothing are how the last version of this went wrong. */
+        var hint = document.createElement("span");
+        hint.className = "card-hint";
+        hint.id = "from-plan";
+        hint.textContent = "From your plan “" + (plan.title || "untitled") + "” — " +
+          (plan.platform_name || plan.platform) + ". Change anything you like.";
+        var card = $("prompt").parentNode;
+        if (!document.getElementById("from-plan")) { card.appendChild(hint); }
+      })
+      .catch(function () { /* no plan, or signed out: the room opens as normal */ });
+  }
+
+  fromPlan();
+
   /* The projects somebody has, offered as a place to file the film. Fetched
      rather than hard-coded, and the card stays hidden when there are none —
      a control for a thing you do not have is a question you cannot answer. */
