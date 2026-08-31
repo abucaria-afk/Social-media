@@ -12,11 +12,11 @@ ffmpeg-binaries>=1.1.0
 # tells anybody who wants Continue with Apple that it cannot, which is both a
 # dead end for them and an App Store guideline 4.8 problem — an app offering a
 # third-party login has to offer an equivalent privacy-preserving one.
-cryptography>=43
+cryptography>=50.0.1
 
 # Optional: lets Claude direct the edit. Without it the algorithmic director
 # does the job and the film still gets made.
-anthropic>=0.124.0
+anthropic>=1.1.0
 
 # Tests
 pytest>=9.1.1

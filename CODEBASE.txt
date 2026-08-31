@@ -7,10 +7,10 @@
  the source file and regenerate, or the two disagree and this one is wrong.
 
    repository   abucaria-afk/Social-media
-   commit       eaa575be94ac1751e75243725e44bb44e75bfdad
-   generated    2026-08-31 17:21 UTC
-   files        237
-   lines        109,541
+   commit       24e4ddfb1730070dee166a96ff7a8b5970b9c8a6
+   generated    2026-08-31 18:04 UTC
+   files        238
+   lines        111,417
 
  REGENERATE
 
@@ -37,7 +37,7 @@
 
  WHAT IS IN IT
 
-   All 237 tracked text files: Python, JavaScript, CSS, HTML, Swift,
+   All 238 tracked text files: Python, JavaScript, CSS, HTML, Swift,
    the GitHub workflows, the packaging and container files, the documentation
    and the content. Read it top to bottom and you have read the program.
 
@@ -88,14 +88,14 @@
    .github/workflows/python-ci.yml                                         57 lines
    .gitignore                                                              43 lines
    .pre-commit-config.yaml                                                 19 lines
-   AUTEUR.md                                                              888 lines
+   AUTEUR.md                                                              894 lines
    CLAUDE.md                                                               37 lines
-   COMPANY-BRIEF.md                                                       527 lines
+   COMPANY-BRIEF.md                                                       572 lines
    Dockerfile                                                              58 lines
    LICENSE                                                                 21 lines
    PRIVACY.md                                                             171 lines
-   README.md                                                              417 lines
-   SECURITY.md                                                             66 lines
+   README.md                                                              425 lines
+   SECURITY.md                                                             92 lines
    TERMS.md                                                                89 lines
    VERSIONS.md                                                             36 lines
    auteur/__init__.py                                                      44 lines
@@ -118,7 +118,7 @@
    auteur/analysis/video.py                                               511 lines
    auteur/brand.py                                                        368 lines
    auteur/calendar.py                                                     233 lines
-   auteur/cli.py                                                        2,380 lines
+   auteur/cli.py                                                        2,391 lines
    auteur/config.py                                                       199 lines
    auteur/craft/__init__.py                                                10 lines
    auteur/craft/color.py                                                  609 lines
@@ -150,7 +150,7 @@
    auteur/insight/score.py                                                885 lines
    auteur/insight/template.py                                             576 lines
    auteur/manager.py                                                      728 lines
-   auteur/pricing.py                                                      369 lines
+   auteur/pricing.py                                                      398 lines
    auteur/projects.py                                                     430 lines
    auteur/publish/__init__.py                                              16 lines
    auteur/publish/connections.py                                          339 lines
@@ -180,12 +180,13 @@
    auteur/vision/connoisseur.py                                           713 lines
    auteur/web/__init__.py                                                  11 lines
    auteur/web/assets.py                                                   251 lines
-   auteur/web/auth.py                                                     869 lines
+   auteur/web/auth.py                                                   1,037 lines
+   auteur/web/billing.py                                                  280 lines
    auteur/web/oidc.py                                                     467 lines
    auteur/web/profiles.py                                                 587 lines
    auteur/web/safety.py                                                   258 lines
    auteur/web/seed.py                                                     101 lines
-   auteur/web/server.py                                                 4,227 lines
+   auteur/web/server.py                                                 4,429 lines
    auteur/web/social.py                                                   439 lines
    auteur/web/static/animations.css                                       193 lines
    auteur/web/static/app.js                                               609 lines
@@ -215,8 +216,8 @@
    auteur/web/static/overlays.js                                          222 lines
    auteur/web/static/privacy.html                                          67 lines
    auteur/web/static/profile.css                                          301 lines
-   auteur/web/static/profile.html                                         469 lines
-   auteur/web/static/profile.js                                           935 lines
+   auteur/web/static/profile.html                                         489 lines
+   auteur/web/static/profile.js                                           999 lines
    auteur/web/static/project.html                                         162 lines
    auteur/web/static/project.js                                           664 lines
    auteur/web/static/projects.css                                         289 lines
@@ -228,7 +229,7 @@
    auteur/web/static/studio.css                                           548 lines
    auteur/web/static/studio.html                                          177 lines
    auteur/web/static/studio.js                                            363 lines
-   auteur/web/static/style.css                                          1,741 lines
+   auteur/web/static/style.css                                          1,755 lines
    auteur/web/static/sw.js                                                 73 lines
    auteur/web/static/templates.css                                        104 lines
    auteur/web/static/templates.html                                        83 lines
@@ -251,7 +252,7 @@
    docker-compose.yml                                                      44 lines
    docs/agent-briefs.md                                                   330 lines
    docs/index.html                                                        295 lines
-   fly.toml                                                                40 lines
+   fly.toml                                                                48 lines
    frontend/app.js                                                         65 lines
    frontend/styles.css                                                    101 lines
    ios/Auteur/Assets.xcassets/AccentColor.colorset/Contents.json           38 lines
@@ -263,7 +264,7 @@
    ios/Auteur/Info.plist                                                   63 lines
    ios/Auteur/Instance.swift                                              125 lines
    ios/Auteur/PrivacyInfo.xcprivacy                                        39 lines
-   ios/Auteur/Web/index.html                                           14,268 lines
+   ios/Auteur/Web/index.html                                           14,282 lines
    ios/Auteur/WebHost.swift                                                71 lines
    ios/Auteur/native.js                                                   103 lines
    ios/ExportOptions.plist                                                 16 lines
@@ -272,10 +273,10 @@
    ios/project.yml                                                         61 lines
    ios/scripts/build_bundle.py                                            224 lines
    pyproject.toml                                                          69 lines
-   render.yaml                                                             48 lines
+   render.yaml                                                             64 lines
    requirements.txt                                                        22 lines
    tests/fuzz.py                                                          651 lines
-   tests/test_auteur.py                                                16,472 lines
+   tests/test_auteur.py                                                17,437 lines
    tools/appstore/build_pages.py                                          164 lines
    tools/appstore/listing.py                                              316 lines
    tools/appstore/preflight.py                                            631 lines
@@ -1219,6 +1220,12 @@ notes, which are your own footage.
   can read that console is the person who owns the account. To send real email
   instead, set `AUTEUR_SMTP_HOST`, `AUTEUR_SMTP_PORT`, `AUTEUR_SMTP_USER`,
   `AUTEUR_SMTP_PASSWORD` and `AUTEUR_SMTP_FROM`.
+- **Being paid.** On a copy Auteur Studies hosts, set `AUTEUR_HOSTED=1` and
+  `STRIPE_WEBHOOK_SECRET` to the signing secret of the Stripe endpoint
+  pointed at `/api/stripe/webhook`. Without the secret that endpoint refuses
+  every event rather than trusting an unsigned one, so a deploy that forgets
+  it fails closed. Without `AUTEUR_HOSTED` nothing is gated at all, which is
+  the right default for the copy on your own machine.
 - Five wrong passwords lock the account for fifteen minutes.
 - Changing a password signs every other device out.
 - The reply to "I forgot my password" is identical whether or not the account
@@ -2072,6 +2079,36 @@ Atlas". (The craft rules cited throughout `auteur/craft/story.py` share the APX
 name and are a *feature of Atlas*, which is exactly the collision that led an
 earlier pass here to conclude APX was not a product at all.)
 
+### What the live site actually says
+
+Read through the Wix API on **2026-08-31** — the saved revision, which is what
+the SEO API returns for a static page; unpublished edits would not show.
+
+- One site, `www.auteurstudies.com`, published, custom domain. **One page.**
+- Title: *"Auteur Studies — Atlas and the craft rules"*
+- Description: *"Auteur Studies makes tools for short-form video. Plan the
+  week, check the craft before the reel goes out, and read the reach without
+  inventing a number."*
+- Focus keywords: `daily planning app`, `Auteur Studies`, **`Auteur Atlas`**,
+  `short form video craft`
+
+Three things follow, and the site is public, so they are public problems:
+
+1. **No LLC claim anywhere in the metadata.** That constraint is holding.
+2. **`Auteur Atlas` is a live focus keyword** — the one construction that is
+   never the product's name. It is buying search traffic for a name that does
+   not exist.
+3. **APX is gone from the description.** On 2026-08-29 it read *"Atlas plans
+   the week and reads the reach, APX checks the craft before the reel goes
+   out."* The pass that wrongly concluded APX was fictional removed it, the
+   owner corrected the repository, and **the correction never reached the
+   site**. The live page sells one product where there are two.
+
+Also unresolved: there is no privacy or terms page — `PRIVACY.md` and
+`TERMS.md` are published nowhere, while **Wix Forms is installed**, and both
+app stores require a hosted privacy URL before they will take a submission.
+And `atlasauteurstudies.com` is not in this Wix account, which holds one site.
+
 **Auteur Studies** publishes both. The entity is **not filed** —
 `COMPANY.entity_filed` is `False`, so `COMPANY.publisher` resolves to the
 trading name and a guard refuses to let the "LLC" suffix onto any shipped page
@@ -2488,10 +2525,25 @@ derives the rest. Worth confirming before the filing, not after.
 media manager (§6). Pick one for the first launch; the other two stay in the
 product but out of the headline.
 
-**8.4 How does it make money?** Nothing is built. Plausible shapes: paid app,
-subscription for the hosted instance, free app with a paid Schedule tier. Each
-implies different store setup work, so this decision should come before the
-first submission, not after.
+**8.4 How does it make money?** ~~Nothing is built.~~ **Both halves are now
+built** (2026-08-31), and the shape is a subscription on a hosted instance.
+
+- **Selling.** `tools/stripe/sync_pricing.py` creates the products, prices,
+  coupon, promotion code and payment links from `auteur/pricing.py`, and
+  reconciles rather than duplicating on a re-run.
+- **Entitlement.** `auteur/web/billing.py` verifies the Stripe webhook
+  signature; `Account.plan` / `plan_until` / `paying` decide what somebody may
+  use. Before this the two were never introduced: a customer could be charged
+  and nothing whatsoever happened to their account.
+- **What it gates.** The top tier is sold as *"the same instance with more
+  than one person on it"*, so that is what it guards — opening a copy to other
+  people needs Studio, on a copy Auteur Studies hosts (`AUTEUR_HOSTED=1`).
+  Never on somebody's own machine: charging for a friend to sign in to
+  software on your own laptop is renting you something you already own.
+
+Three things remain and none of them is code: the payment-link URLs have to
+land in `pricing.CHECKOUT`, livemode needs `--apply --live` with an `sk_live_`
+key, and the deployed instance needs `STRIPE_WEBHOOK_SECRET`.
 
 **8.5 Launch order.** iOS first, Android first, or web instance first? The web
 instance is the only one that needs no store approval and could be live this
@@ -2897,6 +2949,14 @@ open yet: `pricing.open_for_business()` returns `False` until a live Stripe
 link exists, and every page reads that rather than advertising a checkout that
 does not answer.
 
+Paying for it means something. `auteur/web/billing.py` verifies the Stripe
+webhook signature and is the only thing that can put an account on a plan —
+there is no route a browser can call to change its own. What the top tier
+buys is the thing it is sold as: opening a copy to other people. That gate is
+live only where Auteur Studies does the hosting (`AUTEUR_HOSTED=1`); on your
+own machine nothing is gated, because the tiers describe an instance that runs
+when you are not.
+
 **APX** is the other product — the planner that forgets. Free, no account, no
 server, nothing stored; a day's state travels in the link itself. It is not
 built from this repository, and nothing here is a mode or a tier of it.
@@ -3274,6 +3334,32 @@ The phone app (`auteur serve`)
   written down anywhere a stranger can read. Set `AUTEUR_USERNAME`,
   `AUTEUR_EMAIL` and `AUTEUR_PASSWORD` to choose your own instead, and nothing
   is ever generated.
+- **`/api/stripe/webhook` is reachable without signing in, and that is the
+  point.** Stripe has no session here, so the endpoint is authenticated by
+  signature instead of by cookie: HMAC-SHA256 over the exact bytes received,
+  compared in constant time, with a 300-second window so a captured signature
+  cannot be replayed for ever. The raw body is read directly rather than
+  through the JSON helper, because that helper decodes with
+  `errors="replace"` and a single replaced byte is a signature that can never
+  match.
+- **With no `STRIPE_WEBHOOK_SECRET` set, that endpoint refuses everything.**
+  Not "accepts unsigned events", not "warns and proceeds" — refuses. An
+  instance deployed without it would otherwise be serving an unauthenticated
+  grant-me-a-subscription endpoint on the public internet, and would look like
+  it was working. "I cannot check this" and "this is fine" are opposite
+  answers.
+- **Nothing a browser can reach changes what somebody has paid for.** The
+  webhook is the only writer of `Account.plan`; a test parses `server.py` and
+  fails if any other function writes it or calls `apply_grant`.
+- `AUTEUR_HOSTED=1` marks a copy that Auteur Studies runs and charges for, and
+  is the only thing that turns the paid gate on. Unset — a copy on somebody's
+  own machine — nothing is gated, which is correct: the tiers describe an
+  instance that runs when you are not.
+- **Closing a copy to new people is never gated on a plan.** Closing is what
+  somebody does *because* an invite code got further than they meant, and a
+  copy that cannot be shut because a card expired has turned its billing state
+  into a security problem.
+
 - A password must be at least 12 characters, must not appear on the usual
   guessing lists, must use more than a handful of distinct characters, and must
   not be built out of the username or email it protects. The same rules apply
@@ -9158,7 +9244,7 @@ def description() -> str:
         ),
         "",
         (
-            "Auteur is for people 12 and over. An account for somebody under "
+            f"{NAME} is for people 12 and over. An account for somebody under "
             "18 starts with sensitive films hidden, and that can be locked "
             "with a code."
         ),
@@ -10341,8 +10427,19 @@ def _run_account(args: argparse.Namespace, say: Reporter) -> int:
                 marks.append(f"{account.age}")
             if account.restricted:
                 marks.append("restricted" + (" 🔒" if account.restriction_lock else ""))
+            # What they are paying, if anything. An operator running a
+            # business off this could not see who was on a plan at all: the
+            # webhook wrote `plan` and nothing ever printed it.
+            if account.paying:
+                marks.append(f"{account.tier.name} · {account.tier.monthly}")
+            elif account.plan != "free":
+                marks.append(f"{account.plan} lapsed")
             state = f"  ({', '.join(marks)})" if marks else ""
             print(f"     {account.username:<24} {account.email}{state}")
+        # Money that arrived for somebody who is not here. Printed because a
+        # payment nobody can see is a payment nobody will act on.
+        for held in accounts.unclaimed:
+            print(f"     {'(paid, no account)':<24} {held.get('email', '?')}  ({held.get('plan')})")
         print()
         return 0
 
@@ -24528,6 +24625,7 @@ free on the device would be charging for nothing.
 from __future__ import annotations
 
 import os
+import urllib.parse
 from dataclasses import dataclass
 
 #: When the rival prices below were read off the rivals' own pages. Same
@@ -24633,12 +24731,10 @@ def undercut_of(price: float, rivals: list[Rival]) -> float:
 #: public site takes a card number that is not a card number and tells the
 #: customer it worked. `_checkout_problem` refuses them by shape.
 CHECKOUT: dict[str, str] = {
-    # These arrived by being typed straight into docs/index.html, which is
-    # generated. The builder still read this dict, still found it empty and
-    # still wrote "Not open yet", so the committed page and the page its own
-    # builder produces disagreed and the test that regenerates it went red.
-    # They belong here, where `checkout_for` reads them and `_checkout_problem`
-    # gets a look at them before they reach a stranger.
+    # Read off the live site on 2026-08-31, where they had been hand-typed
+    # into `docs/index.html` — a generated file, so the next `build_site.py`
+    # run would have deleted both buttons and nobody could have bought
+    # anything. Here they survive a rebuild and reach the app as well.
     "solo": "https://buy.stripe.com/8x2bJ16fV8K5eRieHR1B602",
     "studio": "https://buy.stripe.com/3cIaEX9s72lHdNearB1B601",
 }
@@ -24761,12 +24857,42 @@ def checkout_for(tier: Tier) -> str:
     Both paths go through the same refusal, so the environment is not a way
     around it — a test link is rejected however it arrives.
     """
-    url = (os.environ.get(f"AUTEUR_CHECKOUT_{tier.key.upper()}", "") or "").strip()
-    url = url or CHECKOUT.get(tier.key, "").strip()
+    raw = os.environ.get(f"AUTEUR_CHECKOUT_{tier.key.upper()}")
+    if raw is not None:
+        # Set-but-empty means **closed**, and that is the useful half. Before
+        # there were real links in `CHECKOUT` the environment only ever added
+        # one, so there was no way to take a plan off sale without editing
+        # this file — no staging build without a checkout, and no switching
+        # the shop off in a hurry. A variable that is present speaks for the
+        # tier whatever it says, including saying nothing.
+        url = raw.strip()
+    else:
+        url = CHECKOUT.get(tier.key, "").strip()
     problem = _checkout_problem(url)
     if problem:
         raise ValueError(f"{tier.key}: {problem} ({url})")
     return url
+
+
+def checkout_for_person(tier: Tier, username: str) -> str:
+    """The tier's checkout with the buyer's name attached, or "" if not open.
+
+    Stripe hands `client_reference_id` back on `checkout.session.completed`,
+    and it is the *only* thing in that event that names a person: every later
+    subscription event knows the Stripe customer and nothing else. So a
+    checkout opened without it is a card charged and an account nobody can
+    find — the money arrives and the door stays shut, which is the defect the
+    whole billing path exists to prevent.
+
+    A blank username returns "" rather than a bare link. Offering a checkout
+    to somebody the app cannot name is offering to take their money and lose
+    it, and a button that is absent is better than one that does that.
+    """
+    url = checkout_for(tier)
+    if not url or not username.strip():
+        return ""
+    joiner = "&" if "?" in url else "?"
+    return f"{url}{joiner}client_reference_id={urllib.parse.quote(username.strip())}"
 
 
 #: The tier the ten per cent comes off. Named rather than indexed, because
@@ -36462,7 +36588,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from . import totp
+from . import billing, totp
 
 log = logging.getLogger("auteur.web.auth")
 
@@ -36582,6 +36708,21 @@ class Account:
     #: holds.
     born: int = 0
 
+    #: What this account has paid for: a key from `auteur/pricing.py`, via
+    #: `billing.PLANS`. Written only by a Stripe webhook whose signature
+    #: verified — there is no route a browser can call to change it, which is
+    #: what makes it mean "has paid" rather than "has asked".
+    plan: str = billing.DEFAULT_PLAN
+    #: When the paid plan lapses, as a unix time. 0 means "does not lapse",
+    #: which is the honest answer for the free tier and the wrong one for a
+    #: paid tier — `entitled` treats a paid plan with no end date as expired
+    #: rather than as permanent, so a half-written grant fails closed.
+    plan_until: float = 0.0
+    #: The Stripe customer this account is. Empty until somebody buys
+    #: something. It is how the subscription events that follow a checkout —
+    #: which carry no username — find their way back to a person.
+    stripe_customer: str = ""
+
     #: "none" or "limited". Limited hides films their author or the operator
     #: has marked sensitive, and films with a report nobody has looked at yet.
     restriction: str = "none"
@@ -36619,6 +36760,42 @@ class Account:
     def restricted(self) -> bool:
         return self.restriction == "limited"
 
+    @property
+    def paying(self) -> bool:
+        """Whether a paid plan is in force *right now*.
+
+        Two things have to hold, and the second is the one that is easy to
+        leave out: the plan is not the free tier, and it has not run out. A
+        check that asks only the first keeps somebody on Studio for ever the
+        moment a webhook is missed, which is the expensive direction.
+
+        A paid plan with `plan_until == 0` reads as expired. That state should
+        not exist — every grant this software writes sets an end date — so if
+        it does exist something wrote a plan without one, and the safe reading
+        of a half-written grant is that it is not a grant.
+        """
+        if self.plan == billing.DEFAULT_PLAN:
+            return False
+        return 0 < self.plan_until and time.time() < self.plan_until
+
+    @property
+    def tier(self):
+        """The `pricing.Tier` this account is actually on, never None.
+
+        Derived rather than stored: the tier's name, price and feature list
+        live in `pricing` and would go stale the moment they were copied here.
+        An account whose paid plan has lapsed reports the free tier, because
+        that is what it can currently use.
+        """
+        from .. import pricing
+
+        if not self.paying:
+            return pricing.FREE
+        for candidate in pricing.TIERS:
+            if candidate.key == self.plan:
+                return candidate
+        return pricing.FREE
+
 
 class Accounts:
     """The account file, and the live sessions it protects."""
@@ -36633,6 +36810,10 @@ class Accounts:
         #: is owed. In memory only — a sign-in interrupted by a restart should
         #: start again rather than resume.
         self._tickets: dict[str, tuple[str, float]] = {}
+        #: Paid checkouts that matched no account when they arrived — see
+        #: `_remember_unclaimed`. Loaded from the file alongside everything
+        #: else; empty on a copy nobody has paid.
+        self.unclaimed: list[dict] = []
         #: Whether anybody else may make an account here, and the code they
         #: need. Instance-level rather than per-account, and in the same file
         #: as the accounts because it is the same secret at the same risk —
@@ -36685,6 +36866,10 @@ class Accounts:
         except (OSError, ValueError) as exc:
             log.error("could not read %s (%s); starting with no accounts", self.path, exc)
             return
+        waiting = raw.get("unclaimed")
+        self.unclaimed = (
+            [r for r in waiting if isinstance(r, dict)] if isinstance(waiting, list) else []
+        )
         stored = raw.get("invite")
         if isinstance(stored, dict):
             self.invite = {
@@ -36711,6 +36896,8 @@ class Accounts:
             "accounts": [asdict(account) for account in self.accounts.values()],
             "sessions": {key: list(value) for key, value in self.sessions.items()},
             "invite": dict(self.invite),
+            # Payments that arrived for nobody. See `remember_unclaimed`.
+            "unclaimed": list(self.unclaimed),
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(".tmp")
@@ -36759,6 +36946,9 @@ class Accounts:
         with self.lock:
             self.accounts[account.username.lower()] = account
             self._save()
+        # If they paid before they signed up, this is where they get it. The
+        # lock is released first because `claim_for` takes it itself.
+        self.claim_for(account)
         return account
 
     # -- who may join ----------------------------------------------------
@@ -36881,6 +37071,110 @@ class Accounts:
                 return False
             account.restriction = "limited" if on else "none"
             self._save()
+            return True
+
+    def apply_grant(self, grant) -> str:
+        """Put a verified entitlement change onto an account.
+
+        Returns the username it landed on, or "" if it landed on nobody. A
+        grant for a customer this copy has never seen is not an error — the
+        same Stripe account can serve more than one instance, and an event
+        about somebody else's customer is correctly a no-op here.
+
+        The two ways an event finds an account are deliberately different.
+        A checkout names the person, because the checkout was opened with
+        their username in `client_reference_id`; every later event knows only
+        the Stripe customer, and is matched by the id the checkout stored. So
+        a subscription that was never checked out through this copy cannot
+        attach itself to an account by guessing a name.
+        """
+        with self.lock:
+            account = None
+            if grant.username:
+                account = self.accounts.get(grant.username.strip().lower())
+            if account is None and grant.customer:
+                account = next(
+                    (
+                        a
+                        for a in self.accounts.values()
+                        if a.stripe_customer and a.stripe_customer == grant.customer
+                    ),
+                    None,
+                )
+            if account is None and getattr(grant, "email", ""):
+                # The buttons on the public site are pressed by people who are
+                # not signed in, so the session carries no username — only the
+                # address the card was paid with. An account with that address
+                # is that person.
+                account = next(
+                    (a for a in self.accounts.values() if a.email == grant.email),
+                    None,
+                )
+            if account is None:
+                # A payment for somebody who is not here *yet*. Dropping it is
+                # what the first version did, and it is the worst option
+                # available: the card is charged, no account changes, and
+                # nothing anywhere records that it happened. Keep it, and hand
+                # it over when they sign up with the same address.
+                self._remember_unclaimed(grant)
+                return ""
+            if grant.plan not in billing.PLANS:
+                # A plan this copy does not sell is not a plan. Refusing is
+                # the safe direction: the alternative is writing a string
+                # nobody can interpret into the field that decides what
+                # somebody is allowed to do.
+                return ""
+            account.plan = grant.plan
+            account.plan_until = float(grant.until or 0.0)
+            if grant.customer:
+                account.stripe_customer = grant.customer
+            self._save()
+            return account.username
+
+    def _remember_unclaimed(self, grant) -> None:
+        """Keep a paid grant that matched nobody. Caller holds the lock.
+
+        Only worth keeping if it can be handed to somebody later, which needs
+        an address to recognise them by, and only if it is actually worth
+        something — a downgrade to the free tier for an account this copy does
+        not have is not news.
+        """
+        email = getattr(grant, "email", "")
+        if not email or grant.plan == billing.DEFAULT_PLAN:
+            return
+        record = {
+            "email": email,
+            "plan": grant.plan,
+            "until": float(grant.until or 0.0),
+            "customer": grant.customer,
+            "seen": time.time(),
+        }
+        # One per address: a second payment from the same person replaces the
+        # first rather than queueing behind it.
+        self.unclaimed = [r for r in self.unclaimed if r.get("email") != email]
+        self.unclaimed.append(record)
+        self._save()
+        log.warning("a paid checkout arrived for %s, who has no account here; held for them", email)
+
+    def claim_for(self, account: Account) -> bool:
+        """Give a new account anything already paid for at its address.
+
+        This is the other half of buy-before-you-sign-up: somebody presses a
+        button on the public site, pays, and only then makes an account. The
+        payment arrived first and waited.
+        """
+        with self.lock:
+            waiting = next((r for r in self.unclaimed if r.get("email") == account.email), None)
+            if waiting is None:
+                return False
+            if str(waiting.get("plan")) not in billing.PLANS:
+                return False
+            account.plan = str(waiting["plan"])
+            account.plan_until = float(waiting.get("until") or 0.0)
+            account.stripe_customer = str(waiting.get("customer") or "")
+            self.unclaimed = [r for r in self.unclaimed if r is not waiting]
+            self._save()
+            log.info("%s claimed a payment made before the account existed", account.username)
             return True
 
     def set_restriction_lock(self, username: str, code: str) -> str:
@@ -37304,6 +37598,291 @@ def send_reset_to_console(email: str, link: str) -> str:
     finally:
         if saved is not None:
             os.environ["AUTEUR_SMTP_HOST"] = saved
+
+==============================================================================
+ FILE: auteur/web/billing.py
+==============================================================================
+
+"""What somebody has paid for, and how this copy comes to believe it.
+
+`auteur/pricing.py` describes what is for sale and `tools/stripe/sync_pricing.py`
+makes the Stripe account say the same thing. Between them a customer can reach
+a checkout and be charged. Then nothing happened: `pricing` was imported by the
+site builder and the sync script and by nothing under `auteur/web/`, `Account`
+had seventeen fields and not one of them was "paid", and none of the server's
+thirty-four API routes was a webhook. Money could go in and no door opened.
+
+This is the door. It is deliberately small, and three of its decisions are
+worth stating because each one is a way this could take money and get it wrong.
+
+**A plan is granted by Stripe, never by the browser.** There is no route a
+signed-in person can call to change their own plan. The only thing that writes
+a plan is a webhook whose signature verified, which means the only way to
+become a paying customer is to have paid.
+
+**No secret configured means the endpoint refuses everything.** Not "accepts
+unsigned events", not "logs a warning and proceeds" — refuses. An instance
+deployed without `STRIPE_WEBHOOK_SECRET` would otherwise be serving an
+unauthenticated grant-me-a-subscription endpoint on the public internet, and
+the failure would be invisible because the software would appear to work.
+
+**The tiers are read out of `pricing`, never retyped.** A plan key here that
+`pricing` does not sell is the same defect this project keeps finding: two
+copies of one fact, one of which goes stale. `PLANS` is built from
+`pricing.TIERS` at import, so a tier added, renamed or withdrawn there is
+added, renamed or withdrawn here with no second edit.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import os
+import time
+
+from .. import pricing
+
+#: Every plan key this copy will accept, derived from what is actually sold.
+PLANS: frozenset[str] = frozenset(tier.key for tier in pricing.TIERS)
+
+#: The plan an account has until something says otherwise. `pricing.FREE` is a
+#: real tier with a real description, so this is a reference and not a literal.
+DEFAULT_PLAN: str = pricing.FREE.key
+
+#: Stripe's lookup key -> the tier it sells. This is the join between an event
+#: arriving from the payments account and the tier list in this repository; it
+#: is why `lookup_key` exists on `Tier` at all.
+BY_LOOKUP_KEY: dict[str, pricing.Tier] = {
+    tier.lookup_key: tier for tier in pricing.TIERS if tier.lookup_key
+}
+
+#: How far out of step a webhook's timestamp may be before it is refused, in
+#: seconds. **Chosen** — it is Stripe's own documented default, and the reason
+#: it exists is replay: without it a signature captured once stays valid for
+#: ever, and a signed "you are now on Studio" could be posted back a thousand
+#: times, or a signed cancellation replayed after somebody re-subscribed.
+TOLERANCE = 300
+
+#: The subscription states Stripe reports for a subscription that is being paid
+#: for or is inside a trial somebody agreed to. Anything outside this set —
+#: `past_due`, `canceled`, `unpaid`, `incomplete_expired` — is not entitlement.
+#: Listed positively on purpose: a new state Stripe invents lands outside the
+#: set and reads as "not paid", which is the safe direction to be wrong in.
+LIVE_STATES = frozenset({"active", "trialing"})
+
+
+def signature_problem(body: bytes, header: str, secret: str, *, now: float | None = None) -> str:
+    """Why this is not a webhook from Stripe, or "" if it is one.
+
+    Stripe signs `"{timestamp}.{body}"` with the endpoint secret and sends
+    `Stripe-Signature: t=<unix>,v1=<hex>[,v1=<hex>...]`. More than one `v1`
+    appears while a secret is being rotated, so every one is checked and any
+    match is a pass.
+
+    Returns a sentence rather than raising, because the caller's job is to
+    answer a request and every one of these is a 400. The sentences are for
+    the log — the response says only that it was refused, since an endpoint
+    that explains *which* part of a forgery was wrong is an oracle for making
+    a better one.
+    """
+    if not secret:
+        # First, and before the body is looked at. An unconfigured instance
+        # has no way to tell a real event from a posted one, so it must not
+        # try: "I cannot check this" and "this is fine" are opposite answers.
+        return "no STRIPE_WEBHOOK_SECRET is set, so no event can be verified"
+    if not header:
+        return "no Stripe-Signature header"
+
+    stamp = ""
+    signatures: list[str] = []
+    for part in header.split(","):
+        key, _, value = part.strip().partition("=")
+        if key == "t":
+            stamp = value
+        elif key == "v1":
+            signatures.append(value)
+    if not stamp or not signatures:
+        return "the Stripe-Signature header has no timestamp or no v1 signature"
+
+    try:
+        sent = int(stamp)
+    except ValueError:
+        return "the Stripe-Signature timestamp is not a number"
+
+    drift = abs((time.time() if now is None else now) - sent)
+    if drift > TOLERANCE:
+        return f"the event is {drift:.0f}s out of step, past the {TOLERANCE}s tolerance"
+
+    signed = f"{sent}.".encode() + body
+    want = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
+    # compare_digest on every candidate rather than `want in signatures`: the
+    # `in` operator on strings short-circuits on the first differing byte, and
+    # this is a value an attacker can send repeatedly while timing it.
+    if any(hmac.compare_digest(want, candidate) for candidate in signatures):
+        return ""
+    return "the signature does not match"
+
+
+def _tier_of(subscription: dict) -> pricing.Tier | None:
+    """Which tier a subscription is for, by its price's lookup key.
+
+    The lookup key is used rather than the price id because a price id changes
+    every time a number changes — `sync_pricing` deactivates the old price and
+    makes a new one carrying the same lookup key precisely so that the join
+    survives a price rise.
+    """
+    for item in (subscription.get("items") or {}).get("data") or []:
+        key = ((item.get("price") or {}).get("lookup_key") or "").strip()
+        if key in BY_LOOKUP_KEY:
+            return BY_LOOKUP_KEY[key]
+    return None
+
+
+class Grant:
+    """One entitlement change an event asks for."""
+
+    def __init__(
+        self,
+        *,
+        customer: str,
+        plan: str,
+        until: float,
+        username: str = "",
+        email: str = "",
+    ):
+        self.customer = customer
+        self.plan = plan
+        self.until = until
+        #: The address the card was paid with, when Stripe sends one. The
+        #: buttons on the public site are opened by people who are not signed
+        #: in and therefore carry no `client_reference_id`; without this, a
+        #: real payment matched nobody, changed nothing, and left no record
+        #: that it had happened.
+        self.email = email.strip().lower()
+        #: Only `checkout.session.completed` knows the account by name — it
+        #: carries the `client_reference_id` the checkout was opened with.
+        #: Later events know only the customer, and are matched by the id this
+        #: first one stored.
+        self.username = username
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"<Grant {self.username or self.customer} -> {self.plan}>"
+
+
+def grant_from(event: dict) -> Grant | None:
+    """What this event changes, or None if it changes nothing.
+
+    Unknown event types are None rather than an error. Stripe sends whatever
+    the account is subscribed to and adds new types over time; an endpoint that
+    500s on an event it does not recognise teaches Stripe to retry it for three
+    days and eventually disable the endpoint that was working fine.
+    """
+    kind = str(event.get("type") or "")
+    body = (event.get("data") or {}).get("object") or {}
+
+    if kind == "checkout.session.completed":
+        # A checkout that has not been paid for is not a sale. Stripe sends
+        # this event for `payment_status: unpaid` too, on delayed methods.
+        if str(body.get("payment_status") or "") != "paid":
+            return None
+        username = str(body.get("client_reference_id") or "").strip()
+        # Stripe puts the payer's address here. It is the only handle on a
+        # checkout somebody opened from the public site, where they are not
+        # signed in and there is no username to attach.
+        email = str((body.get("customer_details") or {}).get("email") or "").strip()
+        customer = str(body.get("customer") or "").strip()
+        if not customer or not (username or email):
+            return None
+        # The session names the price it sold through the same lookup key.
+        tier = _tier_of(body.get("subscription_details") or body)
+        if tier is None:
+            return None
+        return Grant(
+            customer=customer,
+            plan=tier.key,
+            until=float(body.get("expires_at") or 0) or 0.0,
+            username=username,
+            email=email,
+        )
+
+    if kind in ("customer.subscription.updated", "customer.subscription.created"):
+        customer = str(body.get("customer") or "").strip()
+        if not customer:
+            return None
+        state = str(body.get("status") or "")
+        tier = _tier_of(body)
+        if state not in LIVE_STATES or tier is None:
+            # A lapsed subscription is a downgrade, not silence. Saying
+            # nothing here would leave somebody on Studio for ever after
+            # their card stopped working.
+            return Grant(customer=customer, plan=DEFAULT_PLAN, until=0.0)
+        return Grant(
+            customer=customer,
+            plan=tier.key,
+            until=float(body.get("current_period_end") or 0) or 0.0,
+        )
+
+    if kind == "customer.subscription.deleted":
+        customer = str(body.get("customer") or "").strip()
+        if not customer:
+            return None
+        return Grant(customer=customer, plan=DEFAULT_PLAN, until=0.0)
+
+    return None
+
+
+def read_event(body: bytes) -> dict | None:
+    """The event, or None if the body is not one."""
+    try:
+        event = json.loads(body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    return event if isinstance(event, dict) else None
+
+
+def hosted() -> bool:
+    """Whether this copy is one Auteur Studies runs and charges for.
+
+    Read from the environment on every call rather than captured at import,
+    so a test can set it and so an operator can change it without a rebuild.
+
+    **This is the difference between a price and a padlock.** Somebody running
+    `auteur serve` on their own laptop is using their own computer, their own
+    disk and their own electricity; charging them to let a friend sign in
+    would be renting them something they already own. The paid tiers describe
+    *a copy that is running when you are not* — an instance on somebody else's
+    machine — so the entitlement only means anything on one of those.
+
+    Default False. An instance that has not been told it is hosted behaves
+    exactly as it did before any of this existed.
+    """
+    return os.environ.get("AUTEUR_HOSTED", "").strip().lower() in {"1", "true", "yes"}
+
+
+def may_open_instance(account) -> str:
+    """Why this person cannot open this copy to other people, or "" if they can.
+
+    `auteur/pricing.py` says of the top tier, in as many words: *"The same
+    instance with more than one person on it. This is the invite system that
+    already exists in `auteur/web/auth.py`, priced."* The invite system was
+    built and the price was set and the two were never introduced, so the one
+    thing the top tier is sold as was free to everybody.
+
+    The tier is looked up by identity — `pricing.TOP_TIER` — rather than by
+    the string "studio", so renaming the tier does not leave this gate naming
+    a plan nobody sells.
+    """
+    if not hosted():
+        return ""
+    if account is None:
+        return "sign in first"
+    if account.plan == pricing.TOP_TIER.key and account.paying:
+        return ""
+    return (
+        f"Inviting people onto this copy is part of {pricing.TOP_TIER.name}"
+        f" ({pricing.TOP_TIER.monthly} a month)."
+    )
 
 ==============================================================================
  FILE: auteur/web/oidc.py
@@ -38778,8 +39357,8 @@ from urllib.parse import parse_qs, unquote
 
 from ..config import FORMATS, QUALITIES, Settings
 from ..ui import Reporter, describe_count, describe_duration, describe_shape
-from .. import brand, projects
-from . import auth, profiles, safety
+from .. import brand, pricing, projects
+from . import auth, billing, profiles, safety
 from .social import PAGE
 
 log = logging.getLogger("auteur.web")
@@ -38853,6 +39432,11 @@ SAFETY_HEADERS = {
 }
 #: How much of a file to put on the wire at a time.
 CHUNK = 512 * 1024
+
+#: The most a Stripe webhook body may be. Stripe's own limit on the events it
+#: sends is well under this; the number is here so that a body large enough to
+#: be a denial-of-service is refused before it is hashed rather than after.
+WEBHOOK_LIMIT = 64 * 1024
 #: Types worth gzipping. PNG and MP4 are already compressed; running them
 #: through gzip spends CPU to make them very slightly bigger.
 COMPRESSIBLE = ("text/", "javascript", "json", "manifest", "xml", "svg")
@@ -38892,6 +39476,10 @@ PUBLIC_PATHS = frozenset(
         # if reporting needed an account.
         "/api/trouble",
         "/api/sign-in-with",
+        # Stripe has no session and never will. This path is reachable
+        # without one and refuses everything whose signature does not verify,
+        # which is a stronger gate than a cookie, not a weaker one.
+        "/api/stripe/webhook",
         # The App Store requires a privacy policy at a URL anybody can open,
         # and "anybody" includes a reviewer who has not been given an account.
         # The terms go with it: the sign-up screen links to them, which happens
@@ -40288,6 +40876,54 @@ class Handler(BaseHTTPRequestHandler):
         self.profiles.forget_picture(who)
         self._json({"profile": self._mine(who)})
 
+    def _may_see(self, film, who: str) -> bool:
+        """Whether this account may have this film at all — block, then restriction.
+
+        The same rule as `_held_back`, asked about one film instead of all of
+        them, because this runs on every request for a video file and that one
+        walks the whole feed.
+
+        It exists because the restriction was enforced in the list and not in
+        the item. `_held_back` had exactly one caller — the feed — so a
+        restricted account was correctly shown a feed with the sensitive films
+        missing, and `GET /api/films/<id>` handed over the video to anybody
+        signed in. Run against a real server, a restricted fourteen-year-old
+        got 200 and four kilobytes of it. An id is not a secret: it travels in
+        a share, a message, a link somebody sends.
+
+        Both store listings say an account for somebody under 18 starts with
+        sensitive films hidden, and the 12+ rating rests on it. Hidden from the
+        feed and served from the address bar is not hidden.
+        """
+        if film is None:
+            return False
+        if film.owner == who:
+            # A restriction is about what you are shown, not about hiding your
+            # own work from you. The same carve-out `_held_back` makes.
+            return True
+
+        # A block, in both directions. `Profiles.apart` puts everybody on
+        # either side of one into a single set precisely so this cannot be got
+        # half right, and its docstring says what half-right looks like:
+        # "leaves somebody able to watch the films of the person who blocked
+        # them ... which is not a block, it is a mute."
+        #
+        # It was applied in the feed and nowhere else, so that is exactly what
+        # a block was. Blocked, the feed hid the film and this served it — 200
+        # and three kilobytes, measured. The wall had two sides and a door.
+        if film.owner in self.profiles.apart(who):
+            return False
+
+        self.accounts.refresh()
+        account = self.accounts.get(who)
+        if account is None or not account.restricted:
+            return True
+        if film.sensitive:
+            return False
+        # "This might be bad, we do not know yet" — held while the operator
+        # decides, exactly as it is in the feed.
+        return not any(r.kind == "film" and r.about == film.id for r in self.reports.open_ones())
+
     def _held_back(self, who: str) -> set[str]:
         """Film ids this account's content restriction keeps off the screen.
 
@@ -40775,12 +41411,23 @@ class Handler(BaseHTTPRequestHandler):
         """The video or the poster for one film, by film id.
 
         Unlike a job, a film is public to everybody signed in — that is what a
-        feed is. The check that matters is that the id names a film this
+        feed is, and the check that matters is that the id names a film this
         instance published, so a path cannot be walked in from the address bar.
+
+        *Except* where a content restriction says otherwise. That sentence used
+        to end at "signed in", and the restriction was enforced only in the
+        feed, so the list hid a sensitive film and this handed over the file.
+        `_may_see` is the same rule asked about one film.
         """
         parts = path.strip("/").split("/")
         film = self.films.get(parts[2]) if len(parts) > 2 else None
         if film is None:
+            self._json({"error": "no such film"}, 404)
+            return
+        if not self._may_see(film, self.current_user() or ""):
+            # The same 404 as "no such film", deliberately. A 403 would confirm
+            # that the id names a real film and that it is the restricted kind,
+            # which is the one thing worth learning from the outside.
             self._json({"error": "no such film"}, 404)
             return
         want = parts[3] if len(parts) > 3 else "video"
@@ -41003,6 +41650,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/joining":
             self._who_may_join()
+            return
+        if path == "/api/plan":
+            self._plan_state()
             return
         if path == "/api/can-signup":
             self.accounts.refresh()
@@ -41319,11 +41969,70 @@ class Handler(BaseHTTPRequestHandler):
         payload = self._json_body()
         self.accounts.refresh()
         if payload.get("open"):
+            # Opening is the part the top tier is sold as. Closing, below, is
+            # not gated on anything and must never be: closing is what
+            # somebody does *because* a code got further than they meant, and
+            # a copy that cannot be shut because a card expired is a copy
+            # whose billing state has become a security problem.
+            problem = billing.may_open_instance(self.accounts.get(self.current_user() or ""))
+            if problem:
+                self._json({"error": problem, "needs": pricing.TOP_TIER.key}, 402)
+                return
             code = self.accounts.open_joining(with_code=bool(payload.get("code", True)))
             self._json({"open": True, "code": code})
             return
         self.accounts.close_joining()
         self._json({"open": False, "code": ""})
+
+    def _plan_state(self) -> None:
+        """What this person is on, and what it would take to be on more.
+
+        The app had no way to ask. `Account.plan` was written by the webhook
+        and read by nothing, which is the same shape of defect as a gate that
+        is never called: a fact the program holds and never acts on.
+
+        Everything here is derived from `auteur/pricing.py` so the screen and
+        the checkout cannot advertise two different numbers.
+        """
+        account = self.accounts.get(self.current_user() or "")
+        if account is None:
+            self._json({"error": "sign in first"}, 403)
+            return
+        tier = account.tier
+        # A checkout that is not usable is not offered. `checkout_for` raises
+        # on a test link rather than returning one, which is the behaviour
+        # that keeps a fake card form off a real page.
+        checkout = ""
+        try:
+            # With the buyer's name on it. Stripe hands `client_reference_id`
+            # back on the completed session and it is the only thing there
+            # that names a person, so a link without it is a charge this copy
+            # can never match to an account.
+            checkout = pricing.checkout_for_person(pricing.TOP_TIER, account.username)
+        except ValueError:
+            checkout = ""
+        self._json(
+            {
+                "plan": account.plan,
+                "name": tier.name,
+                "monthly": tier.monthly,
+                "paying": account.paying,
+                "until": account.plan_until,
+                # Whether the entitlement means anything here at all. On
+                # somebody's own machine it does not, and the screen should
+                # say so rather than dangling an upgrade at them.
+                "hosted": billing.hosted(),
+                "top": {
+                    "key": pricing.TOP_TIER.key,
+                    "name": pricing.TOP_TIER.name,
+                    "monthly": pricing.TOP_TIER.monthly,
+                    "includes": list(pricing.TOP_TIER.includes),
+                    "checkout": checkout,
+                    "promo": pricing.PROMO_CODE if checkout else "",
+                    "trial_days": pricing.TRIAL_DAYS,
+                },
+            }
+        )
 
     def _sign_up(self) -> None:
         """Make the first account, and only the first.
@@ -41356,8 +42065,29 @@ class Handler(BaseHTTPRequestHandler):
         if len(username) < 3:
             self._json({"error": "Pick a name of at least three characters."}, 400)
             return
-        if len(password) < 10:
-            self._json({"error": "Ten characters or more, please."}, 400)
+
+        # The same policy every other path uses, rather than a second, looser
+        # one written here.
+        #
+        # This said `len(password) < 10` and nothing else, while
+        # `auth.password_problem` — twelve characters, no leading or trailing
+        # space, nothing off a guessing list, at least five distinct
+        # characters, and not built from the account's own name — was what
+        # `auteur account add`, the first-run seeder and the password *reset*
+        # all enforced. So the one path a person who is not a programmer
+        # actually takes was the weakest, and these all sailed through it:
+        #
+        #     0123456789   two characters short of the floor
+        #     password12   on every guessing list
+        #     aaaaaaaaaa   four distinct characters
+        #     tester1234   the account's own username with digits after it
+        #
+        # And the person who chose one would then be told "use at least 12
+        # characters" the first time they tried to reset it. Two rules for one
+        # thing, with the weaker one on the front door.
+        problem = auth.password_problem(password, username=username, email=email)
+        if problem:
+            self._json({"error": problem}, 400)
             return
 
         # The age gate. This app is submitted to the App Store at 12+, and a
@@ -41376,7 +42106,8 @@ class Handler(BaseHTTPRequestHandler):
             # nothing to do about it here.
             self._json(
                 {
-                    "error": f"Auteur is for people {auth.MINIMUM_AGE} and over. "
+                    "error": f"{brand.NAME} is for people "
+                    f"{auth.MINIMUM_AGE} and over. "
                     "If that year is wrong, put it right and try again."
                 },
                 403,
@@ -41645,6 +42376,52 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return {}
         return payload if isinstance(payload, dict) else {}
+
+    def _stripe_webhook(self) -> None:
+        """Stripe saying somebody paid, or stopped paying.
+
+        This is the only thing in the program that can put an account onto a
+        paid plan. It is unauthenticated because Stripe has no session here —
+        and it is therefore signature-checked before the body is looked at,
+        which is the whole of its security. `_read_body` is used directly
+        rather than `_json_body` because the signature covers the exact bytes
+        that were sent, and `_json_body` decodes with `errors="replace"`: a
+        single byte replaced is a signature that can never match.
+
+        Every refusal answers with the same sentence. Stripe does not read it,
+        and anybody else asking is being told only that it did not work.
+        """
+        secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
+        body = self._read_body(WEBHOOK_LIMIT) or b""
+        problem = billing.signature_problem(
+            body, self.headers.get("Stripe-Signature", "") or "", secret
+        )
+        if problem:
+            # Logged in full, answered in one word. The log is the operator's,
+            # who needs to know an unconfigured secret from a bad signature;
+            # the response is the caller's, who does not.
+            log.warning("stripe webhook refused: %s", problem)
+            self._json({"error": "not accepted"}, 400)
+            return
+
+        event = billing.read_event(body)
+        if event is None:
+            self._json({"error": "not accepted"}, 400)
+            return
+
+        grant = billing.grant_from(event)
+        if grant is None:
+            # A verified event this copy has no opinion about. 200, because
+            # anything else asks Stripe to retry it for three days and then
+            # switch the endpoint off.
+            self._json({"ok": True, "changed": ""})
+            return
+
+        self.accounts.refresh()
+        who = self.accounts.apply_grant(grant)
+        if who:
+            log.info("stripe: %s is now on %s", who, grant.plan)
+        self._json({"ok": True, "changed": who})
 
     def _agents_plan(self) -> None:
         """Plan a cut and collect what the agents want to change.
@@ -42416,6 +43193,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/reset":
             self._reset()
+            return
+
+        if path == "/api/stripe/webhook":
+            self._stripe_webhook()
             return
 
         if not self._allowed(path):
@@ -49829,6 +50610,25 @@ html {
          appear on. Until now the only way to add somebody was
          `auteur account add` typed on the machine's terminal — by the owner,
          not by the person joining. -->
+    <!-- What this person is on.
+         Hidden entirely on somebody's own machine: the entitlement means
+         nothing there, and an upgrade offer on a copy running on your own
+         laptop is an advertisement, not a setting. -->
+    <div id="plan-section" hidden>
+      <h3 class="settings-label">Plan</h3>
+      <div class="inset-group">
+        <div class="inset-row">
+          <span class="inset-label">You are on</span>
+          <span class="inset-value" id="plan-name">…</span>
+        </div>
+        <a class="inset-row" id="plan-upgrade" href="#" hidden>
+          <span class="inset-label" id="plan-upgrade-label">Upgrade</span>
+          <span class="inset-value" id="plan-upgrade-price"></span>
+        </a>
+      </div>
+      <p class="group-caption" id="plan-note"></p>
+    </div>
+
     <h3 class="settings-label">People</h3>
     <div class="inset-group">
       <button type="button" class="inset-row" id="joining-row">
@@ -49840,6 +50640,7 @@ html {
         <span class="inset-value mono" id="joining-code"></span>
       </div>
     </div>
+    <p class="group-caption error" id="joining-error" hidden></p>
     <p class="group-caption" id="joining-note">
       Off unless you turn it on. While it is on, anybody with the code can
       make an account on this copy — <strong>treat the code as a
@@ -50746,6 +51547,54 @@ html {
     $("joining-code").textContent = (data && data.code) || "";
   }
 
+  /* What this person is paying for, if anything.
+   *
+   * `Account.plan` was written by the Stripe webhook and read by nothing —
+   * the app had no way to ask and no way to show it. Everything below comes
+   * from /api/plan, which derives it all from `auteur/pricing.py`, so this
+   * screen cannot advertise a price the checkout does not charge.
+   */
+  var planState = null;
+
+  function drawPlan(plan) {
+    planState = plan;
+    /* On somebody's own machine the whole section stays away. The tiers are
+       about an instance that runs when you are not, and this one does not. */
+    $("plan-section").hidden = !plan || !plan.hosted;
+    if (!plan || !plan.hosted) { return; }
+
+    $("plan-name").textContent = plan.paying
+      ? plan.name + " · " + plan.monthly
+      : plan.name;
+
+    var top = plan.top || {};
+    /* Offered only when there is somewhere real to send them. A button that
+       goes nowhere is worse than no button, and `checkout_for` refuses a
+       Stripe test link by shape, so "" here means "not open yet" rather
+       than "misconfigured". */
+    var canBuy = !plan.paying && !!top.checkout;
+    $("plan-upgrade").hidden = !canBuy;
+    if (canBuy) {
+      $("plan-upgrade").href = top.checkout;
+      $("plan-upgrade-label").textContent = "Get " + top.name;
+      $("plan-upgrade-price").textContent = top.monthly + "/mo";
+    }
+    $("plan-note").textContent = plan.paying
+      ? "Billed monthly. Cancel any time — it stays on until the period ends."
+      : (top.checkout
+          ? top.name + " adds: " + (top.includes || []).join(" · ")
+            + (top.trial_days ? ". " + top.trial_days + "-day free trial." : "")
+          : "Paid plans are not open yet on this copy.");
+  }
+
+  function loadPlan() {
+    fetch("/api/plan", { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(drawPlan)
+      .catch(function () { /* signed out, or offline */ });
+  }
+  loadPlan();
+
   function loadJoining() {
     fetch("/api/joining", { credentials: "same-origin", cache: "no-store" })
       .then(function (r) { return r.ok ? r.json() : null; })
@@ -50759,14 +51608,30 @@ html {
        going without a second request first. */
     var turningOn = $("joining-row").dataset.on !== "1";
     $("joining-state").textContent = "…";
+    $("joining-error").hidden = true;
     fetch("/api/joining", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ open: turningOn })
     })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) { drawJoining(data || { open: false }); })
+      .then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+      })
+      .then(function (got) {
+        /* A refusal used to land here as `!r.ok`, and the switch flipped
+           silently back to Off. Somebody on the free tier tapped it, nothing
+           happened, and nothing said why — which reads as a broken switch
+           rather than as a plan they are not on. Say it. */
+        if (!got.ok) {
+          $("joining-error").textContent =
+            (got.d && got.d.error) || "That did not work.";
+          $("joining-error").hidden = false;
+          drawJoining({ open: false });
+          return;
+        }
+        drawJoining(got.d);
+      })
       .catch(function () { loadJoining(); });
   });
 
@@ -55054,6 +55919,20 @@ body.has-tabbar .page {
 :root[data-contrast="more"] .card-hint,
 :root[data-contrast="more"] .group-caption,
 :root[data-contrast="more"] .fineprint { color: var(--text-muted); }
+
+/* A caption that is also a refusal.
+   Two bugs are being fixed here at once, and both were invisible in the
+   source and obvious the moment the colour was measured in a browser.
+   `.error` and `.group-caption` are both single-class selectors, so the one
+   defined later won — and `.group-caption` is later, which painted every
+   inline refusal the same muted grey as the help text beside it. Then the
+   first fix was written *inside* `@media (prefers-contrast: more)`, so it
+   only applied to people who had turned high contrast on.
+   Top level, and two selectors: the second one outweighs
+   `:root[data-contrast="more"] .group-caption`, which is more specific than
+   a bare pair of classes and would otherwise win it back. */
+.group-caption.error,
+:root[data-contrast="more"] .group-caption.error { color: var(--rust); }
 /* The faint rungs of the palette are the ones that fail first when somebody
    asks for more contrast, and they are also the ones carrying secondary text
    on every list row in the app. Moved up to the muted rung, which clears AA
@@ -60425,7 +61304,13 @@ somebody looking at it.
 #
 #   fly volumes create auteur_data --size 10
 #   fly secrets set AUTEUR_USERNAME=you AUTEUR_PASSWORD='four unrelated words'
+#   fly secrets set STRIPE_WEBHOOK_SECRET=whsec_...
 #   fly deploy
+#
+# The Stripe secret is not optional on a copy that sells anything. Without it
+# /api/stripe/webhook refuses every event rather than trusting an unsigned
+# one — the correct failure, and a silent one: the app serves, people sign in,
+# cards are charged, and nobody is ever upgraded.
 
 app = "auteur"
 primary_region = "iad"
@@ -60439,6 +61324,8 @@ primary_region = "iad"
   # told the outside is https or it marks the sign-in cookie insecure.
   AUTEUR_TRUST_PROXY = "1"
   AUTEUR_PUBLIC_HTTPS = "1"
+  # A copy we run and charge for. Unset, nothing is gated behind a plan.
+  AUTEUR_HOSTED = "1"
 
 [[mounts]]
   source = "auteur_data"
@@ -62628,6 +63515,20 @@ body.has-tabbar .page {
 :root[data-contrast="more"] .card-hint,
 :root[data-contrast="more"] .group-caption,
 :root[data-contrast="more"] .fineprint { color: var(--text-muted); }
+
+/* A caption that is also a refusal.
+   Two bugs are being fixed here at once, and both were invisible in the
+   source and obvious the moment the colour was measured in a browser.
+   `.error` and `.group-caption` are both single-class selectors, so the one
+   defined later won — and `.group-caption` is later, which painted every
+   inline refusal the same muted grey as the help text beside it. Then the
+   first fix was written *inside* `@media (prefers-contrast: more)`, so it
+   only applied to people who had turned high contrast on.
+   Top level, and two selectors: the second one outweighs
+   `:root[data-contrast="more"] .group-caption`, which is more specific than
+   a bare pair of classes and would otherwise win it back. */
+.group-caption.error,
+:root[data-contrast="more"] .group-caption.error { color: var(--rust); }
 /* The faint rungs of the palette are the ones that fail first when somebody
    asks for more contrast, and they are also the ones carrying secondary text
    on every list row in the app. Moved up to the muted rung, which clears AA
@@ -76300,16 +77201,16 @@ dependencies = [
 # builds sometimes ship without libx264, xfade or loudnorm.
 ffmpeg = ["ffmpeg-binaries>=1.1.0"]
 # Lets Claude direct the edit. Without it the algorithmic director is used.
-llm = ["anthropic>=0.124.0"]
+llm = ["anthropic>=1.1.0"]
 # The Scholar's only way to reach YouTube. Metadata and captions only — it never
 # downloads video. Without it the Scholar says it cannot study rather than
 # quietly reporting that it studied nothing.
-scholar = ["yt-dlp>=2026.7.4"]
+scholar = ["yt-dlp>=2026.8.19"]
 # Signing in with Apple: their client secret is an ES256 JWT the server signs
 # itself. `requirements.txt` installs it unconditionally because a deployment
 # that cannot offer it has an App Store guideline 4.8 problem; here it is an
 # extra, because making a film locally never touches it.
-signin = ["cryptography>=43"]
+signin = ["cryptography>=50.0.1"]
 dev = ["pytest>=9.1.1"]
 
 [project.scripts]
@@ -76392,6 +77293,22 @@ services:
         sync: false
       - key: AUTEUR_PASSWORD
         sync: false
+      # This copy is one Auteur Studies runs and charges for, which is the
+      # only thing that turns the paid gate on. Left unset, nothing is gated —
+      # the right default for a copy on somebody's own machine, and the wrong
+      # one here.
+      - key: AUTEUR_HOSTED
+        value: "1"
+      # The signing secret of the Stripe endpoint pointed at
+      # /api/stripe/webhook. Set it in the dashboard, never here.
+      #
+      # Without it that endpoint refuses every event rather than trusting an
+      # unsigned one. That is the correct failure and it is a silent one from
+      # the outside: the app serves, people sign in, cards are charged, and no
+      # account is ever upgraded. If subscriptions are not landing, look here
+      # first.
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
       # Only needed once you are reading numbers back from the platforms.
       - key: AUTEUR_TIKTOK_CLIENT_KEY
         sync: false
@@ -76420,11 +77337,11 @@ ffmpeg-binaries>=1.1.0
 # tells anybody who wants Continue with Apple that it cannot, which is both a
 # dead end for them and an App Store guideline 4.8 problem — an app offering a
 # third-party login has to offer an equivalent privacy-preserving one.
-cryptography>=43
+cryptography>=50.0.1
 
 # Optional: lets Claude direct the edit. Without it the algorithmic director
 # does the job and the film still gets made.
-anthropic>=0.124.0
+anthropic>=1.1.0
 
 # Tests
 pytest>=9.1.1
@@ -90332,6 +91249,344 @@ def test_the_app_never_asks_a_platform_for_permission_to_post():
     )
 
 
+def test_a_restricted_account_cannot_fetch_a_film_the_feed_hides_from_it():
+    """Hidden from the feed and served from the address bar is not hidden.
+
+    The content restriction was enforced in the list and not in the item.
+    `_held_back` had exactly one caller — the feed — so a restricted account
+    got a feed with the sensitive films correctly missing, and
+    `GET /api/films/<id>` handed over the video to anybody signed in.
+
+    Run against a real server, a restricted fourteen-year-old asking for
+    somebody else's film marked sensitive got **200 and 4,108 bytes of it**.
+    An id is not a secret: it travels in a share, a message, a link somebody
+    sends. Both store listings say an account for somebody under 18 starts
+    with sensitive films hidden, and the 12+ rating rests on that sentence.
+
+    `_may_see` is the same rule asked about one film rather than all of them,
+    and this holds all three of its edges — because the easy over-correction
+    is to refuse everything, which would break the feed for every restricted
+    account and hide people's own work from them.
+    """
+
+    import time
+
+    from auteur.web import server as web
+    from auteur.web.auth import Accounts
+    from auteur.web.profiles import Profiles
+    from auteur.web.safety import Reports
+    from auteur.web.social import Films
+
+    class Stub:
+        """Only the parts `_may_see` reads."""
+
+        def __init__(self, accounts, reports, profiles):
+            self.accounts = accounts
+            self.reports = reports
+            self.profiles = profiles
+
+        _may_see = web.Handler._may_see
+
+    with tempfile.TemporaryDirectory() as folder:
+        work = Path(folder)
+        year = time.gmtime().tm_year
+        accounts = Accounts(Accounts.default_path(work))
+        accounts.add("teenager", "t@e.st", TEST_PASSWORD, born=year - 14)
+        accounts.set_restriction("teenager", True)
+        accounts.add("grownup", "g@e.st", TEST_PASSWORD, born=year - 30)
+
+        films = Films(Films.default_path(work))
+        video = work / "f.mp4"
+        video.write_bytes(b"\x00" * 64)
+        theirs_sensitive = films.add(
+            owner="grownup", prompt="adults only", video=str(video), sensitive=True
+        )
+        theirs_ordinary = films.add(
+            owner="grownup", prompt="ordinary", video=str(video), sensitive=False
+        )
+        own_sensitive = films.add(
+            owner="teenager", prompt="their own", video=str(video), sensitive=True
+        )
+
+        profiles = Profiles(Profiles.default_path(work))
+        handler = Stub(accounts, Reports(Reports.default_path(work)), profiles)
+
+        teen = handler._may_see
+        assert not teen(theirs_sensitive, "teenager"), (
+            "a restricted account can fetch somebody else's sensitive film by id — "
+            "the feed hides it and the file is served anyway"
+        )
+        # The two things an over-correction would break.
+        assert teen(theirs_ordinary, "teenager"), (
+            "an ordinary film is now refused to a restricted account, which "
+            "empties the feed for everybody it applies to"
+        )
+        assert teen(own_sensitive, "teenager"), (
+            "a restriction is about what you are shown, not about hiding your " "own work from you"
+        )
+        # And an account with no restriction is untouched.
+        assert teen(theirs_sensitive, "grownup")
+
+        # A block, both ways. `Profiles.apart` returns everybody on either
+        # side of one in a single set, and its own docstring says why:
+        # filtering on "people I blocked" alone "leaves somebody able to watch
+        # the films of the person who blocked them ... which is not a block,
+        # it is a mute." That set was consulted in the feed and nowhere else,
+        # so a blocked account's feed hid the film and the endpoint served it
+        # — 200 and three kilobytes, measured against a real server.
+        accounts.add("mallory", "m@e.st", TEST_PASSWORD, born=year - 30)
+        profiles.block("grownup", "mallory")
+        mallorys = films.add(
+            owner="mallory", prompt="mallory's own", video=str(video), sensitive=False
+        )
+
+        assert not handler._may_see(
+            theirs_ordinary, "mallory"
+        ), "somebody who has been blocked can still fetch that person's films by id"
+        assert not handler._may_see(
+            mallorys, "grownup"
+        ), "a block only stops one direction, which makes it a mute"
+        assert handler._may_see(mallorys, "mallory"), "blocked from their own work"
+        assert handler._may_see(
+            theirs_ordinary, "teenager"
+        ), "an unrelated account is caught by somebody else's block"
+
+        # The other half of the rule, and the half with no `sensitive` flag to
+        # make it obvious: a film nobody marked, but with an open report
+        # against it, is held while the operator decides. Filed for real rather
+        # than asserted about — an earlier draft of this block checked that the
+        # reports store still had an `open_ones` method, which is a fact about
+        # the module and not about the behaviour.
+        assert handler._may_see(theirs_ordinary, "teenager"), "precondition"
+        handler.reports.file(
+            by="somebody",
+            kind="film",
+            about=theirs_ordinary.id,
+            about_who="grownup",
+            # From the fixed vocabulary — `file()` returns None for anything
+            # else, which is how the first draft of this block filed nothing
+            # and then "proved" the film was still visible.
+            reason="other",
+        )
+        assert not handler._may_see(theirs_ordinary, "teenager"), (
+            "a film under an open report is served to a restricted account "
+            "while the operator is still deciding"
+        )
+        # And the moment it is decided, it comes back.
+        open_now = handler.reports.open_ones()
+        assert open_now, "the report was not filed, so the check above proved nothing"
+        assert open_now[0].about == theirs_ordinary.id
+        handler.reports.decide(open_now[0].id, "kept", "looked at it")
+        assert handler._may_see(
+            theirs_ordinary, "teenager"
+        ), "a decided report still holds the film back"
+
+    # The rule being right and the rule being *in the path* are two different
+    # things, and this test proved only the first: commenting the call out of
+    # `_film_media` left it passing. That is the same defect as a publish gate
+    # nobody calls, reproduced while fixing a neighbouring one. The endpoint
+    # that serves the file has to ask.
+    import ast
+
+    source = Path(web.__file__).read_text(encoding="utf-8")
+    served_by = {
+        node.name: node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.FunctionDef)
+    }
+    assert "_film_media" in served_by, "the endpoint that serves a film by id is gone"
+    asks = [
+        inner
+        for inner in ast.walk(served_by["_film_media"])
+        if isinstance(inner, ast.Call) and getattr(inner.func, "attr", "") == "_may_see"
+    ]
+    assert asks, (
+        "`_film_media` serves a film's video and poster and never calls "
+        "`_may_see`, so the restriction is enforced in the feed and nowhere else"
+    )
+
+
+def test_every_way_to_set_a_password_enforces_the_same_policy():
+    """The front door had its own, weaker rule.
+
+    `auth.password_problem` is the policy: twelve characters, no leading or
+    trailing space, nothing off a guessing list, at least five distinct
+    characters, and not built out of the account's own name. `auteur account
+    add` calls it. The first-run seeder calls it. The password *reset* calls
+    it. Web sign-up did not — it had `len(password) < 10` written inline and
+    nothing else.
+
+    So the one path a person who is not a programmer actually takes was the
+    weakest of the four. Run against a real server, every one of these was
+    accepted at sign-up and rejected everywhere else:
+
+        0123456789   two short of the floor
+        password12   on every guessing list
+        aaaaaaaaaa   four distinct characters
+        tester1234   the account's own username with digits after it
+
+    And the person who chose one would meet "use at least 12 characters" the
+    first time they tried to reset it — the app enforcing a rule at reset that
+    it had declined to enforce when it mattered.
+
+    Two rules for one thing with nothing comparing them is the defect this
+    repository keeps finding. What makes this one worth a guard rather than a
+    fix is that a fourth path is cheap to add and would be written the same
+    way: this asserts that nothing sets a password without asking the policy.
+    """
+
+    import ast
+
+    from auteur.web import auth
+
+    root = Path(__file__).resolve().parent.parent
+
+    # Every module that can set or accept a password has to consult the one
+    # policy function. Named rather than discovered, because a path that
+    # forgets to import it is exactly what this is looking for and would
+    # therefore not be discovered.
+    SETTERS = {
+        "auteur/web/server.py": "sign-up and password reset",
+        "auteur/cli.py": "`auteur account add` and `account password`",
+        "auteur/web/seed.py": "the first-run account",
+    }
+    for name, what in SETTERS.items():
+        source = (root / name).read_text(encoding="utf-8")
+        assert (
+            "password_problem" in source
+        ), f"{name} sets a password ({what}) without asking the policy"
+
+    # And no path may carry a second, private floor. A bare length comparison
+    # against a password is the shape the old rule had.
+    private_floor: list[str] = []
+    for name in SETTERS:
+        path = root / name
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Compare):
+                continue
+            left = node.left
+            if (
+                isinstance(left, ast.Call)
+                and getattr(left.func, "id", "") == "len"
+                and left.args
+                and getattr(left.args[0], "id", "") == "password"
+            ):
+                private_floor.append(f"{name}:{node.lineno}")
+    assert not private_floor, (
+        "a length check on a password outside `password_problem`, which is how "
+        f"the two rules parted company the first time: {private_floor}"
+    )
+
+    # The floor itself, pinned by a password that fails for *no other reason*.
+    # "xk7Qzmw" is seven characters, seven distinct, on no list, and unrelated
+    # to the account — so it is refused if and only if the length rule is
+    # doing its job. The first draft of this test asserted the five cases
+    # below and nothing more, and `MIN_PASSWORD = 4` passed it: every one of
+    # them also breaks a different rule, so none of them was testing the
+    # floor. A case that fails for two reasons proves neither.
+    short_and_otherwise_fine = "xk7Qzmw"
+    assert len(short_and_otherwise_fine) < auth.MIN_PASSWORD
+    assert "at least" in auth.password_problem(short_and_otherwise_fine, username="tester"), (
+        f"{short_and_otherwise_fine!r} is under the {auth.MIN_PASSWORD}-character "
+        "floor and was not refused for that"
+    )
+
+    # And the other rules, each of which stands on its own.
+    for password, why in [
+        ("0123456789", "on a guessing list"),
+        ("password12", "on a guessing list"),
+        ("aaaaaaaaaa", "too few distinct characters"),
+        ("tester1234", "built from the username"),
+        (" correct horse battery ", "leading and trailing space"),
+    ]:
+        assert auth.password_problem(
+            password, username="tester1234", email="t@e.st"
+        ), f"the policy accepts {password!r} ({why})"
+    assert not auth.password_problem(
+        "correct horse battery staple", username="tester", email="t@e.st"
+    ), "the policy refuses a good passphrase, which would send people to Password1!"
+
+
+def test_nothing_calls_the_product_by_the_name_it_used_to_have():
+    """The rename left "Auteur" behind in two sentences a person actually reads.
+
+    The compound "Auteur Atlas" was swept out of thirty-two files and a guard
+    was written to keep it out. That guard checked for the string it had just
+    seen. It did not check for the *other* way the rename could be incomplete —
+    the bare old product name, still standing where the product is named:
+
+        auteur/web/server.py   the age-gate error, shown to somebody in the
+                               middle of signing up
+        auteur/brand.py        inside `description()`, which generates both
+                               store listings and the terms page
+
+    Both said "Auteur is for people 12 and over". Both were found by running
+    the sign-up flow rather than by reading, and both are now `{brand.NAME}`.
+    A guard shaped like the exact bug it was written for is the recurring
+    mistake in this file; this is the class.
+
+    The publisher is always "Auteur Studies", so "Auteur" followed by anything
+    else in prose is the product wearing its old name. That distinction is what
+    makes this checkable without flagging every legitimate mention of the
+    company or of the `auteur` package and command.
+    """
+
+    import re as _re
+
+    from auteur import brand
+    from auteur.identity import COMPANY
+    from auteur.web import server
+
+    root = Path(__file__).resolve().parent.parent
+    surfaces = [
+        *sorted(server.STATIC.glob("*.html")),
+        root / "auteur" / "brand.py",
+        root / "auteur" / "web" / "server.py",
+        root / "README.md",
+        root / "TERMS.md",
+        root / "PRIVACY.md",
+        root / "docs" / "index.html",
+    ]
+    surfaces = [path for path in surfaces if path.is_file()]
+    assert surfaces, "found no surfaces to check"
+
+    # "Auteur" as a product name: followed by a word that is not the rest of
+    # the company's name. `Auteur Studies` is the publisher and always fine.
+    trailing = COMPANY.trading_name.split()[-1]  # "Studies"
+    stale = _re.compile(rf"\bAuteur (?!{_re.escape(trailing)}\b)([a-zA-Z]+)")
+
+    # Python is read as a syntax tree and only its *string literals* are
+    # checked, not its comments. `brand.py` and `identity.py` carry comments
+    # that state this very rule — `Atlas, never "Auteur Atlas"` — and a
+    # line-based scan flagged the rule as a breach of itself. A comment is not
+    # a surface; nobody signing up reads one.
+    import ast as _ast
+
+    found: list[str] = []
+    for path in surfaces:
+        text = path.read_text(encoding="utf-8")
+        if path.suffix == ".py":
+            pieces = [
+                node.value
+                for node in _ast.walk(_ast.parse(text))
+                if isinstance(node, _ast.Constant) and isinstance(node.value, str)
+            ]
+            # Module and function docstrings are documentation too, and the
+            # rule is explained in several of them.
+            pieces = [
+                piece
+                for piece in pieces
+                if "never" not in piece.lower() and "used to" not in piece.lower()
+            ]
+        else:
+            pieces = text.splitlines()
+        for piece in pieces:
+            for match in stale.finditer(piece):
+                found.append(f"{path.relative_to(root).as_posix()} says 'Auteur {match.group(1)}'")
+
+    assert (
+        not found
+    ), f"the product is called {brand.NAME}; these still call it Auteur: " + "; ".join(found)
+
+
 def test_the_publisher_name_is_never_welded_to_the_front_of_the_product_name():
     """Atlas is the product. Auteur Studies publishes it. Neither is the other.
 
@@ -91994,43 +93249,6 @@ def test_running_the_reconciler_twice_creates_nothing_the_second_time():
     assert code == pricing.PROMO_CODE, f"Stripe has {code}, the site prints {pricing.PROMO_CODE}"
 
 
-def _page_with_checkout(checkout: dict) -> str:
-    """The site as its own builder makes it, for a given checkout state.
-
-    Three tests below check what the page says when a plan has nowhere to pay.
-    They used to reach that state by building with no overrides, which worked
-    only while `pricing.CHECKOUT` was empty — so the day the live payment links
-    landed, all three failed for having launched rather than for anything being
-    wrong. The state under test has to be stated, not assumed.
-
-    Loaded rather than run as a subprocess because the environment override
-    deliberately cannot express "closed": `checkout_for` reads the environment
-    *or* `CHECKOUT`, so an empty variable falls through to the dict. Nothing is
-    stubbed — this is the builder's own module-level `PAGE`, built from the
-    pricing module exactly as it is on every real run.
-    """
-    import importlib.util
-
-    from auteur import pricing
-
-    root = Path(__file__).resolve().parent.parent
-    was = dict(pricing.CHECKOUT)
-    # Mutated in place rather than rebound, so a `from ... import CHECKOUT`
-    # anywhere sees the same change.
-    pricing.CHECKOUT.clear()
-    pricing.CHECKOUT.update(checkout)
-    try:
-        spec = importlib.util.spec_from_file_location(
-            "_site_builder_probe", root / "tools" / "site" / "build_site.py"
-        )
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module.PAGE
-    finally:
-        pricing.CHECKOUT.clear()
-        pricing.CHECKOUT.update(was)
-
-
 def test_the_discount_the_site_advertises_can_actually_be_claimed():
     """A saving on a page with no way to claim it is a lie with a receipt.
 
@@ -92085,7 +93303,13 @@ def test_the_discount_the_site_advertises_can_actually_be_claimed():
         f"and the coupon gives {percent}%"
     )
 
-    not_yet = _page_with_checkout({})
+    # Every paid tier explicitly closed. These three tests used to get the
+    # shut state for free, because `pricing.CHECKOUT` was empty and there was
+    # nothing to sell. There are real links in it now, so the closed half of
+    # each of these has to be *built* rather than inherited — which is better,
+    # since it means both branches are now exercised on purpose.
+    shut_env = {f"AUTEUR_CHECKOUT_{t.key.upper()}": "" for t in pricing.TIERS if t.dollars}
+    not_yet = build(**shut_env)
     assert (
         pricing.PROMO_CODE not in not_yet
     ), "the page tells somebody to type a code at a checkout that does not exist"
@@ -92158,13 +93382,20 @@ def test_a_plan_with_nowhere_to_pay_says_so_instead_of_offering_a_button():
 
     paid = [tier for tier in pricing.TIERS if tier.dollars]
 
-    page = _page_with_checkout({})
+    # Every paid tier explicitly closed. These three tests used to get the
+    # shut state for free, because `pricing.CHECKOUT` was empty and there was
+    # nothing to sell. There are real links in it now, so the closed half of
+    # each of these has to be *built* rather than inherited — which is better,
+    # since it means both branches are now exercised on purpose.
+    shut_env = {f"AUTEUR_CHECKOUT_{t.key.upper()}": "" for t in pricing.TIERS if t.dollars}
+    page = build(**shut_env)
     assert page.count("Not open yet") == len(paid), "a paid plan with no checkout is not saying so"
     assert "Start the" not in page, "a plan offers a trial it has nowhere to start"
 
-    # One tier open, the rest shut — the mixed state, which is the one the rule
-    # is really about and the one no single global setting can produce.
-    page = _page_with_checkout({"solo": "https://buy.stripe.com/9AQ00realone"})
+    # One tier open and the rest shut, so the count below means what it says.
+    # Overriding only Solo used to be enough; now the others would fall
+    # through to the real table and nothing would be reported as closed.
+    page = build(**{**shut_env, "AUTEUR_CHECKOUT_SOLO": "https://buy.stripe.com/9AQ00realone"})
     assert 'href="https://buy.stripe.com/9AQ00realone">Start the' in page
     assert (
         page.count("Not open yet") == len(paid) - 1
@@ -92234,15 +93465,23 @@ def test_the_page_never_offers_a_trial_it_has_nowhere_to_start():
         (root / "-").unlink()
         return page
 
-    shut = _page_with_checkout({})
+    # Every paid tier explicitly closed. These three tests used to get the
+    # shut state for free, because `pricing.CHECKOUT` was empty and there was
+    # nothing to sell. There are real links in it now, so the closed half of
+    # each of these has to be *built* rather than inherited — which is better,
+    # since it means both branches are now exercised on purpose.
+    shut_env = {f"AUTEUR_CHECKOUT_{t.key.upper()}": "" for t in pricing.TIERS if t.dollars}
+    shut = build(**shut_env)
     assert "Not open yet" in shut, "no plan is shut, so there is nothing to be wrong about"
     for promise in (f"{pricing.TRIAL_DAYS} days free", "days free and no card"):
         assert promise not in shut, f"the page promises {promise!r} and has nowhere to start it"
 
     everywhere = {
-        tier.key: f"https://buy.stripe.com/9AQ{tier.key}" for tier in pricing.TIERS if tier.dollars
+        f"AUTEUR_CHECKOUT_{tier.key.upper()}": f"https://buy.stripe.com/9AQ{tier.key}"
+        for tier in pricing.TIERS
+        if tier.dollars
     }
-    open_now = _page_with_checkout(everywhere)
+    open_now = build(**everywhere)
     assert "Not open yet" not in open_now, "a plan with a checkout still says it is shut"
     assert (
         f"{pricing.TRIAL_DAYS} days free" in open_now
@@ -92776,6 +94015,441 @@ def test_the_program_never_calls_a_number_measured_that_it_did_not_measure():
     assert (
         'source = "measured"' not in source
     ), "the per-post column still calls an exported number a measured one"
+
+
+# --------------------------------------------------------------------------
+# Being paid
+#
+# `pricing.py` says what things cost and `tools/stripe/sync_pricing.py` makes
+# the Stripe account agree. Between them a customer could be charged, and then
+# nothing happened to their account: `pricing` was imported by the site builder
+# and the sync script and by nothing under `auteur/web/`, and none of the
+# server's routes was a webhook. These are the guards on the door that closes
+# that gap, and every one of them was written by restoring the defect it
+# describes and watching it fail.
+# --------------------------------------------------------------------------
+
+
+def _stripe_signature(body: bytes, secret: str, *, when=None) -> str:
+    """The header Stripe would send for this body, as Stripe builds it."""
+    import hashlib
+    import hmac
+    import time as _time
+
+    stamp = int(_time.time() if when is None else when)
+    mac = hmac.new(secret.encode(), f"{stamp}.".encode() + body, hashlib.sha256)
+    return f"t={stamp},v1={mac.hexdigest()}"
+
+
+def _stripe_event(kind: str, obj: dict) -> bytes:
+    return json.dumps({"type": kind, "data": {"object": obj}}).encode()
+
+
+def test_the_plans_the_app_will_grant_are_the_plans_the_price_list_sells():
+    """One list of tiers, not two.
+
+    A plan key accepted here that `pricing` does not sell would be a string
+    deciding what somebody may do that nobody can price, and a tier renamed in
+    `pricing` would leave this half of the program granting a plan that no
+    longer exists.
+    """
+    from auteur import pricing
+    from auteur.web import billing
+
+    assert billing.PLANS == frozenset(t.key for t in pricing.TIERS)
+    assert billing.DEFAULT_PLAN == pricing.FREE.key
+    # Every paid tier has to be reachable from an event, which means it needs
+    # the lookup key that joins the two halves.
+    for tier in pricing.TIERS:
+        if tier.dollars:
+            assert tier.lookup_key, f"{tier.key} is sold but has no lookup key"
+            assert billing.BY_LOOKUP_KEY[tier.lookup_key] is tier
+
+
+def test_a_plan_that_has_run_out_is_not_a_plan():
+    """`paying` asks two questions, and the second is the one easy to forget.
+
+    Written after a mutation: `paying` returning True unconditionally passed
+    the whole first draft of this file, because nothing ever held a paid plan
+    whose date had already gone by.
+    """
+    import time as _time
+
+    from auteur.web.auth import Account
+
+    account = Account("x", "x@example.com", "00", "h")
+    assert not account.paying, "a fresh account is not paying"
+
+    account.plan, account.plan_until = "studio", _time.time() + 3600
+    assert account.paying and account.tier.name == "Studio"
+
+    account.plan_until = _time.time() - 1
+    assert not account.paying, "a plan that ended is still being honoured"
+    assert account.tier.name == "In your browser", "a lapsed account keeps its tier"
+
+    # A paid plan with no end date should not exist. If one does, something
+    # wrote half a grant, and half a grant is not a grant.
+    account.plan_until = 0.0
+    assert not account.paying, "a paid plan with no end date read as permanent"
+
+
+def test_no_route_a_browser_can_reach_can_change_what_somebody_has_paid_for():
+    """The only writer of a plan is the webhook.
+
+    Not a statement about intent — a read of the source. Any handler other
+    than `_stripe_webhook` assigning to `.plan`, or calling `apply_grant`,
+    would be a way to become a paying customer without paying.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parent.parent
+    source = (root / "auteur" / "web" / "server.py").read_text()
+    tree = ast.parse(source)
+
+    def writers(node) -> set[str]:
+        found = set()
+        for item in ast.walk(node):
+            for target in getattr(item, "targets", []):
+                if isinstance(target, ast.Attribute) and target.attr in (
+                    "plan",
+                    "plan_until",
+                ):
+                    found.add(node.name)
+            if (
+                isinstance(item, ast.Call)
+                and isinstance(item.func, ast.Attribute)
+                and item.func.attr == "apply_grant"
+            ):
+                found.add(node.name)
+        return found
+
+    touching: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            touching |= writers(node)
+
+    assert touching == {
+        "_stripe_webhook"
+    }, f"these also write a plan: {sorted(touching - {'_stripe_webhook'})}"
+
+
+def test_an_instance_with_no_webhook_secret_refuses_every_event():
+    """The unconfigured case must fail closed, not open.
+
+    A deploy that forgot `STRIPE_WEBHOOK_SECRET` would otherwise be serving an
+    unauthenticated make-me-a-subscriber endpoint, and would look like it was
+    working. Signed with the empty secret on purpose: signing with a real one
+    passes for the wrong reason — the HMAC simply would not match, and the
+    branch under test is never reached.
+    """
+    from auteur.web import billing
+
+    body = _stripe_event("checkout.session.completed", {"payment_status": "paid"})
+    problem = billing.signature_problem(body, _stripe_signature(body, ""), "")
+    assert "STRIPE_WEBHOOK_SECRET" in problem
+
+
+def test_a_webhook_signed_an_hour_ago_cannot_be_replayed():
+    """Without a window a captured signature is valid for ever."""
+    import time as _time
+
+    from auteur.web import billing
+
+    secret = "whsec_pretend"
+    body = _stripe_event("customer.subscription.deleted", {"customer": "cus_x"})
+
+    fresh = _stripe_signature(body, secret)
+    assert billing.signature_problem(body, fresh, secret) == ""
+
+    stale = _stripe_signature(body, secret, when=_time.time() - 3600)
+    assert "out of step" in billing.signature_problem(body, stale, secret)
+
+
+def test_a_forged_signature_is_refused_and_a_real_one_is_not():
+    from auteur.web import billing
+
+    secret = "whsec_pretend"
+    body = _stripe_event("customer.subscription.deleted", {"customer": "cus_x"})
+
+    assert billing.signature_problem(body, _stripe_signature(body, secret), secret) == ""
+    assert billing.signature_problem(body, f"t={int(time.time())},v1={'0' * 64}", secret)
+    assert billing.signature_problem(body, "", secret) == "no Stripe-Signature header"
+    # Signed correctly, but for a different body: the signature covers the
+    # bytes, so changing them after signing has to break it.
+    good = _stripe_signature(body, secret)
+    assert billing.signature_problem(body + b" ", good, secret)
+
+
+def test_a_lapsed_subscription_is_heard_as_a_downgrade():
+    """Silence on a failed payment leaves somebody on Studio for ever."""
+    from auteur.web import billing
+
+    def grant(status):
+        return billing.grant_from(
+            {
+                "type": "customer.subscription.updated",
+                "data": {
+                    "object": {
+                        "customer": "cus_x",
+                        "status": status,
+                        "current_period_end": time.time() + 86400,
+                        "items": {"data": [{"price": {"lookup_key": "atlas_studio_monthly"}}]},
+                    }
+                },
+            }
+        )
+
+    assert grant("active").plan == "studio"
+    assert grant("trialing").plan == "studio"
+    for dead in ("past_due", "canceled", "unpaid", "incomplete_expired", "invented"):
+        assert grant(dead).plan == billing.DEFAULT_PLAN, f"{dead} kept the plan"
+
+
+def test_an_unpaid_checkout_is_not_a_sale():
+    """Stripe sends this event for delayed payment methods too."""
+    from auteur.web import billing
+
+    def checkout(status):
+        return billing.grant_from(
+            {
+                "type": "checkout.session.completed",
+                "data": {
+                    "object": {
+                        "payment_status": status,
+                        "client_reference_id": "tester",
+                        "customer": "cus_x",
+                        "expires_at": time.time() + 86400,
+                        "items": {"data": [{"price": {"lookup_key": "atlas_solo_monthly"}}]},
+                    }
+                },
+            }
+        )
+
+    assert checkout("paid").plan == "solo"
+    assert checkout("unpaid") is None
+    assert checkout("no_payment_required") is None
+
+
+def test_an_event_about_a_customer_this_copy_never_sold_to_changes_nobody(tmp_path):
+    """The same Stripe account can serve more than one instance."""
+    from auteur.web import billing
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("tester", "t@example.com", "a-long-enough-one")
+
+    stranger = billing.Grant(customer="cus_not_ours", plan="studio", until=time.time() + 99)
+    assert accounts.apply_grant(stranger) == ""
+    assert accounts.get("tester").plan == "free"
+
+    # And a plan this copy does not sell is refused even for a known customer.
+    accounts.get("tester").stripe_customer = "cus_ours"
+    nonsense = billing.Grant(customer="cus_ours", plan="enterprise", until=time.time() + 99)
+    assert accounts.apply_grant(nonsense) == ""
+    assert accounts.get("tester").plan == "free"
+
+
+# --------------------------------------------------------------------------
+# Being paid, part two: the entitlement has to reach something
+#
+# The first pass built `Account.plan`, `paying` and `tier`, and wired them to
+# nothing: `paying` was read once — inside `tier` — and `tier` only by tests.
+# That is the same defect this project found in `Gate.may_publish` (correct,
+# tested in every mode, called by nothing), reproduced one commit later in the
+# fix for it. These guards exist so the gate stays connected.
+# --------------------------------------------------------------------------
+
+
+def test_the_thing_the_top_tier_is_sold_as_is_the_thing_it_gates():
+    """`pricing.py` says of the top tier, in as many words: "The same instance
+    with more than one person on it. This is the invite system that already
+    exists in `auteur/web/auth.py`, priced." So that is what the gate guards,
+    and it looks the tier up by identity rather than by the string "studio".
+    """
+    import os as _os
+
+    from auteur import pricing
+    from auteur.web import billing
+    from auteur.web.auth import Account
+
+    account = Account("x", "x@example.com", "00", "h")
+    before = _os.environ.get("AUTEUR_HOSTED")
+    try:
+        _os.environ["AUTEUR_HOSTED"] = "1"
+        assert billing.may_open_instance(account), "the free tier could open it"
+
+        account.plan, account.plan_until = pricing.TOP_TIER.key, time.time() + 3600
+        assert billing.may_open_instance(account) == "", "the top tier could not"
+
+        # Paying is two questions, and the gate has to ask both.
+        account.plan_until = time.time() - 1
+        assert billing.may_open_instance(account), "a lapsed top tier still opened it"
+
+        # A lower paid tier is not the top tier.
+        lower = [t for t in pricing.TIERS if t.dollars and t is not pricing.TOP_TIER]
+        for tier in lower:
+            account.plan, account.plan_until = tier.key, time.time() + 3600
+            assert billing.may_open_instance(account), f"{tier.key} opened it"
+    finally:
+        if before is None:
+            _os.environ.pop("AUTEUR_HOSTED", None)
+        else:
+            _os.environ["AUTEUR_HOSTED"] = before
+
+
+def test_a_copy_running_on_your_own_machine_is_not_gated_by_a_plan():
+    """The tiers describe an instance that runs when you are not.
+
+    Charging somebody to let a friend sign in to software on their own laptop
+    would be renting them something they already own, so the entitlement only
+    means anything where Auteur Studies is doing the hosting. Default off: an
+    instance never told it is hosted behaves as it did before billing existed.
+    """
+    import os as _os
+
+    from auteur.web import billing
+    from auteur.web.auth import Account
+
+    before = _os.environ.get("AUTEUR_HOSTED")
+    try:
+        _os.environ.pop("AUTEUR_HOSTED", None)
+        assert not billing.hosted(), "unset should not mean hosted"
+        assert billing.may_open_instance(Account("x", "x@e.com", "00", "h")) == ""
+        assert billing.may_open_instance(None) == "", "not even a session is needed"
+    finally:
+        if before is not None:
+            _os.environ["AUTEUR_HOSTED"] = before
+
+
+def test_closing_a_copy_to_new_people_is_never_gated_on_a_plan():
+    """A leaked invite code has to be revocable whatever the billing says.
+
+    Closing is what somebody does *because* a code got further than they
+    meant. A copy that cannot be shut because a card expired has turned its
+    billing state into a security problem. Read from the source: the gate is
+    called inside the branch that opens, and nowhere else in the handler.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parent.parent
+    tree = ast.parse((root / "auteur" / "web" / "server.py").read_text())
+    handler = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_set_who_may_join"
+    )
+
+    def calls_gate(node) -> bool:
+        return any(
+            isinstance(item, ast.Call)
+            and isinstance(item.func, ast.Attribute)
+            and item.func.attr == "may_open_instance"
+            for item in ast.walk(node)
+        )
+
+    opening = [n for n in handler.body if isinstance(n, ast.If) and calls_gate(n)]
+    assert len(opening) == 1, "the gate is not inside exactly one branch"
+    # Everything after that branch is the closing path, and none of it asks.
+    tail = handler.body[handler.body.index(opening[0]) + 1 :]
+    assert tail, "nothing follows the opening branch — where did closing go?"
+    assert not any(calls_gate(n) for n in tail), "closing is gated on a plan"
+
+
+def test_the_plan_screen_never_offers_a_checkout_that_does_not_exist():
+    """A button that goes nowhere is worse than no button.
+
+    `pricing.checkout_for` raises rather than returning a Stripe *test* link,
+    which is the behaviour that keeps a form taking fake cards off a real
+    page. The screen has to treat that as "not open yet", not as an error.
+    """
+    from auteur import pricing
+
+    import os as _os
+
+    # This asserted `CHECKOUT == {}` while nothing was for sale. Real links
+    # live there now, so what matters is no longer that the table is empty —
+    # it is that nothing in it is a test link and that a tier with no link
+    # yields "" rather than something a page would render as a button.
+    assert all(not pricing._checkout_problem(u) for u in pricing.CHECKOUT.values())
+    assert pricing.checkout_for(pricing.FREE) == "", "the free tier has a checkout"
+    assert pricing._checkout_problem("https://buy.stripe.com/test_abc")
+    assert pricing._checkout_problem("http://buy.stripe.com/live"), "http was allowed"
+    assert pricing._checkout_problem("https://buy.stripe.com/live_ok") == ""
+
+    # The environment is not a way around the refusal. Somebody staging the
+    # site can point a tier at a test checkout for an afternoon; what they
+    # cannot do is ship one, and both paths go through the same check.
+    key = f"AUTEUR_CHECKOUT_{pricing.TOP_TIER.key.upper()}"
+    before = _os.environ.get(key)
+    try:
+        _os.environ[key] = "https://buy.stripe.com/test_abc"
+        with pytest.raises(ValueError):
+            pricing.checkout_for(pricing.TOP_TIER)
+    finally:
+        if before is None:
+            _os.environ.pop(key, None)
+        else:
+            _os.environ[key] = before
+
+
+def test_a_refusal_is_not_painted_the_same_colour_as_the_help_text():
+    """`.error` and `.group-caption` are both one class, and the later wins.
+
+    `.group-caption` is defined later, so every inline refusal rendered in the
+    same muted grey as the help text beside it — invisible in the source and
+    obvious the moment the colour was measured in a browser. The first fix was
+    then written *inside* `@media (prefers-contrast: more)` and only applied to
+    people who had high contrast turned on, which is why this test checks the
+    nesting depth rather than merely that the rule exists.
+    """
+    root = Path(__file__).resolve().parent.parent
+    css = (root / "auteur" / "web" / "static" / "style.css").read_text()
+
+    at = css.find(".group-caption.error")
+    assert at != -1, "the rule that makes a refusal look like a refusal is gone"
+    # Nesting depth at that point: any unclosed brace means it sits inside a
+    # media query or another block, and applies only under that condition.
+    before = css[:at]
+    assert before.count("{") == before.count(
+        "}"
+    ), ".group-caption.error is nested inside a block, so it does not always apply"
+    # And it has to outweigh the contrast-mode rule, which is more specific
+    # than a bare pair of classes and would otherwise win the colour back.
+    rule = css[at : css.index("}", at)]
+    assert (
+        '[data-contrast="more"] .group-caption.error' in rule
+    ), "high-contrast mode repaints the refusal as help text again"
+
+
+def test_a_deployment_is_told_about_every_setting_the_paid_path_needs():
+    """The code grew two settings and the deploy files did not hear about it.
+
+    `AUTEUR_HOSTED` and `STRIPE_WEBHOOK_SECRET` were added to `billing.py` and
+    to the webhook handler, and `render.yaml` and `fly.toml` went on not
+    mentioning either. Deploying that is the worst shape of failure available
+    here: the app serves, people sign in, cards are charged, the webhook
+    correctly refuses every unsigned event, and nobody is ever upgraded — with
+    nothing on the operator's side saying why.
+
+    The names are read out of the source rather than listed here, so a setting
+    renamed or added in the code fails this test until a deployment knows it.
+    """
+    root = Path(__file__).resolve().parent.parent
+    source = "\n".join(
+        (root / "auteur" / "web" / name).read_text() for name in ("billing.py", "server.py")
+    )
+    # Only the ones the money path actually reads.
+    wanted = {
+        name
+        for name in re.findall(r"environ\.get\(\s*\"([A-Z_]+)\"", source)
+        if name in ("AUTEUR_HOSTED",) or name.startswith("STRIPE_")
+    }
+    assert wanted, "the paid path reads no settings at all — did they get renamed?"
+
+    for filename in ("render.yaml", "fly.toml"):
+        text = (root / filename).read_text()
+        missing = sorted(name for name in wanted if name not in text)
+        assert not missing, f"{filename} never mentions {missing}"
 
 
 # ---------------------------------------------------------------------------
@@ -93561,6 +95235,214 @@ def test_the_plan_the_room_is_handed_carries_what_it_needs_to_prefill():
     assert out["seconds"] == 30.0
     assert out["shape"] == "reel"
     assert out["platform_name"] == resolve("instagram-post").title, "the page shows a readable name"
+
+
+def test_a_checkout_carries_the_name_of_whoever_is_buying():
+    """Without it, a payment is a charge nobody can match to an account.
+
+    `client_reference_id` is the only thing on `checkout.session.completed`
+    that names a person — every later subscription event knows the Stripe
+    customer id and nothing else. So a checkout opened without it produces
+    exactly the failure this whole path was built to stop: the card is
+    charged, `grant_from` cannot find anybody, and the door stays shut.
+    """
+    from auteur import pricing
+    from auteur.web import billing
+
+    link = pricing.checkout_for_person(pricing.TOP_TIER, "Avbucaria")
+    assert link, "the top tier has no checkout at all"
+    assert "client_reference_id=Avbucaria" in link
+
+    # Nobody to name means no offer. A button that takes money the app cannot
+    # attribute is worse than no button.
+    assert pricing.checkout_for_person(pricing.TOP_TIER, "") == ""
+    assert pricing.checkout_for_person(pricing.TOP_TIER, "   ") == ""
+
+    # And a name with URL punctuation in it survives the round trip.
+    odd = pricing.checkout_for_person(pricing.TOP_TIER, "a b?c")
+    assert "client_reference_id=a%20b%3Fc" in odd
+
+    # The whole point, end to end: what Stripe sends back after that link is
+    # paid is an event this copy can act on.
+    grant = billing.grant_from(
+        {
+            "type": "checkout.session.completed",
+            "data": {
+                "object": {
+                    "payment_status": "paid",
+                    "client_reference_id": "Avbucaria",
+                    "customer": "cus_x",
+                    "expires_at": time.time() + 86400,
+                    "items": {"data": [{"price": {"lookup_key": pricing.TOP_TIER.lookup_key}}]},
+                }
+            },
+        }
+    )
+    assert grant is not None, "the event from our own link matched nobody"
+    assert grant.username == "Avbucaria"
+    assert grant.plan == pricing.TOP_TIER.key
+
+
+def test_no_checkout_link_this_project_ships_is_a_stripe_test_link():
+    """A test link takes a card number that is not a card number and says it
+    worked. Every path to a checkout goes through the same refusal, including
+    the table now that it has real links in it.
+    """
+    from auteur import pricing
+
+    for key, url in pricing.CHECKOUT.items():
+        assert not pricing._checkout_problem(url), f"{key}: {url}"
+        assert "/test_" not in url, f"{key} is a test link: {url}"
+    for tier in pricing.TIERS:
+        if tier.dollars:
+            assert pricing.checkout_for(tier), f"{tier.key} is priced but unbuyable"
+
+
+# --------------------------------------------------------------------------
+# Buying before you have an account
+#
+# The buttons on the public site are pressed by people who are not signed in,
+# so their checkout carries no `client_reference_id`. The first version of
+# `grant_from` returned None for exactly that shape — the worst outcome
+# available: the card is charged, no account changes, and nothing anywhere
+# records that it happened.
+# --------------------------------------------------------------------------
+
+
+def _paid_session(*, reference: str = "", email: str = "", customer: str = "cus_new"):
+    from auteur import pricing
+
+    return {
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "payment_status": "paid",
+                "client_reference_id": reference,
+                "customer": customer,
+                "customer_details": {"email": email},
+                "expires_at": time.time() + 30 * 86400,
+                "items": {"data": [{"price": {"lookup_key": pricing.TOP_TIER.lookup_key}}]},
+            }
+        },
+    }
+
+
+def test_a_checkout_with_no_username_is_still_a_sale():
+    """Stripe sends the payer's address; that is enough to act on."""
+    from auteur.web import billing
+
+    grant = billing.grant_from(_paid_session(email="Stranger@Example.com"))
+    assert grant is not None, "an anonymous purchase produced no grant at all"
+    assert grant.email == "stranger@example.com", "the address was not normalised"
+    assert grant.username == ""
+
+    # With neither a name nor an address there is nothing to act on, and
+    # guessing would be worse than declining.
+    assert billing.grant_from(_paid_session()) is None
+
+
+def test_a_payment_for_somebody_who_has_no_account_is_kept_not_dropped(tmp_path):
+    """The card was charged. Something has to remember that."""
+    from auteur.web import billing
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    grant = billing.grant_from(_paid_session(email="stranger@example.com"))
+
+    assert accounts.apply_grant(grant) == "", "it matched somebody who does not exist"
+    assert [r["email"] for r in accounts.unclaimed] == ["stranger@example.com"]
+
+    # And it survives a restart, or it is not really kept.
+    again = Accounts(tmp_path / "accounts.json")
+    assert [r["email"] for r in again.unclaimed] == ["stranger@example.com"]
+
+
+def test_signing_up_with_the_address_that_paid_claims_the_payment(tmp_path):
+    """The other half of buying first: they arrive and it is waiting."""
+    from auteur import pricing
+    from auteur.web import billing
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.apply_grant(billing.grant_from(_paid_session(email="Stranger@Example.com")))
+
+    accounts.add("stranger", "stranger@example.com", "a-long-enough-one")
+    fresh = Accounts(tmp_path / "accounts.json").get("stranger")
+    assert fresh.plan == pricing.TOP_TIER.key, "they paid and did not get it"
+    assert fresh.paying, "the plan was written without a date that makes it real"
+    assert fresh.stripe_customer == "cus_new"
+
+    # Spent, not reusable: a second account on that address gets nothing.
+    assert Accounts(tmp_path / "accounts.json").unclaimed == []
+    accounts.add("copycat", "stranger@example.com", "another-long-one")
+    assert Accounts(tmp_path / "accounts.json").get("copycat").plan == "free"
+
+
+def test_an_existing_account_is_found_by_the_address_that_paid(tmp_path):
+    """Somebody signed in already, who bought from the public page anyway."""
+    from auteur import pricing
+    from auteur.web import billing
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("avbucaria", "Av@Example.com", "a-long-enough-one")
+
+    who = accounts.apply_grant(billing.grant_from(_paid_session(email="av@example.com")))
+    assert who == "avbucaria", "a payment from a known address matched nobody"
+    assert accounts.get("avbucaria").plan == pricing.TOP_TIER.key
+    assert accounts.unclaimed == [], "it was both applied and held"
+
+
+def test_nothing_worth_nothing_is_held_for_later(tmp_path):
+    """Only a paid plan with an address to recognise somebody by is worth keeping."""
+    from auteur.web import billing
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+
+    # A cancellation for an account this copy does not have is not news.
+    accounts.apply_grant(
+        billing.Grant(customer="cus_x", plan=billing.DEFAULT_PLAN, until=0.0, email="a@b.com")
+    )
+    assert accounts.unclaimed == []
+
+    # And a paid grant with no address cannot be handed to anybody later.
+    accounts.apply_grant(billing.Grant(customer="cus_y", plan="studio", until=time.time() + 99))
+    assert accounts.unclaimed == []
+
+
+def test_the_operator_can_see_who_is_paying(tmp_path, capsys):
+    """The webhook wrote `plan` and nothing ever printed it.
+
+    Somebody running a business off this copy could not see who was on a plan,
+    whose had lapsed, or that money had arrived for somebody with no account.
+    """
+    from auteur.cli import main
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(Accounts.default_path(tmp_path))
+    accounts.add("payer", "payer@example.com", "a-long-enough-one")
+    accounts.add("lapser", "lapser@example.com", "another-long-one")
+    accounts.get("payer").plan = "studio"
+    accounts.get("payer").plan_until = time.time() + 86400
+    accounts.get("lapser").plan = "solo"
+    accounts.get("lapser").plan_until = time.time() - 1
+    accounts.unclaimed = [
+        {
+            "email": "waiting@example.com",
+            "plan": "studio",
+            "until": time.time() + 99,
+            "customer": "cus_x",
+            "seen": time.time(),
+        }
+    ]
+    accounts._save()
+
+    main(["account", "show", "-o", str(tmp_path)])
+    shown = capsys.readouterr().out
+    assert "Studio · $41.99" in shown, "a paying account is not reported as paying"
+    assert "lapsed" in shown, "a lapsed plan looks the same as a live one"
+    assert "waiting@example.com" in shown, "money arrived and nothing says so"
 
 ==============================================================================
  FILE: tools/appstore/build_pages.py

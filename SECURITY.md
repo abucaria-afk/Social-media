@@ -49,6 +49,32 @@ The phone app (`auteur serve`)
   written down anywhere a stranger can read. Set `AUTEUR_USERNAME`,
   `AUTEUR_EMAIL` and `AUTEUR_PASSWORD` to choose your own instead, and nothing
   is ever generated.
+- **`/api/stripe/webhook` is reachable without signing in, and that is the
+  point.** Stripe has no session here, so the endpoint is authenticated by
+  signature instead of by cookie: HMAC-SHA256 over the exact bytes received,
+  compared in constant time, with a 300-second window so a captured signature
+  cannot be replayed for ever. The raw body is read directly rather than
+  through the JSON helper, because that helper decodes with
+  `errors="replace"` and a single replaced byte is a signature that can never
+  match.
+- **With no `STRIPE_WEBHOOK_SECRET` set, that endpoint refuses everything.**
+  Not "accepts unsigned events", not "warns and proceeds" — refuses. An
+  instance deployed without it would otherwise be serving an unauthenticated
+  grant-me-a-subscription endpoint on the public internet, and would look like
+  it was working. "I cannot check this" and "this is fine" are opposite
+  answers.
+- **Nothing a browser can reach changes what somebody has paid for.** The
+  webhook is the only writer of `Account.plan`; a test parses `server.py` and
+  fails if any other function writes it or calls `apply_grant`.
+- `AUTEUR_HOSTED=1` marks a copy that Auteur Studies runs and charges for, and
+  is the only thing that turns the paid gate on. Unset — a copy on somebody's
+  own machine — nothing is gated, which is correct: the tiers describe an
+  instance that runs when you are not.
+- **Closing a copy to new people is never gated on a plan.** Closing is what
+  somebody does *because* an invite code got further than they meant, and a
+  copy that cannot be shut because a card expired has turned its billing state
+  into a security problem.
+
 - A password must be at least 12 characters, must not appear on the usual
   guessing lists, must use more than a handful of distinct characters, and must
   not be built out of the username or email it protects. The same rules apply

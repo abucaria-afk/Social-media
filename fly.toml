@@ -5,7 +5,13 @@
 #
 #   fly volumes create auteur_data --size 10
 #   fly secrets set AUTEUR_USERNAME=you AUTEUR_PASSWORD='four unrelated words'
+#   fly secrets set STRIPE_WEBHOOK_SECRET=whsec_...
 #   fly deploy
+#
+# The Stripe secret is not optional on a copy that sells anything. Without it
+# /api/stripe/webhook refuses every event rather than trusting an unsigned
+# one — the correct failure, and a silent one: the app serves, people sign in,
+# cards are charged, and nobody is ever upgraded.
 
 app = "auteur"
 primary_region = "iad"
@@ -19,6 +25,8 @@ primary_region = "iad"
   # told the outside is https or it marks the sign-in cookie insecure.
   AUTEUR_TRUST_PROXY = "1"
   AUTEUR_PUBLIC_HTTPS = "1"
+  # A copy we run and charge for. Unset, nothing is gated behind a plan.
+  AUTEUR_HOSTED = "1"
 
 [[mounts]]
   source = "auteur_data"

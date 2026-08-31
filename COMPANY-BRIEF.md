@@ -66,6 +66,36 @@ Atlas". (The craft rules cited throughout `auteur/craft/story.py` share the APX
 name and are a *feature of Atlas*, which is exactly the collision that led an
 earlier pass here to conclude APX was not a product at all.)
 
+### What the live site actually says
+
+Read through the Wix API on **2026-08-31** — the saved revision, which is what
+the SEO API returns for a static page; unpublished edits would not show.
+
+- One site, `www.auteurstudies.com`, published, custom domain. **One page.**
+- Title: *"Auteur Studies — Atlas and the craft rules"*
+- Description: *"Auteur Studies makes tools for short-form video. Plan the
+  week, check the craft before the reel goes out, and read the reach without
+  inventing a number."*
+- Focus keywords: `daily planning app`, `Auteur Studies`, **`Auteur Atlas`**,
+  `short form video craft`
+
+Three things follow, and the site is public, so they are public problems:
+
+1. **No LLC claim anywhere in the metadata.** That constraint is holding.
+2. **`Auteur Atlas` is a live focus keyword** — the one construction that is
+   never the product's name. It is buying search traffic for a name that does
+   not exist.
+3. **APX is gone from the description.** On 2026-08-29 it read *"Atlas plans
+   the week and reads the reach, APX checks the craft before the reel goes
+   out."* The pass that wrongly concluded APX was fictional removed it, the
+   owner corrected the repository, and **the correction never reached the
+   site**. The live page sells one product where there are two.
+
+Also unresolved: there is no privacy or terms page — `PRIVACY.md` and
+`TERMS.md` are published nowhere, while **Wix Forms is installed**, and both
+app stores require a hosted privacy URL before they will take a submission.
+And `atlasauteurstudies.com` is not in this Wix account, which holds one site.
+
 **Auteur Studies** publishes both. The entity is **not filed** —
 `COMPANY.entity_filed` is `False`, so `COMPANY.publisher` resolves to the
 trading name and a guard refuses to let the "LLC" suffix onto any shipped page
@@ -482,10 +512,25 @@ derives the rest. Worth confirming before the filing, not after.
 media manager (§6). Pick one for the first launch; the other two stay in the
 product but out of the headline.
 
-**8.4 How does it make money?** Nothing is built. Plausible shapes: paid app,
-subscription for the hosted instance, free app with a paid Schedule tier. Each
-implies different store setup work, so this decision should come before the
-first submission, not after.
+**8.4 How does it make money?** ~~Nothing is built.~~ **Both halves are now
+built** (2026-08-31), and the shape is a subscription on a hosted instance.
+
+- **Selling.** `tools/stripe/sync_pricing.py` creates the products, prices,
+  coupon, promotion code and payment links from `auteur/pricing.py`, and
+  reconciles rather than duplicating on a re-run.
+- **Entitlement.** `auteur/web/billing.py` verifies the Stripe webhook
+  signature; `Account.plan` / `plan_until` / `paying` decide what somebody may
+  use. Before this the two were never introduced: a customer could be charged
+  and nothing whatsoever happened to their account.
+- **What it gates.** The top tier is sold as *"the same instance with more
+  than one person on it"*, so that is what it guards — opening a copy to other
+  people needs Studio, on a copy Auteur Studies hosts (`AUTEUR_HOSTED=1`).
+  Never on somebody's own machine: charging for a friend to sign in to
+  software on your own laptop is renting you something you already own.
+
+Three things remain and none of them is code: the payment-link URLs have to
+land in `pricing.CHECKOUT`, livemode needs `--apply --live` with an `sk_live_`
+key, and the deployed instance needs `STRIPE_WEBHOOK_SECRET`.
 
 **8.5 Launch order.** iOS first, Android first, or web instance first? The web
 instance is the only one that needs no store approval and could be live this
