@@ -16392,3 +16392,36 @@ def test_a_refusal_is_not_painted_the_same_colour_as_the_help_text():
     assert (
         '[data-contrast="more"] .group-caption.error' in rule
     ), "high-contrast mode repaints the refusal as help text again"
+
+
+def test_a_deployment_is_told_about_every_setting_the_paid_path_needs():
+    """The code grew two settings and the deploy files did not hear about it.
+
+    `AUTEUR_HOSTED` and `STRIPE_WEBHOOK_SECRET` were added to `billing.py` and
+    to the webhook handler, and `render.yaml` and `fly.toml` went on not
+    mentioning either. Deploying that is the worst shape of failure available
+    here: the app serves, people sign in, cards are charged, the webhook
+    correctly refuses every unsigned event, and nobody is ever upgraded — with
+    nothing on the operator's side saying why.
+
+    The names are read out of the source rather than listed here, so a setting
+    renamed or added in the code fails this test until a deployment knows it.
+    """
+    import re
+
+    root = Path(__file__).resolve().parent.parent
+    source = "\n".join(
+        (root / "auteur" / "web" / name).read_text() for name in ("billing.py", "server.py")
+    )
+    # Only the ones the money path actually reads.
+    wanted = {
+        name
+        for name in re.findall(r"environ\.get\(\s*\"([A-Z_]+)\"", source)
+        if name in ("AUTEUR_HOSTED",) or name.startswith("STRIPE_")
+    }
+    assert wanted, "the paid path reads no settings at all — did they get renamed?"
+
+    for filename in ("render.yaml", "fly.toml"):
+        text = (root / filename).read_text()
+        missing = sorted(name for name in wanted if name not in text)
+        assert not missing, f"{filename} never mentions {missing}"

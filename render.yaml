@@ -37,6 +37,22 @@ services:
         sync: false
       - key: AUTEUR_PASSWORD
         sync: false
+      # This copy is one Auteur Studies runs and charges for, which is the
+      # only thing that turns the paid gate on. Left unset, nothing is gated —
+      # the right default for a copy on somebody's own machine, and the wrong
+      # one here.
+      - key: AUTEUR_HOSTED
+        value: "1"
+      # The signing secret of the Stripe endpoint pointed at
+      # /api/stripe/webhook. Set it in the dashboard, never here.
+      #
+      # Without it that endpoint refuses every event rather than trusting an
+      # unsigned one. That is the correct failure and it is a silent one from
+      # the outside: the app serves, people sign in, cards are charged, and no
+      # account is ever upgraded. If subscriptions are not landing, look here
+      # first.
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
       # Only needed once you are reading numbers back from the platforms.
       - key: AUTEUR_TIKTOK_CLIENT_KEY
         sync: false
