@@ -898,8 +898,19 @@ def _run_account(args: argparse.Namespace, say: Reporter) -> int:
                 marks.append(f"{account.age}")
             if account.restricted:
                 marks.append("restricted" + (" 🔒" if account.restriction_lock else ""))
+            # What they are paying, if anything. An operator running a
+            # business off this could not see who was on a plan at all: the
+            # webhook wrote `plan` and nothing ever printed it.
+            if account.paying:
+                marks.append(f"{account.tier.name} · {account.tier.monthly}")
+            elif account.plan != "free":
+                marks.append(f"{account.plan} lapsed")
             state = f"  ({', '.join(marks)})" if marks else ""
             print(f"     {account.username:<24} {account.email}{state}")
+        # Money that arrived for somebody who is not here. Printed because a
+        # payment nobody can see is a payment nobody will act on.
+        for held in accounts.unclaimed:
+            print(f"     {'(paid, no account)':<24} {held.get('email', '?')}  ({held.get('plan')})")
         print()
         return 0
 

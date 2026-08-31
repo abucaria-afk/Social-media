@@ -247,6 +247,10 @@ class Accounts:
         #: is owed. In memory only — a sign-in interrupted by a restart should
         #: start again rather than resume.
         self._tickets: dict[str, tuple[str, float]] = {}
+        #: Paid checkouts that matched no account when they arrived — see
+        #: `_remember_unclaimed`. Loaded from the file alongside everything
+        #: else; empty on a copy nobody has paid.
+        self.unclaimed: list[dict] = []
         #: Whether anybody else may make an account here, and the code they
         #: need. Instance-level rather than per-account, and in the same file
         #: as the accounts because it is the same secret at the same risk —
@@ -299,6 +303,10 @@ class Accounts:
         except (OSError, ValueError) as exc:
             log.error("could not read %s (%s); starting with no accounts", self.path, exc)
             return
+        waiting = raw.get("unclaimed")
+        self.unclaimed = (
+            [r for r in waiting if isinstance(r, dict)] if isinstance(waiting, list) else []
+        )
         stored = raw.get("invite")
         if isinstance(stored, dict):
             self.invite = {
@@ -325,6 +333,8 @@ class Accounts:
             "accounts": [asdict(account) for account in self.accounts.values()],
             "sessions": {key: list(value) for key, value in self.sessions.items()},
             "invite": dict(self.invite),
+            # Payments that arrived for nobody. See `remember_unclaimed`.
+            "unclaimed": list(self.unclaimed),
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(".tmp")
@@ -373,6 +383,9 @@ class Accounts:
         with self.lock:
             self.accounts[account.username.lower()] = account
             self._save()
+        # If they paid before they signed up, this is where they get it. The
+        # lock is released first because `claim_for` takes it itself.
+        self.claim_for(account)
         return account
 
     # -- who may join ----------------------------------------------------
@@ -525,7 +538,22 @@ class Accounts:
                     ),
                     None,
                 )
+            if account is None and getattr(grant, "email", ""):
+                # The buttons on the public site are pressed by people who are
+                # not signed in, so the session carries no username — only the
+                # address the card was paid with. An account with that address
+                # is that person.
+                account = next(
+                    (a for a in self.accounts.values() if a.email == grant.email),
+                    None,
+                )
             if account is None:
+                # A payment for somebody who is not here *yet*. Dropping it is
+                # what the first version did, and it is the worst option
+                # available: the card is charged, no account changes, and
+                # nothing anywhere records that it happened. Keep it, and hand
+                # it over when they sign up with the same address.
+                self._remember_unclaimed(grant)
                 return ""
             if grant.plan not in billing.PLANS:
                 # A plan this copy does not sell is not a plan. Refusing is
@@ -539,6 +567,52 @@ class Accounts:
                 account.stripe_customer = grant.customer
             self._save()
             return account.username
+
+    def _remember_unclaimed(self, grant) -> None:
+        """Keep a paid grant that matched nobody. Caller holds the lock.
+
+        Only worth keeping if it can be handed to somebody later, which needs
+        an address to recognise them by, and only if it is actually worth
+        something — a downgrade to the free tier for an account this copy does
+        not have is not news.
+        """
+        email = getattr(grant, "email", "")
+        if not email or grant.plan == billing.DEFAULT_PLAN:
+            return
+        record = {
+            "email": email,
+            "plan": grant.plan,
+            "until": float(grant.until or 0.0),
+            "customer": grant.customer,
+            "seen": time.time(),
+        }
+        # One per address: a second payment from the same person replaces the
+        # first rather than queueing behind it.
+        self.unclaimed = [r for r in self.unclaimed if r.get("email") != email]
+        self.unclaimed.append(record)
+        self._save()
+        log.warning("a paid checkout arrived for %s, who has no account here; held for them", email)
+
+    def claim_for(self, account: Account) -> bool:
+        """Give a new account anything already paid for at its address.
+
+        This is the other half of buy-before-you-sign-up: somebody presses a
+        button on the public site, pays, and only then makes an account. The
+        payment arrived first and waited.
+        """
+        with self.lock:
+            waiting = next((r for r in self.unclaimed if r.get("email") == account.email), None)
+            if waiting is None:
+                return False
+            if str(waiting.get("plan")) not in billing.PLANS:
+                return False
+            account.plan = str(waiting["plan"])
+            account.plan_until = float(waiting.get("until") or 0.0)
+            account.stripe_customer = str(waiting.get("customer") or "")
+            self.unclaimed = [r for r in self.unclaimed if r is not waiting]
+            self._save()
+            log.info("%s claimed a payment made before the account existed", account.username)
+            return True
 
     def set_restriction_lock(self, username: str, code: str) -> str:
         """Set or clear the code that lifts a restriction. "" if it worked.
