@@ -1031,10 +1031,15 @@ def _run_moderate(args: argparse.Namespace, say: Reporter) -> int:
         for report in rows:
             mark = "  !" if report.urgent and report.state == "open" else "   "
             print(f"  {mark} {report.id}  {REASONS.get(report.reason, report.reason)}")
-            print(
-                f"        a {report.kind} by {report.about_who}, "
-                f"reported by {report.by}, {ago(report.at)}"
+            # "a film by bob" and "a message by bob" both read correctly;
+            # "a person by bob" does not. A report about a person is about
+            # them, not about something they made.
+            whose = (
+                report.about_who
+                if report.kind == "person"
+                else f"a {report.kind} by {report.about_who}"
             )
+            print(f"        {whose}, reported by {report.by}, {ago(report.at)}")
             if report.note:
                 print(f"        “{report.note}”")
             if report.kind == "film":
