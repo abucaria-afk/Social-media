@@ -15993,3 +15993,235 @@ def test_the_program_never_calls_a_number_measured_that_it_did_not_measure():
     assert (
         'source = "measured"' not in source
     ), "the per-post column still calls an exported number a measured one"
+
+
+# --------------------------------------------------------------------------
+# Being paid
+#
+# `pricing.py` says what things cost and `tools/stripe/sync_pricing.py` makes
+# the Stripe account agree. Between them a customer could be charged, and then
+# nothing happened to their account: `pricing` was imported by the site builder
+# and the sync script and by nothing under `auteur/web/`, and none of the
+# server's routes was a webhook. These are the guards on the door that closes
+# that gap, and every one of them was written by restoring the defect it
+# describes and watching it fail.
+# --------------------------------------------------------------------------
+
+
+def _stripe_signature(body: bytes, secret: str, *, when=None) -> str:
+    """The header Stripe would send for this body, as Stripe builds it."""
+    import hashlib
+    import hmac
+    import time as _time
+
+    stamp = int(_time.time() if when is None else when)
+    mac = hmac.new(secret.encode(), f"{stamp}.".encode() + body, hashlib.sha256)
+    return f"t={stamp},v1={mac.hexdigest()}"
+
+
+def _stripe_event(kind: str, obj: dict) -> bytes:
+    return json.dumps({"type": kind, "data": {"object": obj}}).encode()
+
+
+def test_the_plans_the_app_will_grant_are_the_plans_the_price_list_sells():
+    """One list of tiers, not two.
+
+    A plan key accepted here that `pricing` does not sell would be a string
+    deciding what somebody may do that nobody can price, and a tier renamed in
+    `pricing` would leave this half of the program granting a plan that no
+    longer exists.
+    """
+    from auteur import pricing
+    from auteur.web import billing
+
+    assert billing.PLANS == frozenset(t.key for t in pricing.TIERS)
+    assert billing.DEFAULT_PLAN == pricing.FREE.key
+    # Every paid tier has to be reachable from an event, which means it needs
+    # the lookup key that joins the two halves.
+    for tier in pricing.TIERS:
+        if tier.dollars:
+            assert tier.lookup_key, f"{tier.key} is sold but has no lookup key"
+            assert billing.BY_LOOKUP_KEY[tier.lookup_key] is tier
+
+
+def test_a_plan_that_has_run_out_is_not_a_plan():
+    """`paying` asks two questions, and the second is the one easy to forget.
+
+    Written after a mutation: `paying` returning True unconditionally passed
+    the whole first draft of this file, because nothing ever held a paid plan
+    whose date had already gone by.
+    """
+    import time as _time
+
+    from auteur.web.auth import Account
+
+    account = Account("x", "x@example.com", "00", "h")
+    assert not account.paying, "a fresh account is not paying"
+
+    account.plan, account.plan_until = "studio", _time.time() + 3600
+    assert account.paying and account.tier.name == "Studio"
+
+    account.plan_until = _time.time() - 1
+    assert not account.paying, "a plan that ended is still being honoured"
+    assert account.tier.name == "In your browser", "a lapsed account keeps its tier"
+
+    # A paid plan with no end date should not exist. If one does, something
+    # wrote half a grant, and half a grant is not a grant.
+    account.plan_until = 0.0
+    assert not account.paying, "a paid plan with no end date read as permanent"
+
+
+def test_no_route_a_browser_can_reach_can_change_what_somebody_has_paid_for():
+    """The only writer of a plan is the webhook.
+
+    Not a statement about intent — a read of the source. Any handler other
+    than `_stripe_webhook` assigning to `.plan`, or calling `apply_grant`,
+    would be a way to become a paying customer without paying.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parent.parent
+    source = (root / "auteur" / "web" / "server.py").read_text()
+    tree = ast.parse(source)
+
+    def writers(node) -> set[str]:
+        found = set()
+        for item in ast.walk(node):
+            for target in getattr(item, "targets", []):
+                if isinstance(target, ast.Attribute) and target.attr in (
+                    "plan",
+                    "plan_until",
+                ):
+                    found.add(node.name)
+            if (
+                isinstance(item, ast.Call)
+                and isinstance(item.func, ast.Attribute)
+                and item.func.attr == "apply_grant"
+            ):
+                found.add(node.name)
+        return found
+
+    touching: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            touching |= writers(node)
+
+    assert touching == {
+        "_stripe_webhook"
+    }, f"these also write a plan: {sorted(touching - {'_stripe_webhook'})}"
+
+
+def test_an_instance_with_no_webhook_secret_refuses_every_event():
+    """The unconfigured case must fail closed, not open.
+
+    A deploy that forgot `STRIPE_WEBHOOK_SECRET` would otherwise be serving an
+    unauthenticated make-me-a-subscriber endpoint, and would look like it was
+    working. Signed with the empty secret on purpose: signing with a real one
+    passes for the wrong reason — the HMAC simply would not match, and the
+    branch under test is never reached.
+    """
+    from auteur.web import billing
+
+    body = _stripe_event("checkout.session.completed", {"payment_status": "paid"})
+    problem = billing.signature_problem(body, _stripe_signature(body, ""), "")
+    assert "STRIPE_WEBHOOK_SECRET" in problem
+
+
+def test_a_webhook_signed_an_hour_ago_cannot_be_replayed():
+    """Without a window a captured signature is valid for ever."""
+    import time as _time
+
+    from auteur.web import billing
+
+    secret = "whsec_pretend"
+    body = _stripe_event("customer.subscription.deleted", {"customer": "cus_x"})
+
+    fresh = _stripe_signature(body, secret)
+    assert billing.signature_problem(body, fresh, secret) == ""
+
+    stale = _stripe_signature(body, secret, when=_time.time() - 3600)
+    assert "out of step" in billing.signature_problem(body, stale, secret)
+
+
+def test_a_forged_signature_is_refused_and_a_real_one_is_not():
+    from auteur.web import billing
+
+    secret = "whsec_pretend"
+    body = _stripe_event("customer.subscription.deleted", {"customer": "cus_x"})
+
+    assert billing.signature_problem(body, _stripe_signature(body, secret), secret) == ""
+    assert billing.signature_problem(body, f"t={int(time.time())},v1={'0' * 64}", secret)
+    assert billing.signature_problem(body, "", secret) == "no Stripe-Signature header"
+    # Signed correctly, but for a different body: the signature covers the
+    # bytes, so changing them after signing has to break it.
+    good = _stripe_signature(body, secret)
+    assert billing.signature_problem(body + b" ", good, secret)
+
+
+def test_a_lapsed_subscription_is_heard_as_a_downgrade():
+    """Silence on a failed payment leaves somebody on Studio for ever."""
+    from auteur.web import billing
+
+    def grant(status):
+        return billing.grant_from(
+            {
+                "type": "customer.subscription.updated",
+                "data": {
+                    "object": {
+                        "customer": "cus_x",
+                        "status": status,
+                        "current_period_end": time.time() + 86400,
+                        "items": {"data": [{"price": {"lookup_key": "atlas_studio_monthly"}}]},
+                    }
+                },
+            }
+        )
+
+    assert grant("active").plan == "studio"
+    assert grant("trialing").plan == "studio"
+    for dead in ("past_due", "canceled", "unpaid", "incomplete_expired", "invented"):
+        assert grant(dead).plan == billing.DEFAULT_PLAN, f"{dead} kept the plan"
+
+
+def test_an_unpaid_checkout_is_not_a_sale():
+    """Stripe sends this event for delayed payment methods too."""
+    from auteur.web import billing
+
+    def checkout(status):
+        return billing.grant_from(
+            {
+                "type": "checkout.session.completed",
+                "data": {
+                    "object": {
+                        "payment_status": status,
+                        "client_reference_id": "tester",
+                        "customer": "cus_x",
+                        "expires_at": time.time() + 86400,
+                        "items": {"data": [{"price": {"lookup_key": "atlas_solo_monthly"}}]},
+                    }
+                },
+            }
+        )
+
+    assert checkout("paid").plan == "solo"
+    assert checkout("unpaid") is None
+    assert checkout("no_payment_required") is None
+
+
+def test_an_event_about_a_customer_this_copy_never_sold_to_changes_nobody(tmp_path):
+    """The same Stripe account can serve more than one instance."""
+    from auteur.web import billing
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("tester", "t@example.com", "a-long-enough-one")
+
+    stranger = billing.Grant(customer="cus_not_ours", plan="studio", until=time.time() + 99)
+    assert accounts.apply_grant(stranger) == ""
+    assert accounts.get("tester").plan == "free"
+
+    # And a plan this copy does not sell is refused even for a known customer.
+    accounts.get("tester").stripe_customer = "cus_ours"
+    nonsense = billing.Grant(customer="cus_ours", plan="enterprise", until=time.time() + 99)
+    assert accounts.apply_grant(nonsense) == ""
+    assert accounts.get("tester").plan == "free"

@@ -35,7 +35,7 @@ from urllib.parse import parse_qs, unquote
 from ..config import FORMATS, QUALITIES, Settings
 from ..ui import Reporter, describe_count, describe_duration, describe_shape
 from .. import brand, projects
-from . import auth, profiles, safety
+from . import auth, billing, profiles, safety
 from .social import PAGE
 
 log = logging.getLogger("auteur.web")
@@ -109,6 +109,11 @@ SAFETY_HEADERS = {
 }
 #: How much of a file to put on the wire at a time.
 CHUNK = 512 * 1024
+
+#: The most a Stripe webhook body may be. Stripe's own limit on the events it
+#: sends is well under this; the number is here so that a body large enough to
+#: be a denial-of-service is refused before it is hashed rather than after.
+WEBHOOK_LIMIT = 64 * 1024
 #: Types worth gzipping. PNG and MP4 are already compressed; running them
 #: through gzip spends CPU to make them very slightly bigger.
 COMPRESSIBLE = ("text/", "javascript", "json", "manifest", "xml", "svg")
@@ -148,6 +153,10 @@ PUBLIC_PATHS = frozenset(
         # if reporting needed an account.
         "/api/trouble",
         "/api/sign-in-with",
+        # Stripe has no session and never will. This path is reachable
+        # without one and refuses everything whose signature does not verify,
+        # which is a stronger gate than a cookie, not a weaker one.
+        "/api/stripe/webhook",
         # The App Store requires a privacy policy at a URL anybody can open,
         # and "anybody" includes a reviewer who has not been given an account.
         # The terms go with it: the sign-up screen links to them, which happens
@@ -2965,6 +2974,52 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         return payload if isinstance(payload, dict) else {}
 
+    def _stripe_webhook(self) -> None:
+        """Stripe saying somebody paid, or stopped paying.
+
+        This is the only thing in the program that can put an account onto a
+        paid plan. It is unauthenticated because Stripe has no session here —
+        and it is therefore signature-checked before the body is looked at,
+        which is the whole of its security. `_read_body` is used directly
+        rather than `_json_body` because the signature covers the exact bytes
+        that were sent, and `_json_body` decodes with `errors="replace"`: a
+        single byte replaced is a signature that can never match.
+
+        Every refusal answers with the same sentence. Stripe does not read it,
+        and anybody else asking is being told only that it did not work.
+        """
+        secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
+        body = self._read_body(WEBHOOK_LIMIT) or b""
+        problem = billing.signature_problem(
+            body, self.headers.get("Stripe-Signature", "") or "", secret
+        )
+        if problem:
+            # Logged in full, answered in one word. The log is the operator's,
+            # who needs to know an unconfigured secret from a bad signature;
+            # the response is the caller's, who does not.
+            log.warning("stripe webhook refused: %s", problem)
+            self._json({"error": "not accepted"}, 400)
+            return
+
+        event = billing.read_event(body)
+        if event is None:
+            self._json({"error": "not accepted"}, 400)
+            return
+
+        grant = billing.grant_from(event)
+        if grant is None:
+            # A verified event this copy has no opinion about. 200, because
+            # anything else asks Stripe to retry it for three days and then
+            # switch the endpoint off.
+            self._json({"ok": True, "changed": ""})
+            return
+
+        self.accounts.refresh()
+        who = self.accounts.apply_grant(grant)
+        if who:
+            log.info("stripe: %s is now on %s", who, grant.plan)
+        self._json({"ok": True, "changed": who})
+
     def _agents_plan(self) -> None:
         """Plan a cut and collect what the agents want to change.
 
@@ -3729,6 +3784,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/reset":
             self._reset()
+            return
+
+        if path == "/api/stripe/webhook":
+            self._stripe_webhook()
             return
 
         if not self._allowed(path):

@@ -25,7 +25,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from . import totp
+from . import billing, totp
 
 log = logging.getLogger("auteur.web.auth")
 
@@ -145,6 +145,21 @@ class Account:
     #: holds.
     born: int = 0
 
+    #: What this account has paid for: a key from `auteur/pricing.py`, via
+    #: `billing.PLANS`. Written only by a Stripe webhook whose signature
+    #: verified — there is no route a browser can call to change it, which is
+    #: what makes it mean "has paid" rather than "has asked".
+    plan: str = billing.DEFAULT_PLAN
+    #: When the paid plan lapses, as a unix time. 0 means "does not lapse",
+    #: which is the honest answer for the free tier and the wrong one for a
+    #: paid tier — `entitled` treats a paid plan with no end date as expired
+    #: rather than as permanent, so a half-written grant fails closed.
+    plan_until: float = 0.0
+    #: The Stripe customer this account is. Empty until somebody buys
+    #: something. It is how the subscription events that follow a checkout —
+    #: which carry no username — find their way back to a person.
+    stripe_customer: str = ""
+
     #: "none" or "limited". Limited hides films their author or the operator
     #: has marked sensitive, and films with a report nobody has looked at yet.
     restriction: str = "none"
@@ -181,6 +196,42 @@ class Account:
     @property
     def restricted(self) -> bool:
         return self.restriction == "limited"
+
+    @property
+    def paying(self) -> bool:
+        """Whether a paid plan is in force *right now*.
+
+        Two things have to hold, and the second is the one that is easy to
+        leave out: the plan is not the free tier, and it has not run out. A
+        check that asks only the first keeps somebody on Studio for ever the
+        moment a webhook is missed, which is the expensive direction.
+
+        A paid plan with `plan_until == 0` reads as expired. That state should
+        not exist — every grant this software writes sets an end date — so if
+        it does exist something wrote a plan without one, and the safe reading
+        of a half-written grant is that it is not a grant.
+        """
+        if self.plan == billing.DEFAULT_PLAN:
+            return False
+        return 0 < self.plan_until and time.time() < self.plan_until
+
+    @property
+    def tier(self):
+        """The `pricing.Tier` this account is actually on, never None.
+
+        Derived rather than stored: the tier's name, price and feature list
+        live in `pricing` and would go stale the moment they were copied here.
+        An account whose paid plan has lapsed reports the free tier, because
+        that is what it can currently use.
+        """
+        from .. import pricing
+
+        if not self.paying:
+            return pricing.FREE
+        for candidate in pricing.TIERS:
+            if candidate.key == self.plan:
+                return candidate
+        return pricing.FREE
 
 
 class Accounts:
@@ -445,6 +496,49 @@ class Accounts:
             account.restriction = "limited" if on else "none"
             self._save()
             return True
+
+    def apply_grant(self, grant) -> str:
+        """Put a verified entitlement change onto an account.
+
+        Returns the username it landed on, or "" if it landed on nobody. A
+        grant for a customer this copy has never seen is not an error — the
+        same Stripe account can serve more than one instance, and an event
+        about somebody else's customer is correctly a no-op here.
+
+        The two ways an event finds an account are deliberately different.
+        A checkout names the person, because the checkout was opened with
+        their username in `client_reference_id`; every later event knows only
+        the Stripe customer, and is matched by the id the checkout stored. So
+        a subscription that was never checked out through this copy cannot
+        attach itself to an account by guessing a name.
+        """
+        with self.lock:
+            account = None
+            if grant.username:
+                account = self.accounts.get(grant.username.strip().lower())
+            if account is None and grant.customer:
+                account = next(
+                    (
+                        a
+                        for a in self.accounts.values()
+                        if a.stripe_customer and a.stripe_customer == grant.customer
+                    ),
+                    None,
+                )
+            if account is None:
+                return ""
+            if grant.plan not in billing.PLANS:
+                # A plan this copy does not sell is not a plan. Refusing is
+                # the safe direction: the alternative is writing a string
+                # nobody can interpret into the field that decides what
+                # somebody is allowed to do.
+                return ""
+            account.plan = grant.plan
+            account.plan_until = float(grant.until or 0.0)
+            if grant.customer:
+                account.stripe_customer = grant.customer
+            self._save()
+            return account.username
 
     def set_restriction_lock(self, username: str, code: str) -> str:
         """Set or clear the code that lifts a restriction. "" if it worked.
