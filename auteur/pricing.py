@@ -142,7 +142,16 @@ def undercut_of(price: float, rivals: list[Rival]) -> float:
 #: had a pair of them in hand while writing this file. A test link on the
 #: public site takes a card number that is not a card number and tells the
 #: customer it worked. `_checkout_problem` refuses them by shape.
-CHECKOUT: dict[str, str] = {}
+CHECKOUT: dict[str, str] = {
+    # These arrived by being typed straight into docs/index.html, which is
+    # generated. The builder still read this dict, still found it empty and
+    # still wrote "Not open yet", so the committed page and the page its own
+    # builder produces disagreed and the test that regenerates it went red.
+    # They belong here, where `checkout_for` reads them and `_checkout_problem`
+    # gets a look at them before they reach a stranger.
+    "solo": "https://buy.stripe.com/8x2bJ16fV8K5eRieHR1B602",
+    "studio": "https://buy.stripe.com/3cIaEX9s72lHdNearB1B601",
+}
 
 
 def _checkout_problem(url: str) -> str:

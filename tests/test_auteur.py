@@ -14903,6 +14903,43 @@ def test_running_the_reconciler_twice_creates_nothing_the_second_time():
     assert code == pricing.PROMO_CODE, f"Stripe has {code}, the site prints {pricing.PROMO_CODE}"
 
 
+def _page_with_checkout(checkout: dict) -> str:
+    """The site as its own builder makes it, for a given checkout state.
+
+    Three tests below check what the page says when a plan has nowhere to pay.
+    They used to reach that state by building with no overrides, which worked
+    only while `pricing.CHECKOUT` was empty — so the day the live payment links
+    landed, all three failed for having launched rather than for anything being
+    wrong. The state under test has to be stated, not assumed.
+
+    Loaded rather than run as a subprocess because the environment override
+    deliberately cannot express "closed": `checkout_for` reads the environment
+    *or* `CHECKOUT`, so an empty variable falls through to the dict. Nothing is
+    stubbed — this is the builder's own module-level `PAGE`, built from the
+    pricing module exactly as it is on every real run.
+    """
+    import importlib.util
+
+    from auteur import pricing
+
+    root = Path(__file__).resolve().parent.parent
+    was = dict(pricing.CHECKOUT)
+    # Mutated in place rather than rebound, so a `from ... import CHECKOUT`
+    # anywhere sees the same change.
+    pricing.CHECKOUT.clear()
+    pricing.CHECKOUT.update(checkout)
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "_site_builder_probe", root / "tools" / "site" / "build_site.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.PAGE
+    finally:
+        pricing.CHECKOUT.clear()
+        pricing.CHECKOUT.update(was)
+
+
 def test_the_discount_the_site_advertises_can_actually_be_claimed():
     """A saving on a page with no way to claim it is a lie with a receipt.
 
@@ -14957,7 +14994,7 @@ def test_the_discount_the_site_advertises_can_actually_be_claimed():
         f"and the coupon gives {percent}%"
     )
 
-    not_yet = build()
+    not_yet = _page_with_checkout({})
     assert (
         pricing.PROMO_CODE not in not_yet
     ), "the page tells somebody to type a code at a checkout that does not exist"
@@ -15030,11 +15067,13 @@ def test_a_plan_with_nowhere_to_pay_says_so_instead_of_offering_a_button():
 
     paid = [tier for tier in pricing.TIERS if tier.dollars]
 
-    page = build()
+    page = _page_with_checkout({})
     assert page.count("Not open yet") == len(paid), "a paid plan with no checkout is not saying so"
     assert "Start the" not in page, "a plan offers a trial it has nowhere to start"
 
-    page = build(AUTEUR_CHECKOUT_SOLO="https://buy.stripe.com/9AQ00realone")
+    # One tier open, the rest shut — the mixed state, which is the one the rule
+    # is really about and the one no single global setting can produce.
+    page = _page_with_checkout({"solo": "https://buy.stripe.com/9AQ00realone"})
     assert 'href="https://buy.stripe.com/9AQ00realone">Start the' in page
     assert (
         page.count("Not open yet") == len(paid) - 1
@@ -15104,17 +15143,15 @@ def test_the_page_never_offers_a_trial_it_has_nowhere_to_start():
         (root / "-").unlink()
         return page
 
-    shut = build()
+    shut = _page_with_checkout({})
     assert "Not open yet" in shut, "no plan is shut, so there is nothing to be wrong about"
     for promise in (f"{pricing.TRIAL_DAYS} days free", "days free and no card"):
         assert promise not in shut, f"the page promises {promise!r} and has nowhere to start it"
 
     everywhere = {
-        f"AUTEUR_CHECKOUT_{tier.key.upper()}": f"https://buy.stripe.com/9AQ{tier.key}"
-        for tier in pricing.TIERS
-        if tier.dollars
+        tier.key: f"https://buy.stripe.com/9AQ{tier.key}" for tier in pricing.TIERS if tier.dollars
     }
-    open_now = build(**everywhere)
+    open_now = _page_with_checkout(everywhere)
     assert "Not open yet" not in open_now, "a plan with a checkout still says it is shut"
     assert (
         f"{pricing.TRIAL_DAYS} days free" in open_now

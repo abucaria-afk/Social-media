@@ -7,10 +7,10 @@
  the source file and regenerate, or the two disagree and this one is wrong.
 
    repository   abucaria-afk/Social-media
-   commit       ffa3da9d107adff3963d1914827cdaecd9fadb24
-   generated    2026-08-31 11:40 UTC
+   commit       eaa575be94ac1751e75243725e44bb44e75bfdad
+   generated    2026-08-31 17:21 UTC
    files        237
-   lines        109,495
+   lines        109,541
 
  REGENERATE
 
@@ -150,7 +150,7 @@
    auteur/insight/score.py                                                885 lines
    auteur/insight/template.py                                             576 lines
    auteur/manager.py                                                      728 lines
-   auteur/pricing.py                                                      360 lines
+   auteur/pricing.py                                                      369 lines
    auteur/projects.py                                                     430 lines
    auteur/publish/__init__.py                                              16 lines
    auteur/publish/connections.py                                          339 lines
@@ -275,7 +275,7 @@
    render.yaml                                                             48 lines
    requirements.txt                                                        22 lines
    tests/fuzz.py                                                          651 lines
-   tests/test_auteur.py                                                16,435 lines
+   tests/test_auteur.py                                                16,472 lines
    tools/appstore/build_pages.py                                          164 lines
    tools/appstore/listing.py                                              316 lines
    tools/appstore/preflight.py                                            631 lines
@@ -24632,7 +24632,16 @@ def undercut_of(price: float, rivals: list[Rival]) -> float:
 #: had a pair of them in hand while writing this file. A test link on the
 #: public site takes a card number that is not a card number and tells the
 #: customer it worked. `_checkout_problem` refuses them by shape.
-CHECKOUT: dict[str, str] = {}
+CHECKOUT: dict[str, str] = {
+    # These arrived by being typed straight into docs/index.html, which is
+    # generated. The builder still read this dict, still found it empty and
+    # still wrote "Not open yet", so the committed page and the page its own
+    # builder produces disagreed and the test that regenerates it went red.
+    # They belong here, where `checkout_for` reads them and `_checkout_problem`
+    # gets a look at them before they reach a stranger.
+    "solo": "https://buy.stripe.com/8x2bJ16fV8K5eRieHR1B602",
+    "studio": "https://buy.stripe.com/3cIaEX9s72lHdNearB1B601",
+}
 
 
 def _checkout_problem(url: str) -> str:
@@ -60340,7 +60349,7 @@ somebody looking at it.
   <hr>
 
   <h2>What it costs</h2>
-  <p class="trial">Free in your browser today. $12.49 a month when the hosted plans open — 15% under what the same thing costs everywhere else.</p>
+  <p class="trial">14 days free, then $12.49 a month — 15% under what the same thing costs everywhere else.</p>
   <ul class="plans">
       <li class="plan">
         <h3>In your browser</h3>
@@ -60366,12 +60375,12 @@ somebody looking at it.
           <li>The planning board and messages, kept between devices</li>
           <li>Read back how a post did on an account you connect yourself</li>
         </ul>
-        <p class="soon">Not open yet.</p>
+        <a class="go" href="https://buy.stripe.com/8x2bJ16fV8K5eRieHR1B602">Start the 14 free days</a>
       </li>
       <li class="plan featured">
         <h3>Studio</h3>
         <p class="price">$41.99<span class="per"> / month</span></p>
-        
+        <p class="was">10% off with <code>STUDIO10</code> — <s>$41.99</s> $37.79/mo</p>
         <p class="blurb">A copy for the room — one instance, everybody making the work on it.</p>
         <ul>
           <li>Everything in Solo</li>
@@ -60379,10 +60388,10 @@ somebody looking at it.
           <li>One planning board, one shot list, one calendar</li>
           <li>The feed ranks across everything the room has made</li>
         </ul>
-        <p class="soon">Not open yet.</p>
+        <a class="go" href="https://buy.stripe.com/3cIaEX9s72lHdNearB1B601">Start the 14 free days</a>
       </li>
   </ul>
-  <p class="smallprint">The hosted plans are not open yet; the browser build is, and is free. Prices are compared against the advertised monthly rate of
+  <p class="smallprint">Every paid plan starts with 14 days free and no card charged until they are up. Prices are compared against the advertised monthly rate of
     Runway Standard, CapCut Pro, Descript Hobbyist, Kapwing Pro and
     VEED Pro, Descript Business, Kapwing Business, read 2026-08.
     The browser build stays free: it runs on your device, so it costs us nothing to give you.</p>
@@ -91985,6 +91994,43 @@ def test_running_the_reconciler_twice_creates_nothing_the_second_time():
     assert code == pricing.PROMO_CODE, f"Stripe has {code}, the site prints {pricing.PROMO_CODE}"
 
 
+def _page_with_checkout(checkout: dict) -> str:
+    """The site as its own builder makes it, for a given checkout state.
+
+    Three tests below check what the page says when a plan has nowhere to pay.
+    They used to reach that state by building with no overrides, which worked
+    only while `pricing.CHECKOUT` was empty — so the day the live payment links
+    landed, all three failed for having launched rather than for anything being
+    wrong. The state under test has to be stated, not assumed.
+
+    Loaded rather than run as a subprocess because the environment override
+    deliberately cannot express "closed": `checkout_for` reads the environment
+    *or* `CHECKOUT`, so an empty variable falls through to the dict. Nothing is
+    stubbed — this is the builder's own module-level `PAGE`, built from the
+    pricing module exactly as it is on every real run.
+    """
+    import importlib.util
+
+    from auteur import pricing
+
+    root = Path(__file__).resolve().parent.parent
+    was = dict(pricing.CHECKOUT)
+    # Mutated in place rather than rebound, so a `from ... import CHECKOUT`
+    # anywhere sees the same change.
+    pricing.CHECKOUT.clear()
+    pricing.CHECKOUT.update(checkout)
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "_site_builder_probe", root / "tools" / "site" / "build_site.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.PAGE
+    finally:
+        pricing.CHECKOUT.clear()
+        pricing.CHECKOUT.update(was)
+
+
 def test_the_discount_the_site_advertises_can_actually_be_claimed():
     """A saving on a page with no way to claim it is a lie with a receipt.
 
@@ -92039,7 +92085,7 @@ def test_the_discount_the_site_advertises_can_actually_be_claimed():
         f"and the coupon gives {percent}%"
     )
 
-    not_yet = build()
+    not_yet = _page_with_checkout({})
     assert (
         pricing.PROMO_CODE not in not_yet
     ), "the page tells somebody to type a code at a checkout that does not exist"
@@ -92112,11 +92158,13 @@ def test_a_plan_with_nowhere_to_pay_says_so_instead_of_offering_a_button():
 
     paid = [tier for tier in pricing.TIERS if tier.dollars]
 
-    page = build()
+    page = _page_with_checkout({})
     assert page.count("Not open yet") == len(paid), "a paid plan with no checkout is not saying so"
     assert "Start the" not in page, "a plan offers a trial it has nowhere to start"
 
-    page = build(AUTEUR_CHECKOUT_SOLO="https://buy.stripe.com/9AQ00realone")
+    # One tier open, the rest shut — the mixed state, which is the one the rule
+    # is really about and the one no single global setting can produce.
+    page = _page_with_checkout({"solo": "https://buy.stripe.com/9AQ00realone"})
     assert 'href="https://buy.stripe.com/9AQ00realone">Start the' in page
     assert (
         page.count("Not open yet") == len(paid) - 1
@@ -92186,17 +92234,15 @@ def test_the_page_never_offers_a_trial_it_has_nowhere_to_start():
         (root / "-").unlink()
         return page
 
-    shut = build()
+    shut = _page_with_checkout({})
     assert "Not open yet" in shut, "no plan is shut, so there is nothing to be wrong about"
     for promise in (f"{pricing.TRIAL_DAYS} days free", "days free and no card"):
         assert promise not in shut, f"the page promises {promise!r} and has nowhere to start it"
 
     everywhere = {
-        f"AUTEUR_CHECKOUT_{tier.key.upper()}": f"https://buy.stripe.com/9AQ{tier.key}"
-        for tier in pricing.TIERS
-        if tier.dollars
+        tier.key: f"https://buy.stripe.com/9AQ{tier.key}" for tier in pricing.TIERS if tier.dollars
     }
-    open_now = build(**everywhere)
+    open_now = _page_with_checkout(everywhere)
     assert "Not open yet" not in open_now, "a plan with a checkout still says it is shut"
     assert (
         f"{pricing.TRIAL_DAYS} days free" in open_now
