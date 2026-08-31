@@ -16,7 +16,7 @@ cryptography>=50.0.1
 
 # Optional: lets Claude direct the edit. Without it the algorithmic director
 # does the job and the film still gets made.
-anthropic>=0.124.0
+anthropic>=1.1.0
 
 # Tests
 pytest>=9.1.1
