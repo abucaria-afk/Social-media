@@ -17189,3 +17189,150 @@ def test_no_checkout_link_this_project_ships_is_a_stripe_test_link():
     for tier in pricing.TIERS:
         if tier.dollars:
             assert pricing.checkout_for(tier), f"{tier.key} is priced but unbuyable"
+
+
+# --------------------------------------------------------------------------
+# Buying before you have an account
+#
+# The buttons on the public site are pressed by people who are not signed in,
+# so their checkout carries no `client_reference_id`. The first version of
+# `grant_from` returned None for exactly that shape — the worst outcome
+# available: the card is charged, no account changes, and nothing anywhere
+# records that it happened.
+# --------------------------------------------------------------------------
+
+
+def _paid_session(*, reference: str = "", email: str = "", customer: str = "cus_new"):
+    from auteur import pricing
+
+    return {
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "payment_status": "paid",
+                "client_reference_id": reference,
+                "customer": customer,
+                "customer_details": {"email": email},
+                "expires_at": time.time() + 30 * 86400,
+                "items": {"data": [{"price": {"lookup_key": pricing.TOP_TIER.lookup_key}}]},
+            }
+        },
+    }
+
+
+def test_a_checkout_with_no_username_is_still_a_sale():
+    """Stripe sends the payer's address; that is enough to act on."""
+    from auteur.web import billing
+
+    grant = billing.grant_from(_paid_session(email="Stranger@Example.com"))
+    assert grant is not None, "an anonymous purchase produced no grant at all"
+    assert grant.email == "stranger@example.com", "the address was not normalised"
+    assert grant.username == ""
+
+    # With neither a name nor an address there is nothing to act on, and
+    # guessing would be worse than declining.
+    assert billing.grant_from(_paid_session()) is None
+
+
+def test_a_payment_for_somebody_who_has_no_account_is_kept_not_dropped(tmp_path):
+    """The card was charged. Something has to remember that."""
+    from auteur.web import billing
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    grant = billing.grant_from(_paid_session(email="stranger@example.com"))
+
+    assert accounts.apply_grant(grant) == "", "it matched somebody who does not exist"
+    assert [r["email"] for r in accounts.unclaimed] == ["stranger@example.com"]
+
+    # And it survives a restart, or it is not really kept.
+    again = Accounts(tmp_path / "accounts.json")
+    assert [r["email"] for r in again.unclaimed] == ["stranger@example.com"]
+
+
+def test_signing_up_with_the_address_that_paid_claims_the_payment(tmp_path):
+    """The other half of buying first: they arrive and it is waiting."""
+    from auteur import pricing
+    from auteur.web import billing
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.apply_grant(billing.grant_from(_paid_session(email="Stranger@Example.com")))
+
+    accounts.add("stranger", "stranger@example.com", "a-long-enough-one")
+    fresh = Accounts(tmp_path / "accounts.json").get("stranger")
+    assert fresh.plan == pricing.TOP_TIER.key, "they paid and did not get it"
+    assert fresh.paying, "the plan was written without a date that makes it real"
+    assert fresh.stripe_customer == "cus_new"
+
+    # Spent, not reusable: a second account on that address gets nothing.
+    assert Accounts(tmp_path / "accounts.json").unclaimed == []
+    accounts.add("copycat", "stranger@example.com", "another-long-one")
+    assert Accounts(tmp_path / "accounts.json").get("copycat").plan == "free"
+
+
+def test_an_existing_account_is_found_by_the_address_that_paid(tmp_path):
+    """Somebody signed in already, who bought from the public page anyway."""
+    from auteur import pricing
+    from auteur.web import billing
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("avbucaria", "Av@Example.com", "a-long-enough-one")
+
+    who = accounts.apply_grant(billing.grant_from(_paid_session(email="av@example.com")))
+    assert who == "avbucaria", "a payment from a known address matched nobody"
+    assert accounts.get("avbucaria").plan == pricing.TOP_TIER.key
+    assert accounts.unclaimed == [], "it was both applied and held"
+
+
+def test_nothing_worth_nothing_is_held_for_later(tmp_path):
+    """Only a paid plan with an address to recognise somebody by is worth keeping."""
+    from auteur.web import billing
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+
+    # A cancellation for an account this copy does not have is not news.
+    accounts.apply_grant(
+        billing.Grant(customer="cus_x", plan=billing.DEFAULT_PLAN, until=0.0, email="a@b.com")
+    )
+    assert accounts.unclaimed == []
+
+    # And a paid grant with no address cannot be handed to anybody later.
+    accounts.apply_grant(billing.Grant(customer="cus_y", plan="studio", until=time.time() + 99))
+    assert accounts.unclaimed == []
+
+
+def test_the_operator_can_see_who_is_paying(tmp_path, capsys):
+    """The webhook wrote `plan` and nothing ever printed it.
+
+    Somebody running a business off this copy could not see who was on a plan,
+    whose had lapsed, or that money had arrived for somebody with no account.
+    """
+    from auteur.cli import main
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(Accounts.default_path(tmp_path))
+    accounts.add("payer", "payer@example.com", "a-long-enough-one")
+    accounts.add("lapser", "lapser@example.com", "another-long-one")
+    accounts.get("payer").plan = "studio"
+    accounts.get("payer").plan_until = time.time() + 86400
+    accounts.get("lapser").plan = "solo"
+    accounts.get("lapser").plan_until = time.time() - 1
+    accounts.unclaimed = [
+        {
+            "email": "waiting@example.com",
+            "plan": "studio",
+            "until": time.time() + 99,
+            "customer": "cus_x",
+            "seen": time.time(),
+        }
+    ]
+    accounts._save()
+
+    main(["account", "show", "-o", str(tmp_path)])
+    shown = capsys.readouterr().out
+    assert "Studio · $41.99" in shown, "a paying account is not reported as paying"
+    assert "lapsed" in shown, "a lapsed plan looks the same as a live one"
+    assert "waiting@example.com" in shown, "money arrived and nothing says so"

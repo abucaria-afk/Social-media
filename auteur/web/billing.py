@@ -137,10 +137,24 @@ def _tier_of(subscription: dict) -> pricing.Tier | None:
 class Grant:
     """One entitlement change an event asks for."""
 
-    def __init__(self, *, customer: str, plan: str, until: float, username: str = ""):
+    def __init__(
+        self,
+        *,
+        customer: str,
+        plan: str,
+        until: float,
+        username: str = "",
+        email: str = "",
+    ):
         self.customer = customer
         self.plan = plan
         self.until = until
+        #: The address the card was paid with, when Stripe sends one. The
+        #: buttons on the public site are opened by people who are not signed
+        #: in and therefore carry no `client_reference_id`; without this, a
+        #: real payment matched nobody, changed nothing, and left no record
+        #: that it had happened.
+        self.email = email.strip().lower()
         #: Only `checkout.session.completed` knows the account by name — it
         #: carries the `client_reference_id` the checkout was opened with.
         #: Later events know only the customer, and are matched by the id this
@@ -168,8 +182,12 @@ def grant_from(event: dict) -> Grant | None:
         if str(body.get("payment_status") or "") != "paid":
             return None
         username = str(body.get("client_reference_id") or "").strip()
+        # Stripe puts the payer's address here. It is the only handle on a
+        # checkout somebody opened from the public site, where they are not
+        # signed in and there is no username to attach.
+        email = str((body.get("customer_details") or {}).get("email") or "").strip()
         customer = str(body.get("customer") or "").strip()
-        if not username or not customer:
+        if not customer or not (username or email):
             return None
         # The session names the price it sold through the same lookup key.
         tier = _tier_of(body.get("subscription_details") or body)
@@ -180,6 +198,7 @@ def grant_from(event: dict) -> Grant | None:
             plan=tier.key,
             until=float(body.get("expires_at") or 0) or 0.0,
             username=username,
+            email=email,
         )
 
     if kind in ("customer.subscription.updated", "customer.subscription.created"):
