@@ -16426,8 +16426,6 @@ def test_a_deployment_is_told_about_every_setting_the_paid_path_needs():
     The names are read out of the source rather than listed here, so a setting
     renamed or added in the code fails this test until a deployment knows it.
     """
-    import re
-
     root = Path(__file__).resolve().parent.parent
     source = "\n".join(
         (root / "auteur" / "web" / name).read_text() for name in ("billing.py", "server.py")
