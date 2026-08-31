@@ -94,6 +94,14 @@ open yet: `pricing.open_for_business()` returns `False` until a live Stripe
 link exists, and every page reads that rather than advertising a checkout that
 does not answer.
 
+Paying for it means something. `auteur/web/billing.py` verifies the Stripe
+webhook signature and is the only thing that can put an account on a plan —
+there is no route a browser can call to change its own. What the top tier
+buys is the thing it is sold as: opening a copy to other people. That gate is
+live only where Auteur Studies does the hosting (`AUTEUR_HOSTED=1`); on your
+own machine nothing is gated, because the tiers describe an instance that runs
+when you are not.
+
 **APX** is the other product — the planner that forgets. Free, no account, no
 server, nothing stored; a day's state travels in the link itself. It is not
 built from this repository, and nothing here is a mode or a tier of it.

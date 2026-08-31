@@ -13241,6 +13241,344 @@ def test_the_app_never_asks_a_platform_for_permission_to_post():
     )
 
 
+def test_a_restricted_account_cannot_fetch_a_film_the_feed_hides_from_it():
+    """Hidden from the feed and served from the address bar is not hidden.
+
+    The content restriction was enforced in the list and not in the item.
+    `_held_back` had exactly one caller — the feed — so a restricted account
+    got a feed with the sensitive films correctly missing, and
+    `GET /api/films/<id>` handed over the video to anybody signed in.
+
+    Run against a real server, a restricted fourteen-year-old asking for
+    somebody else's film marked sensitive got **200 and 4,108 bytes of it**.
+    An id is not a secret: it travels in a share, a message, a link somebody
+    sends. Both store listings say an account for somebody under 18 starts
+    with sensitive films hidden, and the 12+ rating rests on that sentence.
+
+    `_may_see` is the same rule asked about one film rather than all of them,
+    and this holds all three of its edges — because the easy over-correction
+    is to refuse everything, which would break the feed for every restricted
+    account and hide people's own work from them.
+    """
+
+    import time
+
+    from auteur.web import server as web
+    from auteur.web.auth import Accounts
+    from auteur.web.profiles import Profiles
+    from auteur.web.safety import Reports
+    from auteur.web.social import Films
+
+    class Stub:
+        """Only the parts `_may_see` reads."""
+
+        def __init__(self, accounts, reports, profiles):
+            self.accounts = accounts
+            self.reports = reports
+            self.profiles = profiles
+
+        _may_see = web.Handler._may_see
+
+    with tempfile.TemporaryDirectory() as folder:
+        work = Path(folder)
+        year = time.gmtime().tm_year
+        accounts = Accounts(Accounts.default_path(work))
+        accounts.add("teenager", "t@e.st", TEST_PASSWORD, born=year - 14)
+        accounts.set_restriction("teenager", True)
+        accounts.add("grownup", "g@e.st", TEST_PASSWORD, born=year - 30)
+
+        films = Films(Films.default_path(work))
+        video = work / "f.mp4"
+        video.write_bytes(b"\x00" * 64)
+        theirs_sensitive = films.add(
+            owner="grownup", prompt="adults only", video=str(video), sensitive=True
+        )
+        theirs_ordinary = films.add(
+            owner="grownup", prompt="ordinary", video=str(video), sensitive=False
+        )
+        own_sensitive = films.add(
+            owner="teenager", prompt="their own", video=str(video), sensitive=True
+        )
+
+        profiles = Profiles(Profiles.default_path(work))
+        handler = Stub(accounts, Reports(Reports.default_path(work)), profiles)
+
+        teen = handler._may_see
+        assert not teen(theirs_sensitive, "teenager"), (
+            "a restricted account can fetch somebody else's sensitive film by id — "
+            "the feed hides it and the file is served anyway"
+        )
+        # The two things an over-correction would break.
+        assert teen(theirs_ordinary, "teenager"), (
+            "an ordinary film is now refused to a restricted account, which "
+            "empties the feed for everybody it applies to"
+        )
+        assert teen(own_sensitive, "teenager"), (
+            "a restriction is about what you are shown, not about hiding your " "own work from you"
+        )
+        # And an account with no restriction is untouched.
+        assert teen(theirs_sensitive, "grownup")
+
+        # A block, both ways. `Profiles.apart` returns everybody on either
+        # side of one in a single set, and its own docstring says why:
+        # filtering on "people I blocked" alone "leaves somebody able to watch
+        # the films of the person who blocked them ... which is not a block,
+        # it is a mute." That set was consulted in the feed and nowhere else,
+        # so a blocked account's feed hid the film and the endpoint served it
+        # — 200 and three kilobytes, measured against a real server.
+        accounts.add("mallory", "m@e.st", TEST_PASSWORD, born=year - 30)
+        profiles.block("grownup", "mallory")
+        mallorys = films.add(
+            owner="mallory", prompt="mallory's own", video=str(video), sensitive=False
+        )
+
+        assert not handler._may_see(
+            theirs_ordinary, "mallory"
+        ), "somebody who has been blocked can still fetch that person's films by id"
+        assert not handler._may_see(
+            mallorys, "grownup"
+        ), "a block only stops one direction, which makes it a mute"
+        assert handler._may_see(mallorys, "mallory"), "blocked from their own work"
+        assert handler._may_see(
+            theirs_ordinary, "teenager"
+        ), "an unrelated account is caught by somebody else's block"
+
+        # The other half of the rule, and the half with no `sensitive` flag to
+        # make it obvious: a film nobody marked, but with an open report
+        # against it, is held while the operator decides. Filed for real rather
+        # than asserted about — an earlier draft of this block checked that the
+        # reports store still had an `open_ones` method, which is a fact about
+        # the module and not about the behaviour.
+        assert handler._may_see(theirs_ordinary, "teenager"), "precondition"
+        handler.reports.file(
+            by="somebody",
+            kind="film",
+            about=theirs_ordinary.id,
+            about_who="grownup",
+            # From the fixed vocabulary — `file()` returns None for anything
+            # else, which is how the first draft of this block filed nothing
+            # and then "proved" the film was still visible.
+            reason="other",
+        )
+        assert not handler._may_see(theirs_ordinary, "teenager"), (
+            "a film under an open report is served to a restricted account "
+            "while the operator is still deciding"
+        )
+        # And the moment it is decided, it comes back.
+        open_now = handler.reports.open_ones()
+        assert open_now, "the report was not filed, so the check above proved nothing"
+        assert open_now[0].about == theirs_ordinary.id
+        handler.reports.decide(open_now[0].id, "kept", "looked at it")
+        assert handler._may_see(
+            theirs_ordinary, "teenager"
+        ), "a decided report still holds the film back"
+
+    # The rule being right and the rule being *in the path* are two different
+    # things, and this test proved only the first: commenting the call out of
+    # `_film_media` left it passing. That is the same defect as a publish gate
+    # nobody calls, reproduced while fixing a neighbouring one. The endpoint
+    # that serves the file has to ask.
+    import ast
+
+    source = Path(web.__file__).read_text(encoding="utf-8")
+    served_by = {
+        node.name: node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.FunctionDef)
+    }
+    assert "_film_media" in served_by, "the endpoint that serves a film by id is gone"
+    asks = [
+        inner
+        for inner in ast.walk(served_by["_film_media"])
+        if isinstance(inner, ast.Call) and getattr(inner.func, "attr", "") == "_may_see"
+    ]
+    assert asks, (
+        "`_film_media` serves a film's video and poster and never calls "
+        "`_may_see`, so the restriction is enforced in the feed and nowhere else"
+    )
+
+
+def test_every_way_to_set_a_password_enforces_the_same_policy():
+    """The front door had its own, weaker rule.
+
+    `auth.password_problem` is the policy: twelve characters, no leading or
+    trailing space, nothing off a guessing list, at least five distinct
+    characters, and not built out of the account's own name. `auteur account
+    add` calls it. The first-run seeder calls it. The password *reset* calls
+    it. Web sign-up did not — it had `len(password) < 10` written inline and
+    nothing else.
+
+    So the one path a person who is not a programmer actually takes was the
+    weakest of the four. Run against a real server, every one of these was
+    accepted at sign-up and rejected everywhere else:
+
+        0123456789   two short of the floor
+        password12   on every guessing list
+        aaaaaaaaaa   four distinct characters
+        tester1234   the account's own username with digits after it
+
+    And the person who chose one would meet "use at least 12 characters" the
+    first time they tried to reset it — the app enforcing a rule at reset that
+    it had declined to enforce when it mattered.
+
+    Two rules for one thing with nothing comparing them is the defect this
+    repository keeps finding. What makes this one worth a guard rather than a
+    fix is that a fourth path is cheap to add and would be written the same
+    way: this asserts that nothing sets a password without asking the policy.
+    """
+
+    import ast
+
+    from auteur.web import auth
+
+    root = Path(__file__).resolve().parent.parent
+
+    # Every module that can set or accept a password has to consult the one
+    # policy function. Named rather than discovered, because a path that
+    # forgets to import it is exactly what this is looking for and would
+    # therefore not be discovered.
+    SETTERS = {
+        "auteur/web/server.py": "sign-up and password reset",
+        "auteur/cli.py": "`auteur account add` and `account password`",
+        "auteur/web/seed.py": "the first-run account",
+    }
+    for name, what in SETTERS.items():
+        source = (root / name).read_text(encoding="utf-8")
+        assert (
+            "password_problem" in source
+        ), f"{name} sets a password ({what}) without asking the policy"
+
+    # And no path may carry a second, private floor. A bare length comparison
+    # against a password is the shape the old rule had.
+    private_floor: list[str] = []
+    for name in SETTERS:
+        path = root / name
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Compare):
+                continue
+            left = node.left
+            if (
+                isinstance(left, ast.Call)
+                and getattr(left.func, "id", "") == "len"
+                and left.args
+                and getattr(left.args[0], "id", "") == "password"
+            ):
+                private_floor.append(f"{name}:{node.lineno}")
+    assert not private_floor, (
+        "a length check on a password outside `password_problem`, which is how "
+        f"the two rules parted company the first time: {private_floor}"
+    )
+
+    # The floor itself, pinned by a password that fails for *no other reason*.
+    # "xk7Qzmw" is seven characters, seven distinct, on no list, and unrelated
+    # to the account — so it is refused if and only if the length rule is
+    # doing its job. The first draft of this test asserted the five cases
+    # below and nothing more, and `MIN_PASSWORD = 4` passed it: every one of
+    # them also breaks a different rule, so none of them was testing the
+    # floor. A case that fails for two reasons proves neither.
+    short_and_otherwise_fine = "xk7Qzmw"
+    assert len(short_and_otherwise_fine) < auth.MIN_PASSWORD
+    assert "at least" in auth.password_problem(short_and_otherwise_fine, username="tester"), (
+        f"{short_and_otherwise_fine!r} is under the {auth.MIN_PASSWORD}-character "
+        "floor and was not refused for that"
+    )
+
+    # And the other rules, each of which stands on its own.
+    for password, why in [
+        ("0123456789", "on a guessing list"),
+        ("password12", "on a guessing list"),
+        ("aaaaaaaaaa", "too few distinct characters"),
+        ("tester1234", "built from the username"),
+        (" correct horse battery ", "leading and trailing space"),
+    ]:
+        assert auth.password_problem(
+            password, username="tester1234", email="t@e.st"
+        ), f"the policy accepts {password!r} ({why})"
+    assert not auth.password_problem(
+        "correct horse battery staple", username="tester", email="t@e.st"
+    ), "the policy refuses a good passphrase, which would send people to Password1!"
+
+
+def test_nothing_calls_the_product_by_the_name_it_used_to_have():
+    """The rename left "Auteur" behind in two sentences a person actually reads.
+
+    The compound "Auteur Atlas" was swept out of thirty-two files and a guard
+    was written to keep it out. That guard checked for the string it had just
+    seen. It did not check for the *other* way the rename could be incomplete —
+    the bare old product name, still standing where the product is named:
+
+        auteur/web/server.py   the age-gate error, shown to somebody in the
+                               middle of signing up
+        auteur/brand.py        inside `description()`, which generates both
+                               store listings and the terms page
+
+    Both said "Auteur is for people 12 and over". Both were found by running
+    the sign-up flow rather than by reading, and both are now `{brand.NAME}`.
+    A guard shaped like the exact bug it was written for is the recurring
+    mistake in this file; this is the class.
+
+    The publisher is always "Auteur Studies", so "Auteur" followed by anything
+    else in prose is the product wearing its old name. That distinction is what
+    makes this checkable without flagging every legitimate mention of the
+    company or of the `auteur` package and command.
+    """
+
+    import re as _re
+
+    from auteur import brand
+    from auteur.identity import COMPANY
+    from auteur.web import server
+
+    root = Path(__file__).resolve().parent.parent
+    surfaces = [
+        *sorted(server.STATIC.glob("*.html")),
+        root / "auteur" / "brand.py",
+        root / "auteur" / "web" / "server.py",
+        root / "README.md",
+        root / "TERMS.md",
+        root / "PRIVACY.md",
+        root / "docs" / "index.html",
+    ]
+    surfaces = [path for path in surfaces if path.is_file()]
+    assert surfaces, "found no surfaces to check"
+
+    # "Auteur" as a product name: followed by a word that is not the rest of
+    # the company's name. `Auteur Studies` is the publisher and always fine.
+    trailing = COMPANY.trading_name.split()[-1]  # "Studies"
+    stale = _re.compile(rf"\bAuteur (?!{_re.escape(trailing)}\b)([a-zA-Z]+)")
+
+    # Python is read as a syntax tree and only its *string literals* are
+    # checked, not its comments. `brand.py` and `identity.py` carry comments
+    # that state this very rule — `Atlas, never "Auteur Atlas"` — and a
+    # line-based scan flagged the rule as a breach of itself. A comment is not
+    # a surface; nobody signing up reads one.
+    import ast as _ast
+
+    found: list[str] = []
+    for path in surfaces:
+        text = path.read_text(encoding="utf-8")
+        if path.suffix == ".py":
+            pieces = [
+                node.value
+                for node in _ast.walk(_ast.parse(text))
+                if isinstance(node, _ast.Constant) and isinstance(node.value, str)
+            ]
+            # Module and function docstrings are documentation too, and the
+            # rule is explained in several of them.
+            pieces = [
+                piece
+                for piece in pieces
+                if "never" not in piece.lower() and "used to" not in piece.lower()
+            ]
+        else:
+            pieces = text.splitlines()
+        for piece in pieces:
+            for match in stale.finditer(piece):
+                found.append(f"{path.relative_to(root).as_posix()} says 'Auteur {match.group(1)}'")
+
+    assert (
+        not found
+    ), f"the product is called {brand.NAME}; these still call it Auteur: " + "; ".join(found)
+
+
 def test_the_publisher_name_is_never_welded_to_the_front_of_the_product_name():
     """Atlas is the product. Auteur Studies publishes it. Neither is the other.
 
@@ -14957,7 +15295,13 @@ def test_the_discount_the_site_advertises_can_actually_be_claimed():
         f"and the coupon gives {percent}%"
     )
 
-    not_yet = build()
+    # Every paid tier explicitly closed. These three tests used to get the
+    # shut state for free, because `pricing.CHECKOUT` was empty and there was
+    # nothing to sell. There are real links in it now, so the closed half of
+    # each of these has to be *built* rather than inherited — which is better,
+    # since it means both branches are now exercised on purpose.
+    shut_env = {f"AUTEUR_CHECKOUT_{t.key.upper()}": "" for t in pricing.TIERS if t.dollars}
+    not_yet = build(**shut_env)
     assert (
         pricing.PROMO_CODE not in not_yet
     ), "the page tells somebody to type a code at a checkout that does not exist"
@@ -15030,11 +15374,20 @@ def test_a_plan_with_nowhere_to_pay_says_so_instead_of_offering_a_button():
 
     paid = [tier for tier in pricing.TIERS if tier.dollars]
 
-    page = build()
+    # Every paid tier explicitly closed. These three tests used to get the
+    # shut state for free, because `pricing.CHECKOUT` was empty and there was
+    # nothing to sell. There are real links in it now, so the closed half of
+    # each of these has to be *built* rather than inherited — which is better,
+    # since it means both branches are now exercised on purpose.
+    shut_env = {f"AUTEUR_CHECKOUT_{t.key.upper()}": "" for t in pricing.TIERS if t.dollars}
+    page = build(**shut_env)
     assert page.count("Not open yet") == len(paid), "a paid plan with no checkout is not saying so"
     assert "Start the" not in page, "a plan offers a trial it has nowhere to start"
 
-    page = build(AUTEUR_CHECKOUT_SOLO="https://buy.stripe.com/9AQ00realone")
+    # One tier open and the rest shut, so the count below means what it says.
+    # Overriding only Solo used to be enough; now the others would fall
+    # through to the real table and nothing would be reported as closed.
+    page = build(**{**shut_env, "AUTEUR_CHECKOUT_SOLO": "https://buy.stripe.com/9AQ00realone"})
     assert 'href="https://buy.stripe.com/9AQ00realone">Start the' in page
     assert (
         page.count("Not open yet") == len(paid) - 1
@@ -15104,7 +15457,13 @@ def test_the_page_never_offers_a_trial_it_has_nowhere_to_start():
         (root / "-").unlink()
         return page
 
-    shut = build()
+    # Every paid tier explicitly closed. These three tests used to get the
+    # shut state for free, because `pricing.CHECKOUT` was empty and there was
+    # nothing to sell. There are real links in it now, so the closed half of
+    # each of these has to be *built* rather than inherited — which is better,
+    # since it means both branches are now exercised on purpose.
+    shut_env = {f"AUTEUR_CHECKOUT_{t.key.upper()}": "" for t in pricing.TIERS if t.dollars}
+    shut = build(**shut_env)
     assert "Not open yet" in shut, "no plan is shut, so there is nothing to be wrong about"
     for promise in (f"{pricing.TRIAL_DAYS} days free", "days free and no card"):
         assert promise not in shut, f"the page promises {promise!r} and has nowhere to start it"
@@ -15648,6 +16007,441 @@ def test_the_program_never_calls_a_number_measured_that_it_did_not_measure():
     assert (
         'source = "measured"' not in source
     ), "the per-post column still calls an exported number a measured one"
+
+
+# --------------------------------------------------------------------------
+# Being paid
+#
+# `pricing.py` says what things cost and `tools/stripe/sync_pricing.py` makes
+# the Stripe account agree. Between them a customer could be charged, and then
+# nothing happened to their account: `pricing` was imported by the site builder
+# and the sync script and by nothing under `auteur/web/`, and none of the
+# server's routes was a webhook. These are the guards on the door that closes
+# that gap, and every one of them was written by restoring the defect it
+# describes and watching it fail.
+# --------------------------------------------------------------------------
+
+
+def _stripe_signature(body: bytes, secret: str, *, when=None) -> str:
+    """The header Stripe would send for this body, as Stripe builds it."""
+    import hashlib
+    import hmac
+    import time as _time
+
+    stamp = int(_time.time() if when is None else when)
+    mac = hmac.new(secret.encode(), f"{stamp}.".encode() + body, hashlib.sha256)
+    return f"t={stamp},v1={mac.hexdigest()}"
+
+
+def _stripe_event(kind: str, obj: dict) -> bytes:
+    return json.dumps({"type": kind, "data": {"object": obj}}).encode()
+
+
+def test_the_plans_the_app_will_grant_are_the_plans_the_price_list_sells():
+    """One list of tiers, not two.
+
+    A plan key accepted here that `pricing` does not sell would be a string
+    deciding what somebody may do that nobody can price, and a tier renamed in
+    `pricing` would leave this half of the program granting a plan that no
+    longer exists.
+    """
+    from auteur import pricing
+    from auteur.web import billing
+
+    assert billing.PLANS == frozenset(t.key for t in pricing.TIERS)
+    assert billing.DEFAULT_PLAN == pricing.FREE.key
+    # Every paid tier has to be reachable from an event, which means it needs
+    # the lookup key that joins the two halves.
+    for tier in pricing.TIERS:
+        if tier.dollars:
+            assert tier.lookup_key, f"{tier.key} is sold but has no lookup key"
+            assert billing.BY_LOOKUP_KEY[tier.lookup_key] is tier
+
+
+def test_a_plan_that_has_run_out_is_not_a_plan():
+    """`paying` asks two questions, and the second is the one easy to forget.
+
+    Written after a mutation: `paying` returning True unconditionally passed
+    the whole first draft of this file, because nothing ever held a paid plan
+    whose date had already gone by.
+    """
+    import time as _time
+
+    from auteur.web.auth import Account
+
+    account = Account("x", "x@example.com", "00", "h")
+    assert not account.paying, "a fresh account is not paying"
+
+    account.plan, account.plan_until = "studio", _time.time() + 3600
+    assert account.paying and account.tier.name == "Studio"
+
+    account.plan_until = _time.time() - 1
+    assert not account.paying, "a plan that ended is still being honoured"
+    assert account.tier.name == "In your browser", "a lapsed account keeps its tier"
+
+    # A paid plan with no end date should not exist. If one does, something
+    # wrote half a grant, and half a grant is not a grant.
+    account.plan_until = 0.0
+    assert not account.paying, "a paid plan with no end date read as permanent"
+
+
+def test_no_route_a_browser_can_reach_can_change_what_somebody_has_paid_for():
+    """The only writer of a plan is the webhook.
+
+    Not a statement about intent — a read of the source. Any handler other
+    than `_stripe_webhook` assigning to `.plan`, or calling `apply_grant`,
+    would be a way to become a paying customer without paying.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parent.parent
+    source = (root / "auteur" / "web" / "server.py").read_text()
+    tree = ast.parse(source)
+
+    def writers(node) -> set[str]:
+        found = set()
+        for item in ast.walk(node):
+            for target in getattr(item, "targets", []):
+                if isinstance(target, ast.Attribute) and target.attr in (
+                    "plan",
+                    "plan_until",
+                ):
+                    found.add(node.name)
+            if (
+                isinstance(item, ast.Call)
+                and isinstance(item.func, ast.Attribute)
+                and item.func.attr == "apply_grant"
+            ):
+                found.add(node.name)
+        return found
+
+    touching: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            touching |= writers(node)
+
+    assert touching == {
+        "_stripe_webhook"
+    }, f"these also write a plan: {sorted(touching - {'_stripe_webhook'})}"
+
+
+def test_an_instance_with_no_webhook_secret_refuses_every_event():
+    """The unconfigured case must fail closed, not open.
+
+    A deploy that forgot `STRIPE_WEBHOOK_SECRET` would otherwise be serving an
+    unauthenticated make-me-a-subscriber endpoint, and would look like it was
+    working. Signed with the empty secret on purpose: signing with a real one
+    passes for the wrong reason — the HMAC simply would not match, and the
+    branch under test is never reached.
+    """
+    from auteur.web import billing
+
+    body = _stripe_event("checkout.session.completed", {"payment_status": "paid"})
+    problem = billing.signature_problem(body, _stripe_signature(body, ""), "")
+    assert "STRIPE_WEBHOOK_SECRET" in problem
+
+
+def test_a_webhook_signed_an_hour_ago_cannot_be_replayed():
+    """Without a window a captured signature is valid for ever."""
+    import time as _time
+
+    from auteur.web import billing
+
+    secret = "whsec_pretend"
+    body = _stripe_event("customer.subscription.deleted", {"customer": "cus_x"})
+
+    fresh = _stripe_signature(body, secret)
+    assert billing.signature_problem(body, fresh, secret) == ""
+
+    stale = _stripe_signature(body, secret, when=_time.time() - 3600)
+    assert "out of step" in billing.signature_problem(body, stale, secret)
+
+
+def test_a_forged_signature_is_refused_and_a_real_one_is_not():
+    from auteur.web import billing
+
+    secret = "whsec_pretend"
+    body = _stripe_event("customer.subscription.deleted", {"customer": "cus_x"})
+
+    assert billing.signature_problem(body, _stripe_signature(body, secret), secret) == ""
+    assert billing.signature_problem(body, f"t={int(time.time())},v1={'0' * 64}", secret)
+    assert billing.signature_problem(body, "", secret) == "no Stripe-Signature header"
+    # Signed correctly, but for a different body: the signature covers the
+    # bytes, so changing them after signing has to break it.
+    good = _stripe_signature(body, secret)
+    assert billing.signature_problem(body + b" ", good, secret)
+
+
+def test_a_lapsed_subscription_is_heard_as_a_downgrade():
+    """Silence on a failed payment leaves somebody on Studio for ever."""
+    from auteur.web import billing
+
+    def grant(status):
+        return billing.grant_from(
+            {
+                "type": "customer.subscription.updated",
+                "data": {
+                    "object": {
+                        "customer": "cus_x",
+                        "status": status,
+                        "current_period_end": time.time() + 86400,
+                        "items": {"data": [{"price": {"lookup_key": "atlas_studio_monthly"}}]},
+                    }
+                },
+            }
+        )
+
+    assert grant("active").plan == "studio"
+    assert grant("trialing").plan == "studio"
+    for dead in ("past_due", "canceled", "unpaid", "incomplete_expired", "invented"):
+        assert grant(dead).plan == billing.DEFAULT_PLAN, f"{dead} kept the plan"
+
+
+def test_an_unpaid_checkout_is_not_a_sale():
+    """Stripe sends this event for delayed payment methods too."""
+    from auteur.web import billing
+
+    def checkout(status):
+        return billing.grant_from(
+            {
+                "type": "checkout.session.completed",
+                "data": {
+                    "object": {
+                        "payment_status": status,
+                        "client_reference_id": "tester",
+                        "customer": "cus_x",
+                        "expires_at": time.time() + 86400,
+                        "items": {"data": [{"price": {"lookup_key": "atlas_solo_monthly"}}]},
+                    }
+                },
+            }
+        )
+
+    assert checkout("paid").plan == "solo"
+    assert checkout("unpaid") is None
+    assert checkout("no_payment_required") is None
+
+
+def test_an_event_about_a_customer_this_copy_never_sold_to_changes_nobody(tmp_path):
+    """The same Stripe account can serve more than one instance."""
+    from auteur.web import billing
+    from auteur.web.auth import Accounts
+
+    accounts = Accounts(tmp_path / "accounts.json")
+    accounts.add("tester", "t@example.com", "a-long-enough-one")
+
+    stranger = billing.Grant(customer="cus_not_ours", plan="studio", until=time.time() + 99)
+    assert accounts.apply_grant(stranger) == ""
+    assert accounts.get("tester").plan == "free"
+
+    # And a plan this copy does not sell is refused even for a known customer.
+    accounts.get("tester").stripe_customer = "cus_ours"
+    nonsense = billing.Grant(customer="cus_ours", plan="enterprise", until=time.time() + 99)
+    assert accounts.apply_grant(nonsense) == ""
+    assert accounts.get("tester").plan == "free"
+
+
+# --------------------------------------------------------------------------
+# Being paid, part two: the entitlement has to reach something
+#
+# The first pass built `Account.plan`, `paying` and `tier`, and wired them to
+# nothing: `paying` was read once — inside `tier` — and `tier` only by tests.
+# That is the same defect this project found in `Gate.may_publish` (correct,
+# tested in every mode, called by nothing), reproduced one commit later in the
+# fix for it. These guards exist so the gate stays connected.
+# --------------------------------------------------------------------------
+
+
+def test_the_thing_the_top_tier_is_sold_as_is_the_thing_it_gates():
+    """`pricing.py` says of the top tier, in as many words: "The same instance
+    with more than one person on it. This is the invite system that already
+    exists in `auteur/web/auth.py`, priced." So that is what the gate guards,
+    and it looks the tier up by identity rather than by the string "studio".
+    """
+    import os as _os
+
+    from auteur import pricing
+    from auteur.web import billing
+    from auteur.web.auth import Account
+
+    account = Account("x", "x@example.com", "00", "h")
+    before = _os.environ.get("AUTEUR_HOSTED")
+    try:
+        _os.environ["AUTEUR_HOSTED"] = "1"
+        assert billing.may_open_instance(account), "the free tier could open it"
+
+        account.plan, account.plan_until = pricing.TOP_TIER.key, time.time() + 3600
+        assert billing.may_open_instance(account) == "", "the top tier could not"
+
+        # Paying is two questions, and the gate has to ask both.
+        account.plan_until = time.time() - 1
+        assert billing.may_open_instance(account), "a lapsed top tier still opened it"
+
+        # A lower paid tier is not the top tier.
+        lower = [t for t in pricing.TIERS if t.dollars and t is not pricing.TOP_TIER]
+        for tier in lower:
+            account.plan, account.plan_until = tier.key, time.time() + 3600
+            assert billing.may_open_instance(account), f"{tier.key} opened it"
+    finally:
+        if before is None:
+            _os.environ.pop("AUTEUR_HOSTED", None)
+        else:
+            _os.environ["AUTEUR_HOSTED"] = before
+
+
+def test_a_copy_running_on_your_own_machine_is_not_gated_by_a_plan():
+    """The tiers describe an instance that runs when you are not.
+
+    Charging somebody to let a friend sign in to software on their own laptop
+    would be renting them something they already own, so the entitlement only
+    means anything where Auteur Studies is doing the hosting. Default off: an
+    instance never told it is hosted behaves as it did before billing existed.
+    """
+    import os as _os
+
+    from auteur.web import billing
+    from auteur.web.auth import Account
+
+    before = _os.environ.get("AUTEUR_HOSTED")
+    try:
+        _os.environ.pop("AUTEUR_HOSTED", None)
+        assert not billing.hosted(), "unset should not mean hosted"
+        assert billing.may_open_instance(Account("x", "x@e.com", "00", "h")) == ""
+        assert billing.may_open_instance(None) == "", "not even a session is needed"
+    finally:
+        if before is not None:
+            _os.environ["AUTEUR_HOSTED"] = before
+
+
+def test_closing_a_copy_to_new_people_is_never_gated_on_a_plan():
+    """A leaked invite code has to be revocable whatever the billing says.
+
+    Closing is what somebody does *because* a code got further than they
+    meant. A copy that cannot be shut because a card expired has turned its
+    billing state into a security problem. Read from the source: the gate is
+    called inside the branch that opens, and nowhere else in the handler.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parent.parent
+    tree = ast.parse((root / "auteur" / "web" / "server.py").read_text())
+    handler = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_set_who_may_join"
+    )
+
+    def calls_gate(node) -> bool:
+        return any(
+            isinstance(item, ast.Call)
+            and isinstance(item.func, ast.Attribute)
+            and item.func.attr == "may_open_instance"
+            for item in ast.walk(node)
+        )
+
+    opening = [n for n in handler.body if isinstance(n, ast.If) and calls_gate(n)]
+    assert len(opening) == 1, "the gate is not inside exactly one branch"
+    # Everything after that branch is the closing path, and none of it asks.
+    tail = handler.body[handler.body.index(opening[0]) + 1 :]
+    assert tail, "nothing follows the opening branch — where did closing go?"
+    assert not any(calls_gate(n) for n in tail), "closing is gated on a plan"
+
+
+def test_the_plan_screen_never_offers_a_checkout_that_does_not_exist():
+    """A button that goes nowhere is worse than no button.
+
+    `pricing.checkout_for` raises rather than returning a Stripe *test* link,
+    which is the behaviour that keeps a form taking fake cards off a real
+    page. The screen has to treat that as "not open yet", not as an error.
+    """
+    from auteur import pricing
+
+    import os as _os
+
+    # This asserted `CHECKOUT == {}` while nothing was for sale. Real links
+    # live there now, so what matters is no longer that the table is empty —
+    # it is that nothing in it is a test link and that a tier with no link
+    # yields "" rather than something a page would render as a button.
+    assert all(not pricing._checkout_problem(u) for u in pricing.CHECKOUT.values())
+    assert pricing.checkout_for(pricing.FREE) == "", "the free tier has a checkout"
+    assert pricing._checkout_problem("https://buy.stripe.com/test_abc")
+    assert pricing._checkout_problem("http://buy.stripe.com/live"), "http was allowed"
+    assert pricing._checkout_problem("https://buy.stripe.com/live_ok") == ""
+
+    # The environment is not a way around the refusal. Somebody staging the
+    # site can point a tier at a test checkout for an afternoon; what they
+    # cannot do is ship one, and both paths go through the same check.
+    key = f"AUTEUR_CHECKOUT_{pricing.TOP_TIER.key.upper()}"
+    before = _os.environ.get(key)
+    try:
+        _os.environ[key] = "https://buy.stripe.com/test_abc"
+        with pytest.raises(ValueError):
+            pricing.checkout_for(pricing.TOP_TIER)
+    finally:
+        if before is None:
+            _os.environ.pop(key, None)
+        else:
+            _os.environ[key] = before
+
+
+def test_a_refusal_is_not_painted_the_same_colour_as_the_help_text():
+    """`.error` and `.group-caption` are both one class, and the later wins.
+
+    `.group-caption` is defined later, so every inline refusal rendered in the
+    same muted grey as the help text beside it — invisible in the source and
+    obvious the moment the colour was measured in a browser. The first fix was
+    then written *inside* `@media (prefers-contrast: more)` and only applied to
+    people who had high contrast turned on, which is why this test checks the
+    nesting depth rather than merely that the rule exists.
+    """
+    root = Path(__file__).resolve().parent.parent
+    css = (root / "auteur" / "web" / "static" / "style.css").read_text()
+
+    at = css.find(".group-caption.error")
+    assert at != -1, "the rule that makes a refusal look like a refusal is gone"
+    # Nesting depth at that point: any unclosed brace means it sits inside a
+    # media query or another block, and applies only under that condition.
+    before = css[:at]
+    assert before.count("{") == before.count(
+        "}"
+    ), ".group-caption.error is nested inside a block, so it does not always apply"
+    # And it has to outweigh the contrast-mode rule, which is more specific
+    # than a bare pair of classes and would otherwise win the colour back.
+    rule = css[at : css.index("}", at)]
+    assert (
+        '[data-contrast="more"] .group-caption.error' in rule
+    ), "high-contrast mode repaints the refusal as help text again"
+
+
+def test_a_deployment_is_told_about_every_setting_the_paid_path_needs():
+    """The code grew two settings and the deploy files did not hear about it.
+
+    `AUTEUR_HOSTED` and `STRIPE_WEBHOOK_SECRET` were added to `billing.py` and
+    to the webhook handler, and `render.yaml` and `fly.toml` went on not
+    mentioning either. Deploying that is the worst shape of failure available
+    here: the app serves, people sign in, cards are charged, the webhook
+    correctly refuses every unsigned event, and nobody is ever upgraded — with
+    nothing on the operator's side saying why.
+
+    The names are read out of the source rather than listed here, so a setting
+    renamed or added in the code fails this test until a deployment knows it.
+    """
+    root = Path(__file__).resolve().parent.parent
+    source = "\n".join(
+        (root / "auteur" / "web" / name).read_text() for name in ("billing.py", "server.py")
+    )
+    # Only the ones the money path actually reads.
+    wanted = {
+        name
+        for name in re.findall(r"environ\.get\(\s*\"([A-Z_]+)\"", source)
+        if name in ("AUTEUR_HOSTED",) or name.startswith("STRIPE_")
+    }
+    assert wanted, "the paid path reads no settings at all — did they get renamed?"
+
+    for filename in ("render.yaml", "fly.toml"):
+        text = (root / filename).read_text()
+        missing = sorted(name for name in wanted if name not in text)
+        assert not missing, f"{filename} never mentions {missing}"
 
 
 # ---------------------------------------------------------------------------
@@ -16334,3 +17128,64 @@ def test_a_platform_the_program_does_not_know_is_refused_not_stored(tmp_path):
 
     assert store.of("ada") == []
     assert not store._secrets.is_file(), "a refused platform still wrote a token"
+
+
+def test_a_checkout_carries_the_name_of_whoever_is_buying():
+    """Without it, a payment is a charge nobody can match to an account.
+
+    `client_reference_id` is the only thing on `checkout.session.completed`
+    that names a person — every later subscription event knows the Stripe
+    customer id and nothing else. So a checkout opened without it produces
+    exactly the failure this whole path was built to stop: the card is
+    charged, `grant_from` cannot find anybody, and the door stays shut.
+    """
+    from auteur import pricing
+    from auteur.web import billing
+
+    link = pricing.checkout_for_person(pricing.TOP_TIER, "Avbucaria")
+    assert link, "the top tier has no checkout at all"
+    assert "client_reference_id=Avbucaria" in link
+
+    # Nobody to name means no offer. A button that takes money the app cannot
+    # attribute is worse than no button.
+    assert pricing.checkout_for_person(pricing.TOP_TIER, "") == ""
+    assert pricing.checkout_for_person(pricing.TOP_TIER, "   ") == ""
+
+    # And a name with URL punctuation in it survives the round trip.
+    odd = pricing.checkout_for_person(pricing.TOP_TIER, "a b?c")
+    assert "client_reference_id=a%20b%3Fc" in odd
+
+    # The whole point, end to end: what Stripe sends back after that link is
+    # paid is an event this copy can act on.
+    grant = billing.grant_from(
+        {
+            "type": "checkout.session.completed",
+            "data": {
+                "object": {
+                    "payment_status": "paid",
+                    "client_reference_id": "Avbucaria",
+                    "customer": "cus_x",
+                    "expires_at": time.time() + 86400,
+                    "items": {"data": [{"price": {"lookup_key": pricing.TOP_TIER.lookup_key}}]},
+                }
+            },
+        }
+    )
+    assert grant is not None, "the event from our own link matched nobody"
+    assert grant.username == "Avbucaria"
+    assert grant.plan == pricing.TOP_TIER.key
+
+
+def test_no_checkout_link_this_project_ships_is_a_stripe_test_link():
+    """A test link takes a card number that is not a card number and says it
+    worked. Every path to a checkout goes through the same refusal, including
+    the table now that it has real links in it.
+    """
+    from auteur import pricing
+
+    for key, url in pricing.CHECKOUT.items():
+        assert not pricing._checkout_problem(url), f"{key}: {url}"
+        assert "/test_" not in url, f"{key} is a test link: {url}"
+    for tier in pricing.TIERS:
+        if tier.dollars:
+            assert pricing.checkout_for(tier), f"{tier.key} is priced but unbuyable"

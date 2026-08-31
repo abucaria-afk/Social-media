@@ -148,6 +148,12 @@ notes, which are your own footage.
   can read that console is the person who owns the account. To send real email
   instead, set `AUTEUR_SMTP_HOST`, `AUTEUR_SMTP_PORT`, `AUTEUR_SMTP_USER`,
   `AUTEUR_SMTP_PASSWORD` and `AUTEUR_SMTP_FROM`.
+- **Being paid.** On a copy Auteur Studies hosts, set `AUTEUR_HOSTED=1` and
+  `STRIPE_WEBHOOK_SECRET` to the signing secret of the Stripe endpoint
+  pointed at `/api/stripe/webhook`. Without the secret that endpoint refuses
+  every event rather than trusting an unsigned one, so a deploy that forgets
+  it fails closed. Without `AUTEUR_HOSTED` nothing is gated at all, which is
+  the right default for the copy on your own machine.
 - Five wrong passwords lock the account for fifteen minutes.
 - Changing a password signs every other device out.
 - The reply to "I forgot my password" is identical whether or not the account

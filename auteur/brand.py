@@ -326,7 +326,7 @@ def description() -> str:
         ),
         "",
         (
-            "Auteur is for people 12 and over. An account for somebody under "
+            f"{NAME} is for people 12 and over. An account for somebody under "
             "18 starts with sensitive films hidden, and that can be locked "
             "with a code."
         ),

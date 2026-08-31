@@ -1091,6 +1091,20 @@ body.has-tabbar .page {
 :root[data-contrast="more"] .card-hint,
 :root[data-contrast="more"] .group-caption,
 :root[data-contrast="more"] .fineprint { color: var(--text-muted); }
+
+/* A caption that is also a refusal.
+   Two bugs are being fixed here at once, and both were invisible in the
+   source and obvious the moment the colour was measured in a browser.
+   `.error` and `.group-caption` are both single-class selectors, so the one
+   defined later won — and `.group-caption` is later, which painted every
+   inline refusal the same muted grey as the help text beside it. Then the
+   first fix was written *inside* `@media (prefers-contrast: more)`, so it
+   only applied to people who had turned high contrast on.
+   Top level, and two selectors: the second one outweighs
+   `:root[data-contrast="more"] .group-caption`, which is more specific than
+   a bare pair of classes and would otherwise win it back. */
+.group-caption.error,
+:root[data-contrast="more"] .group-caption.error { color: var(--rust); }
 /* The faint rungs of the palette are the ones that fail first when somebody
    asks for more contrast, and they are also the ones carrying secondary text
    on every list row in the app. Moved up to the muted rung, which clears AA

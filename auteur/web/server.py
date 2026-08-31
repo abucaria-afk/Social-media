@@ -34,8 +34,8 @@ from urllib.parse import parse_qs, unquote
 
 from ..config import FORMATS, QUALITIES, Settings
 from ..ui import Reporter, describe_count, describe_duration, describe_shape
-from .. import brand, projects
-from . import auth, profiles, safety
+from .. import brand, pricing, projects
+from . import auth, billing, profiles, safety
 from .social import PAGE
 
 log = logging.getLogger("auteur.web")
@@ -109,6 +109,11 @@ SAFETY_HEADERS = {
 }
 #: How much of a file to put on the wire at a time.
 CHUNK = 512 * 1024
+
+#: The most a Stripe webhook body may be. Stripe's own limit on the events it
+#: sends is well under this; the number is here so that a body large enough to
+#: be a denial-of-service is refused before it is hashed rather than after.
+WEBHOOK_LIMIT = 64 * 1024
 #: Types worth gzipping. PNG and MP4 are already compressed; running them
 #: through gzip spends CPU to make them very slightly bigger.
 COMPRESSIBLE = ("text/", "javascript", "json", "manifest", "xml", "svg")
@@ -148,6 +153,10 @@ PUBLIC_PATHS = frozenset(
         # if reporting needed an account.
         "/api/trouble",
         "/api/sign-in-with",
+        # Stripe has no session and never will. This path is reachable
+        # without one and refuses everything whose signature does not verify,
+        # which is a stronger gate than a cookie, not a weaker one.
+        "/api/stripe/webhook",
         # The App Store requires a privacy policy at a URL anybody can open,
         # and "anybody" includes a reviewer who has not been given an account.
         # The terms go with it: the sign-up screen links to them, which happens
@@ -1526,6 +1535,54 @@ class Handler(BaseHTTPRequestHandler):
         self.profiles.forget_picture(who)
         self._json({"profile": self._mine(who)})
 
+    def _may_see(self, film, who: str) -> bool:
+        """Whether this account may have this film at all — block, then restriction.
+
+        The same rule as `_held_back`, asked about one film instead of all of
+        them, because this runs on every request for a video file and that one
+        walks the whole feed.
+
+        It exists because the restriction was enforced in the list and not in
+        the item. `_held_back` had exactly one caller — the feed — so a
+        restricted account was correctly shown a feed with the sensitive films
+        missing, and `GET /api/films/<id>` handed over the video to anybody
+        signed in. Run against a real server, a restricted fourteen-year-old
+        got 200 and four kilobytes of it. An id is not a secret: it travels in
+        a share, a message, a link somebody sends.
+
+        Both store listings say an account for somebody under 18 starts with
+        sensitive films hidden, and the 12+ rating rests on it. Hidden from the
+        feed and served from the address bar is not hidden.
+        """
+        if film is None:
+            return False
+        if film.owner == who:
+            # A restriction is about what you are shown, not about hiding your
+            # own work from you. The same carve-out `_held_back` makes.
+            return True
+
+        # A block, in both directions. `Profiles.apart` puts everybody on
+        # either side of one into a single set precisely so this cannot be got
+        # half right, and its docstring says what half-right looks like:
+        # "leaves somebody able to watch the films of the person who blocked
+        # them ... which is not a block, it is a mute."
+        #
+        # It was applied in the feed and nowhere else, so that is exactly what
+        # a block was. Blocked, the feed hid the film and this served it — 200
+        # and three kilobytes, measured. The wall had two sides and a door.
+        if film.owner in self.profiles.apart(who):
+            return False
+
+        self.accounts.refresh()
+        account = self.accounts.get(who)
+        if account is None or not account.restricted:
+            return True
+        if film.sensitive:
+            return False
+        # "This might be bad, we do not know yet" — held while the operator
+        # decides, exactly as it is in the feed.
+        return not any(r.kind == "film" and r.about == film.id for r in self.reports.open_ones())
+
     def _held_back(self, who: str) -> set[str]:
         """Film ids this account's content restriction keeps off the screen.
 
@@ -2013,12 +2070,23 @@ class Handler(BaseHTTPRequestHandler):
         """The video or the poster for one film, by film id.
 
         Unlike a job, a film is public to everybody signed in — that is what a
-        feed is. The check that matters is that the id names a film this
+        feed is, and the check that matters is that the id names a film this
         instance published, so a path cannot be walked in from the address bar.
+
+        *Except* where a content restriction says otherwise. That sentence used
+        to end at "signed in", and the restriction was enforced only in the
+        feed, so the list hid a sensitive film and this handed over the file.
+        `_may_see` is the same rule asked about one film.
         """
         parts = path.strip("/").split("/")
         film = self.films.get(parts[2]) if len(parts) > 2 else None
         if film is None:
+            self._json({"error": "no such film"}, 404)
+            return
+        if not self._may_see(film, self.current_user() or ""):
+            # The same 404 as "no such film", deliberately. A 403 would confirm
+            # that the id names a real film and that it is the restricted kind,
+            # which is the one thing worth learning from the outside.
             self._json({"error": "no such film"}, 404)
             return
         want = parts[3] if len(parts) > 3 else "video"
@@ -2241,6 +2309,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/joining":
             self._who_may_join()
+            return
+        if path == "/api/plan":
+            self._plan_state()
             return
         if path == "/api/can-signup":
             self.accounts.refresh()
@@ -2557,11 +2628,70 @@ class Handler(BaseHTTPRequestHandler):
         payload = self._json_body()
         self.accounts.refresh()
         if payload.get("open"):
+            # Opening is the part the top tier is sold as. Closing, below, is
+            # not gated on anything and must never be: closing is what
+            # somebody does *because* a code got further than they meant, and
+            # a copy that cannot be shut because a card expired is a copy
+            # whose billing state has become a security problem.
+            problem = billing.may_open_instance(self.accounts.get(self.current_user() or ""))
+            if problem:
+                self._json({"error": problem, "needs": pricing.TOP_TIER.key}, 402)
+                return
             code = self.accounts.open_joining(with_code=bool(payload.get("code", True)))
             self._json({"open": True, "code": code})
             return
         self.accounts.close_joining()
         self._json({"open": False, "code": ""})
+
+    def _plan_state(self) -> None:
+        """What this person is on, and what it would take to be on more.
+
+        The app had no way to ask. `Account.plan` was written by the webhook
+        and read by nothing, which is the same shape of defect as a gate that
+        is never called: a fact the program holds and never acts on.
+
+        Everything here is derived from `auteur/pricing.py` so the screen and
+        the checkout cannot advertise two different numbers.
+        """
+        account = self.accounts.get(self.current_user() or "")
+        if account is None:
+            self._json({"error": "sign in first"}, 403)
+            return
+        tier = account.tier
+        # A checkout that is not usable is not offered. `checkout_for` raises
+        # on a test link rather than returning one, which is the behaviour
+        # that keeps a fake card form off a real page.
+        checkout = ""
+        try:
+            # With the buyer's name on it. Stripe hands `client_reference_id`
+            # back on the completed session and it is the only thing there
+            # that names a person, so a link without it is a charge this copy
+            # can never match to an account.
+            checkout = pricing.checkout_for_person(pricing.TOP_TIER, account.username)
+        except ValueError:
+            checkout = ""
+        self._json(
+            {
+                "plan": account.plan,
+                "name": tier.name,
+                "monthly": tier.monthly,
+                "paying": account.paying,
+                "until": account.plan_until,
+                # Whether the entitlement means anything here at all. On
+                # somebody's own machine it does not, and the screen should
+                # say so rather than dangling an upgrade at them.
+                "hosted": billing.hosted(),
+                "top": {
+                    "key": pricing.TOP_TIER.key,
+                    "name": pricing.TOP_TIER.name,
+                    "monthly": pricing.TOP_TIER.monthly,
+                    "includes": list(pricing.TOP_TIER.includes),
+                    "checkout": checkout,
+                    "promo": pricing.PROMO_CODE if checkout else "",
+                    "trial_days": pricing.TRIAL_DAYS,
+                },
+            }
+        )
 
     def _sign_up(self) -> None:
         """Make the first account, and only the first.
@@ -2594,8 +2724,29 @@ class Handler(BaseHTTPRequestHandler):
         if len(username) < 3:
             self._json({"error": "Pick a name of at least three characters."}, 400)
             return
-        if len(password) < 10:
-            self._json({"error": "Ten characters or more, please."}, 400)
+
+        # The same policy every other path uses, rather than a second, looser
+        # one written here.
+        #
+        # This said `len(password) < 10` and nothing else, while
+        # `auth.password_problem` — twelve characters, no leading or trailing
+        # space, nothing off a guessing list, at least five distinct
+        # characters, and not built from the account's own name — was what
+        # `auteur account add`, the first-run seeder and the password *reset*
+        # all enforced. So the one path a person who is not a programmer
+        # actually takes was the weakest, and these all sailed through it:
+        #
+        #     0123456789   two characters short of the floor
+        #     password12   on every guessing list
+        #     aaaaaaaaaa   four distinct characters
+        #     tester1234   the account's own username with digits after it
+        #
+        # And the person who chose one would then be told "use at least 12
+        # characters" the first time they tried to reset it. Two rules for one
+        # thing, with the weaker one on the front door.
+        problem = auth.password_problem(password, username=username, email=email)
+        if problem:
+            self._json({"error": problem}, 400)
             return
 
         # The age gate. This app is submitted to the App Store at 12+, and a
@@ -2614,7 +2765,8 @@ class Handler(BaseHTTPRequestHandler):
             # nothing to do about it here.
             self._json(
                 {
-                    "error": f"Auteur is for people {auth.MINIMUM_AGE} and over. "
+                    "error": f"{brand.NAME} is for people "
+                    f"{auth.MINIMUM_AGE} and over. "
                     "If that year is wrong, put it right and try again."
                 },
                 403,
@@ -2883,6 +3035,52 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return {}
         return payload if isinstance(payload, dict) else {}
+
+    def _stripe_webhook(self) -> None:
+        """Stripe saying somebody paid, or stopped paying.
+
+        This is the only thing in the program that can put an account onto a
+        paid plan. It is unauthenticated because Stripe has no session here —
+        and it is therefore signature-checked before the body is looked at,
+        which is the whole of its security. `_read_body` is used directly
+        rather than `_json_body` because the signature covers the exact bytes
+        that were sent, and `_json_body` decodes with `errors="replace"`: a
+        single byte replaced is a signature that can never match.
+
+        Every refusal answers with the same sentence. Stripe does not read it,
+        and anybody else asking is being told only that it did not work.
+        """
+        secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
+        body = self._read_body(WEBHOOK_LIMIT) or b""
+        problem = billing.signature_problem(
+            body, self.headers.get("Stripe-Signature", "") or "", secret
+        )
+        if problem:
+            # Logged in full, answered in one word. The log is the operator's,
+            # who needs to know an unconfigured secret from a bad signature;
+            # the response is the caller's, who does not.
+            log.warning("stripe webhook refused: %s", problem)
+            self._json({"error": "not accepted"}, 400)
+            return
+
+        event = billing.read_event(body)
+        if event is None:
+            self._json({"error": "not accepted"}, 400)
+            return
+
+        grant = billing.grant_from(event)
+        if grant is None:
+            # A verified event this copy has no opinion about. 200, because
+            # anything else asks Stripe to retry it for three days and then
+            # switch the endpoint off.
+            self._json({"ok": True, "changed": ""})
+            return
+
+        self.accounts.refresh()
+        who = self.accounts.apply_grant(grant)
+        if who:
+            log.info("stripe: %s is now on %s", who, grant.plan)
+        self._json({"ok": True, "changed": who})
 
     def _agents_plan(self) -> None:
         """Plan a cut and collect what the agents want to change.
@@ -3648,6 +3846,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/reset":
             self._reset()
+            return
+
+        if path == "/api/stripe/webhook":
+            self._stripe_webhook()
             return
 
         if not self._allowed(path):
