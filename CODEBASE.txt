@@ -1,318 +1,3 @@
-==============================================================================
- AUTEUR / Social-media — the whole codebase in one file
-==============================================================================
-
- Every tracked source file in abucaria-afk/Social-media, concatenated in path
- order. Generated, not written by hand: nothing here is edited in place. Change
- the source file and regenerate, or the two disagree and this one is wrong.
-
-   repository   abucaria-afk/Social-media
-   commit       24e4ddfb1730070dee166a96ff7a8b5970b9c8a6
-   generated    2026-08-31 18:04 UTC
-   files        238
-   lines        111,417
-
- REGENERATE
-
-   Run from the repository root. It rewrites this file from whatever git is
-   currently tracking:
-
-     git ls-files \
-       | grep -v '^CODEBASE\.txt$' \
-       | grep -viE '\.(png|jpg|jpeg|gif|ico|webp|woff2?|[to]tf|mp4|mov|mp3|wav|m4a|pdf|zip|gz)$' \
-       | while read -r f; do \
-           printf '\n==============================================================================\n FILE: %s\n==============================================================================\n\n' "$f"; \
-           cat "$f"; \
-           [ -n "$(tail -c1 "$f")" ] && echo; \
-         done > CODEBASE.txt
-
-   The `tail -c1` guard adds the newline a file may not end with, so the next
-   delimiter starts on its own line. One file here needs it:
-   tools/artifact/templates.json. The first grep drops this file from its own
-   contents — it is tracked, so without that each run folds in the previous
-   copy and the file doubles.
-
-   That produces the file bodies below without this header. The header is
-   provenance — regenerating without it loses which commit the bundle is of.
-
- WHAT IS IN IT
-
-   All 238 tracked text files: Python, JavaScript, CSS, HTML, Swift,
-   the GitHub workflows, the packaging and container files, the documentation
-   and the content. Read it top to bottom and you have read the program.
-
- WHAT IS NOT
-
-   Binary assets (13 files) — icons, screenshots, fonts. They are in
-   the repository; they are not code and would bloat this beyond use.
-
-   Generated files git does not track, most notably
-   tools/artifact/auteur-app.html, which is built by
-   tools/artifact/build_artifact.py.
-
- NOT INCLUDED, AND WHY — READ THIS
-
-   This bundle was asked to also carry two other projects. Neither could be
-   reached from the session that generated it, so neither is here, and no part
-   of this file is a stand-in for them:
-
-     the "instagram" project    Not a repository this account can see. The only
-                                repository available is this one. Instagram
-                                appears throughout the code below, but only as a
-                                platform Auteur posts to — auteur/social/
-                                accounts.py, the instagram-reel / instagram-post
-                                / instagram-story workflow specs, and
-                                auteur/web/static/connect.js. That is Auteur's
-                                Instagram support, not a separate project.
-
-     Claude Cowork             No Cowork session exists on the account. There
-                                was nothing to read.
-
-   To add either, put its code somewhere reachable — a GitHub repository this
-   account can open, or files in this repository — and regenerate.
-
-==============================================================================
- CONTENTS
-==============================================================================
-   .devcontainer/Dockerfile                                                17 lines
-   .devcontainer/devcontainer.json                                         23 lines
-   .github/dependabot.yml                                                   9 lines
-   .github/workflows/appstore.yml                                         102 lines
-   .github/workflows/auto-black.yml                                        45 lines
-   .github/workflows/codeql.yml                                            45 lines
-   .github/workflows/coverage.yml                                          57 lines
-   .github/workflows/fuzz.yml                                              57 lines
-   .github/workflows/lint-and-type.yml                                     49 lines
-   .github/workflows/pages.yml                                            105 lines
-   .github/workflows/pip-audit.yml                                         54 lines
-   .github/workflows/python-ci.yml                                         57 lines
-   .gitignore                                                              43 lines
-   .pre-commit-config.yaml                                                 19 lines
-   AUTEUR.md                                                              894 lines
-   CLAUDE.md                                                               37 lines
-   COMPANY-BRIEF.md                                                       572 lines
-   Dockerfile                                                              58 lines
-   LICENSE                                                                 21 lines
-   PRIVACY.md                                                             171 lines
-   README.md                                                              425 lines
-   SECURITY.md                                                             92 lines
-   TERMS.md                                                                89 lines
-   VERSIONS.md                                                             36 lines
-   auteur/__init__.py                                                      44 lines
-   auteur/__main__.py                                                       5 lines
-   auteur/agent.py                                                        310 lines
-   auteur/agents/__init__.py                                               80 lines
-   auteur/agents/assemble.py                                              151 lines
-   auteur/agents/base.py                                                  492 lines
-   auteur/agents/editors.py                                               434 lines
-   auteur/agents/finalcheck.py                                            327 lines
-   auteur/agents/finishing.py                                             331 lines
-   auteur/agents/gaze.py                                                  431 lines
-   auteur/agents/ledger.py                                                247 lines
-   auteur/agents/overlay.py                                               557 lines
-   auteur/agents/preflight.py                                             346 lines
-   auteur/agents/preview.py                                               356 lines
-   auteur/analysis/__init__.py                                             21 lines
-   auteur/analysis/audio.py                                               331 lines
-   auteur/analysis/dossier.py                                             337 lines
-   auteur/analysis/video.py                                               511 lines
-   auteur/brand.py                                                        368 lines
-   auteur/calendar.py                                                     233 lines
-   auteur/cli.py                                                        2,391 lines
-   auteur/config.py                                                       199 lines
-   auteur/craft/__init__.py                                                10 lines
-   auteur/craft/color.py                                                  609 lines
-   auteur/craft/grammar.py                                                411 lines
-   auteur/craft/graphics.py                                               614 lines
-   auteur/craft/motion.py                                                 370 lines
-   auteur/craft/sound.py                                                  245 lines
-   auteur/craft/story.py                                                  294 lines
-   auteur/craft/titles.py                                                 467 lines
-   auteur/craft/transitions.py                                            267 lines
-   auteur/critic.py                                                       385 lines
-   auteur/director/__init__.py                                             13 lines
-   auteur/director/brief.py                                               519 lines
-   auteur/director/heuristic.py                                           882 lines
-   auteur/director/llm.py                                                 441 lines
-   auteur/director/plan.py                                                 92 lines
-   auteur/edl.py                                                          922 lines
-   auteur/ffmpeg.py                                                       319 lines
-   auteur/gallery/__init__.py                                              41 lines
-   auteur/gallery/curator.py                                              284 lines
-   auteur/gallery/sources.py                                              281 lines
-   auteur/identity.py                                                     423 lines
-   auteur/ingest.py                                                       297 lines
-   auteur/insight/__init__.py                                              85 lines
-   auteur/insight/benchmark.py                                            547 lines
-   auteur/insight/dataset.py                                              624 lines
-   auteur/insight/reference.py                                            304 lines
-   auteur/insight/schema.py                                               373 lines
-   auteur/insight/score.py                                                885 lines
-   auteur/insight/template.py                                             576 lines
-   auteur/manager.py                                                      728 lines
-   auteur/pricing.py                                                      398 lines
-   auteur/projects.py                                                     430 lines
-   auteur/publish/__init__.py                                              16 lines
-   auteur/publish/connections.py                                          339 lines
-   auteur/render.py                                                       837 lines
-   auteur/scholar/__init__.py                                              66 lines
-   auteur/scholar/agent.py                                                147 lines
-   auteur/scholar/auditory.py                                             564 lines
-   auteur/scholar/consult.py                                              235 lines
-   auteur/scholar/feed.py                                                 474 lines
-   auteur/scholar/knowledge.py                                            608 lines
-   auteur/scholar/library.py                                              892 lines
-   auteur/scholar/published.py                                            363 lines
-   auteur/scholar/review.py                                               411 lines
-   auteur/scholar/scholar.py                                            1,088 lines
-   auteur/scholar/speech.py                                               824 lines
-   auteur/scholar/teach.py                                                382 lines
-   auteur/scholar/youtube.py                                              523 lines
-   auteur/social/__init__.py                                                7 lines
-   auteur/social/accounts.py                                              324 lines
-   auteur/theme.py                                                        245 lines
-   auteur/training/__init__.py                                             35 lines
-   auteur/training/__main__.py                                              5 lines
-   auteur/training/generate.py                                            789 lines
-   auteur/training/rehearse.py                                            555 lines
-   auteur/ui.py                                                           254 lines
-   auteur/vision/__init__.py                                               40 lines
-   auteur/vision/connoisseur.py                                           713 lines
-   auteur/web/__init__.py                                                  11 lines
-   auteur/web/assets.py                                                   251 lines
-   auteur/web/auth.py                                                   1,037 lines
-   auteur/web/billing.py                                                  280 lines
-   auteur/web/oidc.py                                                     467 lines
-   auteur/web/profiles.py                                                 587 lines
-   auteur/web/safety.py                                                   258 lines
-   auteur/web/seed.py                                                     101 lines
-   auteur/web/server.py                                                 4,429 lines
-   auteur/web/social.py                                                   439 lines
-   auteur/web/static/animations.css                                       193 lines
-   auteur/web/static/app.js                                               609 lines
-   auteur/web/static/ask.css                                              136 lines
-   auteur/web/static/ask.html                                              67 lines
-   auteur/web/static/ask.js                                               114 lines
-   auteur/web/static/chrome.js                                            362 lines
-   auteur/web/static/connect.css                                           72 lines
-   auteur/web/static/connect.html                                          63 lines
-   auteur/web/static/connect.js                                           109 lines
-   auteur/web/static/feed.css                                             299 lines
-   auteur/web/static/feed.html                                             68 lines
-   auteur/web/static/feed.js                                              499 lines
-   auteur/web/static/inbox.css                                            195 lines
-   auteur/web/static/inbox.html                                            85 lines
-   auteur/web/static/inbox.js                                             296 lines
-   auteur/web/static/index.html                                           256 lines
-   auteur/web/static/login.html                                           232 lines
-   auteur/web/static/login.js                                             412 lines
-   auteur/web/static/manager.css                                          266 lines
-   auteur/web/static/manager.html                                         199 lines
-   auteur/web/static/manager.js                                           397 lines
-   auteur/web/static/manifest.webmanifest                                  84 lines
-   auteur/web/static/overlay-draw.js                                      324 lines
-   auteur/web/static/overlays.css                                          87 lines
-   auteur/web/static/overlays.html                                         88 lines
-   auteur/web/static/overlays.js                                          222 lines
-   auteur/web/static/privacy.html                                          67 lines
-   auteur/web/static/profile.css                                          301 lines
-   auteur/web/static/profile.html                                         489 lines
-   auteur/web/static/profile.js                                           999 lines
-   auteur/web/static/project.html                                         162 lines
-   auteur/web/static/project.js                                           664 lines
-   auteur/web/static/projects.css                                         289 lines
-   auteur/web/static/projects.html                                         87 lines
-   auteur/web/static/projects.js                                          118 lines
-   auteur/web/static/prose.css                                             72 lines
-   auteur/web/static/safety.js                                            190 lines
-   auteur/web/static/settings.js                                          162 lines
-   auteur/web/static/studio.css                                           548 lines
-   auteur/web/static/studio.html                                          177 lines
-   auteur/web/static/studio.js                                            363 lines
-   auteur/web/static/style.css                                          1,755 lines
-   auteur/web/static/sw.js                                                 73 lines
-   auteur/web/static/templates.css                                        104 lines
-   auteur/web/static/templates.html                                        83 lines
-   auteur/web/static/templates.js                                         161 lines
-   auteur/web/static/terms.html                                            47 lines
-   auteur/web/static/theme.js                                              57 lines
-   auteur/web/static/trouble.js                                           109 lines
-   auteur/web/totp.py                                                     170 lines
-   auteur/web/watching.py                                                 410 lines
-   auteur/workflows/__init__.py                                           271 lines
-   auteur/workflows/library.py                                            463 lines
-   auteur/workflows/platforms.py                                          360 lines
-   auteur/workflows/publish.py                                            359 lines
-   auteur/workflows/schedule.py                                           361 lines
-   auteur_blender_agent.py                                                185 lines
-   content/streetlightseason/posts.md                                      99 lines
-   content/streetlightseason/schedule.json                                174 lines
-   demo/make_footage.py                                                   215 lines
-   demo/make_track.py                                                     231 lines
-   docker-compose.yml                                                      44 lines
-   docs/agent-briefs.md                                                   330 lines
-   docs/index.html                                                        295 lines
-   fly.toml                                                                48 lines
-   frontend/app.js                                                         65 lines
-   frontend/styles.css                                                    101 lines
-   ios/Auteur/Assets.xcassets/AccentColor.colorset/Contents.json           38 lines
-   ios/Auteur/Assets.xcassets/AppIcon.appiconset/Contents.json             14 lines
-   ios/Auteur/Assets.xcassets/Contents.json                                 6 lines
-   ios/Auteur/Assets.xcassets/LaunchBackground.colorset/Contents.json      38 lines
-   ios/Auteur/AuteurApp.swift                                              65 lines
-   ios/Auteur/Bridge.swift                                                200 lines
-   ios/Auteur/Info.plist                                                   63 lines
-   ios/Auteur/Instance.swift                                              125 lines
-   ios/Auteur/PrivacyInfo.xcprivacy                                        39 lines
-   ios/Auteur/Web/index.html                                           14,282 lines
-   ios/Auteur/WebHost.swift                                                71 lines
-   ios/Auteur/native.js                                                   103 lines
-   ios/ExportOptions.plist                                                 16 lines
-   ios/Identity.yml                                                         7 lines
-   ios/README.md                                                          217 lines
-   ios/project.yml                                                         61 lines
-   ios/scripts/build_bundle.py                                            224 lines
-   pyproject.toml                                                          69 lines
-   render.yaml                                                             64 lines
-   requirements.txt                                                        22 lines
-   tests/fuzz.py                                                          651 lines
-   tests/test_auteur.py                                                17,437 lines
-   tools/appstore/build_pages.py                                          164 lines
-   tools/appstore/listing.py                                              316 lines
-   tools/appstore/preflight.py                                            631 lines
-   tools/appstore/screenshots.py                                          364 lines
-   tools/artifact/ask_scholar.py                                          164 lines
-   tools/artifact/browser-render.js                                     1,295 lines
-   tools/artifact/build_artifact.py                                     1,183 lines
-   tools/artifact/check_age.py                                            289 lines
-   tools/artifact/check_attachments.py                                    121 lines
-   tools/artifact/check_cutting.py                                        236 lines
-   tools/artifact/check_eras_match.py                                     214 lines
-   tools/artifact/check_grade.py                                          184 lines
-   tools/artifact/check_joins.py                                          162 lines
-   tools/artifact/check_montage.py                                        194 lines
-   tools/artifact/check_overlays.py                                       150 lines
-   tools/artifact/check_photos.py                                         143 lines
-   tools/artifact/check_profile.py                                        425 lines
-   tools/artifact/check_projects.py                                       344 lines
-   tools/artifact/check_safety.py                                         315 lines
-   tools/artifact/check_structure.py                                      191 lines
-   tools/artifact/check_template.py                                       167 lines
-   tools/artifact/check_templates_tab.py                                  122 lines
-   tools/artifact/check_vocabulary.py                                      79 lines
-   tools/artifact/cutting.js                                              622 lines
-   tools/artifact/era.js                                                  606 lines
-   tools/artifact/make_templates.py                                       162 lines
-   tools/artifact/status_shots.py                                         115 lines
-   tools/artifact/style.js                                                398 lines
-   tools/artifact/templates.json                                        6,224 lines
-   tools/artifact/three_opinions.py                                       150 lines
-   tools/artifact/three_opinions_ui.py                                    393 lines
-   tools/artifact/walkthrough.py                                          219 lines
-   tools/play/listing.py                                                  294 lines
-   tools/site/build_site.py                                               327 lines
-   tools/stripe/sync_pricing.py                                           339 lines
-
 
 ==============================================================================
  FILE: .devcontainer/Dockerfile
@@ -1472,6 +1157,7 @@ metadata:
 auteur insight fit ./exports/*.csv       # what the winners have in common
 auteur insight fit --json                # the same, machine-readable
 auteur insight simulate --rows 5000 -o practice.csv
+auteur insight score ./myfilm.mp4        # predict a single video's virality
 ```
 
 Three objectives, taken from the brief and used everywhere:
@@ -1670,6 +1356,10 @@ auteur scholar study "handheld cutting" # one session on a topic
 auteur scholar watch --every 30         # keep studying while you work
 auteur scholar critique ./mycut.mp4     # hold a cut against what it studied
 auteur scholar teach --agent gaze       # push what stuck into one agent
+auteur scholar subscribe UC... Name     # follow a channel for new uploads
+auteur scholar ask "hook pacing"        # ask a question of what it has read
+auteur scholar read ./notes/            # study files on disk instead of YouTube
+auteur scholar scroll                   # be served reels and measure what arrived
 ```
 
 `serve` runs this in the background unless you pass `--no-scholar`. It reads
@@ -3477,7 +3167,7 @@ alter quietly.
 # Published versions
 
 Every build published to the shared link, newest first. The link never
-changes — <https://claude.ai/code/artifact/f399bd38-1934-4fff-a04d-d73b21af1ece>
+changes — <https://claude.ai/code/artifact/11666d9b-4b2f-4c15-818b-185262d6cc2a>
 — so this is how to tell which one you are looking at, and the artifact's own
 version picker can roll back to any of them by the label in the second column.
 
@@ -9987,7 +9677,7 @@ def _build_parser() -> argparse.ArgumentParser:
         nargs="?",
         default="fit",
         choices=["fit", "simulate", "score"],
-        help="fit (default) reads your exports, simulate writes a practice corpus",
+        help="fit (default) reads your exports, simulate writes a practice corpus, score scores a single video",
     )
     insight.add_argument("paths", nargs="*", metavar="CSV", help="performance exports")
     insight.add_argument(
@@ -25506,14 +25196,14 @@ ABOUT = {
         "name": "Instagram",
         "formats": ("reel", "square"),
         "handoff": "Saves the film and opens Instagram with your caption ready to paste.",
-        "needs": ("INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"),
+        "needs": ("AUTEUR_INSTAGRAM_CLIENT_ID", "AUTEUR_INSTAGRAM_CLIENT_SECRET"),
         "scopes": ("instagram_business_basic", "instagram_business_manage_insights"),
     },
     "tiktok": {
         "name": "TikTok",
         "formats": ("reel",),
         "handoff": "Saves the film and opens TikTok with your caption ready to paste.",
-        "needs": ("TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"),
+        "needs": ("AUTEUR_TIKTOK_CLIENT_KEY", "AUTEUR_TIKTOK_CLIENT_SECRET"),
         "scopes": ("user.info.basic", "video.list"),
     },
 }
@@ -25724,7 +25414,7 @@ def authorise_url(platform: str, *, redirect: str, state: str = "") -> tuple[str
     scope = ",".join(ABOUT[platform]["scopes"])
 
     if platform == "instagram":
-        app = os.environ["INSTAGRAM_APP_ID"]
+        app = os.environ["AUTEUR_INSTAGRAM_CLIENT_ID"]
         # Business Login for Instagram, not Facebook Login. The two are
         # different products with different scope vocabularies, and this URL
         # was sending an `instagram_business_*` scope to
@@ -25739,7 +25429,7 @@ def authorise_url(platform: str, *, redirect: str, state: str = "") -> tuple[str
             f"&scope={scope}&response_type=code&state={state}"
         ), state
 
-    key = os.environ["TIKTOK_CLIENT_KEY"]
+    key = os.environ["AUTEUR_TIKTOK_CLIENT_KEY"]
     return (
         "https://www.tiktok.com/v2/auth/authorize/"
         f"?client_key={key}&redirect_uri={redirect}"
@@ -34649,7 +34339,7 @@ def generate_all(
     paths: list[Path] = []
 
     for i, domain_key in enumerate(DOMAINS):
-        rows = generate_domain(domain_key, rows=rows_per_domain, seed=seed + i)
+        rows = generate_domain(domain_key, rows=max(1, rows_per_domain), seed=seed + i)
         path = output_dir / f"viral_metadata_{domain_key}.csv"
 
         with path.open("w", newline="", encoding="utf-8") as f:
@@ -59815,7 +59505,7 @@ class AUTEUR_OT_run_final_check(bpy.types.Operator):
             scene.render.filepath = os.path.join(
                 scene.auteur_asset_dir, "exports", "auteur_final_output.mp4"
             )
-            bpy.ops.render.render(animation=True, write_still=True)
+            bpy.ops.render.render(animation=True)
             self.report({"INFO"}, "Render Loop Completed Successfully.")
 
         return {"FINISHED"}
@@ -61425,33 +61115,43 @@ if ('serviceWorker' in navigator) {
  */
 
 :root {
-  --ground: #0c0b0a;
-  --surface: #171614;
-  --raised: #201e1b;
-  --line: #2e2b26;
-  --text: #f2ede4;
-  --text-muted: #a9a49a;
-  --ember: #e9a85c;
-  --ember-text: #e9a85c;
-  --on-ember: #241703;
-  --moss: #8fb283;
-  --rust: #d4785a;
+  --ground: #131110;
+  --surface: #1d1917;
+  --raised: #282320;
+  --line: #39322d;
+  --text: #f8f4ef;
+  --text-muted: #bfb3a8;
+  --text-faint: #a99c91;
+  --ember: #f0a55f;
+  --ember-text: #f5b779;
+  --on-ember: #2a1606;
+  --cream: #efd9bd;
+  --moss: #79c48d;
+  --rust: #f08878;
+  --on-rust: #2a1606;
+  --scrim: #0000008c;
+  --on-photo: #ffffff;
   --radius: 16px;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --ground: #f6f1e6;
-    --surface: #fffdf7;
-    --raised: #efe6d5;
-    --line: #d8cab2;
-    --text: #1c1815;
-    --text-muted: #4d4639;
-    --ember: #e9a85c;
-    --ember-text: #6b4009;
-    --on-ember: #241703;
-    --moss: #2d5433;
-    --rust: #8b2e14;
+    --ground: #eef4fb;
+    --surface: #ffffff;
+    --raised: #dfeaf7;
+    --line: #c6d8ec;
+    --text: #0d1b2c;
+    --text-muted: #48596e;
+    --text-faint: #536477;
+    --ember: #0b62c4;
+    --ember-text: #0a5099;
+    --on-ember: #ffffff;
+    --cream: #d5e6fa;
+    --moss: #0f6b5c;
+    --rust: #b3261e;
+    --on-rust: #ffffff;
+    --scrim: #0d1b2c66;
+    --on-photo: #ffffff;
   }
 }
 
