@@ -7,10 +7,10 @@
  the source file and regenerate, or the two disagree and this one is wrong.
 
    repository   abucaria-afk/Social-media
-   commit       24e4ddfb1730070dee166a96ff7a8b5970b9c8a6
-   generated    2026-08-31 18:04 UTC
+   commit       194d3a49096965674d255e538ffe2c040cfdd9e9
+   generated    2026-09-02 12:46 UTC
    files        238
-   lines        111,417
+   lines        111,506
 
  REGENERATE
 
@@ -207,8 +207,8 @@
    auteur/web/static/login.html                                           232 lines
    auteur/web/static/login.js                                             412 lines
    auteur/web/static/manager.css                                          266 lines
-   auteur/web/static/manager.html                                         199 lines
-   auteur/web/static/manager.js                                           397 lines
+   auteur/web/static/manager.html                                         217 lines
+   auteur/web/static/manager.js                                           431 lines
    auteur/web/static/manifest.webmanifest                                  84 lines
    auteur/web/static/overlay-draw.js                                      324 lines
    auteur/web/static/overlays.css                                          87 lines
@@ -276,7 +276,7 @@
    render.yaml                                                             64 lines
    requirements.txt                                                        22 lines
    tests/fuzz.py                                                          651 lines
-   tests/test_auteur.py                                                17,437 lines
+   tests/test_auteur.py                                                17,474 lines
    tools/appstore/build_pages.py                                          164 lines
    tools/appstore/listing.py                                              316 lines
    tools/appstore/preflight.py                                            631 lines
@@ -48821,6 +48821,24 @@ html {
   </form>
 </div>
 
+<!-- Deleting one.
+     Delete sits in the top bar, a thumb's width from Back, and used to fire on
+     the first tap: a mis-tap took the plan, its shot list and its caption with
+     no warning and nothing to undo it with. The profile's own delete already
+     answers this shape — a sheet that names what is about to be lost before it
+     goes — so this is that, at the weight a plan deserves rather than the
+     weight an account does. -->
+<div class="sheet" id="drop-sheet" hidden>
+  <div class="sheet-scrim" id="drop-scrim"></div>
+  <div class="sheet-body">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Delete this plan?</h2>
+    <p class="lede" id="drop-what"></p>
+    <button type="button" class="go danger-go" id="drop-go">Delete it</button>
+    <button type="button" class="ghost" id="drop-close">Keep it</button>
+  </div>
+</div>
+
 <script src="/static/trouble.js"></script>
 <script src="/static/chrome.js"></script>
 <script src="/static/manager.js"></script>
@@ -49027,13 +49045,47 @@ html {
       .catch(function () {});
   });
 
+  /* Delete asks first, and the asking names what goes.
+   *
+   * "Are you sure?" is a question nobody can answer, because it does not say
+   * what is at stake. The profile's delete already does this properly — it
+   * counts the films it is about to remove — so this counts the shot list and
+   * the caption, which is the work in a plan that took a person any time. */
+  var dropSheet = document.getElementById("drop-sheet");
+
+  function describeLoss(plan) {
+    var parts = [];
+    var caps = (plan.captures || []).length;
+    if (caps) { parts.push(caps + (caps === 1 ? " thing to shoot" : " things to shoot")); }
+    if (plan.caption) { parts.push("the caption"); }
+    if ((plan.hashtags || []).length) { parts.push("the tags"); }
+    var made = parts.length
+      ? " That takes " + parts.join(", ").replace(/, ([^,]*)$/, " and $1") + " with it."
+      : "";
+    return "“" + (plan.title || "this plan") + "” goes for good." + made;
+  }
+
   $("plan-drop").addEventListener("click", function () {
     if (!open) { return; }
+    $("drop-what").textContent = describeLoss(open);
+    dropSheet.hidden = false;
+  });
+
+  function closeDrop() { dropSheet.hidden = true; }
+
+  $("drop-close").addEventListener("click", closeDrop);
+  $("drop-scrim").addEventListener("click", closeDrop);
+
+  $("drop-go").addEventListener("click", function () {
+    if (!open) { return; }
+    var button = $("drop-go");
+    button.disabled = true;
     fetch("/api/plans/" + encodeURIComponent(open.id) + "/drop", {
       method: "POST", credentials: "same-origin"
     })
-      .then(function () { back(); })
-      .catch(function () {});
+      .then(function () { closeDrop(); back(); })
+      .catch(function () { closeDrop(); })
+      .then(function () { button.disabled = false; });
   });
 
   /* -- making one ---------------------------------------------------------- */
@@ -95443,6 +95495,43 @@ def test_the_operator_can_see_who_is_paying(tmp_path, capsys):
     assert "Studio · $41.99" in shown, "a paying account is not reported as paying"
     assert "lapsed" in shown, "a lapsed plan looks the same as a live one"
     assert "waiting@example.com" in shown, "money arrived and nothing says so"
+
+
+def test_deleting_a_plan_asks_first_and_names_what_goes():
+    """Delete sat in the top bar, a thumb from Back, and fired on first tap.
+
+    A mis-tap took the plan, its shot list and its caption, with nothing to
+    undo it with. The profile's own delete already answers this shape — it
+    counts the films it is about to remove — so the planner does the same at
+    the weight a plan deserves.
+
+    This is a structural check, and it is worth saying what that does and does
+    not buy. It catches the regression that matters: somebody wiring the
+    Delete button straight back to the endpoint. It cannot prove the sheet
+    opens, that "Keep it" keeps, or that the scrim does not delete — those are
+    browser behaviour, and per CLAUDE.md they were verified by driving the
+    running app at 390x844, where all four hold.
+    """
+    from auteur.web import server
+
+    static = Path(server.__file__).parent / "static"
+    page = (static / "manager.html").read_text(encoding="utf-8")
+    script = (static / "manager.js").read_text(encoding="utf-8")
+
+    assert 'id="drop-sheet"' in page, "the confirm sheet is gone"
+    assert 'id="drop-go"' in page and 'id="drop-close"' in page, "the sheet has no two answers"
+    assert "danger-go" in page, "the destructive answer is not marked as destructive"
+
+    # The button that used to delete must now only open the sheet. Anything
+    # posting to /drop from inside its own handler is the old behaviour back.
+    handler = script[script.index('$("plan-drop").addEventListener') :]
+    handler = handler[: handler.index("function closeDrop")]
+    assert "/drop" not in handler, "the Delete button deletes without asking again"
+    assert "drop-sheet" in handler or "dropSheet" in handler, "Delete no longer opens the sheet"
+
+    # And the warning is built from the plan rather than being a fixed string,
+    # because "Are you sure?" is a question nobody can answer.
+    assert "captures" in script and "caption" in script, "the warning names nothing concrete"
 
 ==============================================================================
  FILE: tools/appstore/build_pages.py

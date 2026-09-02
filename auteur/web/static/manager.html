@@ -192,6 +192,24 @@
   </form>
 </div>
 
+<!-- Deleting one.
+     Delete sits in the top bar, a thumb's width from Back, and used to fire on
+     the first tap: a mis-tap took the plan, its shot list and its caption with
+     no warning and nothing to undo it with. The profile's own delete already
+     answers this shape — a sheet that names what is about to be lost before it
+     goes — so this is that, at the weight a plan deserves rather than the
+     weight an account does. -->
+<div class="sheet" id="drop-sheet" hidden>
+  <div class="sheet-scrim" id="drop-scrim"></div>
+  <div class="sheet-body">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <h2 class="sheet-title">Delete this plan?</h2>
+    <p class="lede" id="drop-what"></p>
+    <button type="button" class="go danger-go" id="drop-go">Delete it</button>
+    <button type="button" class="ghost" id="drop-close">Keep it</button>
+  </div>
+</div>
+
 <script src="/static/trouble.js"></script>
 <script src="/static/chrome.js"></script>
 <script src="/static/manager.js"></script>
