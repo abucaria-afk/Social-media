@@ -7,10 +7,10 @@
  the source file and regenerate, or the two disagree and this one is wrong.
 
    repository   abucaria-afk/Social-media
-   commit       24e4ddfb1730070dee166a96ff7a8b5970b9c8a6
-   generated    2026-08-31 18:04 UTC
+   commit       194d3a49096965674d255e538ffe2c040cfdd9e9
+   generated    2026-09-03 11:17 UTC
    files        238
-   lines        111,417
+   lines        111,589
 
  REGENERATE
 
@@ -180,7 +180,7 @@
    auteur/vision/connoisseur.py                                           713 lines
    auteur/web/__init__.py                                                  11 lines
    auteur/web/assets.py                                                   251 lines
-   auteur/web/auth.py                                                   1,037 lines
+   auteur/web/auth.py                                                   1,048 lines
    auteur/web/billing.py                                                  280 lines
    auteur/web/oidc.py                                                     467 lines
    auteur/web/profiles.py                                                 587 lines
@@ -204,7 +204,7 @@
    auteur/web/static/inbox.html                                            85 lines
    auteur/web/static/inbox.js                                             296 lines
    auteur/web/static/index.html                                           256 lines
-   auteur/web/static/login.html                                           232 lines
+   auteur/web/static/login.html                                           237 lines
    auteur/web/static/login.js                                             412 lines
    auteur/web/static/manager.css                                          266 lines
    auteur/web/static/manager.html                                         199 lines
@@ -276,10 +276,10 @@
    render.yaml                                                             64 lines
    requirements.txt                                                        22 lines
    tests/fuzz.py                                                          651 lines
-   tests/test_auteur.py                                                17,437 lines
+   tests/test_auteur.py                                                17,592 lines
    tools/appstore/build_pages.py                                          164 lines
    tools/appstore/listing.py                                              316 lines
-   tools/appstore/preflight.py                                            631 lines
+   tools/appstore/preflight.py                                            632 lines
    tools/appstore/screenshots.py                                          364 lines
    tools/artifact/ask_scholar.py                                          164 lines
    tools/artifact/browser-render.js                                     1,295 lines
@@ -3393,7 +3393,7 @@ would be the dishonest option.
 
 ## Who it is for
 
-**Atlas is for people 12 and over.** Signing up asks for the year you were
+**Atlas is for people 13 and over.** Signing up asks for the year you were
 born and refuses anybody younger — that is the App Store rating this app ships
 at, and a rating an app does not hold itself to is a claim rather than a fact.
 
@@ -36613,12 +36613,23 @@ MAX_ATTEMPTS = 5
 LOCKOUT_SECONDS = 900
 
 #: The youngest this app is for, and the age it stops treating somebody as a
-#: minor. Twelve because that is the App Store rating the app is submitted
-#: under — an app rated 12+ that lets an eight-year-old make an account is one
+#: minor. Thirteen because that is the App Store rating the app is submitted
+#: under — an app rated 13+ that lets an eight-year-old make an account is one
 #: whose rating is a claim rather than a fact, and the questionnaire answer and
 #: this constant have to agree. `tools/appstore/preflight.py` checks that they
 #: do.
-MINIMUM_AGE = 12
+#:
+#: It was twelve, and twelve is no longer a rating that exists: Apple retired
+#: the 12+ tier in 2025 and the bands are now 4+, 9+, 13+, 16+ and 18+. So the
+#: old value named a tier nobody could be submitted under, and the terms said
+#: so in prose — "that is the App Store rating this app ships at" — which made
+#: it a false sentence rather than a stale one.
+#:
+#: Thirteen is also the floor the law puts here rather than a number chosen for
+#: tidiness. An account for an eleven- or twelve-year-old carrying private
+#: messages puts this inside COPPA, which is a regulator's matter and not a
+#: rejected build.
+MINIMUM_AGE = 13
 ADULT_AGE = 18
 
 #: A restriction is lifted with a code, and the code is four digits because it
@@ -47849,7 +47860,12 @@ html {
           <button type="button" class="reveal-go" id="show-signup-password"
                   aria-label="Show password">Show</button>
         </span>
-        <p class="card-hint">Ten characters or more.</p>
+        <!-- Twelve, which is what `MIN_PASSWORD` actually refuses below. This
+             said ten: sign-up promised a length the server would not take, so
+             somebody choosing eleven was told they were fine and then refused,
+             on the one screen where being refused reads as the app being
+             broken. The reset screen said twelve all along. -->
+        <p class="card-hint">Twelve characters or more.</p>
 
         <!-- The age gate. A year rather than a full date: it is the least
              that answers both questions the app has — old enough, and still a
@@ -57049,7 +57065,7 @@ self.addEventListener("fetch", function (event) {
 <p>These are the terms for using <strong>Atlas</strong>, and they are short because the app is small and nobody is trying to hide anything in them.</p>
 <p>Atlas runs on your own device and, if you choose to run one, on your own computer. There is no service behind it. That shapes everything below: most of what a normal set of terms covers — accounts we hold, data we process, uptime we promise — does not exist here, and saying otherwise to look professional would be the dishonest option.</p>
 <h2>Who it is for</h2>
-<p><strong>Atlas is for people 12 and over.</strong> Signing up asks for the year you were born and refuses anybody younger — that is the App Store rating this app ships at, and a rating an app does not hold itself to is a claim rather than a fact.</p>
+<p><strong>Atlas is for people 13 and over.</strong> Signing up asks for the year you were born and refuses anybody younger — that is the App Store rating this app ships at, and a rating an app does not hold itself to is a claim rather than a fact.</p>
 <p>An account for somebody under 18 starts with <strong>sensitive films hidden</strong>: films their author or the person running the instance has marked sensitive, and anything reported that nobody has looked at yet. That can be turned off in the app, and it can be <strong>locked with a four-digit code</strong> so that the person it applies to cannot lift it themselves. Turning it on never needs the code — anybody may choose to see less.</p>
 <p>The year you were born is kept on the machine running the instance, is used only for those two decisions, and goes nowhere else.</p>
 <h2>What you agree to</h2>
@@ -92393,20 +92409,41 @@ def test_signing_up_too_young_is_refused(web_server):
     )
     assert status == 400 and "year" in payload["error"]
 
+    from auteur.web.auth import MINIMUM_AGE
+
     status, payload, _ = _post(
         base,
         "/api/signup",
         {"username": "tiny", "password": "a-long-enough-one", "born": year - 8},
     )
     assert status == 403
-    assert "12 and over" in payload["error"]
+    # Derived, not typed: this said "12 and over", so moving the floor to 13
+    # left a passing test asserting the message of a rating Apple retired.
+    assert f"{MINIMUM_AGE} and over" in payload["error"]
 
+    # The boundary itself, both sides of it. A year too young is the case that
+    # decides whether the floor is the number it says it is.
+    status, payload, _ = _post(
+        base,
+        "/api/signup",
+        {"username": "just-under", "password": "a-long-enough-one", "born": year - MINIMUM_AGE + 1},
+    )
+    assert status == 403, f"somebody {MINIMUM_AGE - 1} got in"
+
+    # The one that gets in — and it is the boundary rather than a comfortable
+    # thirty-year-old, because sign-up closes after the first account. This
+    # test gets exactly one success, so it is spent on the case that decides
+    # whether the floor is the number it claims to be.
     status, _payload, _ = _post(
         base,
         "/api/signup",
-        {"username": "old-enough", "password": "a-long-enough-one", "born": year - 30},
+        {
+            "username": "just-old-enough",
+            "password": "a-long-enough-one",
+            "born": year - MINIMUM_AGE,
+        },
     )
-    assert status == 200
+    assert status == 200, f"somebody exactly {MINIMUM_AGE} was refused"
 
 
 def test_a_restriction_hides_sensitive_and_unreviewed_films(web_server):
@@ -92506,12 +92543,22 @@ def test_only_a_films_author_can_mark_it_sensitive(web_server):
 
 
 def test_the_rating_the_listing_declares_is_the_one_the_app_enforces():
-    """Two places holding one number is how they end up disagreeing."""
+    """Two places holding one number is how they end up disagreeing.
+
+    Thirteen, not twelve. Apple retired the 12+ tier in 2025 — the bands are
+    4+, 9+, 13+, 16+ and 18+ — so the old value named a rating nothing could be
+    submitted under, while the terms said in prose that it was "the App Store
+    rating this app ships at". That made it a false sentence rather than a
+    stale number. An app with a public feed and private messages is 13+ at
+    minimum anyway, and accounts for eleven- and twelve-year-olds carrying
+    messages put this inside COPPA.
+    """
     from auteur.web.auth import MINIMUM_AGE
 
     listing = _tool("listing")
-    assert "**The rating is 12+.**" in listing.AGE_RATING
-    assert MINIMUM_AGE == 12
+    assert "**The rating is 13+.**" in listing.AGE_RATING
+    assert MINIMUM_AGE == 13
+    assert "12+" not in listing.AGE_RATING, "a tier Apple no longer has"
 
     preflight = _tool("preflight")
     notes = preflight.check_age()
@@ -95444,6 +95491,130 @@ def test_the_operator_can_see_who_is_paying(tmp_path, capsys):
     assert "lapsed" in shown, "a lapsed plan looks the same as a live one"
     assert "waiting@example.com" in shown, "money arrived and nothing says so"
 
+
+# ---------------------------------------------------------------------------
+# `auteur workflow run`, before it renders anything
+#
+# `_run_workflow` was the largest gap left in the CLI at 4%: only its `list`
+# branch ran. The half that renders needs ffmpeg and a bin of footage, but
+# everything before it is argument handling — four ways to be told no — and
+# those are exactly the paths that go untested and then raise on the way to
+# saying something helpful.
+# ---------------------------------------------------------------------------
+
+
+def test_asking_for_a_post_without_saying_where_it_goes_is_refused(capsys):
+    """`workflow run` with no platform names the command that lists them."""
+    from auteur.cli import main
+
+    assert main(["workflow", "run"]) == 2
+    out = capsys.readouterr().out
+    assert "which place is this for?" in out
+    assert "auteur workflow list" in out, "the refusal does not say how to find the answer"
+
+
+def test_a_place_that_does_not_exist_is_refused_by_name(capsys):
+    """An unknown surface says so rather than resolving to a default."""
+    from auteur.cli import main
+
+    assert main(["workflow", "run", "myspace-story", "./clips", "a film"]) == 2
+    out = capsys.readouterr().out
+    assert "myspace-story" in out, "the refusal does not name what was asked for"
+    assert "auteur workflow list" in out
+
+
+def test_a_post_with_no_footage_says_so_and_shows_the_shape(capsys):
+    """Naming a real platform and nothing else is the common typo."""
+    from auteur.cli import main
+
+    assert main(["workflow", "run", "tiktok"]) == 2
+    out = capsys.readouterr().out
+    assert "I need some footage" in out
+    assert "tiktok" in out, "the example does not use the platform that was asked for"
+
+
+def test_a_post_with_footage_but_no_words_asks_what_it_is_about(tmp_path, capsys):
+    """A prompt is not optional: the whole edit is derived from it."""
+    from auteur.cli import main
+
+    clip = tmp_path / "a_clip.mp4"
+    clip.write_bytes(b"not really a film")
+
+    assert main(["workflow", "run", "tiktok", str(clip)]) == 2
+    out = capsys.readouterr().out
+    assert "what the post is about" in out
+    assert str(clip) in out, "the example does not carry the footage already given"
+
+
+def test_the_last_thing_on_the_line_is_read_as_the_prompt(tmp_path):
+    """`workflow run tiktok ./clips "harbour at dusk"` — the words come last.
+
+    `_split_paths_and_prompt` is what makes that shape work, and it decides by
+    whether the final argument exists on disk. A file that happens to be named
+    like a sentence is still a file.
+    """
+    from auteur.cli import _split_paths_and_prompt
+
+    clip = tmp_path / "a_clip.mp4"
+    clip.write_bytes(b"not really a film")
+
+    paths, prompt = _split_paths_and_prompt([str(clip), "harbour at dusk"], None)
+    assert paths == [str(clip)]
+    assert prompt == "harbour at dusk"
+
+    # An explicit --prompt wins, and nothing is mistaken for it.
+    paths, prompt = _split_paths_and_prompt([str(clip)], "said with a flag")
+    assert paths == [str(clip)] and prompt == "said with a flag"
+
+
+def test_the_length_sign_up_promises_is_the_length_the_server_takes():
+    """Sign-up said ten and the server refused eleven.
+
+    The reset screen said twelve, `MIN_PASSWORD` was twelve, and the sign-up
+    hint said ten — so somebody who picked eleven was told they were fine and
+    then refused, on the one screen where being refused reads as the app being
+    broken rather than as them being wrong.
+
+    Held against the constant rather than against the other screen, because
+    two screens agreeing with each other and not with the code is the same bug
+    one step later.
+    """
+    import re
+
+    from auteur.web import auth, server
+
+    static = Path(server.__file__).parent / "static"
+    # Comments only, stripped: the comment on the hint records that it used to
+    # say ten, and a guard that its own explanation trips is a guard nobody
+    # can write the explanation for.
+    page = re.sub(
+        r"<!--.*?-->", "", (static / "login.html").read_text(encoding="utf-8"), flags=re.S
+    )
+    script = re.sub(r"/\*.*?\*/", "", (static / "login.js").read_text(encoding="utf-8"), flags=re.S)
+
+    words = {
+        "ten": 10,
+        "eleven": 11,
+        "twelve": 12,
+        "thirteen": 13,
+        "fourteen": 14,
+        "fifteen": 15,
+        "sixteen": 16,
+    }
+    said = set()
+    for text in (page, script):
+        for word, n in words.items():
+            if re.search(rf"\b{word}\b", text, re.I):
+                said.add(n)
+        said.update(int(m) for m in re.findall(r"at least (\d+) characters", text, re.I))
+        said.update(int(m) for m in re.findall(r"(\d+) characters or more", text, re.I))
+
+    assert said, "no screen says how long a password has to be"
+    assert said == {auth.MIN_PASSWORD}, (
+        f"the sign-in screens name {sorted(said)} characters and the server "
+        f"refuses anything under {auth.MIN_PASSWORD}"
+    )
+
 ==============================================================================
  FILE: tools/appstore/build_pages.py
 ==============================================================================
@@ -95708,7 +95879,7 @@ Present and reachable from the app even though the content is one household's:
   when an account is made, at {terms}.
 • Published contact information: {email}.
 
-AGE RATING — 12+, AND THE CONTROLS BEHIND IT
+AGE RATING — 13+, AND THE CONTROLS BEHIND IT
 
 Sign-up asks for a year of birth and refuses anybody under {minimum}. An
 account for somebody under {adult} starts with sensitive and unreviewed
@@ -95768,7 +95939,7 @@ deleting an account erases that account's history along with everything else.
 """
 
 AGE_RATING = """\
-**The rating is 12+.** Answer the questionnaire as follows.
+**The rating is 13+.** Answer the questionnaire as follows.
 
 | Question | Answer |
 | --- | --- |
@@ -95779,7 +95950,7 @@ AGE_RATING = """\
 
 The third row is the one that matters and the one people get wrong. The feed
 and the messages are user-generated content even though they exist only on an
-instance the person runs. Answering "Yes" moves the rating to **12+** and makes
+instance the person runs. Answering "Yes" moves the rating to **13+** and makes
 the guideline 1.2 controls a requirement — which this app has. Answering "No"
 to avoid the higher rating is the single most common cause of a rejection for
 apps of this shape.
@@ -96368,6 +96539,10 @@ def check_age() -> list[Note]:
     login = (STATIC / "login.html").read_text(encoding="utf-8")
     listing = (ROOT / "tools" / "appstore" / "listing.py").read_text(encoding="utf-8")
 
+    #: The tier the app submits under, named from the floor it enforces rather
+    #: than typed beside it.
+    rating = f"{MINIMUM_AGE}+"
+
     out = [Note(True, f"the app refuses anybody under {MINIMUM_AGE}", f"adult at {ADULT_AGE}")]
 
     for what, ok in (
@@ -96377,22 +96552,19 @@ def check_age() -> list[Note]:
         ("and a control", "restriction-row" in profile_js),
         ("lifting it can need a code", "check_restriction_lock" in server),
     ):
-        out.append(Note(ok, f"12+: {what}", "" if ok else "missing"))
+        out.append(Note(ok, f"{rating}: {what}", "" if ok else "missing"))
 
-    # The listing says 12+; if the app's own floor ever moves, one of these
-    # two has to move with it and this is what notices.
-    if "**The rating is 12+.**" not in listing:
-        out.append(Note(False, "the listing does not declare 12+", "tools/appstore/listing.py"))
-    elif MINIMUM_AGE != 12:
+    # The listing declares a rating; the app enforces a floor. Both are written
+    # from `MINIMUM_AGE` rather than typed, because this check used to hold the
+    # listing against a hard-coded "12+" — so moving the floor to 13 left the
+    # check demanding a tier Apple had already retired, and the thing meant to
+    # catch the drift was itself the thing out of step.
+    if f"**The rating is {rating}.**" not in listing:
         out.append(
-            Note(
-                False,
-                f"the app refuses under {MINIMUM_AGE} and the listing says 12+",
-                "move one of them",
-            )
+            Note(False, f"the listing does not declare {rating}", "tools/appstore/listing.py")
         )
     else:
-        out.append(Note(True, "the listing and the app agree on 12+", ""))
+        out.append(Note(True, f"the listing and the app agree on {rating}", ""))
 
     terms = " ".join((ROOT / "TERMS.md").read_text(encoding="utf-8").split())
     if f"for people {MINIMUM_AGE} and over" not in terms:

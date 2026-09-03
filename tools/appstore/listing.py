@@ -89,7 +89,7 @@ Present and reachable from the app even though the content is one household's:
   when an account is made, at {terms}.
 • Published contact information: {email}.
 
-AGE RATING — 12+, AND THE CONTROLS BEHIND IT
+AGE RATING — 13+, AND THE CONTROLS BEHIND IT
 
 Sign-up asks for a year of birth and refuses anybody under {minimum}. An
 account for somebody under {adult} starts with sensitive and unreviewed
@@ -149,7 +149,7 @@ deleting an account erases that account's history along with everything else.
 """
 
 AGE_RATING = """\
-**The rating is 12+.** Answer the questionnaire as follows.
+**The rating is 13+.** Answer the questionnaire as follows.
 
 | Question | Answer |
 | --- | --- |
@@ -160,7 +160,7 @@ AGE_RATING = """\
 
 The third row is the one that matters and the one people get wrong. The feed
 and the messages are user-generated content even though they exist only on an
-instance the person runs. Answering "Yes" moves the rating to **12+** and makes
+instance the person runs. Answering "Yes" moves the rating to **13+** and makes
 the guideline 1.2 controls a requirement — which this app has. Answering "No"
 to avoid the higher rating is the single most common cause of a rejection for
 apps of this shape.

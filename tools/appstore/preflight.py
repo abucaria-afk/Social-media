@@ -428,6 +428,10 @@ def check_age() -> list[Note]:
     login = (STATIC / "login.html").read_text(encoding="utf-8")
     listing = (ROOT / "tools" / "appstore" / "listing.py").read_text(encoding="utf-8")
 
+    #: The tier the app submits under, named from the floor it enforces rather
+    #: than typed beside it.
+    rating = f"{MINIMUM_AGE}+"
+
     out = [Note(True, f"the app refuses anybody under {MINIMUM_AGE}", f"adult at {ADULT_AGE}")]
 
     for what, ok in (
@@ -437,22 +441,19 @@ def check_age() -> list[Note]:
         ("and a control", "restriction-row" in profile_js),
         ("lifting it can need a code", "check_restriction_lock" in server),
     ):
-        out.append(Note(ok, f"12+: {what}", "" if ok else "missing"))
+        out.append(Note(ok, f"{rating}: {what}", "" if ok else "missing"))
 
-    # The listing says 12+; if the app's own floor ever moves, one of these
-    # two has to move with it and this is what notices.
-    if "**The rating is 12+.**" not in listing:
-        out.append(Note(False, "the listing does not declare 12+", "tools/appstore/listing.py"))
-    elif MINIMUM_AGE != 12:
+    # The listing declares a rating; the app enforces a floor. Both are written
+    # from `MINIMUM_AGE` rather than typed, because this check used to hold the
+    # listing against a hard-coded "12+" — so moving the floor to 13 left the
+    # check demanding a tier Apple had already retired, and the thing meant to
+    # catch the drift was itself the thing out of step.
+    if f"**The rating is {rating}.**" not in listing:
         out.append(
-            Note(
-                False,
-                f"the app refuses under {MINIMUM_AGE} and the listing says 12+",
-                "move one of them",
-            )
+            Note(False, f"the listing does not declare {rating}", "tools/appstore/listing.py")
         )
     else:
-        out.append(Note(True, "the listing and the app agree on 12+", ""))
+        out.append(Note(True, f"the listing and the app agree on {rating}", ""))
 
     terms = " ".join((ROOT / "TERMS.md").read_text(encoding="utf-8").split())
     if f"for people {MINIMUM_AGE} and over" not in terms:

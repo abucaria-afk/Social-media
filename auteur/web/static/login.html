@@ -145,7 +145,12 @@
           <button type="button" class="reveal-go" id="show-signup-password"
                   aria-label="Show password">Show</button>
         </span>
-        <p class="card-hint">Ten characters or more.</p>
+        <!-- Twelve, which is what `MIN_PASSWORD` actually refuses below. This
+             said ten: sign-up promised a length the server would not take, so
+             somebody choosing eleven was told they were fine and then refused,
+             on the one screen where being refused reads as the app being
+             broken. The reset screen said twelve all along. -->
+        <p class="card-hint">Twelve characters or more.</p>
 
         <!-- The age gate. A year rather than a full date: it is the least
              that answers both questions the app has — old enough, and still a

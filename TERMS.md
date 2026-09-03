@@ -11,7 +11,7 @@ would be the dishonest option.
 
 ## Who it is for
 
-**Atlas is for people 12 and over.** Signing up asks for the year you were
+**Atlas is for people 13 and over.** Signing up asks for the year you were
 born and refuses anybody younger — that is the App Store rating this app ships
 at, and a rating an app does not hold itself to is a claim rather than a fact.
 

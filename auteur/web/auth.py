@@ -50,12 +50,23 @@ MAX_ATTEMPTS = 5
 LOCKOUT_SECONDS = 900
 
 #: The youngest this app is for, and the age it stops treating somebody as a
-#: minor. Twelve because that is the App Store rating the app is submitted
-#: under — an app rated 12+ that lets an eight-year-old make an account is one
+#: minor. Thirteen because that is the App Store rating the app is submitted
+#: under — an app rated 13+ that lets an eight-year-old make an account is one
 #: whose rating is a claim rather than a fact, and the questionnaire answer and
 #: this constant have to agree. `tools/appstore/preflight.py` checks that they
 #: do.
-MINIMUM_AGE = 12
+#:
+#: It was twelve, and twelve is no longer a rating that exists: Apple retired
+#: the 12+ tier in 2025 and the bands are now 4+, 9+, 13+, 16+ and 18+. So the
+#: old value named a tier nobody could be submitted under, and the terms said
+#: so in prose — "that is the App Store rating this app ships at" — which made
+#: it a false sentence rather than a stale one.
+#:
+#: Thirteen is also the floor the law puts here rather than a number chosen for
+#: tidiness. An account for an eleven- or twelve-year-old carrying private
+#: messages puts this inside COPPA, which is a regulator's matter and not a
+#: rejected build.
+MINIMUM_AGE = 13
 ADULT_AGE = 18
 
 #: A restriction is lifted with a code, and the code is four digits because it

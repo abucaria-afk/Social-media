@@ -14385,20 +14385,41 @@ def test_signing_up_too_young_is_refused(web_server):
     )
     assert status == 400 and "year" in payload["error"]
 
+    from auteur.web.auth import MINIMUM_AGE
+
     status, payload, _ = _post(
         base,
         "/api/signup",
         {"username": "tiny", "password": "a-long-enough-one", "born": year - 8},
     )
     assert status == 403
-    assert "12 and over" in payload["error"]
+    # Derived, not typed: this said "12 and over", so moving the floor to 13
+    # left a passing test asserting the message of a rating Apple retired.
+    assert f"{MINIMUM_AGE} and over" in payload["error"]
 
+    # The boundary itself, both sides of it. A year too young is the case that
+    # decides whether the floor is the number it says it is.
+    status, payload, _ = _post(
+        base,
+        "/api/signup",
+        {"username": "just-under", "password": "a-long-enough-one", "born": year - MINIMUM_AGE + 1},
+    )
+    assert status == 403, f"somebody {MINIMUM_AGE - 1} got in"
+
+    # The one that gets in — and it is the boundary rather than a comfortable
+    # thirty-year-old, because sign-up closes after the first account. This
+    # test gets exactly one success, so it is spent on the case that decides
+    # whether the floor is the number it claims to be.
     status, _payload, _ = _post(
         base,
         "/api/signup",
-        {"username": "old-enough", "password": "a-long-enough-one", "born": year - 30},
+        {
+            "username": "just-old-enough",
+            "password": "a-long-enough-one",
+            "born": year - MINIMUM_AGE,
+        },
     )
-    assert status == 200
+    assert status == 200, f"somebody exactly {MINIMUM_AGE} was refused"
 
 
 def test_a_restriction_hides_sensitive_and_unreviewed_films(web_server):
@@ -14498,12 +14519,22 @@ def test_only_a_films_author_can_mark_it_sensitive(web_server):
 
 
 def test_the_rating_the_listing_declares_is_the_one_the_app_enforces():
-    """Two places holding one number is how they end up disagreeing."""
+    """Two places holding one number is how they end up disagreeing.
+
+    Thirteen, not twelve. Apple retired the 12+ tier in 2025 — the bands are
+    4+, 9+, 13+, 16+ and 18+ — so the old value named a rating nothing could be
+    submitted under, while the terms said in prose that it was "the App Store
+    rating this app ships at". That made it a false sentence rather than a
+    stale number. An app with a public feed and private messages is 13+ at
+    minimum anyway, and accounts for eleven- and twelve-year-olds carrying
+    messages put this inside COPPA.
+    """
     from auteur.web.auth import MINIMUM_AGE
 
     listing = _tool("listing")
-    assert "**The rating is 12+.**" in listing.AGE_RATING
-    assert MINIMUM_AGE == 12
+    assert "**The rating is 13+.**" in listing.AGE_RATING
+    assert MINIMUM_AGE == 13
+    assert "12+" not in listing.AGE_RATING, "a tier Apple no longer has"
 
     preflight = _tool("preflight")
     notes = preflight.check_age()
@@ -17435,3 +17466,127 @@ def test_the_operator_can_see_who_is_paying(tmp_path, capsys):
     assert "Studio · $41.99" in shown, "a paying account is not reported as paying"
     assert "lapsed" in shown, "a lapsed plan looks the same as a live one"
     assert "waiting@example.com" in shown, "money arrived and nothing says so"
+
+
+# ---------------------------------------------------------------------------
+# `auteur workflow run`, before it renders anything
+#
+# `_run_workflow` was the largest gap left in the CLI at 4%: only its `list`
+# branch ran. The half that renders needs ffmpeg and a bin of footage, but
+# everything before it is argument handling — four ways to be told no — and
+# those are exactly the paths that go untested and then raise on the way to
+# saying something helpful.
+# ---------------------------------------------------------------------------
+
+
+def test_asking_for_a_post_without_saying_where_it_goes_is_refused(capsys):
+    """`workflow run` with no platform names the command that lists them."""
+    from auteur.cli import main
+
+    assert main(["workflow", "run"]) == 2
+    out = capsys.readouterr().out
+    assert "which place is this for?" in out
+    assert "auteur workflow list" in out, "the refusal does not say how to find the answer"
+
+
+def test_a_place_that_does_not_exist_is_refused_by_name(capsys):
+    """An unknown surface says so rather than resolving to a default."""
+    from auteur.cli import main
+
+    assert main(["workflow", "run", "myspace-story", "./clips", "a film"]) == 2
+    out = capsys.readouterr().out
+    assert "myspace-story" in out, "the refusal does not name what was asked for"
+    assert "auteur workflow list" in out
+
+
+def test_a_post_with_no_footage_says_so_and_shows_the_shape(capsys):
+    """Naming a real platform and nothing else is the common typo."""
+    from auteur.cli import main
+
+    assert main(["workflow", "run", "tiktok"]) == 2
+    out = capsys.readouterr().out
+    assert "I need some footage" in out
+    assert "tiktok" in out, "the example does not use the platform that was asked for"
+
+
+def test_a_post_with_footage_but_no_words_asks_what_it_is_about(tmp_path, capsys):
+    """A prompt is not optional: the whole edit is derived from it."""
+    from auteur.cli import main
+
+    clip = tmp_path / "a_clip.mp4"
+    clip.write_bytes(b"not really a film")
+
+    assert main(["workflow", "run", "tiktok", str(clip)]) == 2
+    out = capsys.readouterr().out
+    assert "what the post is about" in out
+    assert str(clip) in out, "the example does not carry the footage already given"
+
+
+def test_the_last_thing_on_the_line_is_read_as_the_prompt(tmp_path):
+    """`workflow run tiktok ./clips "harbour at dusk"` — the words come last.
+
+    `_split_paths_and_prompt` is what makes that shape work, and it decides by
+    whether the final argument exists on disk. A file that happens to be named
+    like a sentence is still a file.
+    """
+    from auteur.cli import _split_paths_and_prompt
+
+    clip = tmp_path / "a_clip.mp4"
+    clip.write_bytes(b"not really a film")
+
+    paths, prompt = _split_paths_and_prompt([str(clip), "harbour at dusk"], None)
+    assert paths == [str(clip)]
+    assert prompt == "harbour at dusk"
+
+    # An explicit --prompt wins, and nothing is mistaken for it.
+    paths, prompt = _split_paths_and_prompt([str(clip)], "said with a flag")
+    assert paths == [str(clip)] and prompt == "said with a flag"
+
+
+def test_the_length_sign_up_promises_is_the_length_the_server_takes():
+    """Sign-up said ten and the server refused eleven.
+
+    The reset screen said twelve, `MIN_PASSWORD` was twelve, and the sign-up
+    hint said ten — so somebody who picked eleven was told they were fine and
+    then refused, on the one screen where being refused reads as the app being
+    broken rather than as them being wrong.
+
+    Held against the constant rather than against the other screen, because
+    two screens agreeing with each other and not with the code is the same bug
+    one step later.
+    """
+    import re
+
+    from auteur.web import auth, server
+
+    static = Path(server.__file__).parent / "static"
+    # Comments only, stripped: the comment on the hint records that it used to
+    # say ten, and a guard that its own explanation trips is a guard nobody
+    # can write the explanation for.
+    page = re.sub(
+        r"<!--.*?-->", "", (static / "login.html").read_text(encoding="utf-8"), flags=re.S
+    )
+    script = re.sub(r"/\*.*?\*/", "", (static / "login.js").read_text(encoding="utf-8"), flags=re.S)
+
+    words = {
+        "ten": 10,
+        "eleven": 11,
+        "twelve": 12,
+        "thirteen": 13,
+        "fourteen": 14,
+        "fifteen": 15,
+        "sixteen": 16,
+    }
+    said = set()
+    for text in (page, script):
+        for word, n in words.items():
+            if re.search(rf"\b{word}\b", text, re.I):
+                said.add(n)
+        said.update(int(m) for m in re.findall(r"at least (\d+) characters", text, re.I))
+        said.update(int(m) for m in re.findall(r"(\d+) characters or more", text, re.I))
+
+    assert said, "no screen says how long a password has to be"
+    assert said == {auth.MIN_PASSWORD}, (
+        f"the sign-in screens name {sorted(said)} characters and the server "
+        f"refuses anything under {auth.MIN_PASSWORD}"
+    )
