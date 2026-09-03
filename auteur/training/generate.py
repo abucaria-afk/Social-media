@@ -734,7 +734,7 @@ def generate_all(
     paths: list[Path] = []
 
     for i, domain_key in enumerate(DOMAINS):
-        rows = generate_domain(domain_key, rows=rows_per_domain, seed=seed + i)
+        rows = generate_domain(domain_key, rows=max(1, rows_per_domain), seed=seed + i)
         path = output_dir / f"viral_metadata_{domain_key}.csv"
 
         with path.open("w", newline="", encoding="utf-8") as f:

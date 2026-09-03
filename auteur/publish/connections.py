@@ -60,14 +60,14 @@ ABOUT = {
         "name": "Instagram",
         "formats": ("reel", "square"),
         "handoff": "Saves the film and opens Instagram with your caption ready to paste.",
-        "needs": ("INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"),
+        "needs": ("AUTEUR_INSTAGRAM_CLIENT_ID", "AUTEUR_INSTAGRAM_CLIENT_SECRET"),
         "scopes": ("instagram_business_basic", "instagram_business_manage_insights"),
     },
     "tiktok": {
         "name": "TikTok",
         "formats": ("reel",),
         "handoff": "Saves the film and opens TikTok with your caption ready to paste.",
-        "needs": ("TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"),
+        "needs": ("AUTEUR_TIKTOK_CLIENT_KEY", "AUTEUR_TIKTOK_CLIENT_SECRET"),
         "scopes": ("user.info.basic", "video.list"),
     },
 }
@@ -278,7 +278,7 @@ def authorise_url(platform: str, *, redirect: str, state: str = "") -> tuple[str
     scope = ",".join(ABOUT[platform]["scopes"])
 
     if platform == "instagram":
-        app = os.environ["INSTAGRAM_APP_ID"]
+        app = os.environ["AUTEUR_INSTAGRAM_CLIENT_ID"]
         # Business Login for Instagram, not Facebook Login. The two are
         # different products with different scope vocabularies, and this URL
         # was sending an `instagram_business_*` scope to
@@ -293,7 +293,7 @@ def authorise_url(platform: str, *, redirect: str, state: str = "") -> tuple[str
             f"&scope={scope}&response_type=code&state={state}"
         ), state
 
-    key = os.environ["TIKTOK_CLIENT_KEY"]
+    key = os.environ["AUTEUR_TIKTOK_CLIENT_KEY"]
     return (
         "https://www.tiktok.com/v2/auth/authorize/"
         f"?client_key={key}&redirect_uri={redirect}"

@@ -458,7 +458,7 @@ def _build_parser() -> argparse.ArgumentParser:
         nargs="?",
         default="fit",
         choices=["fit", "simulate", "score"],
-        help="fit (default) reads your exports, simulate writes a practice corpus",
+        help="fit (default) reads your exports, simulate writes a practice corpus, score scores a single video",
     )
     insight.add_argument("paths", nargs="*", metavar="CSV", help="performance exports")
     insight.add_argument(

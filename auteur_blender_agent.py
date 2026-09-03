@@ -129,7 +129,7 @@ class AUTEUR_OT_run_final_check(bpy.types.Operator):
             scene.render.filepath = os.path.join(
                 scene.auteur_asset_dir, "exports", "auteur_final_output.mp4"
             )
-            bpy.ops.render.render(animation=True, write_still=True)
+            bpy.ops.render.render(animation=True)
             self.report({"INFO"}, "Render Loop Completed Successfully.")
 
         return {"FINISHED"}

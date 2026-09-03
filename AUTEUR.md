@@ -400,6 +400,7 @@ metadata:
 auteur insight fit ./exports/*.csv       # what the winners have in common
 auteur insight fit --json                # the same, machine-readable
 auteur insight simulate --rows 5000 -o practice.csv
+auteur insight score ./myfilm.mp4        # predict a single video's virality
 ```
 
 Three objectives, taken from the brief and used everywhere:
@@ -598,6 +599,10 @@ auteur scholar study "handheld cutting" # one session on a topic
 auteur scholar watch --every 30         # keep studying while you work
 auteur scholar critique ./mycut.mp4     # hold a cut against what it studied
 auteur scholar teach --agent gaze       # push what stuck into one agent
+auteur scholar subscribe UC... Name     # follow a channel for new uploads
+auteur scholar ask "hook pacing"        # ask a question of what it has read
+auteur scholar read ./notes/            # study files on disk instead of YouTube
+auteur scholar scroll                   # be served reels and measure what arrived
 ```
 
 `serve` runs this in the background unless you pass `--no-scholar`. It reads
