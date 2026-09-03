@@ -17590,3 +17590,40 @@ def test_the_length_sign_up_promises_is_the_length_the_server_takes():
         f"the sign-in screens name {sorted(said)} characters and the server "
         f"refuses anything under {auth.MIN_PASSWORD}"
     )
+
+
+def test_deleting_a_plan_asks_first_and_names_what_goes():
+    """Delete sat in the top bar, a thumb from Back, and fired on first tap.
+
+    A mis-tap took the plan, its shot list and its caption, with nothing to
+    undo it with. The profile's own delete already answers this shape — it
+    counts the films it is about to remove — so the planner does the same at
+    the weight a plan deserves.
+
+    This is a structural check, and it is worth saying what that does and does
+    not buy. It catches the regression that matters: somebody wiring the
+    Delete button straight back to the endpoint. It cannot prove the sheet
+    opens, that "Keep it" keeps, or that the scrim does not delete — those are
+    browser behaviour, and per CLAUDE.md they were verified by driving the
+    running app at 390x844, where all four hold.
+    """
+    from auteur.web import server
+
+    static = Path(server.__file__).parent / "static"
+    page = (static / "manager.html").read_text(encoding="utf-8")
+    script = (static / "manager.js").read_text(encoding="utf-8")
+
+    assert 'id="drop-sheet"' in page, "the confirm sheet is gone"
+    assert 'id="drop-go"' in page and 'id="drop-close"' in page, "the sheet has no two answers"
+    assert "danger-go" in page, "the destructive answer is not marked as destructive"
+
+    # The button that used to delete must now only open the sheet. Anything
+    # posting to /drop from inside its own handler is the old behaviour back.
+    handler = script[script.index('$("plan-drop").addEventListener') :]
+    handler = handler[: handler.index("function closeDrop")]
+    assert "/drop" not in handler, "the Delete button deletes without asking again"
+    assert "drop-sheet" in handler or "dropSheet" in handler, "Delete no longer opens the sheet"
+
+    # And the warning is built from the plan rather than being a fixed string,
+    # because "Are you sure?" is a question nobody can answer.
+    assert "captures" in script and "caption" in script, "the warning names nothing concrete"

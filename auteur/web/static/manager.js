@@ -194,13 +194,47 @@
       .catch(function () {});
   });
 
+  /* Delete asks first, and the asking names what goes.
+   *
+   * "Are you sure?" is a question nobody can answer, because it does not say
+   * what is at stake. The profile's delete already does this properly — it
+   * counts the films it is about to remove — so this counts the shot list and
+   * the caption, which is the work in a plan that took a person any time. */
+  var dropSheet = document.getElementById("drop-sheet");
+
+  function describeLoss(plan) {
+    var parts = [];
+    var caps = (plan.captures || []).length;
+    if (caps) { parts.push(caps + (caps === 1 ? " thing to shoot" : " things to shoot")); }
+    if (plan.caption) { parts.push("the caption"); }
+    if ((plan.hashtags || []).length) { parts.push("the tags"); }
+    var made = parts.length
+      ? " That takes " + parts.join(", ").replace(/, ([^,]*)$/, " and $1") + " with it."
+      : "";
+    return "“" + (plan.title || "this plan") + "” goes for good." + made;
+  }
+
   $("plan-drop").addEventListener("click", function () {
     if (!open) { return; }
+    $("drop-what").textContent = describeLoss(open);
+    dropSheet.hidden = false;
+  });
+
+  function closeDrop() { dropSheet.hidden = true; }
+
+  $("drop-close").addEventListener("click", closeDrop);
+  $("drop-scrim").addEventListener("click", closeDrop);
+
+  $("drop-go").addEventListener("click", function () {
+    if (!open) { return; }
+    var button = $("drop-go");
+    button.disabled = true;
     fetch("/api/plans/" + encodeURIComponent(open.id) + "/drop", {
       method: "POST", credentials: "same-origin"
     })
-      .then(function () { back(); })
-      .catch(function () {});
+      .then(function () { closeDrop(); back(); })
+      .catch(function () { closeDrop(); })
+      .then(function () { button.disabled = false; });
   });
 
   /* -- making one ---------------------------------------------------------- */
