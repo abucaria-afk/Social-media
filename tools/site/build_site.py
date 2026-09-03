@@ -27,7 +27,11 @@ sys.path.insert(0, str(ROOT))
 
 from auteur import brand, pricing, theme  # noqa: E402
 
-OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "docs" / "index.html"
+#: The default when this is run as a script. Read inside `main` rather than
+#: here: `tools/appstore/build_pages.py` imports this module for `PAGE`, and
+#: at import time `sys.argv[1]` is *its* output directory — so a module-level
+#: default would quietly become a directory this was never asked to write to.
+DEFAULT_OUT = ROOT / "docs" / "index.html"
 
 #: Where a person can actually get it. A landing page whose buttons do nothing
 #: is worse than one without buttons, so anything not yet real says so rather
@@ -306,6 +310,11 @@ PAGE = f"""<!DOCTYPE html>
   </ul>
 
   <footer>
+    <!-- Relative, all three, because this page is published beside them by
+         `tools/appstore/build_pages.py`. It is also committed to `docs/`,
+         where they are not — the copy there is what a test compares against,
+         not a site. -->
+    <a href="support.html">Support</a>
     <a href="privacy.html">Privacy</a>
     <a href="terms.html">Terms</a>
     <a href="https://github.com/abucaria-afk/Social-media">Source</a>
@@ -317,9 +326,10 @@ PAGE = f"""<!DOCTYPE html>
 
 
 def main() -> int:
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(PAGE, encoding="utf-8")
-    print(OUT, len(PAGE), "bytes")
+    out = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_OUT
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(PAGE, encoding="utf-8")
+    print(out, len(PAGE), "bytes")
     return 0
 
 

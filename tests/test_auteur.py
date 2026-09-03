@@ -8935,7 +8935,14 @@ def test_the_site_paints_its_main_action_the_colour_the_app_does():
 
 
 def test_the_site_that_is_committed_is_the_site_the_builder_makes():
-    """`docs/index.html` is generated, committed, and served to the public.
+    """`docs/index.html` is generated and committed, and must match its builder.
+
+    It says nothing here about being served: it was not, for as long as this
+    docstring claimed it was. What publishes the landing page is
+    `tools/appstore/build_pages.py`, which writes it to the site root from the
+    same `PAGE` this compares against — so the committed copy and the
+    published one cannot differ, and this holds the committed one to the
+    builder that makes both.
 
     Generated-and-committed is the arrangement that drifts, and this one had:
     the product was renamed to Atlas, every other surface followed —
@@ -13941,6 +13948,73 @@ def test_being_refused_does_not_break_the_connection_it_was_refused_on(web_serve
         assert b"User-agent" in body
     finally:
         live.close()
+
+
+def test_the_page_with_the_buy_button_on_it_is_actually_published(tmp_path):
+    """The one page in the repository that can be bought from was served
+    nowhere.
+
+    `tools/site/build_site.py` generates the landing page — the palette from
+    `theme.py`, the words from `brand.py`, the plans and the checkout links
+    from `pricing.py` — and commits it to `docs/`, where a test holds it to
+    its builder. That test's own docstring said it was "served to the public"
+    and "the page a stranger meets first". Nothing served it: `pages.yml`
+    publishes what `build_pages.py` writes, and `build_pages.py` wrote a
+    support page to the root.
+
+    The page's own footer is the tell. It links to `privacy.html` and
+    `terms.html` with relative hrefs, and those two files exist beside the
+    published documents and not beside `docs/index.html` — so as committed,
+    the landing page's own footer 404s. It was always meant to sit here.
+    """
+    from auteur import pricing
+
+    root = Path(__file__).resolve().parent.parent
+    out = tmp_path / "pages"
+    done = subprocess.run(
+        [sys.executable, str(root / "tools" / "appstore" / "build_pages.py"), str(out)],
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
+    assert "Traceback" not in done.stderr, done.stderr[-2000:]
+
+    landing = (out / "index.html").read_text(encoding="utf-8")
+    assert "What it costs" in landing, "the root of the site is not the landing page"
+
+    # Every link it makes must resolve on the site it is published to. This is
+    # the half that was broken where the page is committed.
+    for href in set(re.findall(r'href="([^":]+)"', landing)):
+        if href.startswith("#"):
+            continue
+        # A leading slash is the site root, which is this directory — the
+        # favicon is written that way because the pages sit at the root.
+        assert (
+            out / href.lstrip("/")
+        ).is_file(), f"the landing page links to {href}, which is not published"
+
+    # And the buy buttons are live links rather than the placeholder.
+    for tier in pricing.TIERS:
+        where = pricing.checkout_for(tier)
+        if where:
+            assert where in landing, f"{tier.name} cannot be bought from the published page"
+    assert "buy.stripe.com" in landing, "the published page has no way to buy anything"
+
+    # The support page kept its content when it moved off the root — the
+    # reporting and deletion sections are what an app store looks for.
+    support = (out / "support.html").read_text(encoding="utf-8")
+    for must in ("Reporting something inside the app", "Deleting your account", "Getting help"):
+        assert must in support, f"the support page lost {must!r} when it moved"
+
+    # No page says the same thing twice. The landing page writes its own title
+    # and description, so adding a card wholesale gave it two of each — and
+    # which one an unfurler reads is not a thing to leave to an unfurler.
+    for page in ("index.html", "support.html", "privacy.html", "terms.html"):
+        markup = (out / page).read_text(encoding="utf-8")
+        for tag in ('<meta name="description"', '<meta property="og:title"', 'rel="icon"'):
+            assert (
+                markup.count(tag) == 1
+            ), f"{page} carries {markup.count(tag)} of {tag} — one page, one answer"
 
 
 def test_an_instance_asks_not_to_be_indexed(web_server):

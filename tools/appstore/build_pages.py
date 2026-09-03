@@ -27,6 +27,7 @@ Two things it does that the in-app version does not:
 from __future__ import annotations
 
 import html
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -53,7 +54,7 @@ SITE = f"https://{HOST}"
 CARD = "icon-512.png"
 
 
-def _card(title: str, description: str, page: str) -> str:
+def _card(title: str, description: str, page: str, markup: str = "") -> str:
     """The Open Graph and Twitter tags for one page.
 
     Without these, a link to the privacy policy pasted into a message — which
@@ -65,21 +66,41 @@ def _card(title: str, description: str, page: str) -> str:
     notion of a relative one and a scraper is not on this host.
     """
     where = f"{SITE}/{page}" if page != "index.html" else f"{SITE}/"
-    return "\n".join(
-        [
-            f'<meta name="description" content="{html.escape(description)}">',
-            f'<meta property="og:title" content="{html.escape(title)}">',
-            f'<meta property="og:description" content="{html.escape(description)}">',
-            '<meta property="og:type" content="website">',
-            f'<meta property="og:url" content="{where}">',
-            f'<meta property="og:site_name" content="{html.escape(IDENTITY.app_name)}">',
-            f'<meta property="og:image" content="{SITE}/{CARD}">',
-            '<meta name="twitter:card" content="summary">',
-            f'<meta name="twitter:title" content="{html.escape(title)}">',
-            f'<meta name="twitter:description" content="{html.escape(description)}">',
-            f'<meta name="twitter:image" content="{SITE}/{CARD}">',
-        ]
-    )
+    wanted = [
+        f'<meta name="description" content="{html.escape(description)}">',
+        f'<meta property="og:title" content="{html.escape(title)}">',
+        f'<meta property="og:description" content="{html.escape(description)}">',
+        '<meta property="og:type" content="website">',
+        f'<meta property="og:url" content="{where}">',
+        f'<meta property="og:site_name" content="{html.escape(IDENTITY.app_name)}">',
+        f'<meta property="og:image" content="{SITE}/{CARD}">',
+        '<meta name="twitter:card" content="summary">',
+        f'<meta name="twitter:title" content="{html.escape(title)}">',
+        f'<meta name="twitter:description" content="{html.escape(description)}">',
+        f'<meta name="twitter:image" content="{SITE}/{CARD}">',
+        # Every one of these pages asked the browser for /favicon.ico and got
+        # a 404. The icon is already published beside them.
+        f'<link rel="icon" href="/{CARD}">',
+    ]
+    # Only what the page has not already said. The landing page is generated
+    # by a builder that writes its own title and description tags, so adding
+    # these wholesale gave it two of each — and which one an unfurler reads is
+    # not something to leave to an unfurler.
+    return "\n".join(line for line in wanted if _key_of(line) not in _keys_in(markup))
+
+
+def _key_of(tag: str) -> str:
+    """What a meta tag is about: its `property`, its `name`, or its `rel`."""
+    for attribute in ("property", "name", "rel"):
+        marker = f'{attribute}="'
+        if marker in tag:
+            start = tag.index(marker) + len(marker)
+            return f"{attribute}:{tag[start : tag.index(chr(34), start)]}"
+    return tag
+
+
+def _keys_in(markup: str) -> set[str]:
+    return {_key_of(tag) for tag in re.findall(r"<(?:meta|link)\b[^>]*>", markup)}
 
 
 def _titled(markup: str) -> str:
@@ -98,9 +119,12 @@ def _titled(markup: str) -> str:
 #: of it.
 ABOUT = {
     "index.html": (
-        f"{IDENTITY.app_name} — what it is, how to get help, and how to report "
-        "something. An editor that cuts a film out of what is already on your "
-        "phone."
+        f"{IDENTITY.app_name} — what it does, what it costs, and where to get "
+        "it. An editor that cuts a film out of what is already on your phone."
+    ),
+    "support.html": (
+        f"How to get help with {IDENTITY.app_name}, how to report something "
+        "inside it, and how to delete your account."
     ),
     "privacy.html": (
         f"What {IDENTITY.app_name} records, where it stays, and what leaves the "
@@ -134,8 +158,32 @@ def _inline(markup: str, sheets: list[str]) -> str:
     return markup.replace("</head>", f"<style>\n{css}\n</style>\n</head>")
 
 
-def _landing() -> str:
-    """The support page. Says what the app is, and how to reach somebody."""
+def _product() -> str:
+    """The landing page: what it does, what it costs, and how to buy it.
+
+    Built by `tools/site/build_site.py` from the palette in `auteur/theme.py`,
+    the words in `auteur/brand.py` and the plans in `auteur/pricing.py`, and
+    committed to `docs/index.html` where a test holds it to its builder.
+
+    Nothing published it. `pages.yml` runs this module and this module wrote a
+    support page to the root, so the only page in the repository carrying a
+    checkout link was served from nowhere at all — and its own footer links to
+    `privacy.html` and `terms.html`, two files that exist beside *these* pages
+    and not beside that one, which is where the page was always meant to sit.
+    """
+    from tools.site.build_site import PAGE
+
+    return PAGE
+
+
+def _support() -> str:
+    """The support page. Says what the app is, and how to reach somebody.
+
+    It used to be `index.html`, which meant the root of the documents host was
+    a support page and the product's own landing page — the only page with a
+    way to buy on it — was written to `docs/`, which nothing publishes. So
+    this moved one file along and the landing page took the root.
+    """
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -206,14 +254,14 @@ def main() -> int:
         # The app's "back to the app" link goes nowhere on a public site.
         page = page.replace('<p class="prose-away"><a href="/">Back to the app</a></p>', "")
         page = _inline(page, sheets)
-        page = page.replace("</head>", _card(_titled(page), ABOUT[name], name) + "\n</head>")
+        page = page.replace("</head>", _card(_titled(page), ABOUT[name], name, page) + "\n</head>")
         (OUT / name).write_text(page, encoding="utf-8")
 
-    landing = _landing()
-    landing = landing.replace(
-        "</head>", _card(_titled(landing), ABOUT["index.html"], "index.html") + "\n</head>"
-    )
-    (OUT / "index.html").write_text(landing, encoding="utf-8")
+    for name, markup in (("index.html", _product()), ("support.html", _support())):
+        markup = markup.replace(
+            "</head>", _card(_titled(markup), ABOUT[name], name, markup) + "\n</head>"
+        )
+        (OUT / name).write_text(markup, encoding="utf-8")
 
     # The picture those cards point at. Copied rather than linked to the
     # app's own copy: this site is served from a different host and a card
@@ -240,7 +288,7 @@ def main() -> int:
         encoding="utf-8",
     )
 
-    pages = ["", "privacy.html", "terms.html"]
+    pages = ["", "support.html", "privacy.html", "terms.html"]
     (OUT / "sitemap.xml").write_text(
         "\n".join(
             [
