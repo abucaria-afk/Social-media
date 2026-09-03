@@ -33,6 +33,14 @@ __pycache__/
 build/
 dist/
 
+# What coverage leaves behind. CLAUDE.md and .github/workflows/coverage.yml
+# both tell you to run it, and running it put an untracked .coverage in
+# everybody's tree — a dirty checkout produced by following the instructions.
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
 # Performance exports: your account's data, not the project's.
 auteur-exports/
 auteur-practice-data.csv

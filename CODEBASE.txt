@@ -7,10 +7,10 @@
  the source file and regenerate, or the two disagree and this one is wrong.
 
    repository   abucaria-afk/Social-media
-   commit       8b6784869d8e64cb626efd5544fd8da5de85b568
+   commit       a1a1d365d3758664b0148018fbd39ce7da54add5
    generated    2026-09-03 12:28 UTC
    files        240
-   lines        112,836
+   lines        112,844
 
  REGENERATE
 
@@ -89,7 +89,7 @@
    .github/workflows/pages.yml                                            126 lines
    .github/workflows/pip-audit.yml                                         54 lines
    .github/workflows/python-ci.yml                                         57 lines
-   .gitignore                                                              43 lines
+   .gitignore                                                              51 lines
    .pre-commit-config.yaml                                                 19 lines
    AUTEUR.md                                                              894 lines
    CLAUDE.md                                                               37 lines
@@ -1058,6 +1058,14 @@ __pycache__/
 .pytest_cache/
 build/
 dist/
+
+# What coverage leaves behind. CLAUDE.md and .github/workflows/coverage.yml
+# both tell you to run it, and running it put an untracked .coverage in
+# everybody's tree — a dirty checkout produced by following the instructions.
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
 # Performance exports: your account's data, not the project's.
 auteur-exports/
