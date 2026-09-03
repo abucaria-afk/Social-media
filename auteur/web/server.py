@@ -180,6 +180,76 @@ PUBLIC_PATHS = frozenset(
     }
 )
 
+
+class Throttle:
+    """How often one caller may ask for the same thing, in memory.
+
+    The endpoints reachable without a session are the ones nobody has to get
+    past anything to reach, and three of them do real work on being asked:
+    sign-up writes an account, forgotten-password sends mail to an address the
+    caller names, and the trouble report writes to disk. None of them was
+    counted, so each was an unbounded loop somebody else could run — a mailbox
+    filled by asking for the same reset a thousand times, a log grown until
+    the disk is full.
+
+    Deliberately not the sign-in endpoint. That has an account lockout, which
+    is the better tool there: it counts failures against the account being
+    attacked rather than against wherever the attempt came from, so it cannot
+    be escaped by moving and cannot lock a household out of its own app for
+    sharing an address. This counts requests rather than failures, which is
+    the right shape for work that succeeds and still costs something.
+
+    In memory and per-process, like the sign-in attempts next door. An
+    instance is one machine and one process; a restart forgetting who has
+    asked recently is a few free requests, not a hole. The caller is the
+    socket's own address — behind a reverse proxy that is the proxy, so every
+    caller shares one bucket and the limit becomes a limit on the instance.
+    That is a weaker guarantee than it looks and it is written down here
+    rather than discovered.
+    """
+
+    def __init__(self, allowed: int, per_seconds: float) -> None:
+        self.allowed = allowed
+        self.per_seconds = per_seconds
+        self._seen: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def ask(self, key: str) -> float:
+        """Nought if this one may proceed, else the seconds until it may."""
+        now = time.time()
+        with self._lock:
+            recent = [at for at in self._seen.get(key, ()) if now - at < self.per_seconds]
+            if len(recent) >= self.allowed:
+                self._seen[key] = recent
+                return max(0.0, self.per_seconds - (now - recent[0]))
+            recent.append(now)
+            self._seen[key] = recent
+            # Swept here rather than on a timer: the only thing that grows
+            # this dict is being asked, so the only time it needs pruning is
+            # while being asked.
+            if len(self._seen) > 4096:
+                self._seen = {
+                    k: v for k, v in self._seen.items() if v and now - v[-1] < self.per_seconds
+                }
+            return 0.0
+
+    def forget(self) -> None:
+        """Drop every bucket. For a test that needs to start from nothing."""
+        with self._lock:
+            self._seen.clear()
+
+
+#: What each unauthenticated endpoint costs. Generous enough that nobody using
+#: the app ever meets one — five password resets in a quarter of an hour is
+#: already somebody who has forgotten twice and mistyped their address — and
+#: small enough that none of them is worth automating.
+THROTTLES = {
+    "/api/signup": Throttle(10, 3600),
+    "/api/forgot": Throttle(5, 900),
+    "/api/trouble": Throttle(20, 900),
+}
+
+
 #: Prefixes reachable before signing in. `/auth/` is the round trip to an
 #: identity provider and back, which by definition happens while signed out.
 PUBLIC_AUTH_PREFIX = "/auth/"
@@ -3859,8 +3929,52 @@ class Handler(BaseHTTPRequestHandler):
         entry["mine"] = True
         self._json({"template": entry}, 201)
 
+    def _within_limits(self, path: str) -> bool:
+        """Whether this caller may ask for this path again yet.
+
+        Answered before the handler runs, because the point is not to do the
+        work. A 429 with `Retry-After` is what the header is for, and it says
+        the same thing to a person who has genuinely asked five times as it
+        does to a script.
+        """
+        throttle = THROTTLES.get(path)
+        if throttle is None:
+            return True
+        wait = throttle.ask(f"{self.client_address[0]}:{path}")
+        if not wait:
+            return True
+
+        # Read the body even though nothing will look at it. This connection
+        # is kept alive, and bytes left in it are not discarded — they are
+        # read as the start of the next request. Refusing without draining
+        # answered the *following* request with `Unsupported method
+        # ('{"username":"..."}GET')`, which is how a browser found this and a
+        # test opening a fresh connection per call never could.
+        self._read_body(64 * 1024)
+
+        seconds = int(wait) + 1
+        # Said in whichever unit a person would use. "Try again in 898s" is a
+        # number to convert rather than an answer.
+        if seconds >= 120:
+            when = f"{round(seconds / 60)} minutes"
+        elif seconds >= 60:
+            when = "a minute"
+        else:
+            when = f"{seconds} seconds"
+        log.info("throttled %s", path)
+        self._send(
+            429,
+            json.dumps({"error": f"That has been asked for a lot. Try again in {when}."}).encode(),
+            "application/json; charset=utf-8",
+            extra={"Retry-After": str(seconds), "Cache-Control": "no-store"},
+        )
+        return False
+
     def do_POST(self) -> None:  # noqa: N802 - stdlib naming
         path = self.path.split("?", 1)[0]
+
+        if not self._within_limits(path):
+            return
 
         if path.startswith("/auth/") and path.endswith("/return"):
             # Apple replies with a POST form rather than a redirect, because it

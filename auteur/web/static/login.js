@@ -293,6 +293,17 @@
     $("forgot-go").disabled = true;
     post("/api/forgot", { username: who })
       .then(function (result) {
+        // The answer is 200 whether or not the account exists — that is the
+        // anti-enumeration design and it is why this used to read the payload
+        // without looking at the status. It is not the only answer any more:
+        // asking too often is refused, and falling through to the cheerful
+        // default told somebody a link was on its way when the server had
+        // just declined to send one.
+        if (!result.ok) {
+          say($("forgot-said"), result.payload.error || "That did not work.", true);
+          $("forgot-go").disabled = false;
+          return;
+        }
         var message = result.payload.message || "If that account exists, a link is on its way.";
         if (result.payload.via === "console") {
           message += " No email is set up here, so it has been printed in the " +

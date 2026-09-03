@@ -1455,6 +1455,12 @@ def web_server(tmp_path):
     web.Handler.board = Board(Board.default_path(root))
     web.Handler.watching = Watching(root / "watching")
 
+    # The throttles on the endpoints reachable without a session live on
+    # the module, so without this a test that signs up or asks for a reset
+    # would be counted against by whatever the test before it did.
+    for _throttle in web.THROTTLES.values():
+        _throttle.forget()
+
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
@@ -2324,6 +2330,12 @@ def guarded_server(tmp_path):
     web.Handler.accounts = Accounts(tmp_path / "web" / "accounts.json")
     web.Handler.accounts.add("streetlightseason", "streetlightseason@gmail.com", TEST_PASSWORD)
 
+    # The throttles on the endpoints reachable without a session live on
+    # the module, so without this a test that signs up or asks for a reset
+    # would be counted against by whatever the test before it did.
+    for _throttle in web.THROTTLES.values():
+        _throttle.forget()
+
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
@@ -2674,6 +2686,12 @@ def test_no_account_store_means_no_access(tmp_path):
     assets.ensure(web.STATIC)
     web.Handler.studio = web.Studio(tmp_path / "web")
     web.Handler.accounts = None  # exactly the misconfiguration
+
+    # The throttles on the endpoints reachable without a session live on
+    # the module, so without this a test that signs up or asks for a reset
+    # would be counted against by whatever the test before it did.
+    for _throttle in web.THROTTLES.values():
+        _throttle.forget()
 
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -13803,6 +13821,126 @@ def test_a_link_to_the_published_site_unfurls_as_something_rather_than_nothing(t
     sitemap = (out / "sitemap.xml").read_text(encoding="utf-8")
     for page in ("", "privacy.html", "terms.html"):
         assert f"<loc>{site}/{page}</loc>" in sitemap, f"the sitemap omits {page or 'the root'}"
+
+
+def test_asking_the_same_open_endpoint_forever_is_refused(web_server):
+    """The endpoints nobody has to get past anything to reach did real work.
+
+    Forgotten-password sends mail to an address the *caller* names, sign-up
+    writes an account, and the trouble report writes to disk — each of them
+    an unbounded loop somebody else could run. Nothing counted them. Asked a
+    thousand times, forgotten-password fills a mailbox belonging to whoever
+    the caller named, which is a way of using this app to do something to
+    somebody who is not using it.
+
+    Deliberately not the sign-in endpoint, which has an account lockout: that
+    counts failures against the account being attacked rather than against
+    wherever the attempt came from, and swapping it for this would let an
+    attacker escape by moving while locking a household out for sharing an
+    address.
+    """
+    import json as _json
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    from auteur.web import server as web
+
+    base, _, _ = web_server
+
+    def ask(path, payload):
+        request = Request(
+            base + path,
+            data=_json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urlopen(request) as response:
+                return response.status, response.headers
+        except HTTPError as refused:
+            return refused.code, refused.headers
+
+    allowed = web.THROTTLES["/api/forgot"].allowed
+    # Every one of these answers 200 whether or not the account exists — that
+    # is the anti-enumeration design, and it is exactly why nothing here was
+    # counting: no answer ever looked like a failure.
+    for attempt in range(allowed):
+        code, _ = ask("/api/forgot", {"username": "tester"})
+        assert code == 200, f"asking {attempt + 1} time(s) was refused"
+
+    code, headers = ask("/api/forgot", {"username": "tester"})
+    assert code == 429, "forgotten-password can be asked for without end"
+    assert headers.get("Retry-After"), "a 429 with nothing saying when to come back"
+    assert int(headers["Retry-After"]) > 0
+
+    # Each endpoint has its own count. Filling one must not close the others.
+    code, _ = ask("/api/signup", {"username": "someone", "password": "a-long-enough-one"})
+    assert code != 429, "the forgotten-password limit closed sign-up too"
+
+    # And nothing that needs a session is throttled by this: the gate already
+    # refuses those, and counting them would let anybody at all fill a bucket
+    # that belongs to somebody signed in.
+    assert set(web.THROTTLES) == {
+        "/api/signup",
+        "/api/forgot",
+        "/api/trouble",
+    }, "an endpoint behind the sign-in gate is being rate limited by address"
+
+    # Forgetting is what the fixture does between tests; prove it works,
+    # because a throttle that cannot be reset makes every later test flaky.
+    for throttle in web.THROTTLES.values():
+        throttle.forget()
+    code, _ = ask("/api/forgot", {"username": "tester"})
+    assert code == 200
+
+
+def test_being_refused_does_not_break_the_connection_it_was_refused_on(web_server):
+    """Every request above opened its own socket. A browser does not.
+
+    Refusing without reading the request body leaves those bytes in the
+    connection, and the next request on it is not read from a clean start —
+    it is read beginning with whatever was left. A real browser asking six
+    times and then fetching anything at all got
+
+        501 Unsupported method ('{"username":"streetlightseason"}GET')
+
+    which is the previous body and the next request line run together. A test
+    that opens a fresh connection per call cannot see this, so this one does
+    not: it keeps one connection and uses it after the refusal.
+    """
+    import json as _json
+    from http.client import HTTPConnection
+    from urllib.parse import urlsplit
+
+    from auteur.web import server as web
+
+    base, _, _ = web_server
+    where = urlsplit(base)
+    allowed = web.THROTTLES["/api/forgot"].allowed
+
+    live = HTTPConnection(where.hostname, where.port)
+    try:
+        for _ in range(allowed + 1):
+            live.request(
+                "POST",
+                "/api/forgot",
+                body=_json.dumps({"username": "tester"}).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            refused = live.getresponse()
+            refused.read()
+        assert refused.status == 429, "nothing was refused, so nothing is being tested"
+
+        # The same connection, immediately afterwards.
+        live.request("GET", "/robots.txt")
+        after = live.getresponse()
+        body = after.read()
+        assert after.status == 200, (
+            f"the request after a refusal answered {after.status}: the refused "
+            f"body was left in the connection and read as the next request"
+        )
+        assert b"User-agent" in body
+    finally:
+        live.close()
 
 
 def test_an_instance_asks_not_to_be_indexed(web_server):
