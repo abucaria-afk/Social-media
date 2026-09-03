@@ -7,10 +7,10 @@
  the source file and regenerate, or the two disagree and this one is wrong.
 
    repository   abucaria-afk/Social-media
-   commit       9b42455a19b5f28c2429b6a21e76ed716156f0d6
-   generated    2026-09-03 12:21 UTC
+   commit       8b6784869d8e64cb626efd5544fd8da5de85b568
+   generated    2026-09-03 12:28 UTC
    files        240
-   lines        112,745
+   lines        112,836
 
  REGENERATE
 
@@ -121,7 +121,7 @@
    auteur/analysis/video.py                                               511 lines
    auteur/brand.py                                                        373 lines
    auteur/calendar.py                                                     233 lines
-   auteur/cli.py                                                        2,391 lines
+   auteur/cli.py                                                        2,434 lines
    auteur/config.py                                                       199 lines
    auteur/craft/__init__.py                                                10 lines
    auteur/craft/color.py                                                  609 lines
@@ -281,7 +281,7 @@
    render.yaml                                                             64 lines
    requirements.txt                                                        22 lines
    tests/fuzz.py                                                          651 lines
-   tests/test_auteur.py                                                18,018 lines
+   tests/test_auteur.py                                                18,066 lines
    tools/appstore/build_pages.py                                          328 lines
    tools/appstore/listing.py                                              316 lines
    tools/appstore/preflight.py                                            632 lines
@@ -11748,6 +11748,30 @@ def _run_insight(args: argparse.Namespace, say: Reporter) -> int:
     return 0
 
 
+def _index_near(start: Path) -> Path | None:
+    """The nearest index at or above `start`, if there is one.
+
+    `auteur media scan ./footage` writes the index beside the footage, which
+    is what lets it need no second argument and keep no state anywhere else on
+    the machine. `auteur media list` takes no folder, so it looked in the
+    current directory and nowhere else: scan, then list, and list said
+    "nothing indexed yet" about an index that had just been written and whose
+    path the scan had printed.
+
+    Looking upwards is how git finds a repository and npm finds a package, and
+    it is right for the same reason — the thing you are working on is at or
+    above where you are standing. It only ever reads.
+    """
+    from .workflows.library import INDEX_NAME
+
+    here = start.expanduser().resolve()
+    for folder in (here, *here.parents):
+        candidate = folder / INDEX_NAME
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _library_for(args: argparse.Namespace, paths: list[str]) -> object:
     """Open the index a `media` command should use.
 
@@ -11759,10 +11783,16 @@ def _library_for(args: argparse.Namespace, paths: list[str]) -> object:
 
     if args.index:
         return Library(args.index)
-    root = Path(paths[0]) if paths else Path.cwd()
-    if root.is_file():
-        root = root.parent
-    return Library(Library.default_path(root))
+    if paths:
+        root = Path(paths[0])
+        if root.is_file():
+            root = root.parent
+        return Library(Library.default_path(root))
+    # No folder named. Not the same as "the index is in this exact directory":
+    # somebody who has scanned their footage and then asked what is in it is
+    # standing wherever they happen to be standing.
+    found = _index_near(Path.cwd())
+    return Library(found or Library.default_path(Path.cwd()))
 
 
 def _run_media(args: argparse.Namespace, say: Reporter) -> int:
@@ -11794,7 +11824,20 @@ def _run_media(args: argparse.Namespace, say: Reporter) -> int:
         return 0
 
     if not library.entries:
-        say.failure("nothing indexed yet", "try:  auteur media scan ./footage")
+        # Two different problems, and telling somebody to scan is the answer to
+        # only one of them. Somebody who has just scanned and been told to scan
+        # again is being sent round a loop by the tool that printed the path it
+        # wrote a moment ago.
+        if paths:
+            say.failure(
+                f"nothing indexed in {paths[0]}",
+                "try:  auteur media scan " + paths[0],
+            )
+        else:
+            say.failure(
+                "no index here, or anywhere above here",
+                f"name the folder you scanned:  auteur media {args.action} ./footage",
+            )
         return 1
 
     if args.action == "duplicates":
@@ -95675,6 +95718,54 @@ def test_the_media_index_lists_what_it_scanned(rushes, tmp_path, capsys):
 
     assert main(["media", "list", "--index", str(index)]) == 0
     assert "keepers" in capsys.readouterr().out, "a tag has to survive into the listing"
+
+
+def test_scanning_footage_and_then_asking_what_is_in_it_works(
+    rushes, tmp_path, monkeypatch, capsys
+):
+    """Nobody types `--index`, and the test above is the only thing that did.
+
+    `auteur media scan ./footage` writes the index beside the footage — that
+    is what lets it need no second argument and keep no state anywhere else on
+    the machine — and prints the path it wrote. `auteur media list` takes no
+    folder, so it looked in the current directory and nowhere else. Scan, then
+    list, and list said "nothing indexed yet" about the index the scan had
+    just printed, and advised scanning again: a loop, told by the tool that
+    knew better.
+
+    Every existing test passed `--index` explicitly, which is precisely why
+    neither half of that was visible. This one uses what a person uses.
+    """
+    from auteur.cli import main
+
+    monkeypatch.chdir(rushes)
+    assert main(["media", "scan", "."]) == 0
+    assert "Indexed" in capsys.readouterr().out
+
+    assert main(["media", "list"]) == 0, "list cannot find the index scan just wrote"
+    assert "a_wide.mp4" in capsys.readouterr().out
+
+    # And from below it, which is where you are the moment the footage has any
+    # structure at all. Looking upwards is how git finds a repository.
+    below = rushes / "monday" / "morning"
+    below.mkdir(parents=True)
+    monkeypatch.chdir(below)
+    assert main(["media", "list"]) == 0, "the index one folder up is not found"
+    assert "a_wide.mp4" in capsys.readouterr().out
+
+    # Somewhere with no index above it at all, the advice must not be to redo
+    # the thing that was already done.
+    empty = tmp_path / "elsewhere"
+    empty.mkdir()
+    monkeypatch.chdir(empty)
+    assert main(["media", "list"]) == 1
+    said = capsys.readouterr().out
+    assert "no index" in said, said
+    assert "media scan" not in said, (
+        "somebody who has scanned is being told to scan again; the problem is "
+        "where they are standing, not what they have done"
+    )
+    assert "./footage" in said, "it does not say what would work instead"
 
 
 # ---------------------------------------------------------------------------

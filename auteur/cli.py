@@ -2180,6 +2180,30 @@ def _run_insight(args: argparse.Namespace, say: Reporter) -> int:
     return 0
 
 
+def _index_near(start: Path) -> Path | None:
+    """The nearest index at or above `start`, if there is one.
+
+    `auteur media scan ./footage` writes the index beside the footage, which
+    is what lets it need no second argument and keep no state anywhere else on
+    the machine. `auteur media list` takes no folder, so it looked in the
+    current directory and nowhere else: scan, then list, and list said
+    "nothing indexed yet" about an index that had just been written and whose
+    path the scan had printed.
+
+    Looking upwards is how git finds a repository and npm finds a package, and
+    it is right for the same reason — the thing you are working on is at or
+    above where you are standing. It only ever reads.
+    """
+    from .workflows.library import INDEX_NAME
+
+    here = start.expanduser().resolve()
+    for folder in (here, *here.parents):
+        candidate = folder / INDEX_NAME
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _library_for(args: argparse.Namespace, paths: list[str]) -> object:
     """Open the index a `media` command should use.
 
@@ -2191,10 +2215,16 @@ def _library_for(args: argparse.Namespace, paths: list[str]) -> object:
 
     if args.index:
         return Library(args.index)
-    root = Path(paths[0]) if paths else Path.cwd()
-    if root.is_file():
-        root = root.parent
-    return Library(Library.default_path(root))
+    if paths:
+        root = Path(paths[0])
+        if root.is_file():
+            root = root.parent
+        return Library(Library.default_path(root))
+    # No folder named. Not the same as "the index is in this exact directory":
+    # somebody who has scanned their footage and then asked what is in it is
+    # standing wherever they happen to be standing.
+    found = _index_near(Path.cwd())
+    return Library(found or Library.default_path(Path.cwd()))
 
 
 def _run_media(args: argparse.Namespace, say: Reporter) -> int:
@@ -2226,7 +2256,20 @@ def _run_media(args: argparse.Namespace, say: Reporter) -> int:
         return 0
 
     if not library.entries:
-        say.failure("nothing indexed yet", "try:  auteur media scan ./footage")
+        # Two different problems, and telling somebody to scan is the answer to
+        # only one of them. Somebody who has just scanned and been told to scan
+        # again is being sent round a loop by the tool that printed the path it
+        # wrote a moment ago.
+        if paths:
+            say.failure(
+                f"nothing indexed in {paths[0]}",
+                "try:  auteur media scan " + paths[0],
+            )
+        else:
+            say.failure(
+                "no index here, or anywhere above here",
+                f"name the folder you scanned:  auteur media {args.action} ./footage",
+            )
         return 1
 
     if args.action == "duplicates":

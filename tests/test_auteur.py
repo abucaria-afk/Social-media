@@ -17082,6 +17082,54 @@ def test_the_media_index_lists_what_it_scanned(rushes, tmp_path, capsys):
     assert "keepers" in capsys.readouterr().out, "a tag has to survive into the listing"
 
 
+def test_scanning_footage_and_then_asking_what_is_in_it_works(
+    rushes, tmp_path, monkeypatch, capsys
+):
+    """Nobody types `--index`, and the test above is the only thing that did.
+
+    `auteur media scan ./footage` writes the index beside the footage — that
+    is what lets it need no second argument and keep no state anywhere else on
+    the machine — and prints the path it wrote. `auteur media list` takes no
+    folder, so it looked in the current directory and nowhere else. Scan, then
+    list, and list said "nothing indexed yet" about the index the scan had
+    just printed, and advised scanning again: a loop, told by the tool that
+    knew better.
+
+    Every existing test passed `--index` explicitly, which is precisely why
+    neither half of that was visible. This one uses what a person uses.
+    """
+    from auteur.cli import main
+
+    monkeypatch.chdir(rushes)
+    assert main(["media", "scan", "."]) == 0
+    assert "Indexed" in capsys.readouterr().out
+
+    assert main(["media", "list"]) == 0, "list cannot find the index scan just wrote"
+    assert "a_wide.mp4" in capsys.readouterr().out
+
+    # And from below it, which is where you are the moment the footage has any
+    # structure at all. Looking upwards is how git finds a repository.
+    below = rushes / "monday" / "morning"
+    below.mkdir(parents=True)
+    monkeypatch.chdir(below)
+    assert main(["media", "list"]) == 0, "the index one folder up is not found"
+    assert "a_wide.mp4" in capsys.readouterr().out
+
+    # Somewhere with no index above it at all, the advice must not be to redo
+    # the thing that was already done.
+    empty = tmp_path / "elsewhere"
+    empty.mkdir()
+    monkeypatch.chdir(empty)
+    assert main(["media", "list"]) == 1
+    said = capsys.readouterr().out
+    assert "no index" in said, said
+    assert "media scan" not in said, (
+        "somebody who has scanned is being told to scan again; the problem is "
+        "where they are standing, not what they have done"
+    )
+    assert "./footage" in said, "it does not say what would work instead"
+
+
 # ---------------------------------------------------------------------------
 # Sign-in, driven rather than read
 #
