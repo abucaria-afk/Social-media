@@ -158,7 +158,7 @@ behaviour are checked by running the thing.
   Instagram connection flow with tokens stored `0600` in a file separate from the
   connection list.
 - **Store readiness.** App Store submission pack, Google Play listing, generated
-  screenshots, a 12+ age gate with a lockable content restriction, published
+  screenshots, a 13+ age gate with a lockable content restriction, published
   privacy policy and terms.
 - **Engineering hygiene.** 587 tests green. CI runs pytest, ruff, black, CodeQL,
   pip-audit and coverage on every push. MIT licensed.
@@ -350,7 +350,7 @@ Re-check before relying on them.
 
 ### 5.5 Store submission facts
 
-- **Age rating: 12+.** Accounts under 18 start with sensitive films hidden, and
+- **Age rating: 13+.** Accounts under 18 start with sensitive films hidden, and
   that setting is lockable with a code. Do not let any listing copy imply a
   younger audience.
 - **User-generated content obligations** (Apple guideline 1.2) are met and must

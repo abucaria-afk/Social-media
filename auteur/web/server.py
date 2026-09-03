@@ -174,6 +174,9 @@ PUBLIC_PATHS = frozenset(
         # anybody can read, not an account anybody can delete.
         "/delete-account",
         "/delete-account.html",
+        # A crawler asks for this before anything else and is entitled to an
+        # answer rather than a redirect to a sign-in page.
+        "/robots.txt",
     }
 )
 
@@ -1578,7 +1581,7 @@ class Handler(BaseHTTPRequestHandler):
         a share, a message, a link somebody sends.
 
         Both store listings say an account for somebody under 18 starts with
-        sensitive films hidden, and the 12+ rating rests on it. Hidden from the
+        sensitive films hidden, and the age rating rests on it. Hidden from the
         feed and served from the address bar is not hidden.
         """
         if film is None:
@@ -2274,6 +2277,32 @@ class Handler(BaseHTTPRequestHandler):
             }
         )
 
+    def _robots(self) -> None:
+        """Nothing here is for a search engine.
+
+        An instance is somebody's own machine and everything on it that is
+        worth reading is behind the sign-in gate, which answers a crawler with
+        a redirect rather than a page — so most of this is already unindexable
+        by accident. The handful of paths that are public are not: the sign-in
+        screen, the two policy documents and the page that deletes an account.
+        The documents are published properly at their own address, where they
+        are meant to be found; the copies served here are the same text on
+        somebody's home network, and a search result pointing at one of those
+        is a search result pointing at a stranger's computer.
+
+        `login.html` has carried a noindex tag for a while, which said this
+        about exactly one page. This says it about the instance.
+        """
+        said = (
+            b"# An instance of this app is somebody's own machine. The\n"
+            b"# documents are published at their own address; what is here is\n"
+            b"# a copy of them on a private network, and everything else needs\n"
+            b"# an account.\n"
+            b"User-agent: *\n"
+            b"Disallow: /\n"
+        )
+        self._send(200, said, "text/plain; charset=utf-8")
+
     def _allowed(self, path: str) -> bool:
         """Whether this request may proceed without signing in."""
         if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES):
@@ -2306,6 +2335,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path in ("/delete-account", "/delete-account.html"):
             self._static(STATIC / "delete-account.html", "text/html; charset=utf-8")
+            return
+        if path == "/robots.txt":
+            self._robots()
             return
         if path in ("/login", "/login.html", "/reset"):
             self._static(STATIC / "login.html", "text/html; charset=utf-8")
@@ -2779,8 +2811,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": problem}, 400)
             return
 
-        # The age gate. This app is submitted to the App Store at 12+, and a
-        # rating an app does not itself hold to is a claim rather than a fact.
+        # The age gate. This app is submitted to the App Store at the rating
+        # `MINIMUM_AGE` names, and a rating an app does not itself hold to is a
+        # claim rather than a fact.
         try:
             born = int(str(payload.get("born") or "").strip())
         except ValueError:

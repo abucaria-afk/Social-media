@@ -7,10 +7,10 @@
  the source file and regenerate, or the two disagree and this one is wrong.
 
    repository   abucaria-afk/Social-media
-   commit       50b674c771721c3d251e90dc2b81e6ec852892d5
-   generated    2026-09-03 11:36 UTC
-   files        238
-   lines        111,787
+   commit       b2dbf05e6c89a8d0c21a20b064780d98136ff671
+   generated    2026-09-03 11:45 UTC
+   files        240
+   lines        112,324
 
  REGENERATE
 
@@ -40,7 +40,7 @@
 
  WHAT IS IN IT
 
-   All 238 tracked text files: Python, JavaScript, CSS, HTML, Swift,
+   All 240 tracked text files: Python, JavaScript, CSS, HTML, Swift,
    the GitHub workflows, the packaging and container files, the documentation
    and the content. Read it top to bottom and you have read the program.
 
@@ -119,7 +119,7 @@
    auteur/analysis/audio.py                                               331 lines
    auteur/analysis/dossier.py                                             337 lines
    auteur/analysis/video.py                                               511 lines
-   auteur/brand.py                                                        368 lines
+   auteur/brand.py                                                        373 lines
    auteur/calendar.py                                                     233 lines
    auteur/cli.py                                                        2,391 lines
    auteur/config.py                                                       199 lines
@@ -189,7 +189,7 @@
    auteur/web/profiles.py                                                 587 lines
    auteur/web/safety.py                                                   258 lines
    auteur/web/seed.py                                                     101 lines
-   auteur/web/server.py                                                 4,441 lines
+   auteur/web/server.py                                                 4,474 lines
    auteur/web/social.py                                                   439 lines
    auteur/web/static/animations.css                                       193 lines
    auteur/web/static/app.js                                               609 lines
@@ -200,6 +200,8 @@
    auteur/web/static/connect.css                                           72 lines
    auteur/web/static/connect.html                                          63 lines
    auteur/web/static/connect.js                                           109 lines
+   auteur/web/static/delete-account.html                                  136 lines
+   auteur/web/static/delete-account.js                                    149 lines
    auteur/web/static/feed.css                                             299 lines
    auteur/web/static/feed.html                                             68 lines
    auteur/web/static/feed.js                                              499 lines
@@ -272,15 +274,15 @@
    ios/Auteur/native.js                                                   103 lines
    ios/ExportOptions.plist                                                 16 lines
    ios/Identity.yml                                                         7 lines
-   ios/README.md                                                          217 lines
+   ios/README.md                                                          218 lines
    ios/project.yml                                                         61 lines
    ios/scripts/build_bundle.py                                            224 lines
    pyproject.toml                                                          69 lines
    render.yaml                                                             64 lines
    requirements.txt                                                        22 lines
    tests/fuzz.py                                                          651 lines
-   tests/test_auteur.py                                                17,709 lines
-   tools/appstore/build_pages.py                                          164 lines
+   tests/test_auteur.py                                                17,806 lines
+   tools/appstore/build_pages.py                                          280 lines
    tools/appstore/listing.py                                              316 lines
    tools/appstore/preflight.py                                            632 lines
    tools/appstore/screenshots.py                                          364 lines
@@ -2174,7 +2176,7 @@ behaviour are checked by running the thing.
   Instagram connection flow with tokens stored `0600` in a file separate from the
   connection list.
 - **Store readiness.** App Store submission pack, Google Play listing, generated
-  screenshots, a 12+ age gate with a lockable content restriction, published
+  screenshots, a 13+ age gate with a lockable content restriction, published
   privacy policy and terms.
 - **Engineering hygiene.** 587 tests green. CI runs pytest, ruff, black, CodeQL,
   pip-audit and coverage on every push. MIT licensed.
@@ -2366,7 +2368,7 @@ Re-check before relying on them.
 
 ### 5.5 Store submission facts
 
-- **Age rating: 12+.** Accounts under 18 start with sensitive films hidden, and
+- **Age rating: 13+.** Accounts under 18 start with sensitive films hidden, and
   that setting is lockable with a code. Do not let any listing copy imply a
   younger audience.
 - **User-generated content obligations** (Apple guideline 1.2) are met and must
@@ -8931,7 +8933,7 @@ def _analyse_still(asset: MediaAsset, analysis_fps: float, width: int) -> VideoA
 
 There were three answers to "what is Auteur" and they had drifted apart. The
 App Store listing had the current one — a film from your camera roll, the feed,
-the planning board, 12+, nothing leaves the device. `docs/index.html` still
+the planning board, an age rating, nothing leaves the device. `docs/index.html` still
 described the command-line tool it was eighteen months ago and shipped a
 palette thirteen colours out of date, under a comment claiming it was generated
 from `auteur/theme.py`. Google Play had no answer at all.
@@ -9232,6 +9234,11 @@ def description() -> str:
     # literal, an intended concatenation and a forgotten comma look exactly
     # the same — CodeQL flags the shape for that reason, and it is right to:
     # the reader cannot tell either. The brackets say which one it is.
+    # Imported here rather than at the top. `auteur.web` pulls in the server,
+    # which imports `auteur.ui`, which reaches this module — so at module
+    # level this is a cycle, and the age floor is not worth one.
+    from .web.auth import MINIMUM_AGE
+
     lines = [POSITIONING, "", "WHAT IT DOES", ""]
     lines += [f"• {feature.headline} — {feature.body}" for feature in FEATURES]
     lines += [
@@ -9255,9 +9262,9 @@ def description() -> str:
         ),
         "",
         (
-            f"{NAME} is for people 12 and over. An account for somebody under "
-            "18 starts with sensitive films hidden, and that can be locked "
-            "with a code."
+            f"{NAME} is for people {MINIMUM_AGE} and over. An account for "
+            "somebody under 18 starts with sensitive films hidden, and that "
+            "can be locked with a code."
         ),
     ]
     return "\n".join(lines)
@@ -39519,6 +39526,9 @@ PUBLIC_PATHS = frozenset(
         # anybody can read, not an account anybody can delete.
         "/delete-account",
         "/delete-account.html",
+        # A crawler asks for this before anything else and is entitled to an
+        # answer rather than a redirect to a sign-in page.
+        "/robots.txt",
     }
 )
 
@@ -40923,7 +40933,7 @@ class Handler(BaseHTTPRequestHandler):
         a share, a message, a link somebody sends.
 
         Both store listings say an account for somebody under 18 starts with
-        sensitive films hidden, and the 12+ rating rests on it. Hidden from the
+        sensitive films hidden, and the age rating rests on it. Hidden from the
         feed and served from the address bar is not hidden.
         """
         if film is None:
@@ -41619,6 +41629,32 @@ class Handler(BaseHTTPRequestHandler):
             }
         )
 
+    def _robots(self) -> None:
+        """Nothing here is for a search engine.
+
+        An instance is somebody's own machine and everything on it that is
+        worth reading is behind the sign-in gate, which answers a crawler with
+        a redirect rather than a page — so most of this is already unindexable
+        by accident. The handful of paths that are public are not: the sign-in
+        screen, the two policy documents and the page that deletes an account.
+        The documents are published properly at their own address, where they
+        are meant to be found; the copies served here are the same text on
+        somebody's home network, and a search result pointing at one of those
+        is a search result pointing at a stranger's computer.
+
+        `login.html` has carried a noindex tag for a while, which said this
+        about exactly one page. This says it about the instance.
+        """
+        said = (
+            b"# An instance of this app is somebody's own machine. The\n"
+            b"# documents are published at their own address; what is here is\n"
+            b"# a copy of them on a private network, and everything else needs\n"
+            b"# an account.\n"
+            b"User-agent: *\n"
+            b"Disallow: /\n"
+        )
+        self._send(200, said, "text/plain; charset=utf-8")
+
     def _allowed(self, path: str) -> bool:
         """Whether this request may proceed without signing in."""
         if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES):
@@ -41651,6 +41687,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path in ("/delete-account", "/delete-account.html"):
             self._static(STATIC / "delete-account.html", "text/html; charset=utf-8")
+            return
+        if path == "/robots.txt":
+            self._robots()
             return
         if path in ("/login", "/login.html", "/reset"):
             self._static(STATIC / "login.html", "text/html; charset=utf-8")
@@ -42124,8 +42163,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": problem}, 400)
             return
 
-        # The age gate. This app is submitted to the App Store at 12+, and a
-        # rating an app does not itself hold to is a claim rather than a fact.
+        # The age gate. This app is submitted to the App Store at the rating
+        # `MINIMUM_AGE` names, and a rating an app does not itself hold to is a
+        # claim rather than a fact.
         try:
             born = int(str(payload.get("born") or "").strip())
         except ValueError:
@@ -45997,6 +46037,301 @@ html {
     .then(function (r) { return r.json(); })
     .then(draw)
     .catch(function () { $("connect-state").textContent = "could not be reached"; });
+})();
+
+==============================================================================
+ FILE: auteur/web/static/delete-account.html
+==============================================================================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#131110" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef4fb" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="Delete your Atlas account and everything it made.">
+<link rel="icon" href="/icon-192.png">
+<!-- Before the stylesheet, before anything paints: appearance and the three
+     accessibility settings, applied from one file rather than copied into
+     every head. -->
+<script src="/static/settings.js"></script>
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<title>Delete your account — Atlas</title>
+</head>
+<body>
+
+<main id="app" class="narrow">
+
+  <header class="masthead">
+    <h1>Delete your account</h1>
+    <p class="sub">Everything, and there is no undo.</p>
+  </header>
+
+  <!-- Why this page exists at a URL rather than only behind the sign-in
+       screen. Apple's guideline 5.1.1(v) is satisfied by the button in the
+       profile: the account is deletable from inside the app. Google Play's
+       data-deletion policy asks for something the profile screen cannot be —
+       a page anybody can open, without the app and without an account, that
+       says what deleting removes and starts it. That is this, and it is the
+       same deletion: signing in here hands you to the same endpoint the
+       profile's own button calls, so there is one erasure in the codebase
+       and one test that it leaves nothing behind. -->
+  <section class="screen" id="screen-what">
+    <div class="card block">
+      <span class="card-title">What goes</span>
+      <p class="card-hint">
+        Your account and, with it: every film you made and the video files
+        themselves, your production notes and projects, your profile and
+        picture, every message you sent or received, the plans on your
+        schedule, the reels you saved as templates, and any account you
+        connected for reading how a post did — the token with it.
+      </p>
+      <p class="card-hint">
+        This cannot be undone and nothing is kept in a bin for a fortnight.
+        If you want the films, download them before you do this.
+      </p>
+    </div>
+
+    <!-- What is honestly not erased, said here rather than discovered. -->
+    <div class="card block">
+      <span class="card-title">What stays</span>
+      <p class="card-hint">
+        How many seconds each film was watched for in total. Those numbers
+        name nobody, and they belong to films made by people who are still
+        here — unpicking your seconds from them would rewrite somebody
+        else's history without making you any more private.
+      </p>
+    </div>
+
+    <p class="fineprint">
+      Deleting needs your password, because a phone in somebody else's hand
+      is not you. If two-step is on, it asks for the code as well.
+    </p>
+
+    <!-- The form is on this screen rather than behind a Start button, and
+         that is the whole design of the page. Sending you to a second screen
+         to type the password would leave the red button alone with a name
+         field: everything it is about to take would be one screen back,
+         where nobody re-reads it. What goes stays above what does it. -->
+    <form id="delete-form" novalidate>
+      <div class="card block">
+        <span class="card-title">Prove it is your account</span>
+        <label class="card-title spaced" for="who">Username or email</label>
+        <input type="text" id="who" name="username" autocomplete="username"
+               autocapitalize="none" autocorrect="off" spellcheck="false"
+               enterkeyhint="next" required>
+
+        <label class="card-title spaced" for="password">Password</label>
+        <div class="reveal">
+          <input type="password" id="password" name="password"
+                 autocomplete="current-password" enterkeyhint="next" required>
+          <button type="button" class="reveal-go" id="show-password"
+                  aria-label="Show password">Show</button>
+        </div>
+      </div>
+
+      <!-- Only when the password was right and a second step is owed. -->
+      <div class="card" id="step2" hidden>
+        <span class="card-body">
+          <label class="card-title" for="step2-code">The code from your authenticator</label>
+          <input type="text" id="step2-code" name="one-time-code"
+                 inputmode="numeric" autocomplete="one-time-code"
+                 pattern="[0-9A-Za-z]*" maxlength="14" enterkeyhint="go"
+                 autocapitalize="characters" autocorrect="off" spellcheck="false">
+          <span class="card-hint">
+            Six digits, or one of your recovery codes.
+          </span>
+        </span>
+      </div>
+
+      <!-- Typed out in full, so a tap and a mis-tap are different things.
+           The server asks for this too; it is not the page being careful on
+           its own. -->
+      <div class="card block">
+        <label class="card-title" for="confirm">Type <strong>delete</strong> to confirm</label>
+        <input type="text" id="confirm" name="confirm" autocomplete="off"
+               autocapitalize="none" autocorrect="off" spellcheck="false"
+               enterkeyhint="go" placeholder="delete" required>
+      </div>
+
+      <p class="error" id="delete-error" role="alert" hidden></p>
+      <button type="submit" class="go danger-go" id="delete-go">Delete my account</button>
+      <button type="button" class="ghost" id="delete-back">Keep my account</button>
+    </form>
+  </section>
+
+  <section class="screen" id="screen-done" hidden>
+    <div class="card block">
+      <span class="card-title">It is gone</span>
+      <p class="card-hint" id="done-said">
+        The account and everything in it has been removed from this machine.
+      </p>
+    </div>
+    <a class="ghost" href="/login">Done</a>
+  </section>
+
+</main>
+
+<script src="/static/trouble.js"></script>
+<script src="/static/delete-account.js"></script>
+</body>
+</html>
+
+==============================================================================
+ FILE: auteur/web/static/delete-account.js
+==============================================================================
+
+/* Deleting an account from outside the app.
+ *
+ * The profile screen has this same button, and this page does not reimplement
+ * it: it signs in with the ordinary sign-in endpoints — two-step included —
+ * and then calls the one erasure the profile calls. Nothing here checks a
+ * password itself, so this page adds no second way in and no unthrottled
+ * place to guess one. The account lockout that protects /api/login protects
+ * this by construction.
+ */
+(function () {
+  "use strict";
+
+  function $(id) { return document.getElementById(id); }
+
+  var ticket = null;
+
+  function show(name) {
+    ["what", "done"].forEach(function (n) {
+      $("screen-" + n).hidden = n !== name;
+    });
+  }
+
+  function say(message) {
+    var box = $("delete-error");
+    box.textContent = message || "";
+    box.hidden = !message;
+  }
+
+  function post(where, body) {
+    return fetch(where, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      return r.json().then(function (d) { return { ok: r.ok, payload: d }; });
+    });
+  }
+
+  function ready() {
+    $("delete-go").disabled = false;
+    $("delete-go").textContent = "Delete my account";
+  }
+
+  $("delete-back").addEventListener("click", function () {
+    window.location.href = "/login";
+  });
+
+  $("show-password").addEventListener("click", function () {
+    var field = $("password");
+    var hidden = field.type === "password";
+    field.type = hidden ? "text" : "password";
+    this.textContent = hidden ? "Hide" : "Show";
+    this.setAttribute("aria-label", hidden ? "Hide password" : "Show password");
+  });
+
+  /* The erasure. Same endpoint, same payload, same password check as the
+   * button in the profile — this page has only arranged to have a session. */
+  function erase(password, confirm) {
+    return post("/api/profile/delete", { password: password, confirm: confirm })
+      .then(function (result) {
+        if (!result.ok) {
+          say(result.payload.error || "That did not work.");
+          ready();
+          return;
+        }
+        // Said with the count because "it is gone" is a claim, and a number
+        // is the only part of it you can check. Nought films is a sentence of
+        // its own rather than "its 0 films", which is how a template reads
+        // when nobody tried the empty case.
+        var films = result.payload.films || 0;
+        var made =
+          films === 0
+            ? "The account and everything it made"
+            : films === 1
+              ? "The account, the one film in it and everything else it made"
+              : "The account, its " + films + " films and everything else it made";
+        $("done-said").textContent = made + " have been removed from this machine.";
+        show("done");
+      });
+  }
+
+  $("delete-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    say("");
+
+    var who = $("who").value.trim();
+    var password = $("password").value;
+    var confirm = $("confirm").value.trim();
+
+    if (!who || !password) {
+      say("Your username and your password, both.");
+      return;
+    }
+    // Asked for before anything is sent, so a mistyped confirmation is not a
+    // sign-in attempt against the lockout.
+    if (confirm.toLowerCase() !== "delete") {
+      say('Type the word "delete" to confirm.');
+      return;
+    }
+
+    $("delete-go").disabled = true;
+    $("delete-go").textContent = "Deleting…";
+
+    if (ticket) {
+      // Past the password already: this submit is the code.
+      post("/api/login/step2", { ticket: ticket, code: $("step2-code").value.trim() })
+        .then(function (got) {
+          if (!got.ok) {
+            // The ticket is spent either way, so a wrong code starts over
+            // rather than being guessed at again on the same one.
+            ticket = null;
+            $("step2").hidden = true;
+            say(got.payload.error || "That code did not match.");
+            ready();
+            return;
+          }
+          return erase(password, confirm);
+        })
+        .catch(function () {
+          say("Could not reach it. Is the edit room still running?");
+          ready();
+        });
+      return;
+    }
+
+    post("/api/login", { username: who, password: password })
+      .then(function (result) {
+        if (!result.ok) {
+          say(result.payload.error || "That did not work.");
+          ready();
+          return;
+        }
+        if (result.payload && result.payload.needs === "code") {
+          ticket = result.payload.ticket;
+          $("step2").hidden = false;
+          $("step2-code").focus();
+          say("");
+          ready();
+          return;
+        }
+        return erase(password, confirm);
+      })
+      .catch(function () {
+        say("Could not reach it. Is the edit room still running?");
+        ready();
+      });
+  });
 })();
 
 ==============================================================================
@@ -76834,7 +77169,7 @@ real problem:
 | the three URLs actually answer | the most common metadata rejection there is |
 | the listing fits its fields | enforced after you have written past it |
 | the guideline 1.2 controls exist on both sides | the rejection this app is most exposed to |
-| the age gate, the restriction and its lock all exist | a 12+ rating the app does not hold to |
+| the age gate, the restriction and its lock all exist | a 13+ rating the app does not hold to |
 | the app's minimum age matches the declared rating | two places holding one number |
 
 `.github/workflows/appstore.yml` runs it on every push, and weekly, so a
@@ -76881,12 +77216,13 @@ four things by using the app. All four are there:
 Plus terms with no tolerance for objectionable content or abusive users, agreed
 to where the account is made.
 
-**The 12+ rating, and holding the app to it.** The age-rating questionnaire is
-answered "yes, includes user-generated content", which puts the app at 12+;
-answering "no" to keep 4+ is the most common rejection for apps of this shape.
-The app enforces what it declares:
+**The 13+ rating, and holding the app to it.** The age-rating questionnaire is
+answered "yes, includes user-generated content", which puts the app at 13+ —
+Apple retired the 12+ tier in 2025 and the bands are now 4+, 9+, 13+, 16+ and
+18+. Answering "no" to keep 4+ is the most common rejection for apps of this
+shape. The app enforces what it declares:
 
-* Sign-up asks for a **year of birth** and refuses anybody under 12. The field
+* Sign-up asks for a **year of birth** and refuses anybody under 13. The field
   says nothing about which answer gets you in.
 * An account for somebody **under 18 starts restricted** — films their author
   or the operator has marked sensitive are hidden, and so is anything reported
@@ -91361,7 +91697,7 @@ def test_a_restricted_account_cannot_fetch_a_film_the_feed_hides_from_it():
     somebody else's film marked sensitive got **200 and 4,108 bytes of it**.
     An id is not a secret: it travels in a share, a message, a link somebody
     sends. Both store listings say an account for somebody under 18 starts
-    with sensitive films hidden, and the 12+ rating rests on that sentence.
+    with sensitive films hidden, and the age rating rests on that sentence.
 
     `_may_see` is the same rule asked about one film rather than all of them,
     and this holds all three of its edges — because the easy over-correction
@@ -91843,6 +92179,101 @@ def test_the_published_site_claims_the_domain_the_listings_name(tmp_path):
     ):
         page = url.rsplit("/", 1)[-1]
         assert (out / page).is_file(), f"the {label} URL names {page}, which is not built"
+
+
+def test_a_link_to_the_published_site_unfurls_as_something_rather_than_nothing(tmp_path):
+    """A policy URL travels by being pasted, and a bare link is what it was.
+
+    These three pages exist to be sent: into App Store Connect, into a Play
+    console field, into an email to a reviewer, into a message. With no Open
+    Graph tags a link to any of them unfurled as a grey box with a hostname
+    in it, and with no `robots.txt` the site said nothing about whether it
+    wanted to be found — which for three documents whose whole purpose is
+    being findable is the wrong silence.
+
+    The three cards must also differ from each other. One sentence shared
+    between them is three links that look identical in a thread, which is a
+    smaller version of the same problem rather than a fix for it.
+    """
+    from auteur.identity import COMPANY, IDENTITY
+
+    root = Path(__file__).resolve().parent.parent
+    out = tmp_path / "pages"
+    done = subprocess.run(
+        [sys.executable, str(root / "tools" / "appstore" / "build_pages.py"), str(out)],
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
+    assert "Traceback" not in done.stderr, done.stderr[-2000:]
+
+    site = "https://" + COMPANY.documents_for(IDENTITY.slug)
+    said = {}
+    for page in ("index.html", "privacy.html", "terms.html"):
+        markup = (out / page).read_text(encoding="utf-8")
+        for tag in ("og:title", "og:description", "og:url", "og:image", "og:type"):
+            assert f'property="{tag}"' in markup, f"{page} has no {tag}"
+        assert 'name="twitter:card"' in markup, f"{page} has no twitter card"
+        assert '<meta name="description"' in markup, f"{page} has no description"
+
+        # Absolute, and on the host this site is actually served from. Open
+        # Graph has no relative URLs and the scraper is not on this machine.
+        where = markup.split('property="og:url" content="')[1].split('"')[0]
+        assert where.startswith(site), f"{page} names {where}, which is not this site"
+        picture = markup.split('property="og:image" content="')[1].split('"')[0]
+        assert picture.startswith(site), f"{page}'s card image is at {picture}"
+        assert (
+            out / picture.rsplit("/", 1)[-1]
+        ).is_file(), f"{page}'s card names an image the build does not publish"
+
+        said[page] = markup.split('property="og:description" content="')[1].split('"')[0]
+        assert said[page], f"{page}'s card says nothing"
+
+    assert len(set(said.values())) == 3, (
+        f"the three pages share a card description, so every link looks the "
+        f"same in a message: {said}"
+    )
+
+    # And the site says what it wants of a crawler rather than leaving it to
+    # be guessed at, naming a sitemap that lists pages the build produced.
+    robots = (out / "robots.txt").read_text(encoding="utf-8")
+    assert "User-agent:" in robots, "robots.txt does not address anybody"
+    assert "Disallow: /\n" not in robots, (
+        "the published documents are disallowed, so a privacy policy nobody "
+        "can look up — which is the same problem as one that does not resolve"
+    )
+    assert f"Sitemap: {site}/sitemap.xml" in robots, "the sitemap is left to be guessed at"
+
+    sitemap = (out / "sitemap.xml").read_text(encoding="utf-8")
+    for page in ("", "privacy.html", "terms.html"):
+        assert f"<loc>{site}/{page}</loc>" in sitemap, f"the sitemap omits {page or 'the root'}"
+
+
+def test_an_instance_asks_not_to_be_indexed(web_server):
+    """The documents are published at their own address; this is a machine.
+
+    Everything worth reading on an instance is behind the sign-in gate, which
+    answers a crawler with a redirect — so most of it is unindexable already,
+    by accident rather than on purpose. The public paths are not: the sign-in
+    screen, the two policy documents and the page that deletes an account. A
+    search result pointing at one of those is a search result pointing at
+    somebody's home network.
+
+    `login.html` has carried a noindex tag for a while. That said this about
+    exactly one page out of the handful that are reachable.
+    """
+    from urllib.request import urlopen
+
+    base, _, _ = web_server
+
+    with urlopen(base + "/robots.txt") as response:  # no cookie: a crawler has none
+        assert response.status == 200
+        assert "text/plain" in response.headers["Content-Type"]
+        said = response.read().decode()
+
+    lines = [line.strip() for line in said.splitlines() if not line.startswith("#")]
+    assert "User-agent: *" in lines, "it addresses nobody"
+    assert "Disallow: /" in lines, "an instance invites a crawler in"
 
 
 def test_every_store_url_names_a_page_the_site_actually_builds():
@@ -92493,7 +92924,7 @@ def test_every_control_guideline_1_2_asks_for_exists_on_both_sides():
 
 
 # ---------------------------------------------------------------------------
-# 12+, and holding the app to it
+# The age rating, and holding the app to it
 # ---------------------------------------------------------------------------
 
 
@@ -92555,8 +92986,10 @@ def test_the_code_that_lifts_a_restriction_is_stored_hashed(tmp_path):
 
 
 def test_signing_up_too_young_is_refused(web_server):
-    """The rating is 12+, and a rating the app does not hold itself to is a
-    claim rather than a fact."""
+    """A rating the app does not hold itself to is a claim rather than a fact.
+
+    The floor itself is `MINIMUM_AGE` and is read from there below, so this
+    test says what must be true rather than what the number happens to be."""
     import time
 
     from auteur.web import server as web
@@ -95848,6 +96281,7 @@ Two things it does that the in-app version does not:
 
 from __future__ import annotations
 
+import html
 import shutil
 import sys
 from pathlib import Path
@@ -95860,6 +96294,78 @@ from auteur.web import assets  # noqa: E402
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build" / "pages"
 STATIC = ROOT / "auteur" / "web" / "static"
+
+
+#: Where these pages answer from. The same derivation as the CNAME written
+#: below, because a social card that names a host the site is not served from
+#: is a card that fetches nothing and renders as a bare link.
+HOST = COMPANY.documents_for(IDENTITY.slug)
+SITE = f"https://{HOST}"
+
+#: The picture a link to this site unfurls with. The app's own icon: it is the
+#: only image this repository has that means the product, and it is already
+#: published beside these pages for the pages that reference it.
+CARD = "icon-512.png"
+
+
+def _card(title: str, description: str, page: str) -> str:
+    """The Open Graph and Twitter tags for one page.
+
+    Without these, a link to the privacy policy pasted into a message — which
+    is exactly how a policy URL travels, into App Store Connect, into a Play
+    console field, into an email to a reviewer — unfurls as a bare grey box
+    with the hostname in it. The pages already know their own title and their
+    own description; this is those two facts said again in the vocabulary the
+    unfurlers read, plus an absolute URL for each, because Open Graph has no
+    notion of a relative one and a scraper is not on this host.
+    """
+    where = f"{SITE}/{page}" if page != "index.html" else f"{SITE}/"
+    return "\n".join(
+        [
+            f'<meta name="description" content="{html.escape(description)}">',
+            f'<meta property="og:title" content="{html.escape(title)}">',
+            f'<meta property="og:description" content="{html.escape(description)}">',
+            '<meta property="og:type" content="website">',
+            f'<meta property="og:url" content="{where}">',
+            f'<meta property="og:site_name" content="{html.escape(IDENTITY.app_name)}">',
+            f'<meta property="og:image" content="{SITE}/{CARD}">',
+            '<meta name="twitter:card" content="summary">',
+            f'<meta name="twitter:title" content="{html.escape(title)}">',
+            f'<meta name="twitter:description" content="{html.escape(description)}">',
+            f'<meta name="twitter:image" content="{SITE}/{CARD}">',
+        ]
+    )
+
+
+def _titled(markup: str) -> str:
+    """The <title> of a built page, which is where its card's title comes from."""
+    start = markup.find("<title>")
+    if start == -1:
+        return IDENTITY.app_name
+    return html.unescape(markup[start + len("<title>") : markup.find("</title>", start)])
+
+
+#: What each page is, in one sentence, for the card a link to it unfurls with.
+#: Said here rather than read off the page: the two documents are generated
+#: from markdown and carry no description of their own, and giving all three
+#: the same fallback sentence makes three links that look identical in a
+#: message — which is the state this is meant to fix, not a smaller version
+#: of it.
+ABOUT = {
+    "index.html": (
+        f"{IDENTITY.app_name} — what it is, how to get help, and how to report "
+        "something. An editor that cuts a film out of what is already on your "
+        "phone."
+    ),
+    "privacy.html": (
+        f"What {IDENTITY.app_name} records, where it stays, and what leaves the "
+        "device. Written against the code that makes it true."
+    ),
+    "terms.html": (
+        f"The terms of use for {IDENTITY.app_name}, including no tolerance for "
+        "objectionable content or abusive behaviour."
+    ),
+}
 
 
 def _inline(markup: str, sheets: list[str]) -> str:
@@ -95891,7 +96397,6 @@ def _landing() -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<meta name="description" content="Auteur — support, privacy and terms.">
 <title>{IDENTITY.app_name} — support</title>
 <script>
 {(STATIC / "settings.js").read_text(encoding="utf-8")}
@@ -95955,9 +96460,53 @@ def main() -> int:
         page = (STATIC / name).read_text(encoding="utf-8")
         # The app's "back to the app" link goes nowhere on a public site.
         page = page.replace('<p class="prose-away"><a href="/">Back to the app</a></p>', "")
-        (OUT / name).write_text(_inline(page, sheets), encoding="utf-8")
+        page = _inline(page, sheets)
+        page = page.replace("</head>", _card(_titled(page), ABOUT[name], name) + "\n</head>")
+        (OUT / name).write_text(page, encoding="utf-8")
 
-    (OUT / "index.html").write_text(_landing(), encoding="utf-8")
+    landing = _landing()
+    landing = landing.replace(
+        "</head>", _card(_titled(landing), ABOUT["index.html"], "index.html") + "\n</head>"
+    )
+    (OUT / "index.html").write_text(landing, encoding="utf-8")
+
+    # The picture those cards point at. Copied rather than linked to the
+    # app's own copy: this site is served from a different host and a card
+    # image that 404s is worse than no card at all.
+    shutil.copyfile(STATIC / CARD, OUT / CARD)
+
+    # Say yes, on purpose. This site is three documents that exist to be
+    # found — a privacy policy nobody can look up is the same problem as one
+    # that does not resolve — so nothing here is disallowed, and the sitemap
+    # is named rather than left to be guessed at.
+    (OUT / "robots.txt").write_text(
+        "\n".join(
+            [
+                "# The privacy policy, the terms and a support page. All three",
+                "# are meant to be findable; none of them is the app, and the",
+                "# app is not on this host.",
+                "User-agent: *",
+                "Allow: /",
+                "",
+                f"Sitemap: {SITE}/sitemap.xml",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    pages = ["", "privacy.html", "terms.html"]
+    (OUT / "sitemap.xml").write_text(
+        "\n".join(
+            [
+                '<?xml version="1.0" encoding="UTF-8"?>',
+                '<urlset xmlns="http://www.sitemaps.org/' 'schemas/sitemap/0.9">',
+            ]
+            + [f"  <url><loc>{SITE}/{page}</loc></url>" for page in pages]
+            + ["</urlset>", ""]
+        ),
+        encoding="utf-8",
+    )
     # Jekyll would otherwise try to process this and drop anything it does not
     # recognise; the file is the documented way to tell Pages not to.
     (OUT / ".nojekyll").write_text("", encoding="utf-8")
@@ -99975,7 +100524,7 @@ print(OUT, len(page), "bytes")
 
 """Drive the age gate and the content restriction in a real browser.
 
-The App Store rating is 12+, and a reviewer checks a rating by using the app:
+The App Store rating is 13+, and a reviewer checks a rating by using the app:
 they will try to sign up, and they will look for whether the restriction is
 real and whether it can be turned off by the person it applies to. So this does
 both — signs up too young and is refused, signs up old enough, then watches a

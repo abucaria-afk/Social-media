@@ -2,7 +2,7 @@
 
 There were three answers to "what is Auteur" and they had drifted apart. The
 App Store listing had the current one — a film from your camera roll, the feed,
-the planning board, 12+, nothing leaves the device. `docs/index.html` still
+the planning board, an age rating, nothing leaves the device. `docs/index.html` still
 described the command-line tool it was eighteen months ago and shipped a
 palette thirteen colours out of date, under a comment claiming it was generated
 from `auteur/theme.py`. Google Play had no answer at all.
@@ -303,6 +303,11 @@ def description() -> str:
     # literal, an intended concatenation and a forgotten comma look exactly
     # the same — CodeQL flags the shape for that reason, and it is right to:
     # the reader cannot tell either. The brackets say which one it is.
+    # Imported here rather than at the top. `auteur.web` pulls in the server,
+    # which imports `auteur.ui`, which reaches this module — so at module
+    # level this is a cycle, and the age floor is not worth one.
+    from .web.auth import MINIMUM_AGE
+
     lines = [POSITIONING, "", "WHAT IT DOES", ""]
     lines += [f"• {feature.headline} — {feature.body}" for feature in FEATURES]
     lines += [
@@ -326,9 +331,9 @@ def description() -> str:
         ),
         "",
         (
-            f"{NAME} is for people 12 and over. An account for somebody under "
-            "18 starts with sensitive films hidden, and that can be locked "
-            "with a code."
+            f"{NAME} is for people {MINIMUM_AGE} and over. An account for "
+            "somebody under 18 starts with sensitive films hidden, and that "
+            "can be locked with a code."
         ),
     ]
     return "\n".join(lines)

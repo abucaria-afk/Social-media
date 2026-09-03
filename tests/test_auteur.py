@@ -13253,7 +13253,7 @@ def test_a_restricted_account_cannot_fetch_a_film_the_feed_hides_from_it():
     somebody else's film marked sensitive got **200 and 4,108 bytes of it**.
     An id is not a secret: it travels in a share, a message, a link somebody
     sends. Both store listings say an account for somebody under 18 starts
-    with sensitive films hidden, and the 12+ rating rests on that sentence.
+    with sensitive films hidden, and the age rating rests on that sentence.
 
     `_may_see` is the same rule asked about one film rather than all of them,
     and this holds all three of its edges — because the easy over-correction
@@ -13735,6 +13735,101 @@ def test_the_published_site_claims_the_domain_the_listings_name(tmp_path):
     ):
         page = url.rsplit("/", 1)[-1]
         assert (out / page).is_file(), f"the {label} URL names {page}, which is not built"
+
+
+def test_a_link_to_the_published_site_unfurls_as_something_rather_than_nothing(tmp_path):
+    """A policy URL travels by being pasted, and a bare link is what it was.
+
+    These three pages exist to be sent: into App Store Connect, into a Play
+    console field, into an email to a reviewer, into a message. With no Open
+    Graph tags a link to any of them unfurled as a grey box with a hostname
+    in it, and with no `robots.txt` the site said nothing about whether it
+    wanted to be found — which for three documents whose whole purpose is
+    being findable is the wrong silence.
+
+    The three cards must also differ from each other. One sentence shared
+    between them is three links that look identical in a thread, which is a
+    smaller version of the same problem rather than a fix for it.
+    """
+    from auteur.identity import COMPANY, IDENTITY
+
+    root = Path(__file__).resolve().parent.parent
+    out = tmp_path / "pages"
+    done = subprocess.run(
+        [sys.executable, str(root / "tools" / "appstore" / "build_pages.py"), str(out)],
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
+    assert "Traceback" not in done.stderr, done.stderr[-2000:]
+
+    site = "https://" + COMPANY.documents_for(IDENTITY.slug)
+    said = {}
+    for page in ("index.html", "privacy.html", "terms.html"):
+        markup = (out / page).read_text(encoding="utf-8")
+        for tag in ("og:title", "og:description", "og:url", "og:image", "og:type"):
+            assert f'property="{tag}"' in markup, f"{page} has no {tag}"
+        assert 'name="twitter:card"' in markup, f"{page} has no twitter card"
+        assert '<meta name="description"' in markup, f"{page} has no description"
+
+        # Absolute, and on the host this site is actually served from. Open
+        # Graph has no relative URLs and the scraper is not on this machine.
+        where = markup.split('property="og:url" content="')[1].split('"')[0]
+        assert where.startswith(site), f"{page} names {where}, which is not this site"
+        picture = markup.split('property="og:image" content="')[1].split('"')[0]
+        assert picture.startswith(site), f"{page}'s card image is at {picture}"
+        assert (
+            out / picture.rsplit("/", 1)[-1]
+        ).is_file(), f"{page}'s card names an image the build does not publish"
+
+        said[page] = markup.split('property="og:description" content="')[1].split('"')[0]
+        assert said[page], f"{page}'s card says nothing"
+
+    assert len(set(said.values())) == 3, (
+        f"the three pages share a card description, so every link looks the "
+        f"same in a message: {said}"
+    )
+
+    # And the site says what it wants of a crawler rather than leaving it to
+    # be guessed at, naming a sitemap that lists pages the build produced.
+    robots = (out / "robots.txt").read_text(encoding="utf-8")
+    assert "User-agent:" in robots, "robots.txt does not address anybody"
+    assert "Disallow: /\n" not in robots, (
+        "the published documents are disallowed, so a privacy policy nobody "
+        "can look up — which is the same problem as one that does not resolve"
+    )
+    assert f"Sitemap: {site}/sitemap.xml" in robots, "the sitemap is left to be guessed at"
+
+    sitemap = (out / "sitemap.xml").read_text(encoding="utf-8")
+    for page in ("", "privacy.html", "terms.html"):
+        assert f"<loc>{site}/{page}</loc>" in sitemap, f"the sitemap omits {page or 'the root'}"
+
+
+def test_an_instance_asks_not_to_be_indexed(web_server):
+    """The documents are published at their own address; this is a machine.
+
+    Everything worth reading on an instance is behind the sign-in gate, which
+    answers a crawler with a redirect — so most of it is unindexable already,
+    by accident rather than on purpose. The public paths are not: the sign-in
+    screen, the two policy documents and the page that deletes an account. A
+    search result pointing at one of those is a search result pointing at
+    somebody's home network.
+
+    `login.html` has carried a noindex tag for a while. That said this about
+    exactly one page out of the handful that are reachable.
+    """
+    from urllib.request import urlopen
+
+    base, _, _ = web_server
+
+    with urlopen(base + "/robots.txt") as response:  # no cookie: a crawler has none
+        assert response.status == 200
+        assert "text/plain" in response.headers["Content-Type"]
+        said = response.read().decode()
+
+    lines = [line.strip() for line in said.splitlines() if not line.startswith("#")]
+    assert "User-agent: *" in lines, "it addresses nobody"
+    assert "Disallow: /" in lines, "an instance invites a crawler in"
 
 
 def test_every_store_url_names_a_page_the_site_actually_builds():
@@ -14385,7 +14480,7 @@ def test_every_control_guideline_1_2_asks_for_exists_on_both_sides():
 
 
 # ---------------------------------------------------------------------------
-# 12+, and holding the app to it
+# The age rating, and holding the app to it
 # ---------------------------------------------------------------------------
 
 
@@ -14447,8 +14542,10 @@ def test_the_code_that_lifts_a_restriction_is_stored_hashed(tmp_path):
 
 
 def test_signing_up_too_young_is_refused(web_server):
-    """The rating is 12+, and a rating the app does not hold itself to is a
-    claim rather than a fact."""
+    """A rating the app does not hold itself to is a claim rather than a fact.
+
+    The floor itself is `MINIMUM_AGE` and is read from there below, so this
+    test says what must be true rather than what the number happens to be."""
     import time
 
     from auteur.web import server as web

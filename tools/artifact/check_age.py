@@ -1,6 +1,6 @@
 """Drive the age gate and the content restriction in a real browser.
 
-The App Store rating is 12+, and a reviewer checks a rating by using the app:
+The App Store rating is 13+, and a reviewer checks a rating by using the app:
 they will try to sign up, and they will look for whether the restriction is
 real and whether it can be turned off by the person it applies to. So this does
 both — signs up too young and is refused, signs up old enough, then watches a

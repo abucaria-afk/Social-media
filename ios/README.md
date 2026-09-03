@@ -69,7 +69,7 @@ real problem:
 | the three URLs actually answer | the most common metadata rejection there is |
 | the listing fits its fields | enforced after you have written past it |
 | the guideline 1.2 controls exist on both sides | the rejection this app is most exposed to |
-| the age gate, the restriction and its lock all exist | a 12+ rating the app does not hold to |
+| the age gate, the restriction and its lock all exist | a 13+ rating the app does not hold to |
 | the app's minimum age matches the declared rating | two places holding one number |
 
 `.github/workflows/appstore.yml` runs it on every push, and weekly, so a
@@ -116,12 +116,13 @@ four things by using the app. All four are there:
 Plus terms with no tolerance for objectionable content or abusive users, agreed
 to where the account is made.
 
-**The 12+ rating, and holding the app to it.** The age-rating questionnaire is
-answered "yes, includes user-generated content", which puts the app at 12+;
-answering "no" to keep 4+ is the most common rejection for apps of this shape.
-The app enforces what it declares:
+**The 13+ rating, and holding the app to it.** The age-rating questionnaire is
+answered "yes, includes user-generated content", which puts the app at 13+ —
+Apple retired the 12+ tier in 2025 and the bands are now 4+, 9+, 13+, 16+ and
+18+. Answering "no" to keep 4+ is the most common rejection for apps of this
+shape. The app enforces what it declares:
 
-* Sign-up asks for a **year of birth** and refuses anybody under 12. The field
+* Sign-up asks for a **year of birth** and refuses anybody under 13. The field
   says nothing about which answer gets you in.
 * An account for somebody **under 18 starts restricted** — films their author
   or the operator has marked sensitive are hidden, and so is anything reported
