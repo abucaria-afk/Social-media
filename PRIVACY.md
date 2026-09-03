@@ -139,6 +139,14 @@ conversation you are part of, your profile and picture, your planned posts and
 any reels you added — from the machine running the instance, immediately, with
 no copy kept and no undo.
 
+**And from outside it, at `/delete-account`.** The same deletion, on a page
+you can open without the app and without being signed in — because somebody
+who has already removed the app still has an account here, and telling them to
+reinstall it to get rid of one is not an answer. It asks for the password and
+the code, if two-step is on, then does exactly what the button in the app
+does. Whoever runs the instance can give you that address; on a public one it
+is the site address with `/delete-account` on the end.
+
 **Reporting and blocking.** Every film, message and person carries a report
 control, and reporting also offers to block. Blocking is immediate, needs
 nobody's permission, and works in both directions: neither person can see the

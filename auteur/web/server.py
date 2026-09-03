@@ -165,6 +165,15 @@ PUBLIC_PATHS = frozenset(
         "/privacy.html",
         "/terms",
         "/terms.html",
+        # Deleting an account from outside the app. Apple asks only that it be
+        # possible from inside (guideline 5.1.1(v)) and the profile screen does
+        # that; Google Play's data-deletion policy asks for a page anybody can
+        # open without the app, which a screen behind the sign-in gate cannot
+        # be. It still needs the password — it signs in and calls the same
+        # endpoint the profile's button calls — so being public here is a page
+        # anybody can read, not an account anybody can delete.
+        "/delete-account",
+        "/delete-account.html",
     }
 )
 
@@ -2294,6 +2303,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path in ("/privacy", "/privacy.html"):
             self._static(STATIC / "privacy.html", "text/html; charset=utf-8")
+            return
+        if path in ("/delete-account", "/delete-account.html"):
+            self._static(STATIC / "delete-account.html", "text/html; charset=utf-8")
             return
         if path in ("/login", "/login.html", "/reset"):
             self._static(STATIC / "login.html", "text/html; charset=utf-8")

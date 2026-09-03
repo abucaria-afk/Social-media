@@ -14145,6 +14145,86 @@ def test_deleting_an_account_takes_everything_with_it(web_server):
     assert _json  # the import is used by the helpers above
 
 
+def test_the_way_to_delete_an_account_is_reachable_without_one(web_server):
+    """Somebody who has removed the app still has an account on the instance.
+
+    Apple's guideline 5.1.1(v) is answered by the button in the profile — the
+    account can be deleted from inside the app. Google Play's data-deletion
+    policy asks for something a screen behind the sign-in gate cannot be: a
+    page anybody can open, without the app and without signing in, that says
+    what deleting removes and starts it. Telling that person to reinstall the
+    app to get rid of an account is not an answer.
+
+    What must hold is both halves at once. The page is public; the deletion
+    behind it is not, and being public must not have made a second way in.
+    """
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    base, _, _ = web_server
+
+    # No cookie anywhere in this test but the one earned below.
+    for path in ("/delete-account", "/delete-account.html"):
+        with urlopen(base + path) as response:
+            assert response.status == 200, f"{path} is not reachable signed out"
+            page = response.read().decode()
+        assert "text/html" in response.headers["Content-Type"], path
+        assert "delete-account.js" in page, f"{path} served something else"
+
+    # Findable, not merely reachable: a signed-out person has one screen, and
+    # an address nothing links to is an address nobody types.
+    with urlopen(base + "/login") as response:
+        assert (
+            '"/delete-account"' in response.read().decode()
+        ), "the sign-in page does not link to it, so nobody signed out can find it"
+
+    # And the deletion itself is exactly as closed as it was. The page is a
+    # door with the same lock, not a second door.
+    # The username goes in the body on purpose. Whose account this is comes
+    # from the session and only from the session, so a request that names an
+    # account and knows its password must still be refused for having no
+    # session — otherwise "public page" has quietly become "public deletion,
+    # given a password", which is a credential-stuffing target rather than a
+    # policy page.
+    naming = b'{"username": "tester", "who": "tester", '
+    naming += b'"password": "a-long-enough-one", "confirm": "delete"}'
+    for method in ("GET", "POST"):
+        request = Request(
+            base + "/api/profile/delete",
+            data=naming,
+            headers={"Content-Type": "application/json"},
+            method=method,
+        )
+        with pytest.raises(HTTPError) as raised:
+            urlopen(request)
+        assert raised.value.code in (
+            401,
+            404,
+        ), f"{method} /api/profile/delete answered {raised.value.code} with no session"
+
+    from auteur.web import server as web
+
+    web.Handler.accounts.refresh()
+    assert web.Handler.accounts.get("tester") is not None, "an unsigned request deleted an account"
+
+    # The journey the page actually walks: sign in from nothing, then call the
+    # one erasure the profile's own button calls. There is no second endpoint
+    # to test because the page does not have one.
+    request = Request(
+        base + "/api/login",
+        data=b'{"username": "tester", "password": "a-long-enough-one"}',
+        headers={"Content-Type": "application/json"},
+    )
+    with urlopen(request) as response:
+        earned = response.headers["Set-Cookie"].split(";")[0]
+    said = _api_post(
+        base, "/api/profile/delete", earned, {"password": "a-long-enough-one", "confirm": "delete"}
+    )
+    assert said["ok"] is True
+    web.Handler.accounts.refresh()
+    assert web.Handler.accounts.get("tester") is None, "the signed-out route did not delete"
+
+
 # -- reporting and blocking -------------------------------------------------
 
 

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#131110" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef4fb" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="Delete your Atlas account and everything it made.">
+<link rel="icon" href="/icon-192.png">
+<!-- Before the stylesheet, before anything paints: appearance and the three
+     accessibility settings, applied from one file rather than copied into
+     every head. -->
+<script src="/static/settings.js"></script>
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<title>Delete your account — Atlas</title>
+</head>
+<body>
+
+<main id="app" class="narrow">
+
+  <header class="masthead">
+    <h1>Delete your account</h1>
+    <p class="sub">Everything, and there is no undo.</p>
+  </header>
+
+  <!-- Why this page exists at a URL rather than only behind the sign-in
+       screen. Apple's guideline 5.1.1(v) is satisfied by the button in the
+       profile: the account is deletable from inside the app. Google Play's
+       data-deletion policy asks for something the profile screen cannot be —
+       a page anybody can open, without the app and without an account, that
+       says what deleting removes and starts it. That is this, and it is the
+       same deletion: signing in here hands you to the same endpoint the
+       profile's own button calls, so there is one erasure in the codebase
+       and one test that it leaves nothing behind. -->
+  <section class="screen" id="screen-what">
+    <div class="card block">
+      <span class="card-title">What goes</span>
+      <p class="card-hint">
+        Your account and, with it: every film you made and the video files
+        themselves, your production notes and projects, your profile and
+        picture, every message you sent or received, the plans on your
+        schedule, the reels you saved as templates, and any account you
+        connected for reading how a post did — the token with it.
+      </p>
+      <p class="card-hint">
+        This cannot be undone and nothing is kept in a bin for a fortnight.
+        If you want the films, download them before you do this.
+      </p>
+    </div>
+
+    <!-- What is honestly not erased, said here rather than discovered. -->
+    <div class="card block">
+      <span class="card-title">What stays</span>
+      <p class="card-hint">
+        How many seconds each film was watched for in total. Those numbers
+        name nobody, and they belong to films made by people who are still
+        here — unpicking your seconds from them would rewrite somebody
+        else's history without making you any more private.
+      </p>
+    </div>
+
+    <p class="fineprint">
+      Deleting needs your password, because a phone in somebody else's hand
+      is not you. If two-step is on, it asks for the code as well.
+    </p>
+
+    <!-- The form is on this screen rather than behind a Start button, and
+         that is the whole design of the page. Sending you to a second screen
+         to type the password would leave the red button alone with a name
+         field: everything it is about to take would be one screen back,
+         where nobody re-reads it. What goes stays above what does it. -->
+    <form id="delete-form" novalidate>
+      <div class="card block">
+        <span class="card-title">Prove it is your account</span>
+        <label class="card-title spaced" for="who">Username or email</label>
+        <input type="text" id="who" name="username" autocomplete="username"
+               autocapitalize="none" autocorrect="off" spellcheck="false"
+               enterkeyhint="next" required>
+
+        <label class="card-title spaced" for="password">Password</label>
+        <div class="reveal">
+          <input type="password" id="password" name="password"
+                 autocomplete="current-password" enterkeyhint="next" required>
+          <button type="button" class="reveal-go" id="show-password"
+                  aria-label="Show password">Show</button>
+        </div>
+      </div>
+
+      <!-- Only when the password was right and a second step is owed. -->
+      <div class="card" id="step2" hidden>
+        <span class="card-body">
+          <label class="card-title" for="step2-code">The code from your authenticator</label>
+          <input type="text" id="step2-code" name="one-time-code"
+                 inputmode="numeric" autocomplete="one-time-code"
+                 pattern="[0-9A-Za-z]*" maxlength="14" enterkeyhint="go"
+                 autocapitalize="characters" autocorrect="off" spellcheck="false">
+          <span class="card-hint">
+            Six digits, or one of your recovery codes.
+          </span>
+        </span>
+      </div>
+
+      <!-- Typed out in full, so a tap and a mis-tap are different things.
+           The server asks for this too; it is not the page being careful on
+           its own. -->
+      <div class="card block">
+        <label class="card-title" for="confirm">Type <strong>delete</strong> to confirm</label>
+        <input type="text" id="confirm" name="confirm" autocomplete="off"
+               autocapitalize="none" autocorrect="off" spellcheck="false"
+               enterkeyhint="go" placeholder="delete" required>
+      </div>
+
+      <p class="error" id="delete-error" role="alert" hidden></p>
+      <button type="submit" class="go danger-go" id="delete-go">Delete my account</button>
+      <button type="button" class="ghost" id="delete-back">Keep my account</button>
+    </form>
+  </section>
+
+  <section class="screen" id="screen-done" hidden>
+    <div class="card block">
+      <span class="card-title">It is gone</span>
+      <p class="card-hint" id="done-said">
+        The account and everything in it has been removed from this machine.
+      </p>
+    </div>
+    <a class="ghost" href="/login">Done</a>
+  </section>
+
+</main>
+
+<script src="/static/trouble.js"></script>
+<script src="/static/delete-account.js"></script>
+</body>
+</html>
