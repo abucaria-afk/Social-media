@@ -19,7 +19,7 @@ dependencies = [
 # builds sometimes ship without libx264, xfade or loudnorm.
 ffmpeg = ["ffmpeg-binaries>=1.1.0"]
 # Lets Claude direct the edit. Without it the algorithmic director is used.
-llm = ["anthropic>=1.1.0"]
+llm = ["anthropic>=1.3.0"]
 # The Scholar's only way to reach YouTube. Metadata and captions only — it never
 # downloads video. Without it the Scholar says it cannot study rather than
 # quietly reporting that it studied nothing.
