@@ -14071,6 +14071,45 @@ def test_the_screenshot_sizes_are_the_ones_the_form_accepts():
         assert wanted in preflight.IPHONE_SIZES | preflight.IPAD_SIZES
 
 
+def test_the_screenshot_harness_does_not_insist_on_one_container_s_browser():
+    """The path a browser sits at here is a hint, not a requirement.
+
+    `CHROME` names where chromium is already unpacked in the container this
+    repository is usually driven from. A CI runner installs its own with
+    `playwright install` and puts it somewhere else, so a hard
+    `executable_path` meant the screenshots could only ever be made in one
+    place — which is why the App Store preflight never had any to check.
+    """
+    module = _tool("screenshots")
+
+    assert module._chrome() == (module.CHROME if Path(module.CHROME).exists() else None)
+
+    # Nowhere: Playwright is asked to find its own rather than handed a path
+    # that is not there.
+    was, module.CHROME = module.CHROME, "/nowhere/chromium"
+    try:
+        assert module._chrome() is None
+    finally:
+        module.CHROME = was
+
+
+def test_the_app_store_workflow_makes_the_screenshots_it_then_checks():
+    """Otherwise the preflight's screenshot check is red on every run.
+
+    `build/appstore/screenshots` is gitignored, so a checkout has none. The
+    workflow reported "no screenshots" on every run it had ever made, and a
+    line that is always red is a line nobody reads.
+    """
+    root = Path(__file__).resolve().parents[1]
+    flow = (root / ".github" / "workflows" / "appstore.yml").read_text(encoding="utf-8")
+
+    assert "tools/appstore/screenshots.py" in flow
+    assert "playwright install" in flow
+
+    # And before the thing that looks at what it wrote, not after.
+    assert flow.index("tools/appstore/screenshots.py") < flow.index("tools/appstore/preflight.py")
+
+
 def test_the_terms_say_the_thing_the_app_store_requires_them_to():
     """Guideline 1.2 asks for terms with no tolerance for objectionable content
     or abusive users, agreed to when an account is made."""

@@ -43,7 +43,18 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build" / "appstore" / "screenshots"
+#: Where a browser is already unpacked in the container this repository is
+#: usually driven from. Not a requirement: a CI runner installs its own with
+#: `playwright install chromium` and keeps it somewhere else entirely, so this
+#: is a hint and `_chrome()` below falls back to whatever Playwright knows
+#: about rather than failing with a path nobody outside that container has.
 CHROME = "/opt/pw-browsers/chromium"
+
+
+def _chrome() -> str | None:
+    """The chromium to drive, or None to let Playwright choose its own."""
+    return CHROME if Path(CHROME).exists() else None
+
 
 WHO, WORD = "you", "a-long-enough-password"
 THEM, THEIR_WORD = "grace", "another-long-password"
@@ -320,7 +331,7 @@ def main() -> int:
     bad: list[str] = []
 
     with sync_playwright() as play:
-        browser = play.chromium.launch(executable_path=CHROME)
+        browser = play.chromium.launch(executable_path=_chrome())
         for name, width, height, ratio, wanted in DEVICES:
             folder = OUT / name
             folder.mkdir(parents=True, exist_ok=True)
