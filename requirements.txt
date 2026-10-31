@@ -19,4 +19,4 @@ cryptography>=50.0.1
 anthropic>=1.4.0
 
 # Tests
-pytest>=9.1.1
+pytest>=9.2.0
