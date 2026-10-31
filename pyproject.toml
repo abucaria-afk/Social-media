@@ -29,7 +29,7 @@ scholar = ["yt-dlp>=2026.8.19"]
 # that cannot offer it has an App Store guideline 4.8 problem; here it is an
 # extra, because making a film locally never touches it.
 signin = ["cryptography>=50.0.1"]
-dev = ["pytest>=9.1.1"]
+dev = ["pytest>=9.2.0"]
 
 [project.scripts]
 auteur = "auteur.cli:main"
